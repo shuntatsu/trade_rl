@@ -28,7 +28,7 @@
       "kind": "function",
       "source_sha256": "e8dd736986f9de98e10cd1be3c67257fcdcdf9d4900579c153e608d6fac96f06",
       "label_ja": "単銘柄リプレイを実行",
-      "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と評価系列を更新する統括処理です。",
+      "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と区間収益を更新する統括処理です。",
       "variables": [
         {
           "name": "desired_quantity",
@@ -71,7 +71,7 @@
       "kind": "function",
       "source_sha256": "0991c965bb18021ac13ab24ac63b05c79ee4399cbde6579c8641e589132aad21",
       "label_ja": "その時点の観測を組み立てる",
-      "description_ja": "現在のfeatureに、保有数量・現金・評価額などのportfolio文脈を連結し、戦略が読む観測ベクトルを作ります。",
+      "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図と現在ウェイトを加えてStrategyObservationを作ります。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"
@@ -83,7 +83,7 @@
       "kind": "method",
       "source_sha256": "673e49bff55fda729a2c187fa25a440982c04858d8124d9c3bee0a2142dd5a30",
       "label_ja": "ハードリスクを適用",
-      "description_ja": "提案ウェイトへgross exposure、short可否、participation等の制約を順に適用し、実行可能な目標へ射影します。",
+      "description_ja": "提案ウェイトへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用し、実行可能な目標へ射影します。",
       "variables": [],
       "tests": [
         "tests/risk/test_pretrade.py"
@@ -95,7 +95,7 @@
       "kind": "method",
       "source_sha256": "2017109526a8fbbeb5710366c214b9b6cad98395f3d156574ecf38e0512cda27",
       "label_ja": "次の区間を約定・会計処理",
-      "description_ja": "リスク制約済みの目標を実際の注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
+      "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],
       "tests": [
         "tests/simulation/test_execution_v2.py"
@@ -118,7 +118,7 @@
     {
       "title": "約定後は共通の帳簿へ戻す",
       "body": [
-        "MarketExecutorが返すBookStateを次のバーへ引き継ぎ、同じ会計状態から次の観測と収益系列を作ります。戦略ごとに別の会計を持たせないことが比較の前提です。"
+        "MarketExecutorが返すBookStateを次のバーへ引き継ぎ、同じ会計状態から次の観測と区間収益を作ります。戦略ごとに別の会計を持たせないことが比較の前提です。"
       ]
     }
   ],
@@ -165,8 +165,8 @@
         "label_ja": "その時点の観測を組み立てる",
         "code_ref": "replay-observation",
         "state_changes_ja": [
-          "現在バーのfeatureへ、保有数量・現金・評価額を連結する",
-          "未来のバーは観測に入れない"
+          "現在バーのfeature・availability・staleness・global feature情報を取得する",
+          "現在の売買意図と現在ウェイトを加える"
         ]
       },
       {
@@ -175,7 +175,7 @@
         "to": "strategy",
         "label_ja": "現在の観測で戦略判断を取得",
         "state_changes_ja": [
-          "strategy.decideへ現在時点の観測だけを渡す"
+          "strategy.decideへ現在時点のStrategyObservationを渡す"
         ]
       },
       {
@@ -185,8 +185,9 @@
         "label_ja": "ポジション意図を希望保有数量へ変換",
         "code_ref": "replay-run",
         "state_changes_ja": [
-          "論理的なintentを次の実行区間で必要な数量へ換算する",
-          "現在の帳簿と価格を使って提案ウェイトを計算する"
+          "intent変更時にgross_budgetから目標ウェイトを計算する",
+          "現在の帳簿と価格を使って希望保有数量へ換算する",
+          "希望数量を現在の資産額で提案ウェイトへ再表現する"
         ]
       },
       {
@@ -196,8 +197,8 @@
         "label_ja": "ハードリスクで目標を制約",
         "code_ref": "risk-constrain",
         "state_changes_ja": [
-          "提案ウェイトをhard limit内へ射影する",
-          "制約で変わった場合は希望保有数量を再計算する"
+          "turnover・単一ウェイト・gross・drawdown等の制約を適用する",
+          "max_turnover以外の制約で変わった場合は希望保有数量を再計算する"
         ]
       },
       {
@@ -207,8 +208,8 @@
         "label_ja": "制約済み目標を約定シミュレータへ渡す",
         "code_ref": "execute-interval",
         "state_changes_ja": [
-          "注文・流動性・コスト・資金調達・borrow・marginの規則を適用する",
-          "区間収益と新しいBookStateを返す"
+          "次の1バーを共通の約定・会計規則で処理する",
+          "区間net returnと新しいBookStateを返す"
         ]
       },
       {
@@ -219,7 +220,7 @@
         "code_ref": "replay-run",
         "state_changes_ja": [
           "bookをexecution.bookへ更新する",
-          "filled quantityに応じて現在のポジション意図を更新する"
+          "current_intentを今回の戦略intentへ更新する"
         ]
       },
       {
@@ -229,8 +230,9 @@
         "label_ja": "次に処理するバーへ進む",
         "code_ref": "replay-run",
         "state_changes_ja": [
-          "next_indexを使って処理位置を進める",
-          "区間return・cost・turnover等の系列を蓄積する"
+          "execution.next_indexで処理位置を進める",
+          "execution.interval_net_returnをreturn系列へ追加する",
+          "帳簿内の累積cost・turnover等はそのまま次バーへ引き継ぐ"
         ]
       },
       {
@@ -240,8 +242,8 @@
         "label_ja": "診断値とリプレイ結果を確定",
         "code_ref": "replay-run",
         "state_changes_ja": [
-          "ExecutionDiagnosticsを集計する",
-          "共通accountingの結果をSingleSymbolReplayResultとして返す"
+          "BookStateの累積値からExecutionDiagnosticsを作る",
+          "ReturnSeriesとdecisionsをSingleSymbolReplayResultへまとめる"
         ]
       }
     ]

@@ -1,0 +1,60 @@
+name: Issue 529 Experiment 0003 import contract fix v2
+
+on:
+  push:
+    branches:
+      - tmp/issue529-exp0003-prereg
+    paths:
+      - .github/workflows/issue529-exp003-import-fix-v2.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: tmp/issue529-exp0003-prereg
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+
+      - name: Install test environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Repair exact import and prove unit GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('research/issue529_portable_exp003.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''from research.issue519_portable_exp002_execute import (\n    EXPECTED_CANDIDATE_FINGERPRINT as EXPECTED_EXP002_CANDIDATE_FINGERPRINT,\n)\n'''
+          new = '''from research.issue519_portable_exp002_recovery import (\n    EXPECTED_CANDIDATE_FINGERPRINT as EXPECTED_EXP002_CANDIDATE_FINGERPRINT,\n)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('current candidate-fingerprint import block not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          uv run ruff check --fix research/issue529_portable_exp003.py research/test_issue529_portable_exp003.py
+          uv run python -m py_compile research/issue529_portable_exp003.py research/test_issue529_portable_exp003.py
+          uv run pytest -q research/test_issue529_portable_exp003.py
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "research/issue529_portable_exp003.py" || { echo "unexpected changed files: $changed"; exit 1; }
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add research/issue529_portable_exp003.py
+          git commit -m "fix: bind Experiment 0003 to recovered Exp2 candidate identity"
+          git push origin HEAD:${TARGET_BRANCH}

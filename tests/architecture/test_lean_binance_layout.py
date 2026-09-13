@@ -131,6 +131,19 @@ def test_binance_book_depth_is_provider_evidence_not_dataset_assembly() -> None:
     assert not any(name.startswith(forbidden) for name in imports)
 
 
+def test_binance_book_depth_boundary_is_documented_as_non_pnl_evidence() -> None:
+    text = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Provider evidence boundary" in text
+    assert "integrations/binance/book_depth.py" in text
+    assert "top-of-book" in text
+    assert "MarketDataset" in text
+    assert "P&Lのauthorityにはしない" in text
+    assert "reference valueの`available_at`" in text
+    assert "既存canonical Studyやfrozen Experiment evidenceを書き換えない" in text
+
+
 def test_binance_cache_does_not_import_concrete_transport_or_dataset() -> None:
     imports = _imports(BINANCE / "cache.py")
     forbidden = (

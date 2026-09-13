@@ -30,7 +30,6 @@ from research.issue522_portable_exp003 import (
     _strategy_entry,
 )
 from research.issue522_portable_exp003_prereg import (
-    EXPERIMENT_SEQUENCE,
     FROZEN_BASELINE_TREND_MEDIAN_TURNOVER,
     ISSUE_NUMBER,
     validate_prereg_index_payload,

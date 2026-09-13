@@ -360,9 +360,10 @@ def validate_book_depth_reference_alignment(
     series: BinanceBookDepthSeries,
     reference_prices: np.ndarray,
     *,
+    reference_available_at: np.ndarray,
     max_relative_deviation_rate: float,
 ) -> None:
-    """Fail when bookDepth implied prices disagree with an explicit causal reference."""
+    """Fail when bookDepth implied prices disagree with a causal reference."""
 
     if (
         not math.isfinite(max_relative_deviation_rate)
@@ -377,6 +378,22 @@ def validate_book_depth_reference_alignment(
         )
     if not np.all(np.isfinite(references)) or np.any(references <= 0.0):
         raise ValueError("reference_prices must be finite and positive")
+
+    reference_times = np.asarray(
+        reference_available_at,
+        dtype="datetime64[ns]",
+    ).reshape(-1)
+    if reference_times.shape != series.timestamps.shape:
+        raise ValueError(
+            "reference_available_at must contain one value per bookDepth snapshot"
+        )
+    if np.any(np.isnat(reference_times)):
+        raise ValueError("reference_available_at must not contain NaT")
+    if np.any(reference_times > series.available_at):
+        raise BinanceTransportError(
+            "bookDepth reference availability is in the future relative to the "
+            f"liquidity snapshot: source={series.source_uri}"
+        )
 
     for index, reference in enumerate(references):
         implied = series.implied_average_price[index]

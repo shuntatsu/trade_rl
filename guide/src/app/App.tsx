@@ -23,11 +23,10 @@ export function App() {
   const [route, navigate] = useHashRoute(TOPIC_IDS, guideManifest.home);
   const { theme, resolvedTheme, setTheme } = useTheme();
   const topic = TOPICS.find((item) => item.id === route.topicId) ?? TOPICS[0];
-  if (!topic) return null;
-
   const nextTopic = nextReadingTopic(route);
 
   useEffect(() => {
+    if (!topic) return;
     if (!route.heading) {
       window.scrollTo({ top: 0 });
       return;
@@ -36,7 +35,9 @@ export function App() {
       document.getElementById(route.heading ?? "")?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [route.heading, topic.id]);
+  }, [route.heading, topic?.id]);
+
+  if (!topic) return null;
 
   return (
     <AppShell

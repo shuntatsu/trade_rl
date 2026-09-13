@@ -127,7 +127,9 @@ def _publish_once(
             handle.flush()
             os.fsync(handle.fileno())
         if target.exists() or target.is_symlink():
-            raise InvalidExperimentStateError("authorization output root already exists")
+            raise InvalidExperimentStateError(
+                "authorization output root already exists"
+            )
         staging.rename(target)
     finally:
         if staging.exists() or staging.is_symlink():

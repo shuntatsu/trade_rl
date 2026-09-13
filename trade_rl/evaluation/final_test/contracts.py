@@ -125,9 +125,7 @@ class FinalEvaluationAuthorization:
             self.final_evaluation_stop_exclusive,
             field="final_evaluation_stop_exclusive",
         )
-        if np.datetime64(final_start, "ns") < np.datetime64(
-            development_stop, "ns"
-        ):
+        if np.datetime64(final_start, "ns") < np.datetime64(development_stop, "ns"):
             raise ContractViolationError(
                 "final evaluation start must not precede development evaluation stop"
             )
@@ -177,7 +175,9 @@ class FinalEvaluationAuthorization:
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> FinalEvaluationAuthorization:
         if set(payload) != cls._PAYLOAD_KEYS:
-            raise ContractViolationError("final authorization payload keys are malformed")
+            raise ContractViolationError(
+                "final authorization payload keys are malformed"
+            )
         return cls(
             study_digest=_sha256(payload["study_digest"], field="study_digest"),
             study_freeze_digest=_sha256(

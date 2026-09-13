@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import stat
 import zipfile
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -148,13 +149,23 @@ def test_agg_trades_parser_accepts_exact_header_or_headerless_identically() -> N
     assert with_header.raw_payload_size_bytes == len(with_header_payload)
 
 
-def test_agg_trades_parser_rejects_unsupported_header() -> None:
-    rows = [
+def test_agg_trades_parser_rejects_unsupported_or_nonexact_header() -> None:
+    unsupported = [
         "id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker",
         *_rows(),
     ]
     with pytest.raises(BinanceTransportError, match="header"):
-        parse_vision_agg_trades_archive(_zip_csv(rows), source="fixture")
+        parse_vision_agg_trades_archive(_zip_csv(unsupported), source="fixture")
+
+    whitespace_changed = [
+        " agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker",
+        *_rows(),
+    ]
+    with pytest.raises(BinanceTransportError, match="header"):
+        parse_vision_agg_trades_archive(
+            _zip_csv(whitespace_changed),
+            source="fixture",
+        )
 
 
 @pytest.mark.parametrize(
@@ -169,10 +180,17 @@ def test_agg_trades_parser_rejects_unsupported_header() -> None:
         (["100,1,1,201,200,1609459200000,true"], "first.*last"),
         (["100,1,1,200,200,-1,true"], "timestamp.*non-negative"),
         (["100,1,1,200,200,1609459200000,1"], "buyer.*maker|boolean"),
+        (["100,1,1,200,200,1609459200000,TRUE"], "buyer.*maker|boolean"),
     ],
 )
 def test_agg_trades_parser_rejects_invalid_rows(rows: list[str], match: str) -> None:
     with pytest.raises(BinanceTransportError, match=match):
+        parse_vision_agg_trades_archive(_payload(rows=rows), source="fixture")
+
+
+def test_agg_trades_parser_rejects_int64_overflow() -> None:
+    rows = ["9223372036854775808,1,1,200,200,1609459200000,true"]
+    with pytest.raises(BinanceTransportError, match="aggregate.*int64|range"):
         parse_vision_agg_trades_archive(_payload(rows=rows), source="fixture")
 
 
@@ -201,6 +219,18 @@ def test_agg_trades_parser_rejects_multiple_archive_members() -> None:
         archive.writestr("b.csv", "\n".join(_rows()) + "\n")
 
     with pytest.raises(BinanceTransportError, match="exactly one"):
+        parse_vision_agg_trades_archive(buffer.getvalue(), source="fixture")
+
+
+def test_agg_trades_parser_rejects_symlink_archive_member() -> None:
+    buffer = io.BytesIO()
+    info = zipfile.ZipInfo("BTCUSDT-aggTrades-2021-01-01.csv")
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(info, "\n".join(_rows()) + "\n")
+
+    with pytest.raises(BinanceTransportError, match="regular"):
         parse_vision_agg_trades_archive(buffer.getvalue(), source="fixture")
 
 

@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 FINAL_TEST_ROOT = ROOT / "trade_rl" / "evaluation" / "final_test"
 FORBIDDEN_IMPORT_PREFIXES = (

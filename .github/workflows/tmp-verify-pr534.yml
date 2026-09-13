@@ -1,0 +1,195 @@
+name: Temporary exact-head verification for PR 534
+
+on:
+  push:
+    branches:
+      - tmp/verify-pr534-dd51
+    paths:
+      - .github/workflows/tmp-verify-pr534.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Lean Core exact PR head
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dd51da97845f4d8fe69c34b1c4e4859358911daf
+          persist-credentials: false
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "dd51da97845f4d8fe69c34b1c4e4859358911daf"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+
+      - name: Core tests
+        run: uv run pytest -q tests
+
+      - name: Build
+        run: uv build
+
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+      - name: Frozen real aggTrades oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://data.binance.vision/data/futures/um/daily/aggTrades/XRPUSDT/XRPUSDT-aggTrades-2022-07-01.zip"
+          curl --fail --location --retry 3 --output /tmp/xrp-aggtrades.zip "$url"
+          curl --fail --location --retry 3 --output /tmp/xrp-aggtrades.zip.CHECKSUM "$url.CHECKSUM"
+          expected="$(awk '{print $1}' /tmp/xrp-aggtrades.zip.CHECKSUM | tr '[:upper:]' '[:lower:]')"
+          actual="$(sha256sum /tmp/xrp-aggtrades.zip | awk '{print $1}')"
+          test "$expected" = "$actual"
+          test "$actual" = "3558c91d3542177161630d847b55d6a4f6b560fff07f16afa68822caa48467e1"
+          uv run python - <<'PY'
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.integrations.binance import parse_vision_agg_trades_archive
+          payload = Path('/tmp/xrp-aggtrades.zip').read_bytes()
+          series = parse_vision_agg_trades_archive(
+              payload,
+              source='https://data.binance.vision/data/futures/um/daily/aggTrades/XRPUSDT/XRPUSDT-aggTrades-2022-07-01.zip',
+          )
+          assert series.aggregate_trade_ids.size == 128_458
+          assert series.header_present is False
+          assert series.raw_payload_sha256 == '3558c91d3542177161630d847b55d6a4f6b560fff07f16afa68822caa48467e1'
+          assert series.raw_payload_size_bytes == 1_992_804
+          assert not np.any(np.isnat(series.timestamps))
+          assert np.all(series.aggregate_trade_ids[1:] > series.aggregate_trade_ids[:-1])
+          assert np.all(series.timestamps[1:] >= series.timestamps[:-1])
+          assert str(series.timestamps[0])[:10] == '2022-07-01'
+          assert str(series.timestamps[-1])[:10] == '2022-07-01'
+          PY
+
+  guide:
+    name: Human Guide exact PR head
+    runs-on: ubuntu-latest
+    env:
+      GUIDE_SOURCE_REV: dd51da97845f4d8fe69c34b1c4e4859358911daf
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dd51da97845f4d8fe69c34b1c4e4859358911daf
+          persist-credentials: false
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "dd51da97845f4d8fe69c34b1c4e4859358911daf"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+
+      - name: Upload Guide browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: human-guide-browser-pr534-${{ github.run_id }}
+          path: |
+            guide/test-results/
+            guide/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14

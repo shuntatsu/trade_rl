@@ -34,7 +34,12 @@ def _market(
     high = np.maximum(open_price, close) + 10.0
     low = np.minimum(open_price, close) - 10.0
     volume = np.array(
-        [[previous_volume], [processing_volume], [processing_volume], [processing_volume]],
+        [
+            [previous_volume],
+            [processing_volume],
+            [processing_volume],
+            [processing_volume],
+        ],
         dtype=np.float64,
     )
     return MarketDataset(
@@ -142,7 +147,9 @@ def test_causal_capacity_pool_ignores_processing_bar_volume_and_price() -> None:
     assert baseline.filled_notional == pytest.approx(100.0)
     assert changed_processing_bar.filled_notional == pytest.approx(100.0)
     assert changed_processing_bar.book.quantities[0] == pytest.approx(0.5)
-    assert changed_processing_bar.capacity_evidence[0].processing_volume == pytest.approx(
+    assert changed_processing_bar.capacity_evidence[
+        0
+    ].processing_volume == pytest.approx(
         baseline.capacity_evidence[0].processing_volume
     )
     assert changed_processing_bar.capacity_evidence[0].market_notional == pytest.approx(

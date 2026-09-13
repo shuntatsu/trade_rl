@@ -13,7 +13,8 @@ permissions:
 
 env:
   FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
-  RECOVERY_HELPER_BLOB: df5718c2494efbe175e54678176b2906057acac6
+  RECOVERY_HELPER_BLOB: 48904514b29aefcb6b9e2b2beeeec804705dbf77
+  POSTVERIFY_BLOB: 7f8713ba2e73b32cc480a91d728bb0d079a1bf17
   FAILURE_RUN_ID: "34707652616"
   FAILURE_RUN_HEAD: 52e9c573fbee9ca24eac031f7dad5c6646ca76d8
   FAILURE_ARTIFACT: canonical-m2-portable-exp001-execution-failure-34707652616
@@ -34,11 +35,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prove frozen production subtree and recovery helper binding
+      - name: Prove frozen production subtree and verifier bindings
         shell: bash
         run: |
           set -euo pipefail
           test "$(git hash-object research/issue511_portable_exp001_recovery.py)" = "$RECOVERY_HELPER_BLOB"
+          test "$(git hash-object research/issue511_portable_exp001_postverify.py)" = "$POSTVERIFY_BLOB"
           git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
           test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
 
@@ -78,13 +80,16 @@ jobs:
       - name: Install exact research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Compile lint and test recovery helper
+      - name: Compile lint and test recovery verifier set
         shell: bash
         run: |
           set -euo pipefail
-          uv run python -m py_compile research/issue511_portable_exp001_recovery.py
+          uv run python -m py_compile \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py
           uv run ruff check \
             research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py \
             research/test_issue511_portable_exp001_recovery.py
           uv run pytest -q research/test_issue511_portable_exp001_recovery.py
 

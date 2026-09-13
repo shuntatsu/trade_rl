@@ -70,9 +70,9 @@ describe("interactive guide workflow", () => {
       }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^Execution/ }));
+    await user.click(screen.getByRole("button", { name: /^約定・会計/ }));
     expect(
-      screen.getByRole("heading", { level: 3, name: "Execution" }),
+      screen.getByRole("heading", { level: 3, name: "約定・会計" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/MarketExecutor \+ BookState/)).toBeInTheDocument();
   });
@@ -84,11 +84,11 @@ describe("interactive guide workflow", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     const input = await screen.findByRole("textbox", { name: "ガイドを検索" });
     await user.type(input, "手数料");
-    await user.click(screen.getByRole("button", { name: /実行コスト/ }));
+    await user.click(screen.getByRole("button", { name: /約定コストと会計/ }));
 
     expect(window.location.hash).toBe("#execution-economics");
     expect(
-      await screen.findByRole("heading", { level: 1, name: "実行コスト" }),
+      await screen.findByRole("heading", { level: 1, name: "約定コストと会計" }),
     ).toBeInTheDocument();
   });
 
@@ -142,7 +142,10 @@ describe("interactive guide workflow", () => {
     render(<App />);
 
     expect(
-      screen.getByRole("heading", { level: 1, name: "コード地図：どこが何を所有するか" }),
+      screen.getByRole("heading", {
+        level: 1,
+        name: "コード地図：どこが何を所有するか",
+      }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ハードリスク/ })).toHaveAttribute(
       "aria-current",

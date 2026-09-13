@@ -54,7 +54,7 @@ describe("guide search", () => {
   it("matches titles, summaries, keywords, and section copy", () => {
     const topics = loadTopics();
 
-    expect(searchTopics(topics, "PPO")[0]?.id).toBe("ppo-observation-v2");
+    expect(searchTopics(topics, "PPO")[0]?.id).toBe("implementation-ppo");
     expect(searchTopics(topics, "手数料").map((topic) => topic.id)).toContain(
       "execution-economics",
     );

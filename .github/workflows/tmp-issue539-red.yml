@@ -1,0 +1,36 @@
+name: Temporary Issue 539 RED oracle
+
+on:
+  push:
+    branches:
+      - research/issue539-calibrated-causal-study
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Targeted RED tests
+        run: >-
+          uv run pytest -q
+          tests/evaluation/test_execution_overlay_authority.py
+          tests/evaluation/experiments/bootstrap/test_calibrated_capacity_materialization.py

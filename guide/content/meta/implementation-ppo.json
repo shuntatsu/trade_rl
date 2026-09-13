@@ -1,0 +1,136 @@
+{
+  "id": "implementation-ppo",
+  "title": "PPOは何を見て、どう学び、どう売買するか",
+  "nav_label": "PPOの実装を追う",
+  "summary": "PPO Observation v2の5区分、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
+  "role": "detail",
+  "keywords": [
+    "PPO",
+    "観測",
+    "Observation v2",
+    "local_values",
+    "local_available",
+    "local_staleness",
+    "current_intent",
+    "current_weight",
+    "reward",
+    "PPOTradingEnv.step"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "PPO Observation v2",
+      "sha256": "5acdcd50de7d4ac6289d6e18e1c64fa3f1747034da3ada039156e67ecfb7e622"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "PPO",
+      "sha256": "8cd92570261cfdbbb9893fc888feadd9c47443e9dd71d2938843e5481435acea"
+    }
+  ],
+  "code_references": [
+    {
+      "id": "encode-observation",
+      "symbol": "trade_rl.strategies.rl.ppo._encode_observation",
+      "kind": "function",
+      "source_sha256": "38c8c5e2212c343cca44d5bf3ac9d1ee9cd7c4765ed7efa485954de81693bc82",
+      "label_ja": "PPO観測 v2を符号化",
+      "description_ja": "選択したローカル特徴量、その利用可能性と有限性、鮮度遅延、現在の売買意図、現在ウェイトを固定順序で1本のベクトルへ連結します。",
+      "variables": [
+        {
+          "name": "selected",
+          "label_ja": "選択済みローカル特徴量",
+          "description_ja": "feature_indicesで選んだ現在時点のローカルfeature値です。"
+        },
+        {
+          "name": "usable",
+          "label_ja": "利用可能かつ有限のマスク",
+          "description_ja": "availabilityとfinite判定をANDした、値をpolicyへ渡してよいかのマスクです。"
+        },
+        {
+          "name": "staleness",
+          "label_ja": "鮮度遅延",
+          "description_ja": "選択featureと同じ順序で並ぶ現在時点のstalenessです。"
+        },
+        {
+          "name": "state",
+          "label_ja": "現在の売買状態",
+          "description_ja": "current_intentとcurrent_weightを1回ずつ持つ状態部分です。"
+        },
+        {
+          "name": "encoded",
+          "label_ja": "PPOへ渡す観測ベクトル",
+          "description_ja": "5区分を固定順序で連結してfloat32化した最終観測です。"
+        }
+      ],
+      "tests": ["tests/strategies/test_ppo_intent.py"]
+    },
+    {
+      "id": "env-step",
+      "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
+      "kind": "method",
+      "source_sha256": "d58a44837887ba38dfb2ca40bc741b61e51c3508b58bfc653565bf9a88b39afb",
+      "label_ja": "PPO環境を1ステップ進める",
+      "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定し、区間net returnからrewardを計算して次の観測へ進みます。",
+      "variables": [
+        {
+          "name": "symbol_index",
+          "label_ja": "学習中の銘柄番号",
+          "description_ja": "現在のepisodeで対象になっている銘柄です。"
+        },
+        {
+          "name": "intent",
+          "label_ja": "actionから得た売買意図",
+          "description_ja": "PPO actionをSHORT・FLAT・LONGへ写像した結果です。"
+        },
+        {
+          "name": "proposal_weight",
+          "label_ja": "制約前の提案ウェイト",
+          "description_ja": "現在の売買意図または希望数量から計算したhard risk適用前のウェイトです。"
+        },
+        {
+          "name": "target_weight",
+          "label_ja": "制約後の目標ウェイト",
+          "description_ja": "PreTradeRisk.constrain後に実際の約定へ渡す対象銘柄ウェイトです。"
+        },
+        {
+          "name": "reward",
+          "label_ja": "学習報酬",
+          "description_ja": "約定・コスト反映後のinterval_net_returnへlog1pを適用した値です。"
+        }
+      ],
+      "tests": ["tests/strategies/test_ppo_intent.py"]
+    },
+    {
+      "id": "fit-ppo",
+      "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
+      "kind": "function",
+      "source_sha256": "da40e907b59087809cb5e3d1b551ae2388676034dd43e7bdb943889a2ed53697",
+      "label_ja": "PPO方策を学習する",
+      "description_ja": "同じObservation v2と環境を使ってstable-baselines3のPPOを学習し、学習済みmodelをPPOIntentStrategyとして返します。",
+      "variables": [],
+      "tests": ["tests/strategies/test_ppo_intent.py"]
+    },
+    {
+      "id": "ppo-decide",
+      "symbol": "trade_rl.strategies.rl.ppo.PPOIntentStrategy.decide",
+      "kind": "method",
+      "source_sha256": "5837fd86301c0b6106bfc7bf9ea77b8e967507d479bb907e40860e253ef8bc84",
+      "label_ja": "学習済みPPOで売買意図を決める",
+      "description_ja": "実行時も同じencoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
+      "variables": [
+        {
+          "name": "encoded",
+          "label_ja": "実行時のPPO観測",
+          "description_ja": "学習時と同じ_encode_observationで作る観測ベクトルです。"
+        },
+        {
+          "name": "action",
+          "label_ja": "PPOが選んだaction",
+          "description_ja": "deterministic predictが返し、売買意図へ変換される離散actionです。"
+        }
+      ],
+      "tests": ["tests/strategies/test_ppo_intent.py"]
+    }
+  ]
+}

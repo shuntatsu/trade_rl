@@ -1,4 +1,4 @@
-name: Temporary Issue 527 preregistration CI
+name: Temporary Issue 527 preregistration seal
 
 on:
   push:
@@ -6,11 +6,14 @@ on:
       - research/issue527-bookdepth-capacity-prereg
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
-  targeted:
+  publish:
     runs-on: ubuntu-latest
+    outputs:
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -25,9 +28,228 @@ jobs:
         run: uv sync --extra dev
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
-      - name: Format preview
-        run: uv run ruff format --diff trade_rl/evaluation/experiments/bootstrap/capacity.py
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
       - name: Mypy
         run: uv run mypy trade_rl
       - name: Targeted preregistration tests
         run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_book_depth_capacity_protocol.py
+      - name: Build sealed protocol payload
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue527-seal
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments.bootstrap import (
+              canonical_m2_book_depth_capacity_protocol,
+          )
+
+          out = Path("/tmp/issue527-seal")
+          protocol = canonical_m2_book_depth_capacity_protocol()
+          protocol_bytes = (
+              json.dumps(
+                  protocol.to_payload(),
+                  allow_nan=False,
+                  sort_keys=True,
+                  indent=2,
+              )
+              + "\n"
+          ).encode("utf-8")
+          (out / "protocol.json").write_bytes(protocol_bytes)
+
+          def sha256(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          index = {
+              "schema_version": "book_depth_capacity_preregistration_seal_v1",
+              "issue_number": 527,
+              "pull_request_number": 528,
+              "dependency_pull_request_number": 524,
+              "dependency_head_sha": "cdaaa96a8e25cbba2ee5b31478c2980519e82c8f",
+              "head_sha": os.environ["GITHUB_SHA"],
+              "tree_sha": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD^{tree}"], text=True
+              ).strip(),
+              "protocol_digest": protocol.digest,
+              "protocol_json_sha256": hashlib.sha256(protocol_bytes).hexdigest(),
+              "capacity_source_sha256": sha256(
+                  Path("trade_rl/evaluation/experiments/bootstrap/capacity.py")
+              ),
+              "contract_test_sha256": sha256(
+                  Path(
+                      "tests/evaluation/experiments/bootstrap/"
+                      "test_book_depth_capacity_protocol.py"
+                  )
+              ),
+          }
+          (out / "index.json").write_text(
+              json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"PROTOCOL_DIGEST={protocol.digest}")
+          print(f"TREE_SHA={index['tree_sha']}")
+          print(f"PROTOCOL_JSON_SHA256={index['protocol_json_sha256']}")
+          PY
+      - name: Upload sealed protocol
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue527-bookdepth-capacity-protocol-${{ github.run_id }}
+          path: /tmp/issue527-seal
+          if-no-files-found: error
+          retention-days: 90
+
+  independent-refetch-verifier:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Resolve artifact through GitHub API
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: issue527-bookdepth-capacity-protocol-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            > /tmp/artifacts.json
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          data = json.loads(Path("/tmp/artifacts.json").read_text(encoding="utf-8"))
+          expected = os.environ["ARTIFACT_NAME"]
+          matches = [item for item in data["artifacts"] if item["name"] == expected]
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one artifact {expected!r}, got {len(matches)}")
+          artifact = matches[0]
+          if artifact.get("expired"):
+              raise SystemExit("sealed protocol artifact is already expired")
+          digest = artifact.get("digest")
+          if not isinstance(digest, str) or not digest.startswith("sha256:"):
+              raise SystemExit(f"missing GitHub artifact digest: {digest!r}")
+          print(f"artifact_id={artifact['id']}")
+          print(f"api_digest={digest}")
+          PY
+      - name: Verify upload digest against API digest
+        env:
+          API_DIGEST: ${{ steps.artifact.outputs.api_digest }}
+          UPLOAD_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${API_DIGEST}" = "${UPLOAD_DIGEST}"
+      - name: Re-fetch sealed artifact through GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue527-refetched
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            --output /tmp/issue527-seal.zip
+          unzip -q /tmp/issue527-seal.zip -d /tmp/issue527-refetched
+      - name: Independently reconstruct and verify protocol
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments.bootstrap import (
+              canonical_m2_book_depth_capacity_protocol,
+              load_book_depth_capacity_calibration_protocol,
+          )
+
+          root = Path("/tmp/issue527-refetched")
+          protocol_path = root / "protocol.json"
+          index_path = root / "index.json"
+          index = json.loads(index_path.read_text(encoding="utf-8"))
+          expected_keys = {
+              "schema_version",
+              "issue_number",
+              "pull_request_number",
+              "dependency_pull_request_number",
+              "dependency_head_sha",
+              "head_sha",
+              "tree_sha",
+              "protocol_digest",
+              "protocol_json_sha256",
+              "capacity_source_sha256",
+              "contract_test_sha256",
+          }
+          if set(index) != expected_keys:
+              raise SystemExit(f"seal index keys differ: {sorted(index)}")
+          if index["schema_version"] != "book_depth_capacity_preregistration_seal_v1":
+              raise SystemExit("unexpected seal schema")
+          if index["issue_number"] != 527 or index["pull_request_number"] != 528:
+              raise SystemExit("seal points to wrong issue or PR")
+          if index["dependency_pull_request_number"] != 524:
+              raise SystemExit("seal points to wrong dependency PR")
+          if index["dependency_head_sha"] != "cdaaa96a8e25cbba2ee5b31478c2980519e82c8f":
+              raise SystemExit("seal points to wrong dependency head")
+          if index["head_sha"] != os.environ["GITHUB_SHA"]:
+              raise SystemExit("seal head SHA does not match verification head")
+          tree_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD^{tree}"], text=True
+          ).strip()
+          if index["tree_sha"] != tree_sha:
+              raise SystemExit("seal tree SHA does not match verification tree")
+
+          protocol_bytes = protocol_path.read_bytes()
+          if hashlib.sha256(protocol_bytes).hexdigest() != index["protocol_json_sha256"]:
+              raise SystemExit("protocol JSON byte digest mismatch")
+          if (
+              hashlib.sha256(
+                  Path("trade_rl/evaluation/experiments/bootstrap/capacity.py").read_bytes()
+              ).hexdigest()
+              != index["capacity_source_sha256"]
+          ):
+              raise SystemExit("capacity source digest mismatch")
+          if (
+              hashlib.sha256(
+                  Path(
+                      "tests/evaluation/experiments/bootstrap/"
+                      "test_book_depth_capacity_protocol.py"
+                  ).read_bytes()
+              ).hexdigest()
+              != index["contract_test_sha256"]
+          ):
+              raise SystemExit("contract test digest mismatch")
+
+          loaded = load_book_depth_capacity_calibration_protocol(protocol_path)
+          canonical = canonical_m2_book_depth_capacity_protocol()
+          if loaded != canonical:
+              raise SystemExit("refetched protocol differs from canonical factory")
+          if loaded.digest != index["protocol_digest"]:
+              raise SystemExit("protocol content digest mismatch")
+          print(f"VERIFIED_PROTOCOL_DIGEST={loaded.digest}")
+          print(f"VERIFIED_HEAD_SHA={index['head_sha']}")
+          print(f"VERIFIED_TREE_SHA={index['tree_sha']}")
+          PY

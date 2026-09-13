@@ -71,14 +71,6 @@ strict_equality = true
 show_error_codes = true
 pretty = true
 
-[[tool.mypy.overrides]]
-module = [
-    "gymnasium.*",
-    "stable_baselines3.*",
-    "torch.*",
-]
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

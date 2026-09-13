@@ -12,7 +12,9 @@ Human-facing content lives in guide/content/topics/*.json.
 
 ## コード連動契約
 
-GuideはPython sourceをimport/executeせず、`guide/tools/code_symbols.py` がASTから `guide/.generated/code-symbols.json` を生成します。この生成物はcommitせず、`.gitignore` で除外します。indexは完全修飾symbol、kind、source path/line、signature、source SHA-256、同一function scopeの主要local名、**exact revision**を保持します。
+GuideはPython sourceをimport/executeせず、`guide/tools/code_symbols.py` がASTからcode-symbol indexを生成します。`guide/.generated/code-symbols.json` はsource-check・review用の**full index**、`guide/.generated/code-symbols-runtime.json` は現行topicの `code_references` が参照するunique symbolだけを保持する**browser配布用index**です。どちらもcommitせず、`guide/.gitignore` で除外します。各entryは完全修飾symbol、kind、source path/line、signature、source SHA-256、同一function scopeの主要local名、**exact revision**を保持します。
+
+runtime indexはfull indexを置き換えるものではありません。full AST indexを先に構築した上でreview済みCodeReferenceの参照集合へ射影し、参照symbolがfull indexに存在しなければ生成時にfail-closedで停止します。browserへ未参照の全symbolを配布しないことで、traceabilityを維持したままbundleを小さく保ちます。
 
 各topicの `code_references` は人間がレビューした日本語aliasと実symbolの対応です。`content_contract.py --check` はmissing symbol、wrong kind、stale source digest、存在しないvariable、missing/escaping test pathをfail-closedで拒否します。
 
@@ -48,7 +50,7 @@ npm run check
 npm run e2e
 ```
 
-`npm run check` はsource-doc/code freshness、ESLint、TypeScript、Vitest、production buildを順に検証します。`npm run e2e` はChromiumでdesktop/mobileの主要操作・accessibility・visual evidenceを確認します。Light/Darkの両テーマでaxeの`serious`/`critical` violationを0件に保つことを必須とします。
+`npm run check` はsource-doc/code freshness、ESLint、TypeScript、Vitest、production buildを順に検証します。production build後は `tools/bundle_budget.py` が `dist/**/*.js` の**実ファイルサイズ**を検査し、1 chunkでも500,000 bytesを超えればfailします。Viteのwarning閾値を引き上げて大きなbundleを隠す運用はしません。`npm run e2e` はChromiumでdesktop/mobileの主要操作・accessibility・visual evidenceを確認します。Light/Darkの両テーマでaxeの`serious`/`critical` violationを0件に保つことを必須とします。
 
 GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` jobで同じ検査を実行します。Human Guide job全体へPR headの `GUIDE_SOURCE_REV` を渡すため、unit/buildだけでなくPlaywright dev serverが再生成するcode indexも同じSHAへbindされます。Playwright reportやscreenshotはCI artifactとして短期保持します。
 
@@ -60,7 +62,7 @@ GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` 
 
 Repository Pages sourceは **GitHub Actions** を使用します。公開済み判定はworkflow fileの存在ではなく、Pages state、deployment成功、実公開URL smokeを合わせて確認します。
 
-生成済み`dist/`はcommitしません。deployment buildでも`source-check`を再実行し、正本とのfingerprintがstaleならpublishをfail-closedに停止します。
+生成済み`dist/`はcommitしません。deployment buildでも`source-check`とbundle budgetを再実行し、正本とのfingerprintがstale、またはJavaScript chunkがbudget超過ならpublishをfail-closedに停止します。
 
 公開後の検証はローカルE2Eとは分離します。
 
@@ -83,9 +85,10 @@ npm run e2e:public
 - `content/topics/*.json`: 日本語中心の説明、検索語、review済み可視化model、正本traceability、CodeReference。
 - `src/visualizations/`: 汎用的な図の描画・interaction。研究固有の真実を持たない。
 - `src/components/CodeInspector.tsx`: 日本語説明を先に、実identifier/path/signature/test/sourceを副表示する。
-- `src/content/codeSymbols.ts`: untracked AST indexのparse/lookup。
+- `src/content/codeSymbols.ts`: compact runtime AST indexのparse/lookup。
 - `src/components/` / `src/app/`: navigation、search、theme、layout、URL selection。
-- `tools/code_symbols.py`: production moduleを実行せずcode symbol indexを生成。
+- `tools/code_symbols.py`: production moduleを実行せずfull AST indexを生成し、browser用runtime indexをreview済み参照symbolへ射影する。
 - `tools/content_contract.py`: docs/codeとのstalenessをfail-closedで検出。
+- `tools/bundle_budget.py`: production buildのJavaScript chunkを500,000-byte budget内へ固定する。
 
 Desktopではsequence/code-mapと一つのinspectorを並べ、mobileではpan/zoomを必須にせずstep-throughまたは選択node近傍から同じ実装情報へ到達できるようにします。selectionを色だけで表現せず、keyboardとテキストoutlineでも意味を追える状態を維持します。

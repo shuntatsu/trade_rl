@@ -323,13 +323,90 @@ def build_symbol_index(source_root: Path, *, revision: str) -> dict[str, object]
     }
 
 
+def _runtime_symbol_names(topics_dir: Path) -> list[str]:
+    topics_dir = topics_dir.resolve()
+    if not topics_dir.is_dir():
+        raise GuideCodeSymbolError(f"topics directory does not exist: {topics_dir}")
+
+    topic_paths = sorted(topics_dir.glob("*.json"))
+    if not topic_paths:
+        raise GuideCodeSymbolError(f"no Guide topic JSON files found: {topics_dir}")
+
+    names: set[str] = set()
+    for path in topic_paths:
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(topics_dir)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise GuideCodeSymbolError(f"Guide topic escapes topics directory: {path}") from exc
+        try:
+            topic = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise GuideCodeSymbolError(f"cannot read Guide topic JSON: {path}") from exc
+        if not isinstance(topic, dict):
+            raise GuideCodeSymbolError(f"Guide topic JSON root must be an object: {path}")
+        references = topic.get("code_references", [])
+        if not isinstance(references, list):
+            raise GuideCodeSymbolError(f"Guide topic code_references must be a list: {path}")
+        for index, reference in enumerate(references):
+            if not isinstance(reference, dict):
+                raise GuideCodeSymbolError(
+                    f"Guide topic code reference must be an object: {path}#{index}"
+                )
+            symbol = reference.get("symbol")
+            if not isinstance(symbol, str) or not symbol:
+                raise GuideCodeSymbolError(
+                    f"Guide topic code reference requires symbol: {path}#{index}"
+                )
+            names.add(symbol)
+    return sorted(names)
+
+
+def build_runtime_symbol_index(
+    source_root: Path,
+    topics_dir: Path,
+    *,
+    revision: str,
+) -> dict[str, object]:
+    full_index = build_symbol_index(source_root, revision=revision)
+    raw_symbols = full_index["symbols"]
+    if not isinstance(raw_symbols, list):
+        raise GuideCodeSymbolError("code symbol index has malformed symbols")
+    symbols_by_name = {
+        str(symbol["qualified_name"]): symbol
+        for symbol in raw_symbols
+        if isinstance(symbol, dict) and "qualified_name" in symbol
+    }
+
+    selected: list[dict[str, object]] = []
+    for name in _runtime_symbol_names(topics_dir):
+        symbol = symbols_by_name.get(name)
+        if symbol is None:
+            raise GuideCodeSymbolError(f"missing referenced code symbol: {name}")
+        selected.append(symbol)
+
+    return {
+        "schema_version": full_index["schema_version"],
+        "source_revision": full_index["source_revision"],
+        "symbols": selected,
+    }
+
+
 def write_symbol_index(
     source_root: Path,
     output: Path,
     *,
     revision: str,
+    topics_dir: Path | None = None,
 ) -> None:
-    index = build_symbol_index(source_root, revision=revision)
+    if topics_dir is None:
+        index = build_symbol_index(source_root, revision=revision)
+    else:
+        index = build_runtime_symbol_index(
+            source_root,
+            topics_dir,
+            revision=revision,
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + "\n",
@@ -359,6 +436,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate the Human Guide code-symbol index.")
     parser.add_argument("--write", type=Path, required=True, metavar="OUTPUT")
     parser.add_argument("--revision")
+    parser.add_argument(
+        "--topics",
+        type=Path,
+        metavar="TOPICS_DIR",
+        help="Write only symbols referenced by Guide topic JSON files.",
+    )
     return parser
 
 
@@ -369,6 +452,7 @@ def main() -> int:
             DEFAULT_SOURCE_ROOT,
             args.write,
             revision=resolve_revision(args.revision),
+            topics_dir=args.topics,
         )
     except GuideCodeSymbolError as exc:
         print(f"guide code symbols: {exc}")

@@ -45,7 +45,7 @@ def test_guide_build_uses_compact_runtime_index_and_enforces_budget() -> None:
     code_index = scripts["code-index"]
     assert ".generated/code-symbols.json" in code_index
     assert ".generated/code-symbols-runtime.json" in code_index
-    assert "--topics content/topics" in code_index
+    assert "--topics content/meta" in code_index
 
     postbuild = scripts["postbuild"]
     assert "tools/bundle_budget.py" in postbuild

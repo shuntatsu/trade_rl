@@ -159,6 +159,23 @@ def test_authorization_rejects_final_window_overlap_or_empty_window(
         )
 
 
+def test_authorization_rejects_timestamp_before_study_freeze(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+
+    with pytest.raises(ContractViolationError, match="freeze"):
+        authorize_final_evaluation(
+            tmp_path / "early-authorization",
+            study_root=study_root,
+            final_evaluation_start=_FINAL_START,
+            final_evaluation_stop_exclusive=_FINAL_STOP,
+            authorized_by="final-gate",
+            authorized_at=datetime(2026, 9, 13, 11, 29, tzinfo=UTC),
+        )
+
+
 def test_inspection_rejects_authorization_tamper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -182,6 +199,26 @@ def test_inspection_rejects_authorization_tamper(
     artifact_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ArtifactIntegrityError, match="digest"):
+        inspect_final_evaluation_authorization(output, study_root=study_root)
+
+
+def test_inspection_rejects_malformed_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+    output = tmp_path / "authorization"
+    authorize_final_evaluation(
+        output,
+        study_root=study_root,
+        final_evaluation_start=_FINAL_START,
+        final_evaluation_stop_exclusive=_FINAL_STOP,
+        authorized_by="final-gate",
+        authorized_at=_AUTHORIZED_AT,
+    )
+    (output / "authorization.json").write_text("{", encoding="utf-8")
+
+    with pytest.raises(ArtifactIntegrityError, match="JSON"):
         inspect_final_evaluation_authorization(output, study_root=study_root)
 
 

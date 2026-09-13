@@ -95,12 +95,12 @@ def _intent(executor: MarketExecutor, quantity: float = 10.0) -> OrderIntent:
     )
 
 
-def _execute(dataset: MarketDataset):
+def _execute(dataset: MarketDataset, *, quantity: float = 10.0):
     executor = _executor(dataset)
     return executor.execute_orders(
         BookState.zero(1, 1_000.0, dataset.close[0]),
         OrderBookState.empty(),
-        (_intent(executor),),
+        (_intent(executor, quantity=quantity),),
         start_index=0,
         bars=1,
     )
@@ -127,13 +127,18 @@ def test_causal_capacity_evidence_binds_previous_completed_bar() -> None:
 
 
 def test_causal_capacity_pool_ignores_processing_bar_volume_and_price() -> None:
+    # Keep both requests inside the unchanged pre-trade leverage gate so this
+    # test isolates only the capacity-pool reference. Execution/admission still
+    # use the processing-bar price by design; capacity does not.
+    quantity = 5.0
     baseline = _execute(
         _market(
             previous_close=50.0,
             processing_open=100.0,
             previous_volume=2.0,
             processing_volume=1_000.0,
-        )
+        ),
+        quantity=quantity,
     )
     changed_processing_bar = _execute(
         _market(
@@ -141,7 +146,8 @@ def test_causal_capacity_pool_ignores_processing_bar_volume_and_price() -> None:
             processing_open=200.0,
             previous_volume=2.0,
             processing_volume=10_000.0,
-        )
+        ),
+        quantity=quantity,
     )
 
     assert baseline.filled_notional == pytest.approx(100.0)

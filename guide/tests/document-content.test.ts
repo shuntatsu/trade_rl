@@ -31,19 +31,21 @@ describe("Markdown-first Guide content", () => {
     }>;
 
     expect(topics).toHaveLength(8);
-    expect(topics.every((topic) => typeof topic.markdown === "string" && topic.markdown.length > 0)).toBe(
-      true,
-    );
-    expect(topics.map((topic) => topic.role)).toEqual([
-      "overview",
-      "detail",
-      "detail",
-      "reference",
-      "detail",
-      "detail",
-      "detail",
-      "status",
-    ]);
+    expect(
+      topics.every(
+        (topic) => typeof topic.markdown === "string" && topic.markdown.length > 0,
+      ),
+    ).toBe(true);
+    expect(Object.fromEntries(topics.map((topic) => [topic.id, topic.role]))).toEqual({
+      overview: "overview",
+      "implementation-replay": "detail",
+      "implementation-ppo": "detail",
+      "code-map": "reference",
+      "data-flow": "detail",
+      "execution-economics": "detail",
+      "experiment-loop": "detail",
+      "research-status": "status",
+    });
 
     const overview = topics.find((topic) => topic.id === "overview");
     const status = topics.find((topic) => topic.id === "research-status");

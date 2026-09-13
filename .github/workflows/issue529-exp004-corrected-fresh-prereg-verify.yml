@@ -1,0 +1,272 @@
+name: Issue 529 Exp4 corrected fresh prereg verify
+
+on:
+  push:
+    branches:
+      - tmp/issue529-exp0004-prereg
+    paths:
+      - .github/workflows/issue529-exp004-corrected-fresh-prereg-verify.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  PREREG_HELPER_BLOB: 9a33ba82a712174b6f44907009fd1fbe2228b68c
+  PREREG_TEST_BLOB: b95b98f2a857c449018e351c16705be6cec26993
+
+  ORIGINAL_PREREG_RUN_ID: "34764133446"
+  ORIGINAL_PREREG_HEAD: 0c06e141fc63547e6b2c591016023f089b3d0e42
+  ORIGINAL_PREREG_JOB_ID: "103741979268"
+  ORIGINAL_FAILED_FRESH_JOB_ID: "103744929182"
+
+  PREREG_ARTIFACT: canonical-m2-portable-exp004-prereg-v1-34764133446
+  PREREG_ARTIFACT_ID: "10320825023"
+  PREREG_ARTIFACT_DIGEST: sha256:c98adca4c554da52a6df44969dd251f6f1181ca2c67c38a524be9d8a31c48274
+  PREVERIFY_ARTIFACT: canonical-m2-portable-exp004-prereg-preverify-v1-34764133446
+  PREVERIFY_ARTIFACT_ID: "10320445597"
+  PREVERIFY_ARTIFACT_DIGEST: sha256:fc100095090f271a38e3a7b06756c9c4335e8804fb63714fa9a96933a890a396
+
+  SOURCE_RESULT_ARTIFACT_ID: "10319480792"
+  SOURCE_RESULT_ARTIFACT_DIGEST: sha256:c7fe69e0dfa3ca934cec706a657d97c6caa5088362f92fc46e201f79d44e792f
+  SOURCE_VERIFY_ARTIFACT_ID: "10319822414"
+  SOURCE_VERIFY_ARTIFACT_DIGEST: sha256:ac0f220719b38bc4796987dd3296f171faa831427f3495f6e60252844a4f8dac
+
+  PREREG_ROOT: /tmp/issue529-exp004-corrected-prereg
+  PREVERIFY_ROOT: /tmp/issue529-exp004-corrected-preverify
+  VERIFY_ROOT: /tmp/issue529-exp004-corrected-fresh-verify
+  AUTH_ARTIFACT: canonical-m2-portable-exp004-prereg-corrected-fresh-verification-v1-${{ github.run_id }}
+
+jobs:
+  corrected-fresh-reverify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      auth_artifact_id: ${{ steps.upload_auth.outputs.artifact-id }}
+      auth_artifact_digest: ${{ steps.upload_auth.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact correction head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and helper bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue529_portable_exp004.py)" = "$PREREG_HELPER_BLOB"
+          test "$(git hash-object research/test_issue529_portable_exp004.py)" = "$PREREG_TEST_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify original partial-success state and exact artifacts through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_PREREG_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "failure"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$ORIGINAL_PREREG_HEAD"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_PREREG_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r --arg id "$ORIGINAL_PREREG_JOB_ID" '[.jobs[] | select((.id|tostring)==$id and .name=="preregister-and-preverify" and .status=="completed" and .conclusion=="success")] | length' <<<"$jobs")" = "1"
+          test "$(jq -r --arg id "$ORIGINAL_FAILED_FRESH_JOB_ID" '[.jobs[] | select((.id|tostring)==$id and .name=="fresh-reverify" and .status=="completed" and .conclusion=="failure")] | length' <<<"$jobs")" = "1"
+
+          prereg="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$prereg")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$prereg")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$prereg")" = "$ORIGINAL_PREREG_RUN_ID"
+          test "$(jq -r '.expired' <<<"$prereg")" = "false"
+
+          preverify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREVERIFY_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$preverify")" = "$PREVERIFY_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$preverify")" = "$PREVERIFY_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$preverify")" = "$ORIGINAL_PREREG_RUN_ID"
+          test "$(jq -r '.expired' <<<"$preverify")" = "false"
+
+          source="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.digest' <<<"$source")" = "$SOURCE_RESULT_ARTIFACT_DIGEST"
+          source_verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_VERIFY_ARTIFACT_ID")"
+          test "$(jq -r '.digest' <<<"$source_verify")" = "$SOURCE_VERIFY_ARTIFACT_DIGEST"
+
+      - name: Re-download exact published preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.ORIGINAL_PREREG_RUN_ID }}
+
+      - name: Re-download exact pre-upload verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREVERIFY_ARTIFACT }}
+          path: ${{ env.PREVERIFY_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.ORIGINAL_PREREG_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test preregistration verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue529_portable_exp004.py
+          uv run ruff check research/issue529_portable_exp004.py research/test_issue529_portable_exp004.py
+          uv run pytest -q research/test_issue529_portable_exp004.py
+
+      - name: Fresh-runner independently reverify published preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$VERIFY_ROOT"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004 verify-prereg \
+            --root "$PREREG_ROOT" \
+            --report-root "$VERIFY_ROOT" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '
+            .verification_passed == true and
+            .prior_exp001_exp002_exp003_evidence_unchanged == true and
+            .definition_is_result_blind == true and
+            .candidate_absent == true and
+            .candidate_executed == false and
+            .result_inspected == false and
+            .execution_authorized == false and
+            .formal_target_strategy == "lightgbm24" and
+            .resolved_changed_paths == ["feature_indices", "feature_names"] and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$VERIFY_ROOT/exp004-prereg-verification.json" >/dev/null
+
+          preverify_sha="$(sha256sum "$PREVERIFY_ROOT/exp004-prereg-verification.json" | awk '{print $1}')"
+          fresh_sha="$(sha256sum "$VERIFY_ROOT/exp004-prereg-verification.json" | awk '{print $1}')"
+          test "$preverify_sha" = "$fresh_sha"
+
+      - name: Seal corrected fresh execution authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          definition_digest="$(jq -r '.definition_digest' "$PREREG_ROOT/portable-exp004-prereg-index.json")"
+          requested_digest="$(jq -r '.requested_candidate_config_digest' "$PREREG_ROOT/portable-exp004-prereg-index.json")"
+          report_sha="$(sha256sum "$VERIFY_ROOT/exp004-prereg-verification.json" | awk '{print $1}')"
+          jq -n \
+            --arg recovery_run "$GITHUB_RUN_ID" \
+            --arg recovery_head "$GITHUB_SHA" \
+            --arg prereg_run "$ORIGINAL_PREREG_RUN_ID" \
+            --arg prereg_head "$ORIGINAL_PREREG_HEAD" \
+            --arg prereg_id "$PREREG_ARTIFACT_ID" \
+            --arg prereg_digest "$PREREG_ARTIFACT_DIGEST" \
+            --arg preverify_id "$PREVERIFY_ARTIFACT_ID" \
+            --arg preverify_digest "$PREVERIFY_ARTIFACT_DIGEST" \
+            --arg helper "$PREREG_HELPER_BLOB" \
+            --arg definition_digest "$definition_digest" \
+            --arg requested_digest "$requested_digest" \
+            --arg source_result_id "$SOURCE_RESULT_ARTIFACT_ID" \
+            --arg source_result_digest "$SOURCE_RESULT_ARTIFACT_DIGEST" \
+            --arg source_verify_id "$SOURCE_VERIFY_ARTIFACT_ID" \
+            --arg source_verify_digest "$SOURCE_VERIFY_ARTIFACT_DIGEST" \
+            --arg report_sha "$report_sha" '
+              {
+                schema_version: "canonical_m2_portable_exp004_prereg_execution_authorization_v2",
+                recovery_run_id: $recovery_run,
+                recovery_head: $recovery_head,
+                preregistration_run_id: $prereg_run,
+                preregistration_head: $prereg_head,
+                preregistration_artifact_id: $prereg_id,
+                preregistration_artifact_digest: $prereg_digest,
+                preupload_verification_artifact_id: $preverify_id,
+                preupload_verification_artifact_digest: $preverify_digest,
+                prereg_helper_blob: $helper,
+                definition_digest: $definition_digest,
+                requested_candidate_config_digest: $requested_digest,
+                source_result_artifact_id: $source_result_id,
+                source_result_artifact_digest: $source_result_digest,
+                source_corrected_verify_artifact_id: $source_verify_id,
+                source_corrected_verify_artifact_digest: $source_verify_digest,
+                fresh_prereg_verification_report_sha256: $report_sha,
+                original_fresh_failure_was_digest_prefix_mismatch_only: true,
+                formal_target_strategy: "lightgbm24",
+                candidate_executed: false,
+                result_inspected: false,
+                fresh_runner_reverified_preregistration: true,
+                execution_authorized: true,
+                profitability_claimed: false,
+                winner_claimed: false,
+                final_test_authorized: false,
+                production_authorized: false
+              }
+            ' > "$VERIFY_ROOT/execution-authorization.json"
+
+      - name: Upload corrected fresh verification and authorization
+        id: upload_auth
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.AUTH_ARTIFACT }}
+          path: ${{ env.VERIFY_ROOT }}
+          include-hidden-files: true
+          retention-days: 90
+
+  audit-authorization:
+    needs: corrected-fresh-reverify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify corrected authorization artifact through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTH_ID: ${{ needs.corrected-fresh-reverify.outputs.auth_artifact_id }}
+          AUTH_DIGEST_HEX: ${{ needs.corrected-fresh-reverify.outputs.auth_artifact_digest }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$AUTH_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$AUTH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "sha256:$AUTH_DIGEST_HEX"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+
+      - name: Re-download corrected authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.AUTH_ARTIFACT }}
+          path: /tmp/issue529-exp004-auth-audit
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Audit execution authorization flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .schema_version == "canonical_m2_portable_exp004_prereg_execution_authorization_v2" and
+            .original_fresh_failure_was_digest_prefix_mismatch_only == true and
+            .candidate_executed == false and
+            .result_inspected == false and
+            .fresh_runner_reverified_preregistration == true and
+            .execution_authorized == true and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' /tmp/issue529-exp004-auth-audit/execution-authorization.json >/dev/null

@@ -1,4 +1,4 @@
-import generatedRaw from "../../.generated/code-symbols.json";
+import generatedRaw from "../../.generated/code-symbols-runtime.json";
 
 export type CodeSymbol = {
   qualified_name: string;

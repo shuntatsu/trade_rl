@@ -123,9 +123,25 @@ jobs:
         working-directory: guide
         run: npm ci
 
-      - name: Guide source, lint, type, unit and build checks
+      - name: Guide source contract
         working-directory: guide
-        run: npm run check
+        run: npm run source-check
+
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
 
       - name: Install Chromium
         working-directory: guide

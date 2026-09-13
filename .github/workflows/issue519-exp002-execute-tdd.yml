@@ -71,3 +71,5 @@ jobs:
           if test -f research/test_issue519_metric_invariance_verifier.py; then tests+=(research/test_issue519_metric_invariance_verifier.py); fi
           if test -f research/test_issue519_portable_exp002_postverify.py; then tests+=(research/test_issue519_portable_exp002_postverify.py); fi
           uv run pytest -q "${tests[@]}"
+
+# Explicit retrigger after deterministic Ruff source normalization.

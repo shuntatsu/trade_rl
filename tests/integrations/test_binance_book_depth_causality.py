@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.integrations.binance import (
+    BinanceBookDepthSeries,
     BinanceTransportError,
     parse_vision_book_depth_archive,
     validate_book_depth_reference_alignment,
@@ -28,7 +29,7 @@ def _payload() -> bytes:
     return buffer.getvalue()
 
 
-def _series():
+def _series() -> BinanceBookDepthSeries:
     return parse_vision_book_depth_archive(_payload(), source="fixture")
 
 

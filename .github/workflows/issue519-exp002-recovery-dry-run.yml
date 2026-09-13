@@ -1,0 +1,252 @@
+name: Issue 519 Experiment 0002 recovery dry-run
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp002-recovery-dry-run.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  RECOVERY_HELPER_BLOB: c66a6cf076cd8a1481aef8830a1b49017bc7ceb0
+  POSTVERIFY_BLOB: 5dc43e17aa53ffacf533b3a27985a59b9e315bc1
+  METRICVERIFY_BLOB: 8624702c0ebbdfb5c58fed40b707ea2012b893cc
+  FAILURE_RUN_ID: "34739994457"
+  FAILURE_HEAD: 45dd0667d8449c636d29b1c38bf39e15f7b7f572
+  FAILURE_ARTIFACT: canonical-m2-portable-exp002-execution-failure-v2-34739994457
+  FAILURE_ARTIFACT_ID: "10313103451"
+  FAILURE_ARTIFACT_DIGEST: sha256:e8b2f4e2b69d196fa4af327942e4eb5ef1473ba5f2c29bfe2e3d175ef4b34e51
+  PREREG_RUN_ID: "34738896077"
+  PREREG_ARTIFACT: canonical-m2-portable-exp002-prereg-v1-34738896077
+  PREREG_ARTIFACT_ID: "10311508057"
+  PREREG_ARTIFACT_DIGEST: sha256:566880f04bd0ba686dbe6796aff40709c70986f966844d8e11e000c99ef31057
+  RESULT_ROOT: /tmp/issue519-exp002-recovery-dry
+  PREREG_ROOT: /tmp/issue519-exp002-recovery-dry-prereg
+  VERIFY_ROOT: /tmp/issue519-exp002-recovery-dry-verify
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact recovery head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove recovery verifiers and frozen production binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_portable_exp002_recovery.py)" = "$RECOVERY_HELPER_BLOB"
+          test "$(git hash-object research/issue519_portable_exp002_postverify.py)" = "$POSTVERIFY_BLOB"
+          test "$(git hash-object research/issue519_portable_exp002_metricverify.py)" = "$METRICVERIFY_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify immutable failure and preregistration metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failure_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILURE_RUN_ID")"
+          test "$(jq -r '.status' <<<"$failure_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$failure_run")" = "failure"
+          test "$(jq -r '.head_sha' <<<"$failure_run")" = "$FAILURE_HEAD"
+          failure="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FAILURE_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$failure")" = "$FAILURE_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$failure")" = "$FAILURE_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$failure")" = "$FAILURE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$failure")" = "false"
+          prereg="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$prereg")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$prereg")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$prereg")" = "$PREREG_RUN_ID"
+          test "$(jq -r '.expired' <<<"$prereg")" = "false"
+
+      - name: Download comparison-complete failure artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FAILURE_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FAILURE_RUN_ID }}
+
+      - name: Download sealed preregistration reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test recovery verifier set
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile \
+            research/issue519_portable_exp002_recovery.py \
+            research/issue519_portable_exp002_postverify.py \
+            research/issue519_portable_exp002_metricverify.py
+          uv run ruff check \
+            research/issue519_portable_exp002_recovery.py \
+            research/issue519_portable_exp002_postverify.py \
+            research/issue519_portable_exp002_metricverify.py \
+            research/test_issue519_portable_exp002_recovery.py \
+            research/test_issue519_portable_exp002_postverify.py \
+            research/test_issue519_metric_invariance_verifier.py
+          uv run pytest -q \
+            research/test_issue519_portable_exp002_recovery.py \
+            research/test_issue519_portable_exp002_postverify.py \
+            research/test_issue519_metric_invariance_verifier.py
+
+      - name: Bind candidate verification and comparison before recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_before="$(find "$RESULT_ROOT/study/experiments/0002/candidate" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          verification_before="$(sha256sum "$RESULT_ROOT/study/experiments/0002/verification.json" | awk '{print $1}')"
+          comparison_before="$(sha256sum "$RESULT_ROOT/study/experiments/0002/comparison.json" | awk '{print $1}')"
+          printf '%s\n%s\n%s\n' "$candidate_before" "$verification_before" "$comparison_before" > /tmp/exp002-before.sha256
+          test ! -e "$RESULT_ROOT/study/experiments/0002/decision.json"
+          test ! -e "$RESULT_ROOT/portable-exp002-result-index.json"
+
+      - name: Recover decision and index only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue519_portable_exp002_recovery --root "$RESULT_ROOT" > "$sealed_stdout"
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          test -f "$RESULT_ROOT/study/experiments/0002/decision.json"
+          test -f "$RESULT_ROOT/portable-exp002-result-index.json"
+          jq -e '
+            .candidate_execution_count == 1 and
+            .candidate_rerun == false and
+            .candidate_reexecuted_during_recovery == false and
+            .comparison_recomputed_during_recovery == false and
+            .verification_status == "CONTROLLED" and
+            .changed_paths == [["signal_index"], ["signal_name"]] and
+            .interpretation_authorized == false and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$RESULT_ROOT/portable-exp002-result-index.json" >/dev/null
+
+      - name: Prove candidate verification and comparison bytes unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_after="$(find "$RESULT_ROOT/study/experiments/0002/candidate" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          verification_after="$(sha256sum "$RESULT_ROOT/study/experiments/0002/verification.json" | awk '{print $1}')"
+          comparison_after="$(sha256sum "$RESULT_ROOT/study/experiments/0002/comparison.json" | awk '{print $1}')"
+          printf '%s\n%s\n%s\n' "$candidate_after" "$verification_after" "$comparison_after" > /tmp/exp002-after.sha256
+          diff -u /tmp/exp002-before.sha256 /tmp/exp002-after.sha256
+
+      - name: Run independent primary verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary="$VERIFY_ROOT/primary"
+          mkdir -p "$primary"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue519_portable_exp002_postverify \
+            --prereg-root "$PREREG_ROOT" \
+            --result-root "$RESULT_ROOT" \
+            --report-root "$primary" > "$sealed_stdout"
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '
+            .verification_passed == true and
+            .immutable_preregistration_prefix_verified == true and
+            .prior_exp001_evidence_unchanged == true and
+            .controlled_delta_verified == true and
+            .independent_decision_replayed == true and
+            .candidate_reexecuted == false and
+            .interpretation_authorized == false
+          ' "$primary/postverify.json" >/dev/null
+
+      - name: Run independent metric seed-invariance verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          supplemental="$VERIFY_ROOT/supplemental"
+          mkdir -p "$supplemental"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue519_portable_exp002_metricverify \
+            --result-root "$RESULT_ROOT" \
+            --report-root "$supplemental" > "$sealed_stdout"
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '
+            .verified == true and
+            .baseline_checks == 560 and
+            .candidate_checks == 560 and
+            .total_checks == 1120
+          ' "$supplemental/metric-seed-invariance-verification.json" >/dev/null
+
+      - name: Seal dry-run recovery binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary_sha="$(sha256sum "$VERIFY_ROOT/primary/postverify.json" | awk '{print $1}')"
+          supplemental_sha="$(sha256sum "$VERIFY_ROOT/supplemental/metric-seed-invariance-verification.json" | awk '{print $1}')"
+          jq -n \
+            --arg dry_run_id "$GITHUB_RUN_ID" \
+            --arg dry_run_head "$GITHUB_SHA" \
+            --arg failure_id "$FAILURE_ARTIFACT_ID" \
+            --arg failure_digest "$FAILURE_ARTIFACT_DIGEST" \
+            --arg recovery_helper_blob "$RECOVERY_HELPER_BLOB" \
+            --arg postverify_blob "$POSTVERIFY_BLOB" \
+            --arg metricverify_blob "$METRICVERIFY_BLOB" \
+            --arg primary_sha "$primary_sha" \
+            --arg supplemental_sha "$supplemental_sha" \
+            '{
+              schema_version: "canonical_m2_portable_exp002_recovery_dry_run_v1",
+              dry_run_id: $dry_run_id,
+              dry_run_head: $dry_run_head,
+              source_failure_artifact_id: $failure_id,
+              source_failure_artifact_digest: $failure_digest,
+              recovery_helper_blob: $recovery_helper_blob,
+              postverify_blob: $postverify_blob,
+              metricverify_blob: $metricverify_blob,
+              primary_report_sha256: $primary_sha,
+              supplemental_report_sha256: $supplemental_sha,
+              both_verifiers_passed: true,
+              candidate_execution_count: 1,
+              candidate_reexecuted_during_recovery: false,
+              comparison_recomputed_during_recovery: false,
+              interpretation_authorized: false
+            }' > "$VERIFY_ROOT/dry-run-binding.json"
+
+      - name: Upload dry-run verification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-m2-portable-exp002-recovery-dry-run-v1-${{ github.run_id }}
+          path: ${{ env.VERIFY_ROOT }}
+          retention-days: 90

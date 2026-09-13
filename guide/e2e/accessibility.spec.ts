@@ -10,28 +10,42 @@ async function expectNoBlockingA11yViolations(page: Page): Promise<void> {
   expect(blocking).toEqual([]);
 }
 
-test("has no serious or critical accessibility violations in light and dark", async ({
+async function tabUntilText(page: Page, text: string): Promise<void> {
+  for (let index = 0; index < 80; index += 1) {
+    await page.keyboard.press("Tab");
+    const activeText = await page.evaluate(() => document.activeElement?.textContent ?? "");
+    if (activeText.includes(text)) return;
+  }
+  throw new Error(`keyboard focus did not reach: ${text}`);
+}
+
+test("overview and replay have no serious or critical accessibility violations", async ({
   page,
 }) => {
-  await page.goto("/#overview");
-  await page.evaluate(() => localStorage.setItem("trade-rl-guide-theme", "light"));
-  await page.reload();
-  await expectNoBlockingA11yViolations(page);
-
-  await page.evaluate(() => localStorage.setItem("trade-rl-guide-theme", "dark"));
-  await page.reload();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-  await expectNoBlockingA11yViolations(page);
+  for (const route of ["overview", "implementation-replay?step=risk-constrain"]) {
+    for (const theme of ["light", "dark"] as const) {
+      await page.goto(`/#${route}`);
+      await page.evaluate((value) => localStorage.setItem("trade-rl-guide-theme", value), theme);
+      await page.reload();
+      if (theme === "dark") await expect(page.locator("html")).toHaveClass(/dark/);
+      await expectNoBlockingA11yViolations(page);
+    }
+  }
 });
 
-test("keyboard focus can reach the primary interactions", async ({ page }) => {
-  await page.goto("/#overview");
-  await page.keyboard.press("Tab");
-  const focusedTag = await page.evaluate(() => document.activeElement?.tagName);
-  expect(["A", "BUTTON", "INPUT"]).toContain(focusedTag);
+test("keyboard alone can select a sequence step and reach its source link", async ({ page }) => {
+  await page.goto("/#implementation-replay");
 
-  await page.keyboard.press("Control+K");
-  await expect(page.getByRole("textbox", { name: "ガイドを検索" })).toBeFocused();
+  await tabUntilText(page, "ハードリスクで目標を制約");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#implementation-replay\?step=risk-constrain$/);
+  await expect(
+    page.getByRole("button", { name: /ハードリスクで目標を制約/ }),
+  ).toHaveAttribute("aria-current", "step");
+
+  await tabUntilText(page, "実装をGitHubで開く");
+  const href = await page.evaluate(() => (document.activeElement as HTMLAnchorElement).href);
+  expect(href).toMatch(/\/blob\/[0-9a-f]{40}\/trade_rl\/risk\/pretrade\.py#L/);
 });
 
 test("search dialog traps focus and restores the trigger on close", async ({ page }) => {
@@ -57,8 +71,8 @@ test("reduced motion keeps the guide usable", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#data-flow");
   await expect(
-    page.getByRole("heading", { level: 1, name: "データフロー" }),
+    page.getByRole("heading", { level: 1, name: "データと特徴量の流れ" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "次のステップ" }).click();
-  await expect(page.getByText("raw evidenceを固定")).toBeVisible();
+  await expect(page.getByText("再取得しても照合できる状態にする")).toBeVisible();
 });

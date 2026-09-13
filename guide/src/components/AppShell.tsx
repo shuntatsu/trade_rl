@@ -3,13 +3,17 @@ import type { ReactNode } from "react";
 
 import type { GuideNavigateTarget } from "../app/useHashRoute";
 import type { ThemePreference } from "../app/useTheme";
-import type { GuideTopic } from "../content/schema";
+import type {
+  DocumentGuideTopic,
+  GuideManifestGroup,
+} from "../content/documentSchema";
 import { MobileNav } from "./MobileNav";
 import { SearchPalette } from "./SearchPalette";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell({
   topics,
+  groups,
   activeId,
   onNavigate,
   theme,
@@ -17,7 +21,8 @@ export function AppShell({
   onThemeChange,
   children,
 }: {
-  topics: GuideTopic[];
+  topics: DocumentGuideTopic[];
+  groups: GuideManifestGroup[];
   activeId: string;
   onNavigate: (target: GuideNavigateTarget) => void;
   theme: ThemePreference;
@@ -30,11 +35,17 @@ export function AppShell({
 
   return (
     <div className="app-layout">
-      <Sidebar topics={topics} activeId={activeId} onNavigate={onNavigate} />
+      <Sidebar
+        topics={topics}
+        groups={groups}
+        activeId={activeId}
+        onNavigate={onNavigate}
+      />
       <div className="app-column">
         <header className="topbar">
           <MobileNav
             topics={topics}
+            groups={groups}
             activeId={activeId}
             onNavigate={onNavigate}
           />

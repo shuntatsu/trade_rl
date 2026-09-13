@@ -1,0 +1,184 @@
+name: Issue 522 Experiment 0003 structural diagnostic
+
+on:
+  push:
+    branches:
+      - tmp/issue522-exp0003-prereg
+    paths:
+      - .github/workflows/issue522-exp003-structural-diagnostic.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+env:
+  ISSUE_NUMBER: "522"
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  STRUCTURAL_HELPER_BLOB: 1d3faaa235feac78521f3077a2bd8d6736619b64
+  SOURCE_RUN_ID: "34750227256"
+  SOURCE_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  SOURCE_RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  SOURCE_RESULT_ARTIFACT_ID: "10315084502"
+  SOURCE_RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  SOURCE_FRESH_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  SOURCE_FRESH_ARTIFACT_ID: "10316125529"
+  SOURCE_FRESH_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+  RESULT_ROOT: /tmp/issue522-exp003-source-result
+  REPORT_ROOT: /tmp/issue522-exp003-structural-report
+  REPORT_ARTIFACT: canonical-m2-portable-exp003-structural-diagnostic-v1-${{ github.run_id }}
+
+jobs:
+  structural-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and structural helper binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue522_portable_exp003.py)" = "$STRUCTURAL_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify source result and fresh-verifier metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          test "$(jq -r '.status' <<<"$source_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$source_run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$source_run")" = "$SOURCE_HEAD"
+
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$SOURCE_RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$SOURCE_RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+
+          fresh="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_FRESH_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$fresh")" = "$SOURCE_FRESH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$fresh")" = "$SOURCE_FRESH_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$fresh")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$fresh")" = "false"
+
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+
+      - name: Download exact formally verified Experiment 0002 result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test structural helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue522_portable_exp003.py
+          uv run ruff check research/issue522_portable_exp003.py research/test_issue522_portable_exp003.py
+          uv run pytest -q research/test_issue522_portable_exp003.py
+
+      - name: Run pre-result structural diagnostic only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_ROOT"
+          uv run python -m research.issue522_portable_exp003 \
+            --root "$RESULT_ROOT" \
+            --output "$REPORT_ROOT/structural-diagnostic.json"
+          report="$REPORT_ROOT/structural-diagnostic.json"
+          jq -e '
+            .schema_version == "canonical_m2_portable_exp003_structural_diagnostic_v1" and
+            .issue_number == 522 and
+            .source_result_artifact_id == 10315084502 and
+            .source_result_artifact_digest == "sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d" and
+            .experiment_sequences == [1,2] and
+            .terminal_decisions == ["KEEP_BASELINE","KEEP_BASELINE"] and
+            .rule_signal_allowed == true and
+            .candidate_signal_name == "1d__log_return_4bar" and
+            .candidate_signal_index == 115 and
+            .resolved_changed_fields == ["signal_index","signal_name"] and
+            .experiment_0002_trend_performance_inspected == false and
+            .experiment_0003_candidate_executed == false and
+            .experiment_0003_candidate_pnl_computed == false and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$report" >/dev/null
+          if grep -q 'total_return' "$report"; then
+            echo "structural report unexpectedly contains return performance" >&2
+            exit 1
+          fi
+
+      - name: Build structural diagnostic note
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$REPORT_ROOT/structural-diagnostic.json"
+          turnover="$(jq -r '.frozen_baseline_trend_median_turnover' "$report")"
+          max_experiments="$(jq -r '.max_experiments' "$report")"
+          table="$REPORT_ROOT/transitions.md"
+          {
+            echo '| Symbol | Baseline transitions | Candidate transitions | Candidate refreshes | Candidate available rows | Max staleness h | Baseline trend turnover |'
+            echo '|---|---:|---:|---:|---:|---:|---:|'
+            jq -r '.by_symbol | to_entries[] | "| \(.key) | \(.value.baseline_transition_count) | \(.value.candidate_transition_count) | \(.value.candidate_refresh_count) | \(.value.candidate_available_count) | \(.value.candidate_max_staleness_hours_when_available) | \(.value.baseline_trend_turnover) |"' "$report"
+          } > "$table"
+          cat > "$REPORT_ROOT/comment.md" <<EOF
+          ## Experiment 0003 pre-result structural diagnostic
+
+          This diagnostic is **P&L-blind** for Experiment 0002 trend side effects and Experiment 0003. It verified the immutable Dataset/Study authority from recovered result Artifact \`$SOURCE_RESULT_ARTIFACT_ID\` (\`$SOURCE_RESULT_ARTIFACT_DIGEST\`).
+
+          - candidate signal identity: \`1d__log_return_4bar\` at exact index **115**
+          - resolved delta: exactly \`signal_index\` + \`signal_name\`
+          - frozen rule thresholds: entry \`0.01\`, exit \`0.0025\`
+          - frozen baseline trend median turnover: **$turnover**
+          - Study max experiments: **$max_experiments**; Experiment 0003 budget exists
+          - Experiment 0001 / 0002 remain terminal \`KEEP_BASELINE\`
+          - Experiment 0002 trend performance inspected for this design: **false**
+          - Experiment 0003 candidate executed/P&L computed: **false / false**
+
+          $(cat "$table")
+
+          These are structural diagnostics only. No profitability/winner/final/live claim is made.
+          EOF
+
+      - name: Upload immutable structural diagnostic
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.REPORT_ARTIFACT }}
+          path: ${{ env.REPORT_ROOT }}
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Publish structural diagnostic to Issue 522
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -n --rawfile body "$REPORT_ROOT/comment.md" '{body: $body}' > "$REPORT_ROOT/comment.json"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" --input "$REPORT_ROOT/comment.json" >/dev/null

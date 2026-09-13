@@ -13,10 +13,15 @@ from research.issue519_portable_exp002_execute import (
 from trade_rl.evaluation.experiments import ExperimentDecisionKind
 
 
-def test_direct_script_invocation_can_import_research_dependencies() -> None:
+def test_module_cli_invocation_can_import_research_dependencies() -> None:
     root = Path(__file__).resolve().parents[1]
     completed = subprocess.run(
-        [sys.executable, "research/issue519_portable_exp002_execute.py", "--help"],
+        [
+            sys.executable,
+            "-m",
+            "research.issue519_portable_exp002_execute",
+            "--help",
+        ],
         cwd=root,
         check=False,
         capture_output=True,

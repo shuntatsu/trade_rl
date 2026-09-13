@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import zipfile
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 
@@ -45,6 +46,26 @@ def _payload(*snapshots: list[str]) -> bytes:
     for snapshot in snapshots:
         rows.extend(snapshot)
     return _zip_csv(rows)
+
+
+def _drop_last_band(rows: list[str]) -> list[str]:
+    return rows[:-1]
+
+
+def _duplicate_last_band(rows: list[str]) -> list[str]:
+    return [*rows, rows[-1]]
+
+
+def _break_cumulative_depth(rows: list[str]) -> list[str]:
+    changed = list(rows)
+    changed[1] = changed[1].replace(",40.00000000,", ",1.00000000,")
+    return changed
+
+
+def _make_depth_negative(rows: list[str]) -> list[str]:
+    changed = list(rows)
+    changed[0] = changed[0].replace(",50.00000000,", ",-1.00000000,")
+    return changed
 
 
 def test_book_depth_url_and_plan_are_usds_m_daily_only() -> None:
@@ -126,29 +147,18 @@ def test_book_depth_parser_requires_exact_header() -> None:
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [
-        (lambda rows: rows[:-1], "bands"),
-        (lambda rows: [*rows, rows[-1]], "duplicate"),
-        (
-            lambda rows: [
-                *rows[:2],
-                rows[2].replace(",20.00000000,", ",1.00000000,"),
-                *rows[3:],
-            ],
-            "nondecreasing",
-        ),
-        (
-            lambda rows: [rows[0].replace(",50.00000000,", ",-1.00000000,"), *rows[1:]],
-            "non-negative",
-        ),
+        (_drop_last_band, "bands"),
+        (_duplicate_last_band, "duplicate"),
+        (_break_cumulative_depth, "nondecreasing"),
+        (_make_depth_negative, "non-negative"),
     ],
 )
 def test_book_depth_parser_rejects_structurally_invalid_snapshots(
-    mutate: object,
+    mutate: Callable[[list[str]], list[str]],
     match: str,
 ) -> None:
     rows = _snapshot("2025-05-19 11:07:31")
-    changed = mutate(rows)  # type: ignore[operator]
-    payload = _payload(changed)
+    payload = _payload(mutate(rows))
 
     with pytest.raises(BinanceTransportError, match=match):
         parse_vision_book_depth_archive(payload, source="fixture")
@@ -177,7 +187,7 @@ def test_book_depth_parser_rejects_bid_ask_implied_price_crossing() -> None:
     # Make the closest ask average price lower than the closest bid average price
     # while preserving cumulative depth/notional monotonicity on each side.
     ask_index = _EXPECTED_BANDS.index(1)
-    rows[ask_index] = f"2025-05-19 11:07:31,1,10.00000000,900.00000000"
+    rows[ask_index] = "2025-05-19 11:07:31,1,10.00000000,900.00000000"
     for band in (2, 3, 4, 5):
         index = _EXPECTED_BANDS.index(band)
         depth = float(band * 10)

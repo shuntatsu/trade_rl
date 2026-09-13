@@ -18,12 +18,13 @@ def _payload() -> bytes:
     for band in (-5, -4, -3, -2, -1, 1, 2, 3, 4, 5):
         depth = float(abs(band) * 10)
         price = 100.0 * (1.0 + band * 0.005)
-        rows.append(
-            f"2025-05-19 11:07:31,{band},{depth:.8f},{depth * price:.8f}"
-        )
+        rows.append(f"2025-05-19 11:07:31,{band},{depth:.8f},{depth * price:.8f}")
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("BTCUSDT-bookDepth-2025-05-19.csv", "\n".join(rows) + "\n")
+        archive.writestr(
+            "BTCUSDT-bookDepth-2025-05-19.csv",
+            "\n".join(rows) + "\n",
+        )
     return buffer.getvalue()
 
 

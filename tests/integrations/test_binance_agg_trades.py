@@ -29,7 +29,9 @@ _HEADER = (
 )
 
 
-def _zip_csv(rows: list[str], *, name: str = "BTCUSDT-aggTrades-2021-01-01.csv") -> bytes:
+def _zip_csv(
+    rows: list[str], *, name: str = "BTCUSDT-aggTrades-2021-01-01.csv"
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(name, "\n".join(rows) + "\n")
@@ -133,16 +135,24 @@ def test_agg_trades_parser_accepts_exact_header_or_headerless_identically() -> N
         "timestamps",
         "buyer_is_maker",
     ):
-        np.testing.assert_array_equal(getattr(with_header, field), getattr(without_header, field))
+        np.testing.assert_array_equal(
+            getattr(with_header, field), getattr(without_header, field)
+        )
         assert getattr(with_header, field).flags.writeable is False
 
     assert with_header.source_uri == source
-    assert with_header.raw_payload_sha256 == hashlib.sha256(with_header_payload).hexdigest()
+    assert (
+        with_header.raw_payload_sha256
+        == hashlib.sha256(with_header_payload).hexdigest()
+    )
     assert with_header.raw_payload_size_bytes == len(with_header_payload)
 
 
 def test_agg_trades_parser_rejects_unsupported_header() -> None:
-    rows = ["id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker", *_rows()]
+    rows = [
+        "id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker",
+        *_rows(),
+    ]
     with pytest.raises(BinanceTransportError, match="header"):
         parse_vision_agg_trades_archive(_zip_csv(rows), source="fixture")
 
@@ -200,7 +210,9 @@ def test_agg_trades_series_rejects_invalid_public_time_and_shape_evidence() -> N
     with pytest.raises(ValueError, match="timestamps.*NaT"):
         replace(
             series,
-            timestamps=np.array(["NaT", *series.timestamps[1:]], dtype="datetime64[ns]"),
+            timestamps=np.array(
+                ["NaT", *series.timestamps[1:]], dtype="datetime64[ns]"
+            ),
         )
     with pytest.raises(ValueError, match="prices.*shape|same length"):
         replace(series, prices=np.array([1.0], dtype=np.float64))

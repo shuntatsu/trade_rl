@@ -11,7 +11,7 @@ async function expectNoBlockingA11yViolations(page: Page): Promise<void> {
 }
 
 async function tabUntilText(page: Page, text: string): Promise<void> {
-  for (let index = 0; index < 80; index += 1) {
+  for (let index = 0; index < 100; index += 1) {
     await page.keyboard.press("Tab");
     const activeText = await page.evaluate(() => document.activeElement?.textContent ?? "");
     if (activeText.includes(text)) return;
@@ -19,10 +19,10 @@ async function tabUntilText(page: Page, text: string): Promise<void> {
   throw new Error(`keyboard focus did not reach: ${text}`);
 }
 
-test("overview and replay have no serious or critical accessibility violations", async ({
+test("overview, replay, and PPO have no serious or critical accessibility violations", async ({
   page,
 }) => {
-  for (const route of ["overview", "implementation-replay?step=risk-constrain"]) {
+  for (const route of ["overview", "implementation-replay", "implementation-ppo"]) {
     for (const theme of ["light", "dark"] as const) {
       await page.goto(`/#${route}`);
       await page.evaluate((value) => localStorage.setItem("trade-rl-guide-theme", value), theme);
@@ -33,29 +33,17 @@ test("overview and replay have no serious or critical accessibility violations",
   }
 });
 
-test("keyboard alone can select a sequence step and reach its source link", async (
-  { page },
-  testInfo,
-) => {
+test("keyboard alone can open implementation details and reach the exact source link", async ({
+  page,
+}) => {
   await page.goto("/#implementation-replay");
 
-  if (testInfo.project.name === "mobile-320") {
-    await tabUntilText(page, "次へ");
-    for (const step of ["decide", "intent-target", "risk-constrain"] as const) {
-      await page.keyboard.press("Enter");
-      await expect(page).toHaveURL(
-        new RegExp(`#implementation-replay\\?step=${step}$`),
-      );
-    }
-  } else {
-    await tabUntilText(page, "ハードリスクで目標を制約");
-    await page.keyboard.press("Enter");
-  }
-
-  await expect(page).toHaveURL(/#implementation-replay\?step=risk-constrain$/);
-  await expect(
-    page.getByRole("button", { name: /ハードリスクで目標を制約/ }),
-  ).toHaveAttribute("aria-current", "step");
+  await tabUntilText(page, "実装詳細: ハードリスクを適用");
+  await page.keyboard.press("Enter");
+  const details = page.locator(
+    'details[data-symbol="trade_rl.risk.pretrade.PreTradeRisk.constrain"]',
+  );
+  await expect(details).toHaveAttribute("open", "");
 
   await tabUntilText(page, "実装をGitHubで開く");
   const href = await page.evaluate(() => (document.activeElement as HTMLAnchorElement).href);
@@ -81,12 +69,13 @@ test("search dialog traps focus and restores the trigger on close", async ({ pag
   await expect(trigger).toBeFocused();
 });
 
-test("reduced motion keeps the guide usable", async ({ page }) => {
+test("reduced motion keeps all document information available", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#data-flow");
   await expect(
     page.getByRole("heading", { level: 1, name: "データと特徴量の流れ" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "次のステップ" }).click();
-  await expect(page.getByText("再取得しても照合できる状態にする")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "全体の流れ" })).toBeVisible();
+  await expect(page.getByText(/再取得しても照合できる状態/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "次のステップ" })).toHaveCount(0);
 });

@@ -157,7 +157,11 @@ jobs:
           UPLOAD_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
         run: |
           set -euo pipefail
-          test "${API_DIGEST}" = "${UPLOAD_DIGEST}"
+          api_hex="${API_DIGEST#sha256:}"
+          upload_hex="${UPLOAD_DIGEST#sha256:}"
+          [[ "${api_hex}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${upload_hex}" =~ ^[0-9a-f]{64}$ ]]
+          test "${api_hex}" = "${upload_hex}"
       - name: Re-fetch sealed artifact through GitHub API
         env:
           GH_TOKEN: ${{ github.token }}

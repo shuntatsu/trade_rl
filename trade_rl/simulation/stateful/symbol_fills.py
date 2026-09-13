@@ -64,6 +64,33 @@ def _configured_fraction(
     return float(runtime.executor.cost.trigger_volume_fractions[index])
 
 
+def _capacity_reference(
+    runtime: StatefulExecutionRuntime,
+    context: StatefulBarContext,
+    *,
+    symbol: int,
+) -> tuple[float, float, float]:
+    executor = runtime.executor
+    dataset = executor.dataset
+    processing_index = context.processing_index
+    if executor.cost.processing_bar_volume_capacity:
+        reference_index = processing_index
+        reference_prices = context.open_prices
+    else:
+        reference_index = processing_index - 1
+        if reference_index < 0:
+            return 0.0, 0.0, float(context.open_prices[symbol])
+        reference_prices = dataset.close[reference_index]
+    market_notional = float(
+        dataset.market_notional(reference_index, reference_prices)[symbol]
+    )
+    return (
+        float(dataset.volume[reference_index, symbol]),
+        market_notional,
+        float(reference_prices[symbol]),
+    )
+
+
 def _execution_cost(
     runtime: StatefulExecutionRuntime,
     order: PendingOrder,
@@ -209,17 +236,14 @@ class StatefulSymbolFillProcessor:
 
             if not requests:
                 continue
-            market_notional = float(
-                dataset.market_notional(
-                    processing_index,
-                    context.open_prices,
-                )[symbol]
+            capacity_volume, capacity_market_notional, capacity_price = (
+                _capacity_reference(runtime, context, symbol=symbol)
             )
             allocations, capacity = allocate_symbol_capacity(
                 requests=requests,
-                processing_volume=float(dataset.volume[processing_index, symbol]),
-                processing_market_notional=market_notional,
-                price=float(context.open_prices[symbol]),
+                processing_volume=capacity_volume,
+                processing_market_notional=capacity_market_notional,
+                price=capacity_price,
                 contract_multiplier=float(
                     dataset.resolved_array("contract_multipliers")[symbol]
                 ),

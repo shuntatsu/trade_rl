@@ -1,0 +1,399 @@
+name: Issue 522 Experiment 0003 preregistration
+
+on:
+  push:
+    branches:
+      - tmp/issue522-exp0003-prereg
+    paths:
+      - .github/workflows/issue522-exp003-prereg.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  ISSUE_NUMBER: "522"
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  STRUCTURAL_HELPER_BLOB: 1d3faaa235feac78521f3077a2bd8d6736619b64
+  PREREG_HELPER_BLOB: 4fa46432769a9a89d877c004bf742d471d2b7340
+
+  SOURCE_RUN_ID: "34750227256"
+  SOURCE_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  SOURCE_RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  SOURCE_RESULT_ARTIFACT_ID: "10315084502"
+  SOURCE_RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  SOURCE_FRESH_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  SOURCE_FRESH_ARTIFACT_ID: "10316125529"
+  SOURCE_FRESH_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+
+  STRUCTURAL_RUN_ID: "34751469557"
+  STRUCTURAL_HEAD: 9b924637b5835ccfe69fb68725ac2330fefa0b71
+  STRUCTURAL_ARTIFACT: canonical-m2-portable-exp003-structural-diagnostic-v1-34751469557
+  STRUCTURAL_ARTIFACT_ID: "10316141669"
+  STRUCTURAL_ARTIFACT_DIGEST: sha256:84be1fbdc039ecc6cd945d9d8c81ed594df424a23e112f1b34995bd07ec839c6
+
+  ROOT: /tmp/issue522-exp003-prereg
+  STRUCTURAL_ROOT: /tmp/issue522-exp003-structural
+  PREVERIFY_ROOT: /tmp/issue522-exp003-prereg-preverify
+  FRESH_ROOT: /tmp/issue522-exp003-prereg-fresh
+  FRESH_STRUCTURAL_ROOT: /tmp/issue522-exp003-structural-fresh
+  FRESH_VERIFY_ROOT: /tmp/issue522-exp003-prereg-fresh-verify
+
+  PREREG_ARTIFACT: canonical-m2-portable-exp003-prereg-v1-${{ github.run_id }}
+  PREVERIFY_ARTIFACT: canonical-m2-portable-exp003-prereg-preverify-v1-${{ github.run_id }}
+  FRESH_VERIFY_ARTIFACT: canonical-m2-portable-exp003-prereg-fresh-verification-v1-${{ github.run_id }}
+
+jobs:
+  preregister-and-preverify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      prereg_artifact_id: ${{ steps.upload_prereg.outputs.artifact-id }}
+      prereg_artifact_digest_hex: ${{ steps.upload_prereg.outputs.artifact-digest }}
+      preverify_artifact_id: ${{ steps.upload_preverify.outputs.artifact-id }}
+      preverify_artifact_digest_hex: ${{ steps.upload_preverify.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and helper bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue522_portable_exp003.py)" = "$STRUCTURAL_HELPER_BLOB"
+          test "$(git hash-object research/issue522_portable_exp003_prereg.py)" = "$PREREG_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify source and structural authorities through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          test "$(jq -r '.status' <<<"$source_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$source_run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$source_run")" = "$SOURCE_HEAD"
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$SOURCE_RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$SOURCE_RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+          source_fresh="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_FRESH_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$source_fresh")" = "$SOURCE_FRESH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$source_fresh")" = "$SOURCE_FRESH_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$source_fresh")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$source_fresh")" = "false"
+
+          structural_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STRUCTURAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$structural_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$structural_run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$structural_run")" = "$STRUCTURAL_HEAD"
+          structural="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$STRUCTURAL_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$structural")" = "$STRUCTURAL_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$structural")" = "$STRUCTURAL_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$structural")" = "$STRUCTURAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$structural")" = "false"
+
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+
+      - name: Download exact formally verified Experiment 0002 result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_RESULT_ARTIFACT }}
+          path: ${{ env.ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Download exact PnL-blind structural diagnostic
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.STRUCTURAL_ARTIFACT }}
+          path: ${{ env.STRUCTURAL_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.STRUCTURAL_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test preregistration set
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue522_portable_exp003.py research/issue522_portable_exp003_prereg.py
+          uv run ruff check research/issue522_portable_exp003.py research/issue522_portable_exp003_prereg.py research/test_issue522_portable_exp003.py research/test_issue522_portable_exp003_prereg.py
+          uv run pytest -q research/test_issue522_portable_exp003.py research/test_issue522_portable_exp003_prereg.py
+
+      - name: Bind all prior Experiment bytes before preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e "$ROOT/study/experiments/0003"
+          test ! -e "$ROOT/portable-exp003-prereg-index.json"
+          (
+            cd "$ROOT/study/experiments"
+            find 0001 0002 -type f ! -name .mutation.lock -print0 | sort -z | xargs -0 sha256sum
+          ) > /tmp/exp003-prior-before.sha256
+
+      - name: Append only Experiment 0003 definition and preregistration index
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue522_portable_exp003_prereg preregister \
+            --root "$ROOT" \
+            --structural-report "$STRUCTURAL_ROOT/structural-diagnostic.json" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          test -f "$ROOT/study/experiments/0003/definition.json"
+          test -f "$ROOT/portable-exp003-prereg-index.json"
+          test ! -e "$ROOT/study/experiments/0003/candidate"
+          test ! -e "$ROOT/study/experiments/0003/verification.json"
+          test ! -e "$ROOT/study/experiments/0003/comparison.json"
+          test ! -e "$ROOT/study/experiments/0003/decision.json"
+          test ! -e "$ROOT/study/experiments/0003/failure.json"
+          jq -e '
+            .experiment_sequence == 3 and
+            .factor == "RULE_SIGNAL" and
+            .formal_target_strategy == "trend" and
+            .frozen_baseline_trend_median_turnover == 858.6801864417196 and
+            .candidate_signal_name == "1d__log_return_4bar" and
+            .candidate_signal_index == 115 and
+            .resolved_changed_paths == ["signal_index","signal_name"] and
+            .formal_decision_rule.accept.candidate_trend_positive_total_return_symbols == 5 and
+            .formal_decision_rule.keep_baseline.candidate_trend_positive_total_return_symbols_max == 3 and
+            .experiment_0002_trend_performance_inspected_for_design == false and
+            .candidate_executed == false and
+            .candidate_pnl_computed_before_preregistration == false and
+            .result_inspected_before_preregistration == false and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$ROOT/portable-exp003-prereg-index.json" >/dev/null
+
+      - name: Prove prior Experiment bytes unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd "$ROOT/study/experiments"
+            find 0001 0002 -type f ! -name .mutation.lock -print0 | sort -z | xargs -0 sha256sum
+          ) > /tmp/exp003-prior-after.sha256
+          diff -u /tmp/exp003-prior-before.sha256 /tmp/exp003-prior-after.sha256
+
+      - name: Independently verify preregistration before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREVERIFY_ROOT"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue522_portable_exp003_prereg verify-prereg \
+            --root "$ROOT" \
+            --structural-report "$STRUCTURAL_ROOT/structural-diagnostic.json" \
+            --report-root "$PREVERIFY_ROOT" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '
+            .verified == true and
+            .formal_target_strategy == "trend" and
+            .candidate_executed == false and
+            .result_inspected == false and
+            .experiment_0002_trend_performance_inspected_for_design == false and
+            .execution_authorized == false
+          ' "$PREVERIFY_ROOT/prereg-verification.json" >/dev/null
+
+      - name: Upload immutable Experiment 0003 preregistration
+        id: upload_prereg
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload pre-upload preregistration verification
+        id: upload_preverify
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PREVERIFY_ARTIFACT }}
+          path: ${{ env.PREVERIFY_ROOT }}
+          include-hidden-files: true
+          retention-days: 90
+
+  fresh-reverify:
+    needs: preregister-and-preverify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact preregistration head on fresh runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and verifier helper bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue522_portable_exp003.py)" = "$STRUCTURAL_HELPER_BLOB"
+          test "$(git hash-object research/issue522_portable_exp003_prereg.py)" = "$PREREG_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify published preregistration metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREREG_ID: ${{ needs.preregister-and-preverify.outputs.prereg_artifact_id }}
+          PREREG_DIGEST_HEX: ${{ needs.preregister-and-preverify.outputs.prereg_artifact_digest_hex }}
+          PREVERIFY_ID: ${{ needs.preregister-and-preverify.outputs.preverify_artifact_id }}
+          PREVERIFY_DIGEST_HEX: ${{ needs.preregister-and-preverify.outputs.preverify_artifact_digest_hex }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$GITHUB_SHA"
+          prereg="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ID")"
+          test "$(jq -r '.name' <<<"$prereg")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$prereg")" = "sha256:$PREREG_DIGEST_HEX"
+          test "$(jq -r '.workflow_run.id' <<<"$prereg")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$prereg")" = "false"
+          preverify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREVERIFY_ID")"
+          test "$(jq -r '.name' <<<"$preverify")" = "$PREVERIFY_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$preverify")" = "sha256:$PREVERIFY_DIGEST_HEX"
+          test "$(jq -r '.workflow_run.id' <<<"$preverify")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$preverify")" = "false"
+
+      - name: Re-download immutable preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.FRESH_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Re-download exact structural diagnostic
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.STRUCTURAL_ARTIFACT }}
+          path: ${{ env.FRESH_STRUCTURAL_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.STRUCTURAL_RUN_ID }}
+
+      - name: Compile lint and test fresh preregistration verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue522_portable_exp003.py research/issue522_portable_exp003_prereg.py
+          uv run ruff check research/issue522_portable_exp003.py research/issue522_portable_exp003_prereg.py research/test_issue522_portable_exp003.py research/test_issue522_portable_exp003_prereg.py
+          uv run pytest -q research/test_issue522_portable_exp003.py research/test_issue522_portable_exp003_prereg.py
+
+      - name: Fresh-runner independent preregistration verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$FRESH_VERIFY_ROOT"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue522_portable_exp003_prereg verify-prereg \
+            --root "$FRESH_ROOT" \
+            --structural-report "$FRESH_STRUCTURAL_ROOT/structural-diagnostic.json" \
+            --report-root "$FRESH_VERIFY_ROOT" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '
+            .verified == true and
+            .formal_target_strategy == "trend" and
+            .candidate_executed == false and
+            .result_inspected == false and
+            .experiment_0002_trend_performance_inspected_for_design == false and
+            .execution_authorized == false
+          ' "$FRESH_VERIFY_ROOT/prereg-verification.json" >/dev/null
+
+      - name: Seal execution authorization without result inspection
+        shell: bash
+        env:
+          PREREG_ID: ${{ needs.preregister-and-preverify.outputs.prereg_artifact_id }}
+          PREREG_DIGEST_HEX: ${{ needs.preregister-and-preverify.outputs.prereg_artifact_digest_hex }}
+        run: |
+          set -euo pipefail
+          definition_digest="$(jq -r '.definition_digest' "$FRESH_ROOT/portable-exp003-prereg-index.json")"
+          requested_digest="$(jq -r '.requested_candidate_config_digest' "$FRESH_ROOT/portable-exp003-prereg-index.json")"
+          report_sha="$(sha256sum "$FRESH_VERIFY_ROOT/prereg-verification.json" | awk '{print $1}')"
+          jq -n \
+            --arg prereg_run "$GITHUB_RUN_ID" \
+            --arg prereg_head "$GITHUB_SHA" \
+            --arg prereg_id "$PREREG_ID" \
+            --arg prereg_digest "sha256:$PREREG_DIGEST_HEX" \
+            --arg structural_id "$STRUCTURAL_ARTIFACT_ID" \
+            --arg structural_digest "$STRUCTURAL_ARTIFACT_DIGEST" \
+            --arg prereg_helper "$PREREG_HELPER_BLOB" \
+            --arg structural_helper "$STRUCTURAL_HELPER_BLOB" \
+            --arg definition_digest "$definition_digest" \
+            --arg requested_digest "$requested_digest" \
+            --arg report_sha "$report_sha" '
+              {
+                schema_version: "canonical_m2_portable_exp003_prereg_execution_authorization_v1",
+                preregistration_run_id: $prereg_run,
+                preregistration_head: $prereg_head,
+                preregistration_artifact_id: $prereg_id,
+                preregistration_artifact_digest: $prereg_digest,
+                structural_diagnostic_artifact_id: $structural_id,
+                structural_diagnostic_artifact_digest: $structural_digest,
+                prereg_helper_blob: $prereg_helper,
+                structural_helper_blob: $structural_helper,
+                definition_digest: $definition_digest,
+                requested_candidate_config_digest: $requested_digest,
+                fresh_prereg_verification_report_sha256: $report_sha,
+                formal_target_strategy: "trend",
+                candidate_executed: false,
+                result_inspected: false,
+                experiment_0002_trend_performance_inspected_for_design: false,
+                fresh_runner_reverified_preregistration: true,
+                execution_authorized: true,
+                profitability_claimed: false,
+                winner_claimed: false,
+                final_test_authorized: false,
+                production_authorized: false
+              }
+            ' > "$FRESH_VERIFY_ROOT/execution-authorization.json"
+
+      - name: Upload fresh-runner preregistration verification and authorization
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_VERIFY_ARTIFACT }}
+          path: ${{ env.FRESH_VERIFY_ROOT }}
+          include-hidden-files: true
+          retention-days: 90

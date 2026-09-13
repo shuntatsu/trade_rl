@@ -27,15 +27,15 @@
   ],
   "sections": [
     {
-      "title": "Portable baseline成立とstrategy勝利は別",
+      "title": "再現可能な基準系の成立と戦略の勝利は別",
       "body": [
-        "現在のEvidenceは、CPU-portableなDataset identity、real-cost条件、結果前preregistration、再現可能なbaseline pathが成立したことを示します。strategyの優位性はまだ示していません。"
+        "現在の検証証拠は、CPU差を抑えたDataset identity、実行コスト条件、結果前の事前登録、再現可能なbaseline経路が成立したことを示します。戦略の優位性はまだ示していません。"
       ]
     },
     {
-      "title": "Study 004は履歴として保持",
+      "title": "過去のStudy 004は履歴として保持",
       "body": [
-        "Study 004はpre-portable numericsで生成されたimmutable evidenceとして残しますが、current canonical inputはportable successorへ移行しました。旧Studyは書き換えません。"
+        "Study 004はportable numerics導入前に生成された変更不能な証拠として残しますが、現在の標準入力はportable successorへ移行しました。旧Studyは書き換えません。"
       ]
     }
   ],
@@ -46,43 +46,43 @@
         "id": "verified",
         "label": "検証済み",
         "items": [
-          "market_build_v3 / portable_feature_numerics_v1を固定",
-          "full priced Dataset identityをheterogeneous AMD / Intel runnerでbyte-identicalに再現",
-          "結果前のplan-only portable preregistrationをbaselineより先に封印",
-          "5 symbols × 8 strategies × 5 seedsのportable baseline evidence",
-          "tradeあり175 observationsで175 / 175 positive total_cost",
-          "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算",
+          "市場データ構築 v3（market_build_v3）と再現可能数値計算 v1（portable_feature_numerics_v1）を固定",
+          "価格付きDataset全体のidentityをAMD / Intelの異なるrunnerでbyte-identicalに再現",
+          "結果を見る前のportable preregistrationをbaseline実行より先に封印",
+          "5銘柄 × 8戦略 × 5 seedのportable baseline evidenceを生成",
+          "取引あり175 observationsすべてでtotal_costが正値であることを確認",
+          "別runnerでDataset / StudyPlanを再構築し、生のCandidate Runsから独立再計算",
           "portable Experiment 0001の結果前preregistrationとfresh verifierを完了し、bound runを開始"
         ]
       },
       {
         "id": "pending",
-        "label": "次に実行",
+        "label": "現在進行中・次に行うこと",
         "items": [
           "事前登録済みのbound 5-seed candidate runだけを完了させる",
-          "result Artifactをexact runへbindしてimmutable evidenceとして固定",
-          "pre-result-frozen verifierでfactor isolation・raw-return equality・metric invariance・cost semanticsを独立再検証",
-          "検証Green後だけformal decisionを解釈し、次のExperimentまたはwinner / no-winner判断へ進む"
+          "result Artifactをexact runへ結び付け、変更不能な検証証拠として固定する",
+          "結果を見る前に固定したverifierでfactor isolation・raw-return equality・metric invariance・cost semanticsを独立再検証する",
+          "検証がGreenになった後だけformal decisionを解釈し、次のExperimentまたはwinner / no-winner判断へ進む"
         ]
       },
       {
         "id": "not-claimed",
-        "label": "まだ主張しない",
+        "label": "まだ主張しないこと",
         "items": [
-          "profitability",
-          "winner選定",
+          "継続的な利益性（profitability）",
+          "勝者戦略の選定（winner）",
           "PPOやforecastがruleより優れること",
-          "Production / live order routingの認可"
+          "本番・live order routingの認可"
         ]
       },
       {
         "id": "limitations",
-        "label": "残存制約",
+        "label": "残っている制約",
         "items": [
-          "portable numerics保証はcanonical Dataset constructionとrepositoryのsupported Python/runner環境が対象",
-          "fee/spreadは再現可能なresearch assumptionsでありaccount-specific venue truthではない",
-          "Dataset-authoritative market-impact/slippage modelは未導入",
-          "PPO cross-seed aggregationはcurrent mainで修正済みだが、進行中Experiment 0001はfreeze済み旧implementationを維持しPPO aggregate metricをdecision oracleに使わない"
+          "portable numerics保証は標準Dataset構築とrepositoryが支援するPython/runner環境が対象",
+          "手数料・spreadは再現可能な研究仮定であり、account-specificな取引所実績値そのものではない",
+          "Dataset-authoritativeなmarket-impact/slippage modelは未導入",
+          "PPOのcross-seed aggregationはcurrent mainで修正済みだが、進行中Experiment 0001はfreeze済み旧implementationを維持し、PPO aggregate metricをdecision oracleに使わない"
         ]
       }
     ]

@@ -1,0 +1,33 @@
+name: Temporary Issue 527 preregistration CI
+
+on:
+  push:
+    branches:
+      - research/issue527-bookdepth-capacity-prereg
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Targeted preregistration tests
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_book_depth_capacity_protocol.py

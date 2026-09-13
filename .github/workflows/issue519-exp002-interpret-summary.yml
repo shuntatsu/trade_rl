@@ -1,0 +1,112 @@
+name: Issue 519 Experiment 0002 authorized interpretation summary
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp002-interpret-summary.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  FRESH_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  FRESH_ARTIFACT_ID: "10316125529"
+  FRESH_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+  RESULT_ROOT: /tmp/issue519-exp002-authorized-result
+
+jobs:
+  summarize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact summary head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify formal recovery and immutable artifact metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+
+          fresh="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$fresh")" = "$FRESH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$fresh")" = "$FRESH_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$fresh")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$fresh")" = "false"
+
+      - name: Download immutable authorized result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Emit authorized Experiment 0002 summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          index="$RESULT_ROOT/portable-exp002-result-index.json"
+          test -f "$index"
+          jq -e '
+            .candidate_execution_count == 1 and
+            .candidate_rerun == false and
+            .candidate_reexecuted_during_recovery == false and
+            .comparison_recomputed_during_recovery == false and
+            .verification_status == "CONTROLLED" and
+            .changed_paths == [["signal_index"], ["signal_name"]] and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$index" >/dev/null
+          echo 'AUTHORIZED_EXP002_SUMMARY_BEGIN'
+          jq '{
+            decision,
+            decision_digest,
+            candidate_evidence_fingerprint,
+            verification_status,
+            changed_paths,
+            candidate_execution_count,
+            candidate_rerun,
+            candidate_reexecuted_during_recovery,
+            comparison_recomputed_during_recovery,
+            independent_raw_evidence: {
+              formal_decision: .independent_raw_evidence.formal_decision,
+              mean_reversion_formal_inputs: .independent_raw_evidence.mean_reversion_formal_inputs,
+              mean_reversion: .independent_raw_evidence.deterministic_effects.mean_reversion,
+              trend: .independent_raw_evidence.deterministic_effects.trend,
+              candidate_cost_semantics: .independent_raw_evidence.candidate_cost_semantics,
+              unaffected_raw_return_equality_checks: .independent_raw_evidence.unaffected_raw_return_equality_checks,
+              ppo_exact_zero_effect_checks: .independent_raw_evidence.ppo_exact_zero_effect_checks
+            },
+            profitability_claimed,
+            winner_claimed,
+            final_test_authorized,
+            production_authorized
+          }' "$index"
+          echo 'AUTHORIZED_EXP002_SUMMARY_END'

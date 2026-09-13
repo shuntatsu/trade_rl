@@ -1,0 +1,89 @@
+name: Issue 522 Exp3 read source binding
+
+on:
+  push:
+    branches:
+      - tmp/issue522-exp0003-execute
+    paths:
+      - .github/workflows/issue522-exp003-read-source-binding.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  RESULT_RUN_ID: "34758416615"
+  RESULT_ARTIFACT: canonical-m2-portable-exp003-result-v1-34758416615
+  RESULT_ARTIFACT_ID: "10319480792"
+  RESULT_ARTIFACT_DIGEST: sha256:c7fe69e0dfa3ca934cec706a657d97c6caa5088362f92fc46e201f79d44e792f
+  CORRECTED_RUN_ID: "34762988649"
+  CORRECTED_ARTIFACT_ID: "10319822414"
+  CORRECTED_ARTIFACT_DIGEST: sha256:ac0f220719b38bc4796987dd3296f171faa831427f3495f6e60252844a4f8dac
+  ROOT: /tmp/issue522-exp003-source-binding
+
+jobs:
+  read-source-binding:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout read-only head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: API-bind result and corrected authorization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$RESULT_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+          corrected="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$CORRECTED_ARTIFACT_ID")"
+          test "$(jq -r '.digest' <<<"$corrected")" = "$CORRECTED_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$corrected")" = "$CORRECTED_RUN_ID"
+          test "$(jq -r '.expired' <<<"$corrected")" = "false"
+
+      - name: Download exact verified result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.RESULT_RUN_ID }}
+
+      - name: Print exact Experiment 0003 source binding only
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -c '{
+            schema_version,
+            issue_number,
+            study_digest,
+            baseline_evidence_fingerprint,
+            dataset_id,
+            dataset_artifact_digest,
+            implementation_digest,
+            runtime_environment_digest,
+            definition_digest,
+            requested_candidate_config_digest,
+            candidate_evidence_fingerprint,
+            verification_digest,
+            verification_status,
+            changed_paths,
+            comparison_digest,
+            decision_digest,
+            decision,
+            candidate_execution_count,
+            candidate_rerun,
+            profitability_claimed,
+            winner_claimed,
+            final_test_authorized,
+            production_authorized
+          }' "$ROOT/portable-exp003-result-index.json"

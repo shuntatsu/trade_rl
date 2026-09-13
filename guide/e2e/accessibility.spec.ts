@@ -41,9 +41,12 @@ test("keyboard alone can select a sequence step and reach its source link", asyn
 
   if (testInfo.project.name === "mobile-320") {
     await tabUntilText(page, "次へ");
-    await page.keyboard.press("Enter");
-    await page.keyboard.press("Enter");
-    await page.keyboard.press("Enter");
+    for (const step of ["decide", "intent-target", "risk-constrain"] as const) {
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(
+        new RegExp(`#implementation-replay\\?step=${step}$`),
+      );
+    }
   } else {
     await tabUntilText(page, "ハードリスクで目標を制約");
     await page.keyboard.press("Enter");

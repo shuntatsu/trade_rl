@@ -1,0 +1,37 @@
+name: Temporary Markdown Guide Agent contract patch
+
+on:
+  push:
+    branches:
+      - guide/markdown-first-redesign
+    paths:
+      - .github/workflows/tmp-promote-markdown-guide-agents.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: guide/markdown-first-redesign
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Patch Agent contract
+        run: python3 .github/tmp_patch_markdown_guide_agents.py
+
+      - name: Commit Agent contract only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add docs/AGENTS.md
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: route Agents through Markdown-first Guide content"
+          git push origin HEAD:guide/markdown-first-redesign

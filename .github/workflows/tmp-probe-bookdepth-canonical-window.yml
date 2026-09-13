@@ -1,0 +1,60 @@
+name: Temporary Binance bookDepth canonical-window probe
+
+on:
+  push:
+    branches:
+      - feat/binance-bookdepth-evidence
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install core
+        run: uv sync --extra dev
+      - name: Fetch canonical-window public archives
+        run: |
+          set -euo pipefail
+          for date in 2023-01-01 2024-01-01 2024-12-31; do
+            curl --fail --location --retry 3 \
+              --output "/tmp/bookdepth-${date}.zip" \
+              "https://data.binance.vision/data/futures/um/daily/bookDepth/BTCUSDT/BTCUSDT-bookDepth-${date}.zip"
+          done
+      - name: Parse exact downloaded evidence
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.integrations.binance import parse_vision_book_depth_archive
+
+          for date in ("2023-01-01", "2024-01-01", "2024-12-31"):
+              path = Path(f"/tmp/bookdepth-{date}.zip")
+              payload = path.read_bytes()
+              series = parse_vision_book_depth_archive(
+                  payload,
+                  source=f"https://data.binance.vision/data/futures/um/daily/bookDepth/BTCUSDT/BTCUSDT-bookDepth-{date}.zip",
+              )
+              assert series.timestamps.size > 0, date
+              assert not np.any(np.isnat(series.timestamps)), date
+              assert not np.any(np.isnat(series.available_at)), date
+              assert str(series.timestamps[0])[:10] == date, (date, series.timestamps[0])
+              assert str(series.timestamps[-1])[:10] == date, (date, series.timestamps[-1])
+              print(
+                  f"DATE={date} SNAPSHOTS={series.timestamps.size} "
+                  f"FIRST={series.timestamps[0]} LAST={series.timestamps[-1]} "
+                  f"SHA256={series.raw_payload_sha256} SIZE={series.raw_payload_size_bytes}"
+              )
+          PY

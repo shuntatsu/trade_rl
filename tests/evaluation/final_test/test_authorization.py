@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from trade_rl.evaluation.experiments import (
     freeze_study,
 )
 from trade_rl.evaluation.final_test import (
+    FinalEvaluationAuthorization,
     authorize_final_evaluation,
     inspect_final_evaluation_authorization,
 )
@@ -268,3 +270,57 @@ def test_authorization_rejects_symlink_output_root(
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
+
+
+def test_authorization_rejects_output_inside_frozen_study(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+    before = _study_file_digests(study_root)
+
+    with pytest.raises(InvalidExperimentStateError, match="outside"):
+        authorize_final_evaluation(
+            study_root / "final-authorization",
+            study_root=study_root,
+            final_evaluation_start=_FINAL_START,
+            final_evaluation_stop_exclusive=_FINAL_STOP,
+            authorized_by="final-gate",
+            authorized_at=_AUTHORIZED_AT,
+        )
+
+    assert _study_file_digests(study_root) == before
+
+
+def test_concurrent_authorization_publication_has_single_winner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+    output = tmp_path / "authorization"
+
+    def attempt(actor: str) -> FinalEvaluationAuthorization | InvalidExperimentStateError:
+        try:
+            return authorize_final_evaluation(
+                output,
+                study_root=study_root,
+                final_evaluation_start=_FINAL_START,
+                final_evaluation_stop_exclusive=_FINAL_STOP,
+                authorized_by=actor,
+                authorized_at=_AUTHORIZED_AT,
+            )
+        except InvalidExperimentStateError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(attempt, ("gate-a", "gate-b")))
+
+    successes = [item for item in results if isinstance(item, FinalEvaluationAuthorization)]
+    failures = [item for item in results if isinstance(item, InvalidExperimentStateError)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "already exists" in str(failures[0])
+    assert (
+        inspect_final_evaluation_authorization(output, study_root=study_root)
+        == successes[0]
+    )

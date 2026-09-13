@@ -13,6 +13,7 @@ permissions:
 
 env:
   FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  RECOVERY_HELPER_BLOB: df5718c2494efbe175e54678176b2906057acac6
   FAILURE_RUN_ID: "34707652616"
   FAILURE_RUN_HEAD: 52e9c573fbee9ca24eac031f7dad5c6646ca76d8
   FAILURE_ARTIFACT: canonical-m2-portable-exp001-execution-failure-34707652616
@@ -33,10 +34,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prove frozen production subtree unchanged
+      - name: Prove frozen production subtree and recovery helper binding
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git hash-object research/issue511_portable_exp001_recovery.py)" = "$RECOVERY_HELPER_BLOB"
           git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
           test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
 

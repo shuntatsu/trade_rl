@@ -1,0 +1,27 @@
+name: Temporary Issue 530 format preview
+
+on:
+  push:
+    branches:
+      - fix/issue530-causal-capacity
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Show exact format diff
+        run: uv run ruff format --diff tests/simulation/test_execution_v2.py

@@ -1,0 +1,274 @@
+name: Temporary Issue 532 aggTrades structural probe
+
+on:
+  push:
+    branches:
+      - tmp/issue532-aggtrades-probe
+    paths:
+      - .github/workflows/tmp-issue532-aggtrades-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact probe head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Probe frozen aggTrades roster without economic summaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue532
+          mkdir -p /tmp/issue532/downloads
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          import subprocess
+          import sys
+          import zipfile
+          from decimal import Decimal, InvalidOperation
+          from pathlib import Path
+
+          symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+          dates = ("2021-01-01", "2021-07-01", "2022-01-01", "2022-07-01")
+          root = Path("/tmp/issue532")
+          downloads = root / "downloads"
+          results: list[dict[str, object]] = []
+
+          def curl(url: str, output: Path) -> bool:
+              completed = subprocess.run(
+                  [
+                      "curl",
+                      "--fail",
+                      "--location",
+                      "--silent",
+                      "--show-error",
+                      "--retry",
+                      "3",
+                      "--retry-delay",
+                      "1",
+                      "--connect-timeout",
+                      "15",
+                      "--max-time",
+                      "180",
+                      "--output",
+                      str(output),
+                      url,
+                  ],
+                  check=False,
+              )
+              return completed.returncode == 0
+
+          def positive_decimal(text: str, field: str) -> None:
+              try:
+                  value = Decimal(text)
+              except InvalidOperation as error:
+                  raise ValueError(f"{field} is not decimal") from error
+              if not value.is_finite() or value <= 0:
+                  raise ValueError(f"{field} must be finite and positive")
+
+          for symbol in symbols:
+              for date in dates:
+                  stem = f"{symbol}-aggTrades-{date}"
+                  url = (
+                      "https://data.binance.vision/data/futures/um/daily/aggTrades/"
+                      f"{symbol}/{stem}.zip"
+                  )
+                  zip_path = downloads / f"{stem}.zip"
+                  checksum_path = downloads / f"{stem}.zip.CHECKSUM"
+                  record: dict[str, object] = {
+                      "symbol": symbol,
+                      "date": date,
+                      "url": url,
+                      "available": False,
+                      "valid": False,
+                  }
+                  if not curl(url, zip_path):
+                      record["failure"] = "archive_missing_or_http_error"
+                      results.append(record)
+                      continue
+
+                  payload = zip_path.read_bytes()
+                  digest = hashlib.sha256(payload).hexdigest()
+                  record["available"] = True
+                  record["size_bytes"] = len(payload)
+                  record["sha256"] = digest
+
+                  checksum_url = url + ".CHECKSUM"
+                  checksum_available = curl(checksum_url, checksum_path)
+                  record["checksum_url"] = checksum_url
+                  record["checksum_available"] = checksum_available
+                  if checksum_available:
+                      checksum_text = checksum_path.read_text(encoding="utf-8").strip()
+                      record["checksum_text"] = checksum_text
+                      fields = checksum_text.split()
+                      expected = fields[0].lower() if fields else ""
+                      record["checksum_algorithm"] = (
+                          "sha256" if len(expected) == 64 else "unknown"
+                      )
+                      record["checksum_verified"] = (
+                          len(expected) == 64 and expected == digest
+                      )
+                      if not record["checksum_verified"]:
+                          record["failure"] = "checksum_mismatch_or_unknown_algorithm"
+                          results.append(record)
+                          continue
+                  else:
+                      record["checksum_verified"] = None
+
+                  try:
+                      with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                          names = archive.namelist()
+                          record["zip_members"] = names
+                          expected_member = f"{stem}.csv"
+                          if names != [expected_member]:
+                              raise ValueError(
+                                  f"unexpected ZIP members: expected={[expected_member]!r}, actual={names!r}"
+                              )
+                          stream = io.TextIOWrapper(
+                              archive.open(expected_member),
+                              encoding="utf-8-sig",
+                              newline="",
+                          )
+                          rows = csv.reader(stream)
+                          try:
+                              first = next(rows)
+                          except StopIteration as error:
+                              raise ValueError("empty CSV") from error
+
+                          header_present = False
+                          try:
+                              int(first[0])
+                          except (ValueError, IndexError):
+                              header_present = True
+                              header = tuple(first)
+                              try:
+                                  first_data = next(rows)
+                              except StopIteration as error:
+                                  raise ValueError("header-only CSV") from error
+                              data_rows = (first_data, rows)
+                          else:
+                              header = None
+                              data_rows = (first, rows)
+
+                          record["header_present"] = header_present
+                          record["header"] = None if header is None else list(header)
+
+                          requested_date = dt.date.fromisoformat(date)
+                          previous_agg_id: int | None = None
+                          row_count = 0
+
+                          def validate_row(row: list[str]) -> None:
+                              nonlocal previous_agg_id, row_count
+                              if len(row) != 7:
+                                  raise ValueError(f"row has {len(row)} fields instead of 7")
+                              agg_id = int(row[0])
+                              first_trade_id = int(row[3])
+                              last_trade_id = int(row[4])
+                              timestamp_ms = int(row[5])
+                              if min(agg_id, first_trade_id, last_trade_id, timestamp_ms) < 0:
+                                  raise ValueError("integer identity/timestamp field is negative")
+                              if first_trade_id > last_trade_id:
+                                  raise ValueError("first_trade_id exceeds last_trade_id")
+                              if previous_agg_id is not None and agg_id <= previous_agg_id:
+                                  raise ValueError("aggregate trade IDs are not strictly increasing")
+                              positive_decimal(row[1], "price")
+                              positive_decimal(row[2], "quantity")
+                              observed_date = dt.datetime.fromtimestamp(
+                                  timestamp_ms / 1000,
+                                  tz=dt.UTC,
+                              ).date()
+                              if observed_date != requested_date:
+                                  raise ValueError(
+                                      f"timestamp date drift: {observed_date} != {requested_date}"
+                                  )
+                              if row[6].strip().lower() not in {"true", "false"}:
+                                  raise ValueError("buyer-maker flag is not boolean")
+                              previous_agg_id = agg_id
+                              row_count += 1
+
+                          validate_row(data_rows[0])
+                          for row in data_rows[1]:
+                              validate_row(row)
+                          if row_count <= 0:
+                              raise ValueError("no data rows")
+                          record["row_count"] = row_count
+                          record["valid"] = True
+                  except Exception as error:
+                      record["failure"] = f"{type(error).__name__}: {error}"
+                  results.append(record)
+
+          valid = [record for record in results if record.get("valid") is True]
+          header_shapes = {
+              json.dumps(
+                  {
+                      "header_present": record.get("header_present"),
+                      "header": record.get("header"),
+                  },
+                  sort_keys=True,
+              )
+              for record in valid
+          }
+          schema_consistent = len(header_shapes) <= 1
+          passed = len(results) == 20 and len(valid) == 20 and schema_consistent
+          manifest = {
+              "schema_version": "issue532_aggtrades_structural_probe_v1",
+              "repository": "shuntatsu/trade_rl",
+              "probe_git_sha": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "source": "Binance Vision USD-M daily aggTrades",
+              "economic_summaries_computed": False,
+              "symbols": list(symbols),
+              "dates": list(dates),
+              "planned_symbol_days": 20,
+              "valid_symbol_days": len(valid),
+              "schema_consistent": schema_consistent,
+              "pass": passed,
+              "records": results,
+          }
+          manifest_path = root / "manifest.json"
+          manifest_path.write_text(
+              json.dumps(manifest, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              "STRUCTURAL_PROBE "
+              f"planned={len(results)} valid={len(valid)} "
+              f"schema_consistent={schema_consistent} pass={passed}"
+          )
+          if not passed:
+              failures = [
+                  {
+                      "symbol": record["symbol"],
+                      "date": record["date"],
+                      "failure": record.get("failure", "schema_inconsistency"),
+                  }
+                  for record in results
+                  if record.get("valid") is not True
+              ]
+              print("FAILURES=" + json.dumps(failures, sort_keys=True))
+              sys.exit(1)
+          PY
+
+      - name: Upload structural evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue532-aggtrades-structural-${{ github.run_id }}
+          path: /tmp/issue532/manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

@@ -181,9 +181,15 @@ class FinalEvaluationAuthorization:
         if set(payload) != cls._PAYLOAD_KEYS:
             raise ContractViolationError("final authorization payload keys are malformed")
         return cls(
-            study_digest=payload["study_digest"],
-            study_freeze_digest=payload["study_freeze_digest"],
-            winner_evidence_digest=payload["winner_evidence_digest"],
+            study_digest=_sha256(payload["study_digest"], field="study_digest"),
+            study_freeze_digest=_sha256(
+                payload["study_freeze_digest"],
+                field="study_freeze_digest",
+            ),
+            winner_evidence_digest=_sha256(
+                payload["winner_evidence_digest"],
+                field="winner_evidence_digest",
+            ),
             winner_strategy=_text(
                 payload["winner_strategy"],
                 field="winner_strategy",

@@ -299,6 +299,7 @@ def execute_evidence_set(
                 dataset_artifact_schema=artifact.schema_version,
                 dataset_artifact_digest=artifact.artifact_digest,
                 config=seed_config,
+                execution_overlay=plan.baseline_config.execution_overlay,
             )
             resolved = ResolvedRunConfig.from_candidate_spec(spec)
             _check_study_fixed_config(plan, resolved)

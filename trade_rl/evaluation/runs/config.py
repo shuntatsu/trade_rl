@@ -15,6 +15,24 @@ from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
 
+LEGACY_DATASET_EXECUTION_OVERLAY = "zero_overlay_dataset_fields_authoritative"
+CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY = (
+    "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
+)
+_SUPPORTED_EXECUTION_OVERLAYS = frozenset(
+    {
+        LEGACY_DATASET_EXECUTION_OVERLAY,
+        CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+    }
+)
+
+
+def _validated_execution_overlay(value: object) -> str:
+    resolved = _validated_text(value, field="execution_overlay")
+    if resolved not in _SUPPORTED_EXECUTION_OVERLAYS:
+        raise ValueError(f"unsupported execution_overlay: {resolved}")
+    return resolved
+
 
 @dataclass(frozen=True, slots=True)
 class CandidateRunConfig:
@@ -142,6 +160,7 @@ class ResolvedCandidateRunSpec:
     lean_config: LeanCandidateConfig
     evaluation_start_index: int
     evaluation_stop_index: int
+    execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
@@ -150,6 +169,11 @@ class ResolvedCandidateRunSpec:
         require_sha256(
             self.dataset_artifact_digest,
             field="dataset_artifact_digest",
+        )
+        object.__setattr__(
+            self,
+            "execution_overlay",
+            _validated_execution_overlay(self.execution_overlay),
         )
 
 
@@ -312,6 +336,7 @@ def resolve_candidate_run_spec(
     dataset_artifact_schema: str,
     dataset_artifact_digest: str,
     config: CandidateRunConfig,
+    execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY,
 ) -> ResolvedCandidateRunSpec:
     """Bind one validated candidate configuration to an exact dataset artifact."""
 
@@ -354,10 +379,13 @@ def resolve_candidate_run_spec(
         lean_config=lean_config,
         evaluation_start_index=start_index,
         evaluation_stop_index=stop_index,
+        execution_overlay=_validated_execution_overlay(execution_overlay),
     )
 
 
 __all__ = [
+    "CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY",
+    "LEGACY_DATASET_EXECUTION_OVERLAY",
     "CandidateRunConfig",
     "ResolvedCandidateRunSpec",
     "load_candidate_run_config",

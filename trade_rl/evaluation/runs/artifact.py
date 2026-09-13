@@ -164,7 +164,7 @@ def _result_payload(
             "stop_exclusive": str(config.evaluation_stop_exclusive),
             "gross_budget": config.gross_budget,
             "initial_capital": config.initial_capital,
-            "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+            "execution_overlay": spec.execution_overlay,
         },
         "by_symbol": symbols_payload,
     }

@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
 from trade_rl.evaluation.runs.candidate_suite import run_lean_candidate_suite
-from trade_rl.evaluation.runs.config import ResolvedCandidateRunSpec
+from trade_rl.evaluation.runs.config import (
+    CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+    LEGACY_DATASET_EXECUTION_OVERLAY,
+    ResolvedCandidateRunSpec,
+)
+from trade_rl.simulation.execution import ExecutionCostConfig
+
+
+def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
+    if execution_overlay == LEGACY_DATASET_EXECUTION_OVERLAY:
+        return ExecutionCostConfig.zero()
+    if execution_overlay == CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
+        return replace(
+            ExecutionCostConfig.zero(),
+            processing_bar_volume_capacity=False,
+        )
+    raise ValueError(f"unsupported execution_overlay: {execution_overlay}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +50,7 @@ def execute_candidate_run(
         stop_index=spec.evaluation_stop_index,
         gross_budget=spec.config.gross_budget,
         initial_capital=spec.config.initial_capital,
-        execution_cost=None,
+        execution_cost=_execution_cost_for_overlay(spec.execution_overlay),
         risk=None,
     )
     return CandidateRunResult(

@@ -460,12 +460,8 @@ class AggTradesFlowCapacityProtocol:
             "min_valid_days_per_year": self.min_valid_days_per_year,
             "min_valid_hours_per_symbol": self.min_valid_hours_per_symbol,
             "checksum_required": self.checksum_required,
-            "buyer_taker_when_buyer_is_maker": (
-                self.buyer_taker_when_buyer_is_maker
-            ),
-            "seller_taker_when_buyer_is_maker": (
-                self.seller_taker_when_buyer_is_maker
-            ),
+            "buyer_taker_when_buyer_is_maker": (self.buyer_taker_when_buyer_is_maker),
+            "seller_taker_when_buyer_is_maker": (self.seller_taker_when_buyer_is_maker),
             "archive_url_template": self.archive_url_template,
             "trade_notional_formula": self.trade_notional_formula,
             "hour_alignment": self.hour_alignment,

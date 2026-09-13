@@ -1,0 +1,265 @@
+name: Issue 519 portable Experiment 0002 preregistration
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-prereg
+    paths:
+      - .github/workflows/issue519-portable-exp002-prereg.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  PREREG_HELPER_BLOB: 902161bdc4fb6a444006753280020664e2278f53
+  ISSUE_NUMBER: "519"
+  ISSUE_TITLE: "research: Portable Canonical M2 Experiment 0002 RULE_SIGNAL daily-cadence test"
+  SOURCE_RUN_ID: "34733780367"
+  SOURCE_ARTIFACT: canonical-m2-portable-exp001-recovered-result-v1-34733780367
+  SOURCE_ARTIFACT_ID: "10309859809"
+  SOURCE_ARTIFACT_DIGEST: sha256:cbada8936bc361e7dfcd05c6c213da97e3225a69dca7d0a79a0533e49fd2aaca
+  SOURCE_ROOT: /tmp/issue519-exp002-prereg
+  LOCAL_VERIFY_ROOT: /tmp/issue519-exp002-prereg-local-verify
+  FRESH_VERIFY_ROOT: /tmp/issue519-exp002-prereg-fresh-verify
+  PREREG_ARTIFACT: canonical-m2-portable-exp002-prereg-v1-${{ github.run_id }}
+  LOCAL_VERIFY_ARTIFACT: canonical-m2-portable-exp002-prereg-local-verification-v1-${{ github.run_id }}
+  FRESH_VERIFY_ARTIFACT: canonical-m2-portable-exp002-prereg-fresh-verification-v1-${{ github.run_id }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and prereg helper binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_portable_exp002.py)" = "$PREREG_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile and lint prereg helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue519_portable_exp002.py
+          uv run ruff check research/issue519_portable_exp002.py
+
+      - name: Verify immutable source artifact and pre-result issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$SOURCE_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$SOURCE_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+          test "$(jq -r '.title' <<<"$issue")" = "$ISSUE_TITLE"
+
+      - name: Download immutable recovered Study
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: ${{ env.SOURCE_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Append result-blind Experiment 0002 definition only
+        shell: bash
+        run: |
+          set -euo pipefail
+          exp1="$SOURCE_ROOT/study/experiments/0001"
+          before="$(find "$exp1" -type f ! -name .mutation.lock -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          uv run python research/issue519_portable_exp002.py preregister \
+            --root "$SOURCE_ROOT" \
+            --issue-number "$ISSUE_NUMBER" >/dev/null
+          after="$(find "$exp1" -type f ! -name .mutation.lock -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          test "$before" = "$after"
+          test -f "$SOURCE_ROOT/study/experiments/0002/definition.json"
+          test -f "$SOURCE_ROOT/portable-exp002-prereg-index.json"
+          test ! -e "$SOURCE_ROOT/study/experiments/0002/candidate"
+          test ! -e "$SOURCE_ROOT/study/experiments/0002/verification.json"
+          test ! -e "$SOURCE_ROOT/study/experiments/0002/comparison.json"
+          test ! -e "$SOURCE_ROOT/study/experiments/0002/decision.json"
+          test ! -e "$SOURCE_ROOT/study/experiments/0002/failure.json"
+          jq -e '
+            .experiment_sequence == 2 and
+            .factor == "RULE_SIGNAL" and
+            .resolved_changed_paths == ["signal_index", "signal_name"] and
+            .candidate_executed == false and
+            .result_inspected_before_preregistration == false and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$SOURCE_ROOT/portable-exp002-prereg-index.json" >/dev/null
+
+      - name: Verify preregistration before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$LOCAL_VERIFY_ROOT"
+          uv run python research/issue519_portable_exp002.py verify-prereg \
+            --root "$SOURCE_ROOT" \
+            --report-root "$LOCAL_VERIFY_ROOT" >/dev/null
+          jq -e '
+            .verification_passed == true and
+            .definition_is_result_blind == true and
+            .candidate_absent == true and
+            .prior_exp001_evidence_unchanged == true
+          ' "$LOCAL_VERIFY_ROOT/exp002-prereg-verification.json" >/dev/null
+
+      - name: Upload immutable Experiment 0002 preregistration
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.SOURCE_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload pre-upload prereg verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.LOCAL_VERIFY_ARTIFACT }}
+          path: ${{ env.LOCAL_VERIFY_ROOT }}
+          retention-days: 90
+
+  fresh-verify:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact preregistration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove fresh verifier and frozen production binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_portable_exp002.py)" = "$PREREG_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify published prereg artifact metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREREG_ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          PREREG_ARTIFACT_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$GITHUB_SHA"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue_created="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.created_at')"
+          artifact_created="$(jq -r '.created_at' <<<"$artifact")"
+          test "$issue_created" \< "$artifact_created"
+
+      - name: Re-download immutable Experiment 0002 preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.SOURCE_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Independently verify sealed preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$FRESH_VERIFY_ROOT"
+          uv run python research/issue519_portable_exp002.py verify-prereg \
+            --root "$SOURCE_ROOT" \
+            --report-root "$FRESH_VERIFY_ROOT" >/dev/null
+          jq -e '
+            .verification_passed == true and
+            .definition_is_result_blind == true and
+            .candidate_absent == true and
+            .prior_exp001_evidence_unchanged == true and
+            .daily_signal_refresh_equality_verified == true
+          ' "$FRESH_VERIFY_ROOT/exp002-prereg-verification.json" >/dev/null
+
+      - name: Seal execution authorization binding
+        shell: bash
+        env:
+          PREREG_ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          PREREG_ARTIFACT_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          report_sha="$(sha256sum "$FRESH_VERIFY_ROOT/exp002-prereg-verification.json" | awk '{print $1}')"
+          jq -n \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg head_sha "$GITHUB_SHA" \
+            --arg prereg_artifact_id "$PREREG_ARTIFACT_ID" \
+            --arg prereg_artifact_digest "$PREREG_ARTIFACT_DIGEST" \
+            --arg helper_blob "$PREREG_HELPER_BLOB" \
+            --arg verification_sha256 "$report_sha" \
+            '{
+              schema_version: "canonical_m2_portable_exp002_prereg_execution_authorization_v1",
+              preregistration_run_id: $run_id,
+              preregistration_head: $head_sha,
+              preregistration_artifact_id: $prereg_artifact_id,
+              preregistration_artifact_digest: $prereg_artifact_digest,
+              prereg_helper_blob: $helper_blob,
+              fresh_verification_sha256: $verification_sha256,
+              preregistration_reverified_on_fresh_runner: true,
+              candidate_executed: false,
+              result_inspected: false,
+              execution_authorized: true
+            }' > "$FRESH_VERIFY_ROOT/execution-authorization.json"
+
+      - name: Upload fresh preregistration verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_VERIFY_ARTIFACT }}
+          path: ${{ env.FRESH_VERIFY_ROOT }}
+          retention-days: 90

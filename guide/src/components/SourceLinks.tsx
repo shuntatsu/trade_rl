@@ -1,8 +1,9 @@
 import { ExternalLink } from "lucide-react";
 
-import type { SourceSection } from "../content/schema";
+import { codeSymbolIndex } from "../content/codeSymbols";
+import type { SourceSection } from "../content/documentSchema";
 
-const REPOSITORY = "https://github.com/shuntatsu/trade_rl/blob/main/";
+const REPOSITORY = "https://github.com/shuntatsu/trade_rl";
 
 export function SourceLinks({ sources }: { sources: SourceSection[] }) {
   return (
@@ -11,7 +12,7 @@ export function SourceLinks({ sources }: { sources: SourceSection[] }) {
       {sources.map((source) => (
         <a
           key={`${source.path}#${source.heading}`}
-          href={`${REPOSITORY}${source.path}`}
+          href={`${REPOSITORY}/blob/${codeSymbolIndex.source_revision}/${source.path}`}
           target="_blank"
           rel="noreferrer"
         >

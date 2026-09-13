@@ -1,0 +1,29 @@
+{
+  "id": "overview",
+  "title": "実データで動く、検証可能なトレーディングRLシステム",
+  "nav_label": "全体像",
+  "summary": "市場データから比較可能な検証証拠まで、Trade RLの責務と処理の流れを短くつかみます。",
+  "role": "overview",
+  "keywords": [
+    "全体像",
+    "MarketDataset",
+    "portable numerics",
+    "strategy",
+    "execution",
+    "experiment",
+    "evidence"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Core flow",
+      "sha256": "dfc66a5068c86696334b0796b354d4250d2cedad5e4b5e6dfcbe9312731efb53"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "結論",
+      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+    }
+  ],
+  "code_references": []
+}

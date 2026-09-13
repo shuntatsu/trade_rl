@@ -9,8 +9,8 @@ import {
 } from "react";
 
 import type { GuideNavigateTarget } from "../app/useHashRoute";
+import type { DocumentGuideTopic } from "../content/documentSchema";
 import { searchGuide, type GuideSearchResult } from "../content/search";
-import type { GuideTopic } from "../content/schema";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -23,7 +23,7 @@ export function SearchPalette({
   topics,
   onNavigate,
 }: {
-  topics: GuideTopic[];
+  topics: DocumentGuideTopic[];
   onNavigate: (target: GuideNavigateTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -80,7 +80,7 @@ export function SearchPalette({
   const choose = (result: GuideSearchResult) => {
     onNavigate({
       topicId: result.topicId,
-      ...(result.step ? { step: result.step } : {}),
+      ...(result.heading ? { heading: result.heading } : {}),
       ...(result.symbol ? { symbol: result.symbol } : {}),
     });
     setOpen(false);
@@ -137,7 +137,7 @@ export function SearchPalette({
                 results.map((result) => (
                   <button
                     type="button"
-                    key={`${result.kind}:${result.topicId}:${result.symbol ?? ""}:${result.title}`}
+                    key={`${result.kind}:${result.topicId}:${result.heading ?? ""}:${result.symbol ?? ""}:${result.title}`}
                     className="search-result"
                     onClick={() => choose(result)}
                   >
@@ -146,7 +146,7 @@ export function SearchPalette({
                   </button>
                 ))
               ) : (
-                <p className="empty-state">一致するトピックがありません。</p>
+                <p className="empty-state">一致する項目がありません。</p>
               )}
             </div>
           </section>

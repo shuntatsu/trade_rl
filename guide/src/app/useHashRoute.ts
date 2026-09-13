@@ -2,11 +2,34 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type GuideRoute = {
   topicId: string;
-  step?: string;
+  heading?: string;
   symbol?: string;
 };
 
 export type GuideNavigateTarget = GuideRoute | string;
+
+const LEGACY_STEP_HEADINGS: Record<string, Record<string, string>> = {
+  "implementation-replay": {
+    observe: "1-観測を作る",
+    decide: "2-戦略がintentを返す",
+    "intent-target": "3-希望数量とproposalへ変換する",
+    "risk-constrain": "4-hard-riskを適用する",
+    "execute-interval": "5-約定と会計を行う",
+    "update-book": "6-bookstateを引き継ぐ",
+    advance: "6-bookstateを引き継ぐ",
+    finalize: "7-結果を確定する",
+  },
+  "implementation-ppo": {
+    "encode-observation": "1-観測を符号化する",
+    "policy-action": "2-policyがactionを選ぶ",
+    "env-intent": "3-actionを売買意図へ変換する",
+    "env-risk": "4-hard-riskを通す",
+    "env-execute": "5-約定-会計を通す",
+    "env-reward": "6-net-returnからrewardを作る",
+    "fit-strategy": "学習後も同じ観測契約を使う",
+    "runtime-decide": "学習後も同じ観測契約を使う",
+  },
+};
 
 function normalizedSelection(value: string | null): string | undefined {
   const trimmed = value?.trim();
@@ -14,7 +37,7 @@ function normalizedSelection(value: string | null): string | undefined {
 }
 
 function normalizedRoute(route: GuideRoute): GuideRoute {
-  if (route.step) return { topicId: route.topicId, step: route.step };
+  if (route.heading) return { topicId: route.topicId, heading: route.heading };
   if (route.symbol) return { topicId: route.topicId, symbol: route.symbol };
   return { topicId: route.topicId };
 }
@@ -38,16 +61,20 @@ export function normalizeHashRoute(
   if (!validIds.includes(topicId)) return { topicId: home };
 
   const params = new URLSearchParams(rawQuery);
-  const step = normalizedSelection(params.get("step"));
-  if (step) return { topicId, step };
+  const heading = normalizedSelection(params.get("heading"));
+  if (heading) return { topicId, heading };
   const symbol = normalizedSelection(params.get("symbol"));
-  return symbol ? { topicId, symbol } : { topicId };
+  if (symbol) return { topicId, symbol };
+
+  const legacyStep = normalizedSelection(params.get("step"));
+  const mapped = legacyStep ? LEGACY_STEP_HEADINGS[topicId]?.[legacyStep] : undefined;
+  return mapped ? { topicId, heading: mapped } : { topicId };
 }
 
 export function formatHashRoute(route: GuideRoute): string {
   const normalized = normalizedRoute(route);
   const query = new URLSearchParams();
-  if (normalized.step) query.set("step", normalized.step);
+  if (normalized.heading) query.set("heading", normalized.heading);
   else if (normalized.symbol) query.set("symbol", normalized.symbol);
   const suffix = query.toString();
   return `#${encodeURIComponent(normalized.topicId)}${suffix ? `?${suffix}` : ""}`;

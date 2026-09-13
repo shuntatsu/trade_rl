@@ -48,12 +48,13 @@ def test_human_guide_generated_outputs_are_ignored() -> None:
 def test_human_guide_has_durable_code_linked_contract() -> None:
     text = (GUIDE / "README.md").read_text(encoding="utf-8")
     for required in (
-        "日本語を主表示",
+        "Markdown-first",
         "実identifier",
         "--refresh-code",
-        "guide/.generated/code-symbols.json",
+        ".generated/code-symbols.json",
         "exact revision",
-        "自動call graph",
+        "raw HTML",
+        "500,000 bytes",
     ):
         assert required in text
 
@@ -69,7 +70,8 @@ def test_human_guide_has_permanent_repository_routing_contract() -> None:
     assert "guide/README.md" in docs_readme
     assert "非正本" in docs_readme
 
-    assert "guide/content/topics" in docs_agents
+    assert "guide/content/pages" in docs_agents
+    assert "guide/content/meta" in docs_agents
     assert "content_contract.py --check" in docs_agents
     assert "--refresh-code" in docs_agents
     assert "非正本" in docs_agents
@@ -81,6 +83,8 @@ def test_completed_human_guide_design_artifacts_are_removed() -> None:
         ROOT / "docs/plans/2026-09-12-interactive-human-guide-v1.md",
         ROOT / "docs/specs/2026-09-13-japanese-code-explorer-design.md",
         ROOT / "docs/plans/2026-09-13-japanese-code-explorer.md",
+        ROOT / "docs/specs/2026-09-13-guide-markdown-first-design.md",
+        ROOT / "docs/plans/2026-09-13-guide-markdown-first-implementation.md",
     )
     for path in completed:
         assert not path.exists()

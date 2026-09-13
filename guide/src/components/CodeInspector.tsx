@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 
 import { codeSymbolIndex, getCodeSymbol } from "../content/codeSymbols";
-import type { GuideTopic } from "../content/schema";
+import type { DocumentGuideTopic } from "../content/documentSchema";
 import { buildCodeSourceUrl } from "../content/sourceLinks";
 
 const REPOSITORY_URL = "https://github.com/shuntatsu/trade_rl";
@@ -15,16 +15,10 @@ export function CodeInspector({
   topic,
 }: {
   referenceId?: string;
-  topic: GuideTopic;
+  topic: DocumentGuideTopic;
 }) {
   const reference = topic.code_references.find((item) => item.id === referenceId);
-  if (!reference) {
-    return (
-      <aside className="code-inspector code-inspector--empty" aria-label="実装詳細">
-        <p>シーケンスの処理を選ぶと、対応する実装をここで確認できます。</p>
-      </aside>
-    );
-  }
+  if (!reference) return null;
 
   const symbol = getCodeSymbol(reference.symbol);
   if (!symbol) {
@@ -39,7 +33,6 @@ export function CodeInspector({
 
   return (
     <aside className="code-inspector" aria-label="実装詳細">
-      <p className="eyeline">Implementation</p>
       <h3>{reference.label_ja}</h3>
       <p className="code-inspector__description">{reference.description_ja}</p>
 
@@ -67,8 +60,8 @@ export function CodeInspector({
       </dl>
 
       {reference.variables.length ? (
-        <section className="code-inspector__variables" aria-labelledby="variable-heading">
-          <h4 id="variable-heading">主要な値</h4>
+        <section className="code-inspector__variables" aria-labelledby={`variables-${reference.id}`}>
+          <h4 id={`variables-${reference.id}`}>主要な値</h4>
           <dl>
             {reference.variables.map((variable) => (
               <div key={variable.name}>

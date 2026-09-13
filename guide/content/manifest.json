@@ -1,12 +1,39 @@
 {
-  "schema_version": "interactive-guide-v1",
+  "schema_version": "document-guide-v2",
   "home": "overview",
-  "topics": [
+  "groups": [
+    {
+      "id": "overview",
+      "label": "概要",
+      "topics": ["overview"]
+    },
+    {
+      "id": "mechanics",
+      "label": "仕組み",
+      "topics": [
+        "data-flow",
+        "implementation-replay",
+        "implementation-ppo",
+        "execution-economics",
+        "experiment-loop"
+      ]
+    },
+    {
+      "id": "status",
+      "label": "現在地",
+      "topics": ["research-status"]
+    },
+    {
+      "id": "reference",
+      "label": "参照",
+      "topics": ["code-map"]
+    }
+  ],
+  "reading_order": [
     "overview",
+    "data-flow",
     "implementation-replay",
     "implementation-ppo",
-    "code-map",
-    "data-flow",
     "execution-economics",
     "experiment-loop",
     "research-status"

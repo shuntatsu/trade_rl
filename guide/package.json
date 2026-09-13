@@ -9,7 +9,7 @@
   "scripts": {
     "predev": "npm run code-index",
     "dev": "vite",
-    "code-index": "python3 tools/code_symbols.py --write .generated/code-symbols.json && python3 tools/code_symbols.py --write .generated/code-symbols-runtime.json --topics content/topics",
+    "code-index": "python3 tools/code_symbols.py --write .generated/code-symbols.json && python3 tools/code_symbols.py --write .generated/code-symbols-runtime.json --topics content/meta",
     "source-check": "python3 tools/content_contract.py --check",
     "prelint": "npm run code-index",
     "lint": "eslint . --max-warnings=0",
@@ -27,7 +27,9 @@
   "dependencies": {
     "lucide-react": "1.45.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

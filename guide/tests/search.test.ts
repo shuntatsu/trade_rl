@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import type { DocumentGuideTopic } from "../src/content/documentSchema";
 import { loadTopics } from "../src/content/loadTopics";
+import { extractMarkdownHeadings } from "../src/content/markdown";
 import { searchGuide, searchTopics } from "../src/content/search";
-import type { GuideTopic } from "../src/content/schema";
 
-function implementationTopic(): GuideTopic {
+function implementationTopic(): DocumentGuideTopic {
+  const markdown = "## 処理\n\nリスク制約と約定を順に適用する。\n";
   return {
     id: "implementation-replay",
     title: "1本のバーを追う",
     nav_label: "1本のバーを追う",
     summary: "単銘柄リプレイの実装順を追跡する。",
+    role: "detail",
     keywords: ["リプレイ"],
     source_sections: [
       {
@@ -36,22 +39,13 @@ function implementationTopic(): GuideTopic {
         tests: ["tests/evaluation/test_single_symbol_replay.py"],
       },
     ],
-    sections: [{ title: "処理", body: ["リスク制約と約定を順に適用する。"] }],
-    visualization: {
-      kind: "data-flow",
-      steps: [
-        {
-          id: "replay",
-          label: "リプレイ",
-          detail: "単銘柄を順に処理する。",
-        },
-      ],
-    },
+    markdown,
+    headings: extractMarkdownHeadings(markdown),
   };
 }
 
 describe("guide search", () => {
-  it("matches titles, summaries, keywords, and section copy", () => {
+  it("matches titles, summaries, keywords, and Markdown copy", () => {
     const topics = loadTopics();
 
     expect(searchTopics(topics, "PPO")[0]?.id).toBe("implementation-ppo");
@@ -87,22 +81,19 @@ describe("guide search", () => {
 
   it("ranks a Japanese code-reference label above body-only matches", () => {
     const implementation = implementationTopic();
-    const bodyOnly: GuideTopic = {
+    const bodyMarkdown = "## 説明\n\n単銘柄リプレイを実行する処理についての補足。\n";
+    const bodyOnly: DocumentGuideTopic = {
       ...implementation,
       id: "body-only",
       title: "補足",
       nav_label: "補足",
       code_references: [],
-      sections: [
-        {
-          title: "説明",
-          body: ["単銘柄リプレイを実行する処理についての補足。"],
-        },
-      ],
+      markdown: bodyMarkdown,
+      headings: extractMarkdownHeadings(bodyMarkdown),
     };
 
     const results = searchGuide([bodyOnly, implementation], "単銘柄リプレイを実行");
     expect(results[0]?.topicId).toBe("implementation-replay");
-    expect(results[0]?.kind).toBe("code");
+    expect(results[0]?.kind).toBe("symbol");
   });
 });

@@ -1,0 +1,82 @@
+{
+  "id": "code-map",
+  "title": "コード地図：どこが何を所有するか",
+  "nav_label": "コード地図",
+  "summary": "外部sourceからデータ契約、戦略、hard risk、約定・会計、評価・artifactへ流れる責務を、実クラスと関数へ結び付けて確認します。",
+  "role": "reference",
+  "keywords": [
+    "code map",
+    "責務",
+    "MarketDataset",
+    "SingleSymbolStrategy",
+    "PreTradeRisk",
+    "MarketExecutor",
+    "run_single_symbol_replay",
+    "ownership",
+    "dependency"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Ownership",
+      "sha256": "5eef4b077997e6ae133d93345984878606eb37bc560c2ff51de25e184696903f"
+    },
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Dependency direction",
+      "sha256": "f5333ea1c67847921d38ea2bc7707774b69ed02f933fbb82f19433b48f9a5024"
+    }
+  ],
+  "code_references": [
+    {
+      "id": "market-dataset",
+      "symbol": "trade_rl.data.market.MarketDataset",
+      "kind": "class",
+      "source_sha256": "9e58398e93264929313fd278bacc4cd4222060e06640982c57d1290b25572458",
+      "label_ja": "市場データの共通契約",
+      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
+      "variables": [],
+      "tests": ["tests/data/test_market_artifact.py"]
+    },
+    {
+      "id": "single-symbol-strategy",
+      "symbol": "trade_rl.strategies.interface.SingleSymbolStrategy",
+      "kind": "class",
+      "source_sha256": "5884e0b30660ebd6e4d03fae14391b38d724b9183021f36395d2004aef780171",
+      "label_ja": "単銘柄戦略の共通インターフェース",
+      "description_ja": "rule・forecast・PPOを同じStrategyObservation→PositionIntent契約で評価できるようにします。",
+      "variables": [],
+      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+    },
+    {
+      "id": "pretrade-risk",
+      "symbol": "trade_rl.risk.pretrade.PreTradeRisk",
+      "kind": "class",
+      "source_sha256": "cf9486f51189329f920089b76b23582d2ec08d00491e56af072ea33813b886ca",
+      "label_ja": "hard riskの所有者",
+      "description_ja": "strategyが提案したtargetへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用します。",
+      "variables": [],
+      "tests": ["tests/risk/test_pretrade.py"]
+    },
+    {
+      "id": "market-executor",
+      "symbol": "trade_rl.simulation.execution.MarketExecutor",
+      "kind": "class",
+      "source_sha256": "fbb702d584a778c125f8df814534352faddac5eccf033b5bd095db8c59437934",
+      "label_ja": "約定・会計の所有者",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
+      "variables": [],
+      "tests": ["tests/simulation/test_execution_v2.py"]
+    },
+    {
+      "id": "single-symbol-replay",
+      "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
+      "kind": "function",
+      "source_sha256": "e8dd736986f9de98e10cd1be3c67257fcdcdf9d4900579c153e608d6fac96f06",
+      "label_ja": "共通評価リプレイ",
+      "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。",
+      "variables": [],
+      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+    }
+  ]
+}

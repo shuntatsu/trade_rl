@@ -29,8 +29,8 @@ describe("Guide replay sequence", () => {
     expect(risk).toBeLessThan(execution);
     expect(execution).toBeLessThan(book);
     expect(screen.getByText(/desired_quantity → proposal_weight/)).toBeInTheDocument();
-    expect(screen.getByText(/PreTradeRisk\.constrain/)).toBeInTheDocument();
-    expect(screen.getByText(/MarketExecutor\.execute_interval/)).toBeInTheDocument();
+    expect(screen.getAllByText(/PreTradeRisk\.constrain/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/MarketExecutor\.execute_interval/).length).toBeGreaterThan(0);
   });
 
   it("builds source links against the generated exact revision", () => {

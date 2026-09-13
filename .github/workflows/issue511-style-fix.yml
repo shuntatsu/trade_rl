@@ -1,0 +1,66 @@
+name: Issue 511 recovery style repair
+
+on:
+  push:
+    branches:
+      - tmp/issue511-recovery
+    paths:
+      - .github/workflows/issue511-style-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Apply exact style-only repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          postverify = Path("research/issue511_portable_exp001_postverify.py")
+          text = postverify.read_text(encoding="utf-8")
+          old = """import argparse\nfrom collections.abc import Mapping\nimport hashlib\nimport json\nimport math\nfrom pathlib import Path\nfrom statistics import median\n"""
+          new = """import argparse\nimport hashlib\nimport json\nimport math\nfrom collections.abc import Mapping\nfrom pathlib import Path\nfrom statistics import median\n"""
+          if old not in text:
+              raise SystemExit("postverify import block no longer matches expected repair target")
+          postverify.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          recovery = Path("research/issue511_portable_exp001_recovery.py")
+          recovery_text = recovery.read_text(encoding="utf-8")
+          recovery.write_text(recovery_text.rstrip("\n") + "\n", encoding="utf-8")
+          PY
+
+      - name: Verify style repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py
+          python -m pip install -q ruff==0.15.21
+          ruff check \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py \
+            research/test_issue511_portable_exp001_recovery.py
+
+      - name: Commit style repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name shuntatsu
+          git config user.email 148511409+shuntatsu@users.noreply.github.com
+          git add \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py
+          git diff --cached --quiet && exit 0
+          git commit -m "style: normalize Issue 511 recovery verifier"
+          git push origin HEAD:tmp/issue511-recovery

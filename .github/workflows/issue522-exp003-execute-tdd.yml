@@ -1,0 +1,72 @@
+name: Issue 522 Experiment 0003 execution TDD
+
+on:
+  push:
+    branches:
+      - tmp/issue522-exp0003-execute
+    paths:
+      - .github/workflows/issue522-exp003-execute-tdd.yml
+      - research/issue522_portable_exp003_execute.py
+      - research/test_issue522_portable_exp003_execute.py
+      - research/issue522_portable_exp003_postverify.py
+      - research/test_issue522_portable_exp003_postverify.py
+      - research/issue522_portable_exp003_metricverify.py
+      - research/test_issue522_metric_invariance_verifier.py
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+
+jobs:
+  tdd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production subtree unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test execution verifier set
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(research/test_issue522_portable_exp003_execute.py)
+          tests=(research/test_issue522_portable_exp003_execute.py)
+          for optional in \
+            research/issue522_portable_exp003_execute.py \
+            research/issue522_portable_exp003_postverify.py \
+            research/test_issue522_portable_exp003_postverify.py \
+            research/issue522_portable_exp003_metricverify.py \
+            research/test_issue522_metric_invariance_verifier.py; do
+            if test -f "$optional"; then files+=("$optional"); fi
+          done
+          for optional in \
+            research/test_issue522_portable_exp003_postverify.py \
+            research/test_issue522_metric_invariance_verifier.py; do
+            if test -f "$optional"; then tests+=("$optional"); fi
+          done
+          uv run python -m py_compile "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run pytest -q "${tests[@]}"

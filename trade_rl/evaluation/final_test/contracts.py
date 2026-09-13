@@ -10,10 +10,8 @@ from typing import ClassVar
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.experiments import (
-    CANDIDATE_STRATEGY_NAMES,
-    ContractViolationError,
-)
+from trade_rl.evaluation.experiments.contracts import CANDIDATE_STRATEGY_NAMES
+from trade_rl.evaluation.experiments.errors import ContractViolationError
 
 FINAL_EVALUATION_AUTHORIZATION_SCHEMA = "final_evaluation_authorization_v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

@@ -1,8 +1,8 @@
 {
   "id": "data-flow",
-  "title": "データフロー",
-  "nav_label": "データフロー",
-  "summary": "sourceを凍結してからDataset、Replay、Evidenceになるまでを順番に追います。",
+  "title": "データと特徴量の流れ",
+  "nav_label": "データと特徴量",
+  "summary": "取得対象を固定してからDatasetを構築し、売買判断・リプレイ・検証証拠へ渡るまでを順番に追います。",
   "keywords": [
     "source",
     "freeze",
@@ -28,21 +28,21 @@
   ],
   "sections": [
     {
-      "title": "なぜ先にsourceを固定するのか",
+      "title": "なぜ最初に取得元を固定するのか",
       "body": [
-        "結果を見てから都合の良いデータへ差し替えないため、exchange metadata・archive roster・data rangeを先に固定します。"
+        "結果を見た後で都合の良いデータへ差し替えないため、取引所metadata、archive roster、対象期間を先に固定します。"
       ]
     },
     {
-      "title": "未来を混ぜない",
+      "title": "未来情報を混ぜない",
       "body": [
-        "feature_available_time <= decision_time を守り、fit cutoffより後の情報がtrainingへ戻らないようにします。"
+        "feature_available_time <= decision_time を守り、学習境界（fit cutoff）より後の情報がtrainingへ戻らないようにします。"
       ]
     },
     {
-      "title": "同じsourceから同じDataset identityを作る",
+      "title": "同じ取得元から同じDataset identityを作る",
       "body": [
-        "canonical featureはportable_feature_numerics_v1の固定されたscalar/reduction semanticsで計算し、確認済みのAMD/Intel hosted runner間でCPU依存の微小差がDataset identityへ混ざらないようにします。roundingやtoleranceで差を隠す方式ではありません。"
+        "標準特徴量は再現可能数値計算（portable_feature_numerics_v1）の固定されたscalar/reduction semanticsで計算し、確認済みAMD/Intel runner間でCPU依存の微小差がDataset identityへ混ざらないようにします。roundingやtoleranceで差を隠す方式ではありません。"
       ]
     }
   ],
@@ -51,45 +51,45 @@
     "steps": [
       {
         "id": "source",
-        "label": "Source",
-        "summary": "取得対象を決める",
-        "detail": "市場、銘柄、timeframe、期間を事前登録します。"
+        "label": "取得対象を決める",
+        "summary": "市場・銘柄・時間足・期間を事前に固定",
+        "detail": "どの市場証拠を使うかを結果より前に決めます。"
       },
       {
         "id": "freeze",
-        "label": "Freeze",
-        "summary": "raw evidenceを固定",
-        "detail": "URL・SHA-256・size・exchange metadataを保存し、再現可能なsource rosterにします。"
+        "label": "生データを固定する",
+        "summary": "再取得しても照合できる状態にする",
+        "detail": "URL・SHA-256・size・取引所metadataを保存し、再現可能なsource rosterにします。"
       },
       {
         "id": "build",
-        "label": "Build",
-        "summary": "causal featuresを構築",
-        "detail": "source同期後はnetwork fallbackを切り、cache-onlyかつportable feature numericsでMarketDatasetを作ります。"
+        "label": "特徴量を構築する",
+        "summary": "因果順序を守った特徴量を作る",
+        "detail": "source同期後はnetwork fallbackを切り、cache-onlyかつ再現可能な特徴量計算でMarketDatasetを作ります。"
       },
       {
         "id": "artifact",
-        "label": "Dataset Artifact",
-        "summary": "identityを固定",
-        "detail": "arraysとmanifestをpublishしてreloadし、content identityを再検証します。"
+        "label": "Datasetを固定する",
+        "summary": "内容そのものをidentityにする",
+        "detail": "配列とmanifestをpublishして再読込し、content identityを再検証します。"
       },
       {
         "id": "strategy",
-        "label": "Strategy",
-        "summary": "同じDatasetを見る",
-        "detail": "候補strategyは共通Datasetとscopeを使い、論理intentだけを生成します。"
+        "label": "売買判断へ渡す",
+        "summary": "候補戦略は同じDatasetを見る",
+        "detail": "rule・forecast・PPOなどの候補は共通Datasetとscopeを使い、論理的な売買意図だけを生成します。"
       },
       {
         "id": "replay",
-        "label": "Replay",
-        "summary": "Executionを適用",
-        "detail": "risk projection後、MarketExecutor + BookStateでfills・cost・returnsを生成します。"
+        "label": "約定・会計を適用する",
+        "summary": "hard risk後に共通Executionを通す",
+        "detail": "risk projection後、MarketExecutor + BookStateでfill・cost・returnを生成します。"
       },
       {
         "id": "evidence",
-        "label": "Evidence",
-        "summary": "raw結果を封印",
-        "detail": "summary、raw interval returns、provenanceをimmutable evidenceとして保持します。"
+        "label": "検証証拠を固定する",
+        "summary": "生の結果と来歴を封印",
+        "detail": "summary、raw interval returns、provenanceを変更不能な検証証拠として保持します。"
       }
     ]
   }

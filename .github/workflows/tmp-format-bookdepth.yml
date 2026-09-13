@@ -23,6 +23,8 @@ jobs:
         with:
           version: "0.10.0"
           python-version: "3.12"
+      - name: Install dev tools
+        run: uv sync --extra dev
       - name: Format only the new module
         run: uv run ruff format trade_rl/integrations/binance/book_depth.py
       - name: Commit only formatting

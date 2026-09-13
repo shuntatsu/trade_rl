@@ -43,6 +43,15 @@ jobs:
 
           symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
           dates = ("2021-01-01", "2021-07-01", "2022-01-01", "2022-07-01")
+          expected_header = (
+              "agg_trade_id",
+              "price",
+              "quantity",
+              "first_trade_id",
+              "last_trade_id",
+              "transact_time",
+              "is_buyer_maker",
+          )
           root = Path("/tmp/issue532")
           downloads = root / "downloads"
           results: list[dict[str, object]] = []
@@ -153,6 +162,10 @@ jobs:
                           except (ValueError, IndexError):
                               header_present = True
                               header = tuple(first)
+                              if header != expected_header:
+                                  raise ValueError(
+                                      f"unsupported header: {header!r}"
+                                  )
                               try:
                                   first_data = next(rows)
                               except StopIteration as error:
@@ -219,18 +232,8 @@ jobs:
                   results.append(record)
 
           valid = [record for record in results if record.get("valid") is True]
-          header_shapes = {
-              json.dumps(
-                  {
-                      "header_present": record.get("header_present"),
-                      "header": record.get("header"),
-                  },
-                  sort_keys=True,
-              )
-              for record in valid
-          }
-          schema_consistent = len(header_shapes) <= 1
-          passed = len(results) == 20 and len(valid) == 20 and schema_consistent
+          schema_consistent = len(valid) == len(results) == 20
+          passed = schema_consistent
           manifest = {
               "schema_version": "issue532_aggtrades_structural_probe_v1",
               "repository": "shuntatsu/trade_rl",
@@ -239,6 +242,12 @@ jobs:
               ).strip(),
               "source": "Binance Vision USD-M daily aggTrades",
               "economic_summaries_computed": False,
+              "normalization_rule": (
+                  "accept headerless seven-field rows or skip exactly one matching "
+                  "agg_trade_id,price,quantity,first_trade_id,last_trade_id,"
+                  "transact_time,is_buyer_maker header"
+              ),
+              "expected_header": list(expected_header),
               "symbols": list(symbols),
               "dates": list(dates),
               "planned_symbol_days": 20,
@@ -262,7 +271,7 @@ jobs:
                   {
                       "symbol": record["symbol"],
                       "date": record["date"],
-                      "failure": record.get("failure", "schema_inconsistency"),
+                      "failure": record.get("failure", "structural_failure"),
                   }
                   for record in results
                   if record.get("valid") is not True

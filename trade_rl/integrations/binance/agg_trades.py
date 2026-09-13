@@ -7,6 +7,7 @@ import hashlib
 import io
 import math
 import re
+import stat
 import zipfile
 from array import array
 from dataclasses import dataclass
@@ -33,6 +34,7 @@ _AGG_TRADES_HEADER = (
     "is_buyer_maker",
 )
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_INT64_MAX = (1 << 63) - 1
 
 
 def _as_1d_copy(
@@ -213,6 +215,10 @@ def _nonnegative_int(value: str, *, field: str, source: str) -> int:
         ) from error
     if result < 0:
         raise BinanceTransportError(f"aggTrades {field} must be non-negative: {source}")
+    if result > _INT64_MAX:
+        raise BinanceTransportError(
+            f"aggTrades {field} exceeds int64 range: {source}"
+        )
     return result
 
 
@@ -231,10 +237,9 @@ def _positive_float(value: str, *, field: str, source: str) -> float:
 
 
 def _buyer_maker(value: str, *, source: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized == "true":
+    if value == "true":
         return True
-    if normalized == "false":
+    if value == "false":
         return False
     raise BinanceTransportError(
         f"aggTrades buyer-is-maker value must be boolean: {source}"
@@ -254,6 +259,13 @@ def _timestamp_array(values: array[int], *, source: str) -> np.ndarray:
             f"aggTrades timestamp exceeds maintained datetime range: {source}"
         )
     return timestamps
+
+
+def _zip_member_is_regular(member: zipfile.ZipInfo) -> bool:
+    if member.is_dir():
+        return False
+    mode = (member.external_attr >> 16) & 0o170000
+    return mode == 0 or stat.S_ISREG(mode)
 
 
 def parse_vision_agg_trades_archive(
@@ -277,7 +289,7 @@ def parse_vision_agg_trades_archive(
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             members = archive.infolist()
-            if len(members) != 1 or members[0].is_dir():
+            if len(members) != 1 or not _zip_member_is_regular(members[0]):
                 raise BinanceTransportError(
                     "aggTrades archive must contain exactly one regular CSV file: "
                     f"{source}"
@@ -297,7 +309,7 @@ def parse_vision_agg_trades_archive(
                         f"aggTrades archive contains no rows: {source}"
                     ) from error
 
-                if tuple(cell.strip() for cell in first) == _AGG_TRADES_HEADER:
+                if tuple(first) == _AGG_TRADES_HEADER:
                     header_present = True
                     pending: list[str] | None = None
                 else:

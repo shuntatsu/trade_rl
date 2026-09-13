@@ -33,8 +33,8 @@ jobs:
           import datetime as dt
           import hashlib
           import io
+          import itertools
           import json
-          import math
           import subprocess
           import sys
           import zipfile
@@ -148,7 +148,6 @@ jobs:
                           except StopIteration as error:
                               raise ValueError("empty CSV") from error
 
-                          header_present = False
                           try:
                               int(first[0])
                           except (ValueError, IndexError):
@@ -158,10 +157,10 @@ jobs:
                                   first_data = next(rows)
                               except StopIteration as error:
                                   raise ValueError("header-only CSV") from error
-                              data_rows = (first_data, rows)
                           else:
+                              header_present = False
                               header = None
-                              data_rows = (first, rows)
+                              first_data = first
 
                           record["header_present"] = header_present
                           record["header"] = None if header is None else list(header)
@@ -169,21 +168,32 @@ jobs:
                           requested_date = dt.date.fromisoformat(date)
                           previous_agg_id: int | None = None
                           row_count = 0
-
-                          def validate_row(row: list[str]) -> None:
-                              nonlocal previous_agg_id, row_count
+                          for row in itertools.chain((first_data,), rows):
                               if len(row) != 7:
-                                  raise ValueError(f"row has {len(row)} fields instead of 7")
+                                  raise ValueError(
+                                      f"row has {len(row)} fields instead of 7"
+                                  )
                               agg_id = int(row[0])
                               first_trade_id = int(row[3])
                               last_trade_id = int(row[4])
                               timestamp_ms = int(row[5])
-                              if min(agg_id, first_trade_id, last_trade_id, timestamp_ms) < 0:
-                                  raise ValueError("integer identity/timestamp field is negative")
+                              if min(
+                                  agg_id,
+                                  first_trade_id,
+                                  last_trade_id,
+                                  timestamp_ms,
+                              ) < 0:
+                                  raise ValueError(
+                                      "integer identity/timestamp field is negative"
+                                  )
                               if first_trade_id > last_trade_id:
-                                  raise ValueError("first_trade_id exceeds last_trade_id")
+                                  raise ValueError(
+                                      "first_trade_id exceeds last_trade_id"
+                                  )
                               if previous_agg_id is not None and agg_id <= previous_agg_id:
-                                  raise ValueError("aggregate trade IDs are not strictly increasing")
+                                  raise ValueError(
+                                      "aggregate trade IDs are not strictly increasing"
+                                  )
                               positive_decimal(row[1], "price")
                               positive_decimal(row[2], "quantity")
                               observed_date = dt.datetime.fromtimestamp(
@@ -195,13 +205,11 @@ jobs:
                                       f"timestamp date drift: {observed_date} != {requested_date}"
                                   )
                               if row[6].strip().lower() not in {"true", "false"}:
-                                  raise ValueError("buyer-maker flag is not boolean")
+                                  raise ValueError(
+                                      "buyer-maker flag is not boolean"
+                                  )
                               previous_agg_id = agg_id
                               row_count += 1
-
-                          validate_row(data_rows[0])
-                          for row in data_rows[1]:
-                              validate_row(row)
                           if row_count <= 0:
                               raise ValueError("no data rows")
                           record["row_count"] = row_count

@@ -22,6 +22,8 @@ def test_canonical_book_depth_capacity_protocol_is_frozen_before_pnl() -> None:
     assert protocol.canonical_study_digest == (
         "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
     )
+    assert protocol.market == "usds-m"
+    assert protocol.reference_volume_timeframe == "1h"
     assert protocol.symbols == (
         "BTCUSDT",
         "ETHUSDT",
@@ -62,6 +64,11 @@ def test_protocol_rejects_post_evaluation_calibration_and_semantic_drift() -> No
         )
 
     mutations = (
+        {"market": "spot"},
+        {"reference_volume_timeframe": "4h"},
+        {"symbols": ("BTCUSDT",)},
+        {"canonical_dataset_id": "0" * 64},
+        {"canonical_study_digest": "0" * 64},
         {"sample_month_days": (1, 10)},
         {"capacity_bands": (-2, 2)},
         {"quantile": 0.10},
@@ -73,6 +80,13 @@ def test_protocol_rejects_post_evaluation_calibration_and_semantic_drift() -> No
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered"):
             replace(protocol, **mutation)
+
+
+def test_protocol_rejects_naive_time_boundary() -> None:
+    protocol = canonical_m2_book_depth_capacity_protocol()
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        replace(protocol, calibration_start=datetime(2021, 1, 1))
 
 
 def test_protocol_payload_is_strict_and_contains_no_pnl_inputs(tmp_path) -> None:
@@ -102,4 +116,21 @@ def test_protocol_payload_is_strict_and_contains_no_pnl_inputs(tmp_path) -> None
     tampered["pnl"] = 1.0
     path.write_text(json.dumps(tampered), encoding="utf-8")
     with pytest.raises(ValueError, match="keys differ|unknown"):
+        load_book_depth_capacity_calibration_protocol(path)
+
+
+def test_protocol_loader_rejects_invalid_digest_and_nonfinite_number(tmp_path) -> None:
+    payload = canonical_m2_book_depth_capacity_protocol().to_payload()
+    path = tmp_path / "protocol.json"
+
+    bad_digest = dict(payload)
+    bad_digest["canonical_dataset_id"] = "not-a-digest"
+    path.write_text(json.dumps(bad_digest), encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256"):
+        load_book_depth_capacity_calibration_protocol(path)
+
+    nonfinite = dict(payload)
+    nonfinite["quantile"] = float("nan")
+    path.write_text(json.dumps(nonfinite, allow_nan=True), encoding="utf-8")
+    with pytest.raises(ValueError, match="non-finite"):
         load_book_depth_capacity_calibration_protocol(path)

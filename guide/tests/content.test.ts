@@ -54,11 +54,11 @@ describe("guide content", () => {
     const topics = loadTopics();
     expect(topics.map((topic) => topic.id)).toEqual([
       "overview",
-      "data-flow",
-      "architecture",
       "implementation-replay",
+      "implementation-ppo",
+      "code-map",
+      "data-flow",
       "execution-economics",
-      "ppo-observation-v2",
       "experiment-loop",
       "research-status",
     ]);
@@ -131,9 +131,7 @@ describe("guide content", () => {
         code_references: [codeReference()],
         visualization: {
           kind: "sequence",
-          actors: [
-            { id: "replay", label_ja: "リプレイ統括", code_ref: "run" },
-          ],
+          actors: [{ id: "replay", label_ja: "リプレイ統括", code_ref: "run" }],
           messages: [
             {
               id: "decide",
@@ -154,9 +152,7 @@ describe("guide content", () => {
         code_references: [codeReference()],
         visualization: {
           kind: "sequence",
-          actors: [
-            { id: "replay", label_ja: "リプレイ統括", code_ref: "missing" },
-          ],
+          actors: [{ id: "replay", label_ja: "リプレイ統括", code_ref: "missing" }],
           messages: [],
         },
       }),

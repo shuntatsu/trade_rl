@@ -1,0 +1,167 @@
+name: Issue 519 verified zero-cost root-cause diagnostic
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-zero-cost-diagnostic.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  DIAGNOSTIC_HELPER_BLOB: 9c8acdf20785b027b56ac7604f726c8539e7f525
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  VERIFY_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  VERIFY_ARTIFACT_ID: "10316125529"
+  VERIFY_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+  EXPECTED_CANDIDATE_FINGERPRINT: f5ec53197a2f487ba11cc01a78edd4c93df8a2f172095e5903ee079ce5e9d0d0
+  RESULT_ROOT: /tmp/issue519-zero-cost-result
+  VERIFY_ROOT: /tmp/issue519-zero-cost-verify
+  OUT1: /tmp/issue519-zero-cost-out-1
+  OUT2: /tmp/issue519-zero-cost-out-2
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and diagnostic helper identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_zero_cost_diagnostic.py)" = "$DIAGNOSTIC_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify formal result and fresh authorization through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$VERIFY_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$verify")" = "$VERIFY_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$verify")" = "$VERIFY_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$verify")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$verify")" = "false"
+
+      - name: Download immutable recovered result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Download fresh verification authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.VERIFY_ARTIFACT }}
+          path: ${{ env.VERIFY_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Reconfirm interpretation authorization before diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e \
+            --arg id "$RESULT_ARTIFACT_ID" \
+            --arg digest "$RESULT_ARTIFACT_DIGEST" '
+              .result_artifact_id == $id and
+              .result_artifact_digest == $digest and
+              .both_verifiers_passed == true and
+              .candidate_execution_count == 1 and
+              .candidate_reexecuted == false and
+              .comparison_recomputed == false and
+              .fresh_runner_reverified_published_artifact == true and
+              .interpretation_authorized == true
+            ' "$VERIFY_ROOT/fresh-binding.json" >/dev/null
+          jq -e \
+            --arg fp "$EXPECTED_CANDIDATE_FINGERPRINT" '
+              .verification_passed == true and
+              .candidate_evidence_fingerprint == $fp and
+              .candidate_reexecuted == false
+            ' "$VERIFY_ROOT/primary/postverify.json" >/dev/null
+          jq -e '.verified == true and .total_checks == 1120' \
+            "$VERIFY_ROOT/supplemental/metric-seed-invariance-verification.json" >/dev/null
+          chmod -R a-w "$RESULT_ROOT" "$VERIFY_ROOT"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Re-run unit oracle at diagnostic head
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue519_zero_cost_diagnostic.py
+          uv run ruff check research/issue519_zero_cost_diagnostic.py research/test_issue519_zero_cost_diagnostic.py
+          uv run pytest -q research/test_issue519_zero_cost_diagnostic.py
+
+      - name: Run zero-cost diagnostic twice and require byte determinism
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT1" "$OUT2"
+          uv run python -m research.issue519_zero_cost_diagnostic \
+            --result-root "$RESULT_ROOT" --output-root "$OUT1" >/tmp/zero-cost-run-1.json
+          uv run python -m research.issue519_zero_cost_diagnostic \
+            --result-root "$RESULT_ROOT" --output-root "$OUT2" >/tmp/zero-cost-run-2.json
+          cmp "$OUT1/zero-cost-diagnostic.json" "$OUT2/zero-cost-diagnostic.json"
+          jq -e \
+            --arg fp "$EXPECTED_CANDIDATE_FINGERPRINT" '
+              .diagnostic_only == true and
+              .not_study_evidence == true and
+              .not_final_test_evidence == true and
+              .not_production_authorization == true and
+              .source_result_candidate_fingerprint == $fp and
+              (.variants | keys | sort) == ["baseline", "exp1_entry_threshold_0_02", "exp2_daily_signal"] and
+              ([.variants[] | .symbols | length] | all(. == 5)) and
+              ([.variants[] | .symbols[] | .zero_cost_total_cost] | all(. == 0)) and
+              ([.variants[] | .symbols[] | .zero_cost_funding_pnl] | all(. == 0)) and
+              ([.variants[] | .symbols[] | .zero_cost_borrow_cost] | all(. == 0)) and
+              (.exp2_root_cause_classification | IN("GROSS_EDGE_PRESENT_COSTS_MATERIAL", "GROSS_EDGE_INSUFFICIENT", "MIXED_GROSS_EDGE"))
+            ' "$OUT1/zero-cost-diagnostic.json" >/dev/null
+          cat "$OUT1/zero-cost-diagnostic.json"
+
+      - name: Upload zero-cost diagnostic evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-m2-zero-cost-root-cause-diagnostic-v1-${{ github.run_id }}
+          path: ${{ env.OUT1 }}
+          retention-days: 90

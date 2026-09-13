@@ -223,6 +223,7 @@ def test_reference_alignment_rejects_known_style_price_misalignment() -> None:
         validate_book_depth_reference_alignment(
             series,
             np.array([103_000.0]),
+            reference_available_at=series.timestamps,
             max_relative_deviation_rate=0.10,
         )
 
@@ -236,5 +237,6 @@ def test_reference_alignment_accepts_causal_reference_within_explicit_bound() ->
     validate_book_depth_reference_alignment(
         series,
         np.array([100.0]),
+        reference_available_at=series.timestamps,
         max_relative_deviation_rate=0.10,
     )

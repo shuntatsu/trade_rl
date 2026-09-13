@@ -33,7 +33,10 @@ def test_guide_uses_document_manifest_with_grouped_reading_order() -> None:
     assert manifest["home"] == "overview"
     groups = manifest["groups"]
     assert isinstance(groups, list)
-    assert tuple(group["id"] for group in groups if isinstance(group, dict)) == EXPECTED_GROUPS
+    assert (
+        tuple(group["id"] for group in groups if isinstance(group, dict))
+        == EXPECTED_GROUPS
+    )
 
     grouped_topics = {
         topic

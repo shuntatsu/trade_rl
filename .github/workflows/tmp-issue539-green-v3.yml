@@ -1,0 +1,99 @@
+name: Temporary Issue 539 minimal GREEN v3
+
+on:
+  push:
+    branches:
+      - research/issue539-calibrated-causal-study
+    paths:
+      - .github/workflows/tmp-issue539-green-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Apply reviewed patch with type narrowing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path(".github/workflows/tmp-issue539-green.yml").read_text(encoding="utf-8")
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "          PY\n          uv run ruff format"
+          start = text.index(start_marker) + len(start_marker)
+          end = text.index(end_marker, start)
+          lines = text[start:end].splitlines()
+          script = "\n".join(
+              line[10:] if line.startswith("          ") else line for line in lines
+          )
+          exec(compile(script, "issue539-reviewed-patch", "exec"), {})
+
+          path = Path(
+              "trade_rl/evaluation/experiments/bootstrap/capacity_materialization.py"
+          )
+          source = path.read_text(encoding="utf-8")
+          old = '''    source_identity = _source_identity_payload(source)\n    source_identity_bytes = source.identity_payload_json.encode("utf-8")\n'''
+          new = '''    source_identity = _source_identity_payload(source)\n    source_identity_json = source.identity_payload_json\n    if source_identity_json is None:\n        raise RuntimeError("validated source Dataset lost its identity payload")\n    source_identity_bytes = source_identity_json.encode("utf-8")\n'''
+          if source.count(old) != 1:
+              raise SystemExit("expected one materializer identity-narrowing site")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
+          uv run ruff check --fix \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/__init__.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/runs/artifact.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            trade_rl/evaluation/experiments/bootstrap/capacity_materialization.py
+          uv run ruff format \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/__init__.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/runs/artifact.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            trade_rl/evaluation/experiments/bootstrap/capacity_materialization.py
+      - name: Static checks
+        run: |
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+      - name: Targeted GREEN and compatibility tests
+        run: >-
+          uv run pytest -q
+          tests/evaluation/test_execution_overlay_authority.py
+          tests/evaluation/experiments/bootstrap/test_calibrated_capacity_materialization.py
+          tests/evaluation/test_candidate_run_execute.py
+          tests/evaluation/test_candidate_run_config.py
+          tests/evaluation/experiments/test_evidence.py
+          tests/evaluation/experiments/test_workflow.py
+          tests/evaluation/experiments/bootstrap/test_workflow.py
+      - name: Commit production GREEN only after verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add trade_rl
+          git diff --cached --check
+          git commit -m "feat: bind calibrated causal execution identities"
+          git push origin HEAD:research/issue539-calibrated-causal-study

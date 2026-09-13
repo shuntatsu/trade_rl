@@ -1,0 +1,349 @@
+name: Temporary Issue 537 verifier curl reconstruction
+
+on:
+  push:
+    branches:
+      - verify/issue537-result-10320428830-v2
+    paths:
+      - .github/workflows/tmp-issue537-verifier-curl.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verifier:
+    name: Fresh independent API re-fetch and reconstruction v2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_RUN_ID: "34766830666"
+      EXPECTED_ARTIFACT_ID: "10320428830"
+      EXPECTED_UPLOAD_DIGEST: "810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35"
+      ARTIFACT_NAME: "issue537-aggtrades-flow-calibration-34766830666"
+    steps:
+      - name: Checkout immutable calibration implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2615fa326c8ec7dbba867be30266839ab6cf9bd4
+          persist-credentials: false
+      - name: Assert exact source identity independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2615fa326c8ec7dbba867be30266839ab6cf9bd4"
+          test "$(git ls-files -s trade_rl/integrations/binance/agg_trades.py | awk '{print $2}')" = "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
+          test "$(sha256sum trade_rl/evaluation/experiments/bootstrap/agg_flow_capacity.py | awk '{print $1}')" = "f8c8c5a25ea007f0864cbd0d9231675f3a4861713c3a78fbbb5fdff9ab7385bc"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Download published Artifact without forwarding GitHub auth to redirect host
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue537-verify
+          mkdir -p /tmp/issue537-verify
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue537-verifier-curl/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${EXPECTED_ARTIFACT_ID}/zip" \
+            --output /tmp/issue537-verify/result-artifact.zip
+          test -s /tmp/issue537-verify/result-artifact.zip
+      - name: Verify API identity, re-fetch all evidence, and reconstruct
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import io
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          import zipfile
+          from pathlib import Path
+
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.agg_flow_calibration import (
+              build_aggtrades_flow_calibration_result,
+              evaluate_aggtrades_archive,
+              rejected_aggtrades_archive,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.agg_flow_capacity import (
+              canonical_m2_aggtrades_flow_capacity_protocol,
+          )
+          from trade_rl.integrations.binance.agg_trades import (
+              parse_vision_agg_trades_archive,
+          )
+
+          REPO = "shuntatsu/trade_rl"
+          API = "https://api.github.com"
+          EXPECTED_PROTOCOL_DIGEST = "5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071"
+          USER_AGENT = "trade-rl-issue537-independent-verifier-v2/1"
+          token = os.environ["GH_TOKEN"]
+          run_id = os.environ["SOURCE_RUN_ID"]
+          artifact_name = os.environ["ARTIFACT_NAME"]
+          expected_artifact_id = os.environ["EXPECTED_ARTIFACT_ID"]
+          raw_upload_digest = os.environ["EXPECTED_UPLOAD_DIGEST"].lower()
+          if raw_upload_digest.startswith("sha256:"):
+              expected_api_digest = raw_upload_digest
+          elif len(raw_upload_digest) == 64 and all(
+              ch in "0123456789abcdef" for ch in raw_upload_digest
+          ):
+              expected_api_digest = "sha256:" + raw_upload_digest
+          else:
+              raise SystemExit("recorded upload-artifact digest is malformed")
+
+          def api_request(url: str) -> bytes:
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": USER_AGENT,
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  return response.read()
+
+          artifacts = json.loads(
+              api_request(f"{API}/repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100")
+          )["artifacts"]
+          matches = [item for item in artifacts if item["name"] == artifact_name]
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one result artifact, found {len(matches)}")
+          artifact = matches[0]
+          if str(artifact["id"]) != expected_artifact_id:
+              raise SystemExit("recorded Artifact ID differs from GitHub API Artifact ID")
+          if artifact.get("digest") != expected_api_digest:
+              raise SystemExit("upload-artifact digest differs from GitHub API artifact digest")
+          artifact_zip = Path("/tmp/issue537-verify/result-artifact.zip").read_bytes()
+          zip_digest = "sha256:" + hashlib.sha256(artifact_zip).hexdigest()
+          if zip_digest != artifact["digest"]:
+              raise SystemExit("downloaded Artifact ZIP digest differs from API digest")
+          with zipfile.ZipFile(io.BytesIO(artifact_zip)) as archive:
+              names = archive.namelist()
+              if names != ["result.json"]:
+                  raise SystemExit(f"unexpected result Artifact members: {names!r}")
+              published_bytes = archive.read("result.json")
+          published = json.loads(published_bytes.decode("utf-8"))
+          if not isinstance(published, dict):
+              raise SystemExit("published result must be a JSON object")
+          published_digest = published.get("result_digest")
+          if not isinstance(published_digest, str) or len(published_digest) != 64:
+              raise SystemExit("published result digest is malformed")
+          content = dict(published)
+          del content["result_digest"]
+          if content_digest(content) != published_digest:
+              raise SystemExit("published result content digest mismatch")
+
+          protocol = canonical_m2_aggtrades_flow_capacity_protocol()
+          if protocol.digest != EXPECTED_PROTOCOL_DIGEST:
+              raise SystemExit("sealed protocol digest mismatch in verifier")
+          if published.get("protocol_digest") != protocol.digest:
+              raise SystemExit("published result binds wrong protocol digest")
+          if published.get("planned_urls") != list(protocol.planned_urls):
+              raise SystemExit("published result planned URL roster differs from seal")
+
+          published_archives = published.get("archives")
+          if not isinstance(published_archives, list) or len(published_archives) != 120:
+              raise SystemExit("published result archive roster must contain 120 records")
+          published_by_url: dict[str, dict[str, object]] = {}
+          for item in published_archives:
+              if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+                  raise SystemExit("published archive record is malformed")
+              url_key = item["url"]
+              if url_key in published_by_url:
+                  raise SystemExit("published result has duplicate archive URL")
+              published_by_url[url_key] = item
+
+          def fetch_bytes(url: str) -> tuple[bytes | None, str | None]:
+              request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+              last_kind = "network_error"
+              for attempt in range(5):
+                  try:
+                      with urllib.request.urlopen(request, timeout=180) as response:
+                          return response.read(), None
+                  except urllib.error.HTTPError as error:
+                      if error.code == 404:
+                          return None, "http_404"
+                      last_kind = f"http_{error.code}"
+                  except (urllib.error.URLError, TimeoutError):
+                      last_kind = "network_error"
+                  if attempt < 4:
+                      time.sleep(2 + attempt * 2)
+              return None, last_kind
+
+          def checksum_digest(text: str) -> str | None:
+              fields = text.split()
+              if not fields:
+                  return None
+              candidate = fields[0].lower()
+              if len(candidate) != 64 or any(
+                  ch not in "0123456789abcdef" for ch in candidate
+              ):
+                  return None
+              return candidate
+
+          records = []
+          for symbol in protocol.symbols:
+              for day in protocol.planned_days:
+                  url = protocol.archive_url_template.format(
+                      symbol=symbol,
+                      date=day.date().isoformat(),
+                  )
+                  source_record = published_by_url.get(url)
+                  if source_record is None:
+                      raise SystemExit(f"published result missing planned URL {url}")
+                  payload, archive_error = fetch_bytes(url)
+                  if payload is None:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason=f"archive_download_{archive_error}",
+                          )
+                      )
+                      continue
+                  raw_sha = hashlib.sha256(payload).hexdigest()
+                  raw_size = len(payload)
+                  if source_record.get("raw_payload_sha256") not in {None, raw_sha}:
+                      raise SystemExit(f"re-fetched raw SHA differs from artifact for {url}")
+                  if source_record.get("raw_payload_size_bytes") not in {None, raw_size}:
+                      raise SystemExit(f"re-fetched raw size differs from artifact for {url}")
+
+                  checksum_url = url + protocol.checksum_suffix
+                  checksum_payload, checksum_error = fetch_bytes(checksum_url)
+                  if checksum_payload is None:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason=f"checksum_download_{checksum_error}",
+                              raw_payload_sha256=raw_sha,
+                              raw_payload_size_bytes=raw_size,
+                          )
+                      )
+                      continue
+                  try:
+                      checksum_text = checksum_payload.decode("utf-8").strip()
+                  except UnicodeDecodeError:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason="checksum_invalid_utf8",
+                              raw_payload_sha256=raw_sha,
+                              raw_payload_size_bytes=raw_size,
+                          )
+                      )
+                      continue
+                  published_checksum = source_record.get("checksum_text")
+                  if published_checksum not in {None, checksum_text}:
+                      raise SystemExit(f"re-fetched checksum text differs from artifact for {url}")
+                  expected_digest = checksum_digest(checksum_text)
+                  checksum_verified = expected_digest == raw_sha
+                  if not checksum_verified:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason="checksum_mismatch_or_invalid",
+                              raw_payload_sha256=raw_sha,
+                              raw_payload_size_bytes=raw_size,
+                              checksum_text=checksum_text,
+                              checksum_verified=False,
+                          )
+                      )
+                      continue
+
+                  try:
+                      series = parse_vision_agg_trades_archive(payload, source=url)
+                  except Exception as error:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason=f"parser_rejected:{type(error).__name__}:{error}",
+                              raw_payload_sha256=raw_sha,
+                              raw_payload_size_bytes=raw_size,
+                              checksum_text=checksum_text,
+                              checksum_verified=True,
+                          )
+                      )
+                      continue
+                  try:
+                      record = evaluate_aggtrades_archive(
+                          protocol,
+                          symbol=symbol,
+                          day=day,
+                          url=url,
+                          series=series,
+                          checksum_text=checksum_text,
+                          checksum_verified=True,
+                      )
+                  except Exception as error:
+                      records.append(
+                          rejected_aggtrades_archive(
+                              protocol,
+                              symbol=symbol,
+                              day=day,
+                              url=url,
+                              reason=f"calibration_rejected:{type(error).__name__}:{error}",
+                              raw_payload_sha256=raw_sha,
+                              raw_payload_size_bytes=raw_size,
+                              checksum_text=checksum_text,
+                              checksum_verified=True,
+                          )
+                      )
+                  else:
+                      records.append(record)
+
+          reconstructed = build_aggtrades_flow_calibration_result(protocol, records)
+          reconstructed_payload = reconstructed.to_payload()
+          if reconstructed_payload != published:
+              raise SystemExit("independent reconstructed payload differs from published result")
+          reconstructed_bytes = (
+              json.dumps(
+                  reconstructed_payload,
+                  allow_nan=False,
+                  sort_keys=True,
+                  indent=2,
+              )
+              + "\n"
+          ).encode("utf-8")
+          if reconstructed_bytes != published_bytes:
+              raise SystemExit("independent reconstructed result bytes differ from published bytes")
+          Path("/tmp/issue537-verify/verified.json").write_bytes(reconstructed_bytes)
+          print("INDEPENDENT_RECONSTRUCTION_VERIFIED=true")
+          print("RESULT_INTERPRETATION_NOW_AUTHORIZED=true")
+          PY
+      - name: Upload verifier byte-identical reconstruction
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue537-independent-reconstruction-10320428830-v2
+          path: /tmp/issue537-verify/verified.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

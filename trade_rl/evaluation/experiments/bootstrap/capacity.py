@@ -19,6 +19,8 @@ _CANONICAL_DATASET_ID = (
 _CANONICAL_STUDY_DIGEST = (
     "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
 )
+_MARKET = "usds-m"
+_REFERENCE_VOLUME_TIMEFRAME = "1h"
 _CANONICAL_SYMBOLS = (
     "BTCUSDT",
     "ETHUSDT",
@@ -42,6 +44,8 @@ _PAYLOAD_FIELDS = frozenset(
         "schema_version",
         "canonical_dataset_id",
         "canonical_study_digest",
+        "market",
+        "reference_volume_timeframe",
         "symbols",
         "calibration_start",
         "calibration_stop_exclusive",
@@ -127,6 +131,8 @@ class BookDepthCapacityCalibrationProtocol:
 
     canonical_dataset_id: str
     canonical_study_digest: str
+    market: str
+    reference_volume_timeframe: str
     symbols: tuple[str, ...]
     calibration_start: datetime
     calibration_stop_exclusive: datetime
@@ -145,6 +151,11 @@ class BookDepthCapacityCalibrationProtocol:
         study_digest = _sha256(
             self.canonical_study_digest,
             field="canonical_study_digest",
+        )
+        market = _text(self.market, field="market")
+        reference_volume_timeframe = _text(
+            self.reference_volume_timeframe,
+            field="reference_volume_timeframe",
         )
         symbols = tuple(self.symbols)
         calibration_start = _aware_utc(
@@ -186,6 +197,8 @@ class BookDepthCapacityCalibrationProtocol:
         actual = (
             dataset_id,
             study_digest,
+            market,
+            reference_volume_timeframe,
             symbols,
             calibration_start,
             calibration_stop,
@@ -202,6 +215,8 @@ class BookDepthCapacityCalibrationProtocol:
         preregistered = (
             _CANONICAL_DATASET_ID,
             _CANONICAL_STUDY_DIGEST,
+            _MARKET,
+            _REFERENCE_VOLUME_TIMEFRAME,
             _CANONICAL_SYMBOLS,
             _CALIBRATION_START,
             _CALIBRATION_STOP_EXCLUSIVE,
@@ -222,6 +237,12 @@ class BookDepthCapacityCalibrationProtocol:
 
         object.__setattr__(self, "canonical_dataset_id", dataset_id)
         object.__setattr__(self, "canonical_study_digest", study_digest)
+        object.__setattr__(self, "market", market)
+        object.__setattr__(
+            self,
+            "reference_volume_timeframe",
+            reference_volume_timeframe,
+        )
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "calibration_start", calibration_start)
         object.__setattr__(self, "calibration_stop_exclusive", calibration_stop)
@@ -264,6 +285,8 @@ class BookDepthCapacityCalibrationProtocol:
             "schema_version": self.schema_version,
             "canonical_dataset_id": self.canonical_dataset_id,
             "canonical_study_digest": self.canonical_study_digest,
+            "market": self.market,
+            "reference_volume_timeframe": self.reference_volume_timeframe,
             "symbols": list(self.symbols),
             "calibration_start": _iso_utc(self.calibration_start),
             "calibration_stop_exclusive": _iso_utc(self.calibration_stop_exclusive),
@@ -288,6 +311,8 @@ def canonical_m2_book_depth_capacity_protocol() -> BookDepthCapacityCalibrationP
     return BookDepthCapacityCalibrationProtocol(
         canonical_dataset_id=_CANONICAL_DATASET_ID,
         canonical_study_digest=_CANONICAL_STUDY_DIGEST,
+        market=_MARKET,
+        reference_volume_timeframe=_REFERENCE_VOLUME_TIMEFRAME,
         symbols=_CANONICAL_SYMBOLS,
         calibration_start=_CALIBRATION_START,
         calibration_stop_exclusive=_CALIBRATION_STOP_EXCLUSIVE,
@@ -339,6 +364,11 @@ def load_book_depth_capacity_calibration_protocol(
         canonical_study_digest=_sha256(
             payload["canonical_study_digest"],
             field="canonical_study_digest",
+        ),
+        market=_text(payload["market"], field="market"),
+        reference_volume_timeframe=_text(
+            payload["reference_volume_timeframe"],
+            field="reference_volume_timeframe",
         ),
         symbols=_string_tuple(payload["symbols"], field="symbols"),
         calibration_start=_parse_datetime(

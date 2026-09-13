@@ -47,6 +47,12 @@ def _source_digest(lines: list[str], start: int, end: int) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _source_start_line(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+) -> int:
+    return min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
+
+
 def _argument_names(arguments: ast.arguments) -> set[str]:
     names = {
         argument.arg
@@ -103,6 +109,31 @@ class _LocalNameCollector(ast.NodeVisitor):
         if node.pattern is not None:
             self.visit(node.pattern)
 
+    def _visit_comprehension_generators(
+        self, generators: list[ast.comprehension]
+    ) -> None:
+        for generator in generators:
+            self.visit(generator.iter)
+            for condition in generator.ifs:
+                self.visit(condition)
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension_generators(node.generators)
+        self.visit(node.elt)
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension_generators(node.generators)
+        self.visit(node.elt)
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension_generators(node.generators)
+        self.visit(node.elt)
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension_generators(node.generators)
+        self.visit(node.key)
+        self.visit(node.value)
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         del node
 
@@ -147,6 +178,20 @@ def _is_overload(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return any(_decorator_name(decorator) == "overload" for decorator in node.decorator_list)
 
 
+def _resolved_source_file(source_root: Path, path: Path) -> Path:
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise GuideCodeSymbolError(f"cannot resolve Python source: {path}") from exc
+    try:
+        resolved.relative_to(source_root)
+    except ValueError as exc:
+        raise GuideCodeSymbolError(f"Python source escapes source root: {path}") from exc
+    if not resolved.is_file():
+        raise GuideCodeSymbolError(f"Python source is not a file: {path}")
+    return resolved
+
+
 def _symbol_entry(
     *,
     qualified_name: str,
@@ -158,6 +203,7 @@ def _symbol_entry(
     end_line = node.end_lineno
     if end_line is None:
         raise GuideCodeSymbolError(f"missing end line for code symbol: {qualified_name}")
+    start_line = _source_start_line(node)
     local_names: list[str] = []
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         signature = _function_signature(node)
@@ -168,10 +214,10 @@ def _symbol_entry(
         "qualified_name": qualified_name,
         "kind": kind,
         "path": path,
-        "start_line": node.lineno,
+        "start_line": start_line,
         "end_line": end_line,
         "signature": signature,
-        "source_sha256": _source_digest(lines, node.lineno, end_line),
+        "source_sha256": _source_digest(lines, start_line, end_line),
         "local_names": local_names,
     }
 
@@ -230,7 +276,8 @@ def build_symbol_index(source_root: Path, *, revision: str) -> dict[str, object]
     symbols: list[dict[str, object]] = []
     seen: set[str] = set()
     for path in sorted(source_root.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
+        resolved_path = _resolved_source_file(source_root, path)
+        text = resolved_path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(text, filename=str(path))
         except SyntaxError as exc:

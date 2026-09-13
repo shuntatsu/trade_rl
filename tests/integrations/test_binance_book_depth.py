@@ -23,7 +23,9 @@ from trade_rl.integrations.binance import (
 _EXPECTED_BANDS = (-5, -4, -3, -2, -1, 1, 2, 3, 4, 5)
 
 
-def _zip_csv(rows: list[str], *, name: str = "BTCUSDT-bookDepth-2025-05-19.csv") -> bytes:
+def _zip_csv(
+    rows: list[str], *, name: str = "BTCUSDT-bookDepth-2025-05-19.csv"
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(name, "\n".join(rows) + "\n")
@@ -64,7 +66,10 @@ def _break_cumulative_depth(rows: list[str]) -> list[str]:
 
 def _make_depth_negative(rows: list[str]) -> list[str]:
     changed = list(rows)
-    changed[0] = changed[0].replace(",50.00000000,", ",-1.00000000,")
+    changed[0] = changed[0].replace(
+        ",50.00000000,",
+        ",-1.00000000,",
+    )
     return changed
 
 

@@ -103,6 +103,8 @@ jobs:
   guide:
     name: Human Guide
     runs-on: ubuntu-latest
+    env:
+      GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

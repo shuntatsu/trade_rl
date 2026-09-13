@@ -26,7 +26,6 @@ from trade_rl.data import (
     load_market_dataset_artifact,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import BookState, MarketExecutor
 from trade_rl.simulation.execution import ExecutionCostConfig

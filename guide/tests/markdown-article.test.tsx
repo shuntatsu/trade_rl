@@ -2,9 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MarkdownArticle } from "../src/components/MarkdownArticle";
-import type { GuideTopic } from "../src/content/schema";
+import type { DocumentGuideTopic } from "../src/content/documentSchema";
+import { extractMarkdownHeadings } from "../src/content/markdown";
 
-function topic(markdown: string): GuideTopic {
+function topic(markdown: string): DocumentGuideTopic {
   return {
     id: "demo",
     title: "デモ",
@@ -15,8 +16,8 @@ function topic(markdown: string): GuideTopic {
     source_sections: [],
     code_references: [],
     markdown,
-    headings: [],
-  } as GuideTopic;
+    headings: extractMarkdownHeadings(markdown),
+  };
 }
 
 describe("MarkdownArticle", () => {

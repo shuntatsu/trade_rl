@@ -1,0 +1,76 @@
+name: Issue 522 Exp3 read authorized summary
+
+on:
+  push:
+    branches:
+      - tmp/issue522-exp0003-execute
+    paths:
+      - .github/workflows/issue522-exp003-read-authorized-summary.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CORRECTED_RUN_ID: "34762988649"
+  CORRECTED_HEAD: 38e041823a941eda31b0e7026651b34a74b0533e
+  CORRECTED_ARTIFACT: canonical-m2-portable-exp003-corrected-fresh-postverify-v1-34762988649
+  CORRECTED_ARTIFACT_ID: "10319822414"
+  CORRECTED_ARTIFACT_DIGEST: sha256:ac0f220719b38bc4796987dd3296f171faa831427f3495f6e60252844a4f8dac
+  ROOT: /tmp/issue522-exp003-authorized-summary
+
+jobs:
+  read-authorized-summary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout read-only head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify corrected authorization artifact through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CORRECTED_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$CORRECTED_HEAD"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$CORRECTED_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$CORRECTED_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$CORRECTED_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$CORRECTED_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+
+      - name: Download exact corrected verification artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CORRECTED_ARTIFACT }}
+          path: ${{ env.ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CORRECTED_RUN_ID }}
+
+      - name: Require authorization and print verified interpretation summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .both_verifiers_passed == true and
+            .candidate_execution_count == 1 and
+            .candidate_rerun == false and
+            .candidate_reexecuted == false and
+            .fresh_runner_reverified_published_artifact == true and
+            .interpretation_authorized == true and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$ROOT/corrected-fresh-postverify-index.json" >/dev/null
+          test -f "$ROOT/interpretation-summary.json"
+          jq -c . "$ROOT/interpretation-summary.json"

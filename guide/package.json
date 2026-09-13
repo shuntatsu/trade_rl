@@ -9,7 +9,7 @@
   "scripts": {
     "predev": "npm run code-index",
     "dev": "vite",
-    "code-index": "python3 tools/code_symbols.py --write .generated/code-symbols.json",
+    "code-index": "python3 tools/code_symbols.py --write .generated/code-symbols.json && python3 tools/code_symbols.py --write .generated/code-symbols-runtime.json --topics content/topics",
     "source-check": "python3 tools/content_contract.py --check",
     "prelint": "npm run code-index",
     "lint": "eslint . --max-warnings=0",
@@ -19,6 +19,7 @@
     "test": "vitest run",
     "prebuild": "npm run code-index",
     "build": "tsc -b --pretty false && vite build",
+    "postbuild": "python3 tools/bundle_budget.py dist --max-bytes 500000",
     "e2e": "playwright test",
     "e2e:public": "playwright test --config playwright.public.config.ts",
     "check": "npm run source-check && npm run lint && npm run typecheck && npm run test && npm run build"

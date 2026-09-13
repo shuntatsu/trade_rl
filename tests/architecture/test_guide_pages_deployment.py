@@ -57,4 +57,6 @@ def test_guide_builds_are_bound_to_the_exact_verified_revision() -> None:
     deploy = _workflow()
     ci = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "GUIDE_SOURCE_REV: ${{ github.event.workflow_run.head_sha }}" in deploy
-    assert "GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}" in ci
+    assert (
+        "GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}" in ci
+    )

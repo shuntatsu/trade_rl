@@ -75,7 +75,7 @@ test("reduced motion keeps all document information available", async ({ page })
   await expect(
     page.getByRole("heading", { level: 1, name: "データと特徴量の流れ" }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "全体の流れ" })).toBeVisible();
-  await expect(page.getByText(/再取得しても照合できる状態/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "データの流れ" })).toBeVisible();
+  await expect(page.getByText(/再取得時にも同じ入力だったか照合できる状態/)).toBeVisible();
   await expect(page.getByRole("button", { name: "次のステップ" })).toHaveCount(0);
 });

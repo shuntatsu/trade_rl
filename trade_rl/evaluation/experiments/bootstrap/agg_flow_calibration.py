@@ -137,7 +137,9 @@ class AggTradesArchiveCalibration:
             raise ValueError("accepted must be a boolean")
         if not isinstance(self.checksum_verified, bool):
             raise ValueError("checksum_verified must be a boolean")
-        if self.header_present is not None and not isinstance(self.header_present, bool):
+        if self.header_present is not None and not isinstance(
+            self.header_present, bool
+        ):
             raise ValueError("header_present must be a boolean when present")
         if any(
             not math.isfinite(value) or value <= 0.0 or value > 1.0 + _TOLERANCE
@@ -198,9 +200,7 @@ class AggTradesArchiveCalibration:
             "header_present": self.header_present,
             "row_count": self.row_count,
             "first_timestamp": (
-                None
-                if self.first_timestamp is None
-                else _iso_utc(self.first_timestamp)
+                None if self.first_timestamp is None else _iso_utc(self.first_timestamp)
             ),
             "last_timestamp": (
                 None if self.last_timestamp is None else _iso_utc(self.last_timestamp)
@@ -364,7 +364,9 @@ def evaluate_aggtrades_archive(
             continue
 
         hour_timestamps = timestamps_ms[mask]
-        bins = (hour_timestamps % _HOUR_MILLISECONDS) // protocol.burst_window_milliseconds
+        bins = (
+            hour_timestamps % _HOUR_MILLISECONDS
+        ) // protocol.burst_window_milliseconds
         buyer_maker = series.buyer_is_maker[mask]
         buy_weights = hour_notional[~buyer_maker]
         buy_bins = bins[~buyer_maker]
@@ -394,7 +396,11 @@ def evaluate_aggtrades_archive(
         ):
             continue
         fraction = min(peak_buy, peak_sell) / total_notional
-        if not math.isfinite(fraction) or fraction <= 0.0 or fraction > 1.0 + _TOLERANCE:
+        if (
+            not math.isfinite(fraction)
+            or fraction <= 0.0
+            or fraction > 1.0 + _TOLERANCE
+        ):
             raise ValueError("derived worst-side hourly fraction is invalid")
         fractions.append(fraction)
 
@@ -438,7 +444,9 @@ def rejected_aggtrades_archive(
         symbol=symbol,
         date=resolved_day.strftime("%Y-%m-%d"),
     )
-    if (symbol, resolved_day, expected_url) not in set(_expected_archive_keys(protocol)):
+    if (symbol, resolved_day, expected_url) not in set(
+        _expected_archive_keys(protocol)
+    ):
         raise ValueError("archive is outside the sealed planned roster")
     if url != expected_url:
         raise ValueError("rejected archive URL differs from the sealed planned URL")
@@ -550,9 +558,7 @@ def build_aggtrades_flow_calibration_result(
         )
         for symbol in protocol.symbols
     )
-    failures = tuple(
-        failure for summary in summaries for failure in summary.failures
-    )
+    failures = tuple(failure for summary in summaries for failure in summary.failures)
     status = "PASS" if not failures else "INVALID"
     return AggTradesFlowCalibrationResult(
         status=status,

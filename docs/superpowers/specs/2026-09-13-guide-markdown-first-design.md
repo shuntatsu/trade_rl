@@ -1,7 +1,7 @@
 # Human Guide Markdown-first redesign
 
 Date: 2026-09-13
-Status: design approved in chat; implementation not started
+Status: written design pending user review; implementation not started
 Base: `main` at `e91d8d51d5b2dcce038311221967b7701c72ecb3`
 
 ## 結論
@@ -91,9 +91,32 @@ Markdownが人間向け文章・表・静的 `text` 図を所有する。sidecar
 - `keywords`
 - `source_sections` + SHA-256 fingerprint
 - `code_references`
-- 必要なnavigation metadata
 
 現在の `sections` と primary `visualization` はsidecarから外す。文章と処理順の正面表示をJSON component modelへ閉じ込めない。
+
+Markdown内へ独自directive、MDX component、実行可能JavaScriptを埋め込まない。sequence/flowは通常のMarkdown `text` blockとtableだけで表現する。
+
+### Manifest v2
+
+flatなtopic配列をやめ、navigation groupとdefault reading orderを明示する。
+
+概念形:
+
+```json
+{
+  "schema_version": "document-guide-v2",
+  "home": "overview",
+  "groups": [
+    {"id": "overview", "label": "概要", "topics": ["overview"]},
+    {"id": "mechanics", "label": "仕組み", "topics": ["data-flow", "implementation-replay", "implementation-ppo", "execution-economics", "experiment-loop"]},
+    {"id": "status", "label": "現在地", "topics": ["research-status"]},
+    {"id": "reference", "label": "参照", "topics": ["code-map"]}
+  ],
+  "reading_order": ["overview", "data-flow", "implementation-replay", "implementation-ppo", "execution-economics", "experiment-loop", "research-status"]
+}
+```
+
+`code-map` はnavigationには存在するが `reading_order` へ含めない。
 
 ## なぜMermaidを初期採用しないか
 
@@ -121,7 +144,7 @@ Mermaid等を将来導入する場合も、静的本文が完全なfallbackで�
 
 ## ページrole
 
-manifest/metaへ明示的な `role` を追加する。
+meta JSONへ `role` を追加し、値を `overview | detail | status | reference` に限定する。
 
 ### `overview`
 
@@ -136,14 +159,15 @@ manifest/metaへ明示的な `role` を追加する。
 3. 実証済み / 未証明の表
 4. 次に読むページの地図
 
-禁止:
+contract:
 
-- CodeInspectorを初期表示しない
-- Python local variable一覧を出さない
-- selectable node/stepを出さない
-- 詳細なclass/function ownershipを主表示しない
+- `code_references` は**空配列必須**。
+- CodeInspector / ImplementationDetailsをrenderしない。
+- Python local variable一覧を出さない。
+- selectable node/stepを出さない。
+- 詳細なclass/function ownershipを主表示しない。
 
-必要に応じcanonical type名を補助表記できるが、実装探索を目的にしない。
+必要に応じcanonical type名をMarkdown本文の補助表記として書けるが、実装探索を目的にしない。
 
 ### `detail`
 
@@ -164,8 +188,7 @@ manifest/metaへ明示的な `role` を追加する。
 3. 静的sequence / flow / table
 4. step-by-step説明
 5. 重要なinvariant / failure mode
-6. 折りたたみ式「実装詳細」
-7. tests / source links
+6. 記事末尾の折りたたみ式「実装参照」
 
 sequenceの主要stepは**初期DOMに全て存在**し、click/tapしないと次stepが読めない設計を禁止する。
 
@@ -183,7 +206,10 @@ sequenceの主要stepは**初期DOMに全て存在**し、click/tapしないと�
 4. 未証明事項
 5. source/research artifact参照
 
-研究statusは原則として文章と表を使い、装飾的な可視化を置かない。
+contract:
+
+- `code_references` は**空配列必須**。
+- 研究statusは文章と表を使い、装飾的な可視化を置かない。
 
 ### `reference`
 
@@ -193,11 +219,11 @@ sequenceの主要stepは**初期DOMに全て存在**し、click/tapしないと�
 
 通常の「次に読む」学習順から外し、navigationの `参照` groupへ置く。
 
-主表示はstatic ownership tableとdependency direction。必要ならexact source linkを使うが、clickable graphは理解の前提にしない。
+主表示はstatic ownership tableとdependency direction。exact source linkを持てるが、clickable graphは理解の前提にしない。
 
 ## Navigation
 
-単一のflat topic列ではなく、視覚的に次のgroupへ分ける。
+視覚的に次のgroupへ分ける。
 
 ```text
 概要
@@ -217,9 +243,15 @@ sequenceの主要stepは**初期DOMに全て存在**し、click/tapしないと�
   コード地図
 ```
 
-`次に見る` はdefault reading pathだけを辿る。`code-map` は自動の次ページに含めない。
+`次に見る` はmanifestの `reading_order` だけを辿る。
 
 ## Rendering architecture
+
+### Content loading
+
+Markdown本文はViteのraw importで読み込み、meta JSONと `id` でpairする。実装時は `import.meta.glob(..., { eager: true, query: "?raw", import: "default" })` 相当の仕組みを使い、Markdownを実行可能moduleへ変換しない。
+
+各pageは同名Markdown + metaが必須。manifestにないorphan page/meta、manifestが指すmissing page/meta、id不一致はfail-closed。
 
 ### App shell
 
@@ -233,7 +265,7 @@ sequenceの主要stepは**初期DOMに全て存在**し、click/tapしないと�
 AppShell
   TopicHeader
   MarkdownArticle
-  ImplementationDetails?   # detail/referenceのみ
+  ImplementationReferenceAppendix?   # detail/referenceのみ
   NextReadingLink
 ```
 
@@ -241,20 +273,24 @@ AppShell
 
 ### Markdown renderer
 
-Markdownは安全なReact Markdown rendererで描画し、raw HTML / MDX / arbitrary JSを許可しない。
+初期実装は `react-markdown` + `remark-gfm` を使う。`rehype-raw` は導入せず、raw HTML / MDX / arbitrary JSを実行しない。
 
 必須support:
 
-- headings
+- ATX headings (`#` / `##` / `###`)
 - paragraphs
 - ordered/unordered lists
-- tables
+- GFM tables
 - inline code
 - fenced code blocks
 - blockquotes
 - links
 
-heading slugはdeterministicに生成し、同一page内のduplicate heading slugはcontent checkでfailさせる。
+Guide contentのheadingはATX形式へ限定する。heading slugはdeterministicに生成し、同一page内のduplicate normalized slugはcontent checkでfailさせる。
+
+link rendererは `http:`, `https:`, relative path, fragmentのみを許可し、`javascript:` / `data:` 等を拒否する。
+
+`react-markdown`導入後に500,000-byte budgetを超える場合、budgetを上げない。第一選択はrendererのcode splitting、なお超える場合はbuild-time Markdown precompileへ切り替える。
 
 ### Static sequence / flow
 
@@ -262,24 +298,32 @@ heading slugはdeterministicに生成し、同一page内のduplicate heading slu
 
 wideなsequenceはpage全体をoverflowさせず、そのblockだけ `overflow-x: auto` とする。320px document-level horizontal overflowは禁止する。
 
-## Implementation detailsの扱い
+## Implementation reference appendix
 
 現在のside-by-side `CodeInspector` はprimary layoutから外す。
 
-代わりにcode referenceごとにinlineの折りたたみを提供する。
+Markdown本文へ独自component insertion markerを持ち込まず、page末尾に `実装を確認する` appendixを置く。sidecar `code_references` を順に折りたたみ表示する。
 
 ```text
-▶ 実装詳細: ハードリスクを適用
-    PreTradeRisk.constrain
+実装を確認する
+
+▶ 単銘柄リプレイを実行
+    run_single_symbol_replay
     path / line / signature
     主要変数
     関連test
     exact-SHA source link
+
+▶ ハードリスクを適用
+    PreTradeRisk.constrain
+    ...
 ```
 
-初期状態はcollapsed。
+初期状態は全てcollapsed。
 
-ただしsearchで特定symbolを選んだdeep linkでは、そのsymbolのimplementation detailsだけ自動openしてよい。これにより探索能力を維持しながら、通常閲覧では注意を奪わない。
+本文だけで概念・順序・不変条件が完結し、appendixは確認用である。
+
+ただしsearchで特定symbolを選んだdeep linkでは、そのsymbolのdetailsだけ自動openしてよい。これにより探索能力を維持しながら、通常閲覧では注意を奪わない。
 
 ## Search
 
@@ -287,7 +331,7 @@ wideなsequenceはpage全体をoverflowさせず、そのblockだけ `overflow-x
 
 検索indexは次を対象にする。
 
-- Markdown本文
+- Markdown本文のplain text
 - heading
 - page title / summary / keywords
 - 日本語code alias
@@ -298,9 +342,11 @@ wideなsequenceはpage全体をoverflowさせず、そのblockだけ `overflow-x
 検索結果は `page` / `heading` / `symbol` の種別を持つ。
 
 - page/heading結果: 該当document位置へ移動
-- symbol結果: 該当pageへ移動し、そのimplementation detailsだけopen
+- symbol結果: 該当pageへ移動し、appendixの該当implementation detailsだけopen
 
 sequence step selectionをsearch routingの前提にしない。
+
+Markdown plain text extractionはrendererとは別のcontent utilityへ閉じ、fenced codeを含めるかどうかをテストで固定する。検索ではidentifier発見性のためinline/fenced code textを含める。
 
 ## URL contract
 
@@ -308,7 +354,7 @@ page deep linkは維持する。
 
 新しいcanonical targetは `topic + heading` または `topic + symbol` とする。
 
-旧 `step=` deep linkはmigration期間中に既知のheading/symbolへredirectできるものだけcompat mappingを持ち、意味のないvisual step stateを恒久APIにしない。
+旧 `step=` deep linkはmigration期間中に既知のheading/symbolへredirectできるものだけcompat mappingを持ち、意味のないvisual step stateを恒久APIにしない。unknown legacy stepはpage rootへ安全にfallbackする。
 
 source linkは引き続きfloating `main` ではなく `GUIDE_SOURCE_REV` のexact SHAへ固定する。
 
@@ -317,6 +363,13 @@ source linkは引き続きfloating `main` ではなく `GUIDE_SOURCE_REV` のexa
 ### sidecar pairing
 
 各meta JSONは同名Markdownを1つだけ持つ。missing/duplicate/orphanはfail-closed。
+
+### role contract
+
+- `overview`: `code_references=[]` 必須。
+- `status`: `code_references=[]` 必須。
+- `detail`: code referencesは0件以上。
+- `reference`: code referencesは1件以上。
 
 ### docs freshness
 
@@ -362,7 +415,7 @@ runtime symbol indexはsidecar `code_references`からunique symbol集合を作�
 6. BookStateを引き継ぐ
 7. 結果を確定する
 
-`desired_quantity`、`proposal_weight`、`target_weight`等は各stepの実装詳細に置き、ページ冒頭へ露出しない。
+`desired_quantity`、`proposal_weight`、`target_weight`等は記事末尾の実装参照appendixで説明し、ページ冒頭へ露出しない。
 
 ### implementation-ppo
 
@@ -410,13 +463,14 @@ interactive graphをreference tableへ変更する。
 1. Guideだけを読んでも、source codeを開かずにcore flowを説明できる。
 2. replay/PPOの主要処理順は初期表示だけで読める。
 3. exact source linkとcode digest contractは弱めない。
-4. overviewにdetail-onlyのvariable/symbol dumpを持ち込まない。
-5. implementation detailsを開かなくても主要説明が欠落しない。
+4. overview/statusにcode referenceを持ち込まない。
+5. implementation appendixを開かなくても主要説明が欠落しない。
 6. Guideはdocs/research/sourceを正本として扱い続ける。
 7. `trade_rl/**` runtime semanticsを変更しない。
 8. page-level horizontal overflowを作らない。
 9. keyboard / screen readerでdocument readingとdetails disclosureを完結できる。
 10. 500,000-byte JavaScript chunk budgetを維持する。
+11. Markdown本文へ独自UI directiveや実行可能componentを埋め込まない。
 
 ## Failure modes / Risks
 
@@ -426,7 +480,7 @@ interactive graphをreference tableへ変更する。
 
 ### Markdown parserが新しいXSS面を作る
 
-対策: raw HTML / MDX / arbitrary JSを禁止。安全なReact element rendererを使う。
+対策: `react-markdown`をraw HTML無効で使用し、`rehype-raw` / MDXを導入しない。link protocolもallowlistする。
 
 ### static diagramが横に長くmobileを壊す
 
@@ -434,11 +488,11 @@ interactive graphをreference tableへ変更する。
 
 ### インタラクティブ機能を減らした結果sourceへ辿れなくなる
 
-対策: inline implementation detailsとsymbol searchを残す。source linkはexact SHAを維持する。
+対策: article末尾のimplementation appendixとsymbol searchを残す。source linkはexact SHAを維持する。
 
 ### 概要が再び詳細化する
 
-対策: `role=overview`専用content contractを持ち、overview sidecarのcode reference数やUI elementを制限する。少なくともCodeInspector/implementation detailsのprimary renderを禁止する。
+対策: `role=overview`は `code_references=[]` を必須にし、overview rendererはImplementationReferenceAppendixをmountしないことをunit/E2Eで固定する。
 
 ### 旧step deep linkが壊れる
 
@@ -446,27 +500,32 @@ interactive graphをreference tableへ変更する。
 
 ### bundleが再び肥大化する
 
-対策:500,000-byte hard budgetを維持。Markdown renderer導入後のproduction chunkを実bytesで検証する。
+対策:500,000-byte hard budgetを維持。Markdown renderer導入後のproduction chunkを実bytesで検証し、超過時はbudget引上げではなくcode splitting / build-time precompileで対処する。
 
 ### content migrationで研究事実が変わる
 
 対策:移行は表現変更のみ。`source_sections` fingerprintを維持し、`docs/research/current-status.md`と差分レビューする。
 
+### Markdownとmetaが別々にdriftする
+
+対策:同名pair、manifest inclusion、role contractをcontent contractで検証する。orphan/missingを許可しない。
+
 ## Acceptance Criteria
 
 ### Information architecture
 
-- [ ] overview/detail/status/referenceのroleがmanifest/metaで明示される。
+- [ ] manifest schemaが `document-guide-v2` になる。
+- [ ] overview/detail/status/referenceのroleがmetaで明示される。
 - [ ] navigationが `概要 / 仕組み / 現在地 / 参照` へgroup化される。
-- [ ] `code-map` はdefault next-reading pathから外れる。
+- [ ] `code-map` はdefault `reading_order`から外れる。
 
 ### Reading-first UI
 
-- [ ] 全pageで本文がprimary contentとしてvisual explorerより先にrenderされる。
-- [ ] overviewにselectable visualization / CodeInspectorがない。
+- [ ] 全pageでMarkdown本文がprimary contentとして実装参照より先にrenderされる。
+- [ ] overview/statusにselectable visualization / CodeInspector / implementation appendixがない。
 - [ ] replay/PPOの主要sequence stepが初期DOMに全て存在する。
 - [ ] core explanationの理解にclick/tapを要求しない。
-- [ ] implementation detailsは通常collapsedである。
+- [ ] detail/referenceのimplementation appendixは通常collapsedである。
 
 ### Content
 
@@ -474,6 +533,7 @@ interactive graphをreference tableへ変更する。
 - [ ] replay/PPOの既存semantic stepsが欠落しない。
 - [ ] research-status/overviewの事実がcurrent research docsと一致する。
 - [ ] static flow/sequenceはraw Markdownでも意味が読める。
+- [ ] Markdownにcustom UI directive / MDX / raw HTML dependencyがない。
 
 ### Traceability
 
@@ -505,8 +565,10 @@ Tests Greenだけでは完了としない。次を観測する。
 ### Static/content contract
 
 - all Markdown/meta pairing complete
-- manifest role/group valid
-- duplicate heading slug rejects
+- manifest role/group/reading_order valid
+- overview/status code references empty
+- reference code references non-empty
+- duplicate ATX heading slug rejects
 - source fingerprint stale rejects
 - code symbol stale/missing rejects
 - orphan meta/Markdown rejects
@@ -514,11 +576,12 @@ Tests Greenだけでは完了としない。次を観測する。
 
 ### Unit
 
-- Markdown article renders headings/list/table/code without raw HTML execution
+- `react-markdown + remark-gfm`でheading/list/table/codeをrenderできる
+- raw HTML / unsafe protocolを実行しない
 - search indexes Markdown heading/body and code alias/symbol
-- symbol deep link opens only the relevant implementation details
-- overview renderer does not mount implementation explorer
-- next-reading skips reference pages
+- symbol deep link opens only the relevant implementation appendix item
+- overview/status renderer does not mount implementation appendix
+- next-reading follows manifest `reading_order` and skips reference pages
 
 ### Browser E2E
 
@@ -527,8 +590,8 @@ Desktop + 320px mobileで最低限:
 1. overviewを開き、クリックなしでpurpose/core flow/proven-vs-unprovenが読める。
 2. replayを開き、クリックなしで観測→strategy→risk→execution→bookの順序を読める。
 3. PPOを開き、観測5区分とaction→risk→execution→rewardをクリックなしで読める。
-4. implementation detailsが初期collapsedで、keyboardでopenできる。
-5. `desired_quantity`検索からreplayの該当implementation detailsへ到達できる。
+4. implementation appendixが初期collapsedで、keyboardでopenできる。
+5. `desired_quantity`検索からreplayの該当implementation appendixへ到達できる。
 6. exact-SHA source linkを検証する。
 7. page-level horizontal overflowがない。
 8. serious/critical accessibility violationがない。
@@ -560,6 +623,7 @@ Desktop + 320px mobileで最低限:
 - overviewとdetailの共通template
 - step selectionが必要なsequence comprehension
 - Mermaid/MDX等の追加複雑性を初期 redesignへ持ち込むこと
+- custom Markdown UI directive
 - warning/bundle閾値を緩めること
 
 この設計の成功条件は「図が格好良いこと」ではなく、**初見読者が上から読むだけで処理順、責務、現在の研究状態を説明できること**である。

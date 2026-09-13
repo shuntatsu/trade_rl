@@ -120,6 +120,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | execution/accounting/fill/funding/borrow/liquidation | `architecture/lean-core.md`, simulation/risk/evaluation tests |
 | package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
+| final-test authorization、unused/final window opening gate | `architecture/final-evaluation-authorization.md`, `tests/evaluation/final_test/`, `tests/architecture/test_final_test_boundary.py` |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
 | Guideがbindする正本section / Python symbol | 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json`, `--refresh` / `--refresh-code`, `guide/tools/content_contract.py --check` |

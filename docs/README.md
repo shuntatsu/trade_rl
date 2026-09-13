@@ -14,9 +14,10 @@
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本と現行source/testsから派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guideは日本語を主表示し、実identifierを副表示するコード連動型実装エクスプローラである。Markdown section fingerprintとPython symbol/source digestを別々にfail-closed検証し、source linkはbuildしたexact revisionへ固定する。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
 
-現在Activeな独立spec:
+現在Activeな独立spec / implementation plan:
 
-- [`specs/2026-09-13-guide-markdown-first-design.md`](specs/2026-09-13-guide-markdown-first-design.md) — Human Guideをvisualization-firstからMarkdown-first technical document + secondary implementation explorerへ再設計するactive normative design。implementationは未開始。
+- [`specs/2026-09-13-guide-markdown-first-design.md`](specs/2026-09-13-guide-markdown-first-design.md) — Human Guideをvisualization-firstからMarkdown-first technical document + secondary implementation explorerへ再設計するactive normative design。
+- [`plans/2026-09-13-guide-markdown-first-implementation.md`](plans/2026-09-13-guide-markdown-first-implementation.md) — 上記designをTDDで実装し、exact-head CIからPages public smokeまで閉じるactive implementation plan。
 
 新しい未実装designや実装中の独立planが必要になった場合だけ `specs/` / `plans/` を作り、完了後は恒久契約へ昇格してcurrent treeから削除する。
 
@@ -45,7 +46,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
-- Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/topics/*.json` を再確認し、`--refresh` / `--refresh-code` を対象topicだけ実行して `guide/tools/content_contract.py --check` を通す
+- Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/meta/*.json` と `guide/content/pages/*.md` を再確認し、対象pageのsource/code freshnessを再検証する
 - Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する
 - docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 

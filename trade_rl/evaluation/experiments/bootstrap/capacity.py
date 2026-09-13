@@ -175,9 +175,13 @@ class BookDepthCapacityCalibrationProtocol:
         schema_version = _text(self.schema_version, field="schema_version")
 
         if not calibration_start < calibration_stop:
-            raise ValueError("calibration_start must be before calibration_stop_exclusive")
+            raise ValueError(
+                "calibration_start must be before calibration_stop_exclusive"
+            )
         if calibration_stop > evaluation_start:
-            raise ValueError("calibration_stop_exclusive cannot exceed evaluation_start")
+            raise ValueError(
+                "calibration_stop_exclusive cannot exceed evaluation_start"
+            )
 
         actual = (
             dataset_id,
@@ -212,7 +216,9 @@ class BookDepthCapacityCalibrationProtocol:
             _SCHEMA_VERSION,
         )
         if actual != preregistered:
-            raise ValueError("capacity calibration fields differ from preregistered protocol")
+            raise ValueError(
+                "capacity calibration fields differ from preregistered protocol"
+            )
 
         object.__setattr__(self, "canonical_dataset_id", dataset_id)
         object.__setattr__(self, "canonical_study_digest", study_digest)
@@ -240,7 +246,11 @@ class BookDepthCapacityCalibrationProtocol:
         ):
             for day in self.sample_month_days:
                 candidate = datetime(year, month, day, tzinfo=UTC)
-                if self.calibration_start <= candidate < self.calibration_stop_exclusive:
+                if (
+                    self.calibration_start
+                    <= candidate
+                    < self.calibration_stop_exclusive
+                ):
                     days.append(candidate)
             if month == 12:
                 year += 1
@@ -306,7 +316,9 @@ def load_book_depth_capacity_calibration_protocol(
             ),
         )
     except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"cannot load capacity calibration protocol: {source}") from error
+        raise ValueError(
+            f"cannot load capacity calibration protocol: {source}"
+        ) from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError("capacity calibration protocol must be a JSON object")
     payload = cast(dict[str, object], raw)

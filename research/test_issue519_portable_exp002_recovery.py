@@ -48,7 +48,20 @@ def _execution_raw(*, ppo_excess: float = 0.0):
         }
         for seed in range(5)
     }
-    deterministic = {"mean_reversion": {"by_symbol": {}, "aggregate": {}}}
+    deterministic = {
+        "mean_reversion": {
+            "by_symbol": {"BTCUSDT": {"excess_total_return": 0.05}},
+            "aggregate": {
+                "symbol_count": 5,
+                "positive_symbol_count": 4,
+                "negative_symbol_count": 1,
+                "zero_symbol_count": 0,
+                "median_excess_total_return": 0.05,
+                "worst_excess_total_return": -0.01,
+                "best_excess_total_return": 0.10,
+            },
+        }
+    }
     formal = {
         "positive_factor_effect_symbol_count": 4,
         "median_excess_total_return": 0.05,
@@ -107,7 +120,19 @@ def test_normalize_independent_matches_fresh_postverify_schema() -> None:
         "candidate_evidence_fingerprint": "candidate-fp",
         "unaffected_raw_return_equality_checks": 150,
         "ppo_exact_zero_effect_checks": 25,
-        "deterministic_effects": source["deterministic_effects"],
+        "deterministic_effects": {
+            "mean_reversion": {
+                "by_symbol": {"BTCUSDT": {"excess_total_return": 0.05}},
+                "aggregate": {
+                    "positive_symbol_count": 4,
+                    "negative_symbol_count": 1,
+                    "zero_symbol_count": 0,
+                    "median_excess_total_return": 0.05,
+                    "worst_excess_total_return": -0.01,
+                    "best_excess_total_return": 0.10,
+                },
+            }
+        },
         "mean_reversion_formal_inputs": source["mean_reversion_formal_inputs"],
         "candidate_cost_semantics": source["candidate_cost_semantics"],
         "formal_decision": "ACCEPT_CANDIDATE",

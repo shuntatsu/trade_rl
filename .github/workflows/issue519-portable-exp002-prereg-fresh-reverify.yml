@@ -1,0 +1,135 @@
+name: Issue 519 Experiment 0002 prereg fresh reverify
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-prereg
+    paths:
+      - .github/workflows/issue519-portable-exp002-prereg-fresh-reverify.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  PREREG_HELPER_BLOB: 902161bdc4fb6a444006753280020664e2278f53
+  PREREG_SOURCE_RUN_ID: "34738896077"
+  PREREG_SOURCE_HEAD: 1f1c967d848fe1c51e68f7571005b198c68a0bd8
+  PREREG_ARTIFACT: canonical-m2-portable-exp002-prereg-v1-34738896077
+  PREREG_ARTIFACT_ID: "10311508057"
+  PREREG_ARTIFACT_DIGEST: sha256:566880f04bd0ba686dbe6796aff40709c70986f966844d8e11e000c99ef31057
+  ISSUE_NUMBER: "519"
+  PREREG_ROOT: /tmp/issue519-exp002-prereg-fresh
+  VERIFY_ROOT: /tmp/issue519-exp002-prereg-fresh-verify
+  VERIFY_ARTIFACT: canonical-m2-portable-exp002-prereg-fresh-verification-v1-${{ github.run_id }}
+
+jobs:
+  fresh-reverify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact verifier head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove helper and frozen production binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_portable_exp002.py)" = "$PREREG_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify immutable preregistration metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SOURCE_RUN_ID")"
+          test "$(jq -r '.head_sha' <<<"$source_run")" = "$PREREG_SOURCE_HEAD"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$PREREG_SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue_created="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.created_at')"
+          artifact_created="$(jq -r '.created_at' <<<"$artifact")"
+          test "$issue_created" \< "$artifact_created"
+
+      - name: Re-download immutable preregistration by bound run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_SOURCE_RUN_ID }}
+
+      - name: Independently reverify sealed preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$VERIFY_ROOT"
+          uv run python research/issue519_portable_exp002.py verify-prereg \
+            --root "$PREREG_ROOT" \
+            --report-root "$VERIFY_ROOT" >/dev/null
+          jq -e '
+            .verification_passed == true and
+            .definition_is_result_blind == true and
+            .candidate_absent == true and
+            .prior_exp001_evidence_unchanged == true and
+            .daily_signal_refresh_equality_verified == true
+          ' "$VERIFY_ROOT/exp002-prereg-verification.json" >/dev/null
+
+      - name: Seal execution authorization binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_sha="$(sha256sum "$VERIFY_ROOT/exp002-prereg-verification.json" | awk '{print $1}')"
+          jq -n \
+            --arg verifier_run_id "$GITHUB_RUN_ID" \
+            --arg verifier_head "$GITHUB_SHA" \
+            --arg prereg_run_id "$PREREG_SOURCE_RUN_ID" \
+            --arg prereg_head "$PREREG_SOURCE_HEAD" \
+            --arg prereg_artifact_id "$PREREG_ARTIFACT_ID" \
+            --arg prereg_artifact_digest "$PREREG_ARTIFACT_DIGEST" \
+            --arg helper_blob "$PREREG_HELPER_BLOB" \
+            --arg verification_sha256 "$report_sha" \
+            '{
+              schema_version: "canonical_m2_portable_exp002_prereg_execution_authorization_v1",
+              verifier_run_id: $verifier_run_id,
+              verifier_head: $verifier_head,
+              preregistration_run_id: $prereg_run_id,
+              preregistration_head: $prereg_head,
+              preregistration_artifact_id: $prereg_artifact_id,
+              preregistration_artifact_digest: $prereg_artifact_digest,
+              prereg_helper_blob: $helper_blob,
+              fresh_verification_sha256: $verification_sha256,
+              preregistration_reverified_on_fresh_runner: true,
+              candidate_executed: false,
+              result_inspected: false,
+              execution_authorized: true
+            }' > "$VERIFY_ROOT/execution-authorization.json"
+
+      - name: Upload fresh verification and execution authorization
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.VERIFY_ARTIFACT }}
+          path: ${{ env.VERIFY_ROOT }}
+          retention-days: 90

@@ -27,8 +27,11 @@ from trade_rl.data import (
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation import BookState, MarketExecutor
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -76,6 +79,7 @@ VARIANTS = (
         "study/experiments/0002/candidate/evidence/runs/seed-0/summary.json",
     ),
 )
+_TOLERANCE = 1e-12
 
 
 def make_zero_cost_diagnostic_dataset(source: MarketDataset) -> MarketDataset:
@@ -102,7 +106,7 @@ def make_zero_cost_diagnostic_dataset(source: MarketDataset) -> MarketDataset:
     ).with_content_identity(
         {
             "diagnostic_only": True,
-            "diagnostic_schema": "zero_cost_counterfactual_v1",
+            "diagnostic_schema": "zero_cost_counterfactual_v2",
             "source_dataset_id": source.dataset_id,
             "zeroed_arrays": list(ZEROED_ECONOMIC_ARRAYS),
         }
@@ -122,10 +126,11 @@ def _validate_diagnostic_dataset(
     for field in ZEROED_ECONOMIC_ARRAYS:
         if np.any(diagnostic.resolved_array(field) != 0.0):
             raise RuntimeError(f"zero-cost diagnostic did not zero {field}")
+    diagnostic_arrays = diagnostic.identity_arrays()
     for field, source_array in source.identity_arrays().items():
         if field in ZEROED_ECONOMIC_ARRAYS:
             continue
-        if not np.array_equal(diagnostic.identity_arrays()[field], source_array):
+        if not np.array_equal(diagnostic_arrays[field], source_array):
             raise RuntimeError(f"zero-cost diagnostic changed non-cost array: {field}")
     for field in PRESERVED_EXECUTION_ARRAYS:
         if not np.array_equal(
@@ -148,7 +153,13 @@ def direction_log_return_attribution(
     returns: np.ndarray,
     intents: Iterable[object],
 ) -> dict[str, object]:
-    """Partition exact compounded-log return by the decision-conditioned intent."""
+    """Partition aligned log returns by supplied intent labels.
+
+    This generic helper is exact only when every supplied return is already aligned
+    to the supplied intent. Canonical next-open replay uses the segmented tracer
+    below because an interval contains a prior-intent overnight gap plus a
+    post-open segment after the new target is processed.
+    """
 
     values = np.asarray(returns, dtype=np.float64).reshape(-1)
     labels = tuple(_intent_label(value) for value in intents)
@@ -171,6 +182,253 @@ def direction_log_return_attribution(
     return output
 
 
+def _desired_quantity_from_weight(
+    book: BookState,
+    target_weight: float,
+    *,
+    symbol_index: int,
+) -> float:
+    multiplier = float(book.contract_multipliers[symbol_index])
+    denominator = float(book.mark_prices[symbol_index]) * multiplier
+    return float(target_weight * book.portfolio_value / denominator)
+
+
+def _weight_for_desired_quantity(
+    book: BookState,
+    desired_quantity: float,
+    *,
+    symbol_index: int,
+) -> float:
+    if book.portfolio_value <= 0.0:
+        return 0.0
+    multiplier = float(book.contract_multipliers[symbol_index])
+    return float(
+        desired_quantity
+        * float(book.mark_prices[symbol_index])
+        * multiplier
+        / book.portfolio_value
+    )
+
+
+def _diagnostic_risk(executor: MarketExecutor) -> PreTradeRisk:
+    hard_limit = min(1.0, float(executor.cost.max_leverage))
+    return PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=hard_limit,
+            max_abs_weight=hard_limit,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+
+def _strategy_observation(
+    dataset: MarketDataset,
+    *,
+    index: int,
+    symbol_index: int,
+    book: BookState,
+    current_intent: PositionIntent,
+) -> StrategyObservation:
+    return StrategyObservation(
+        index=index,
+        timestamp=dataset.timestamps[index],
+        symbol=dataset.symbols[symbol_index],
+        features=dataset.features[index, symbol_index],
+        feature_available=dataset.feature_available[index, symbol_index],
+        feature_staleness=dataset.resolved_array("feature_staleness")[
+            index, symbol_index
+        ],
+        global_features=dataset.global_features[index],
+        global_feature_available=dataset.resolved_array("global_feature_available")[
+            index
+        ],
+        current_intent=current_intent,
+        current_weight=float(book.weights[symbol_index]),
+    )
+
+
+def _add_intent_log(
+    totals: dict[str, float],
+    intent: PositionIntent,
+    value: float,
+) -> None:
+    totals[_intent_label(intent)] += value
+
+
+def run_segmented_zero_cost_replay(
+    dataset: MarketDataset,
+    strategy: SingleSymbolStrategy,
+    *,
+    symbol_index: int,
+    start_index: int,
+    stop_index: int,
+    gross_budget: float,
+    initial_capital: float,
+) -> dict[str, object]:
+    """Replay zero-cost next-open execution and attribute temporal return segments.
+
+    The close-to-next-open gap is carried by the pre-decision holding and is
+    therefore attributed to the prior intent. The residual interval log return is
+    attributed to the newly requested intent after next-open processing. The two
+    segments exactly reconstruct the canonical interval net log return. Corporate
+    actions and financing are rejected here rather than silently misattributed.
+    """
+
+    if not 0 <= symbol_index < dataset.n_symbols:
+        raise ValueError("symbol_index is outside the Dataset")
+    if not 0 <= start_index < stop_index < dataset.n_bars:
+        raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+    if not math.isfinite(initial_capital) or initial_capital <= 0.0:
+        raise ValueError("initial_capital must be finite and positive")
+    target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
+    for field in ZEROED_ECONOMIC_ARRAYS:
+        if np.any(dataset.resolved_array(field) != 0.0):
+            raise RuntimeError(f"segmented replay requires zeroed {field}")
+
+    initial_prices = dataset.resolved_array("mark_price")[start_index]
+    book = BookState.zero(
+        dataset.n_symbols,
+        initial_capital,
+        initial_prices,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    risk = _diagnostic_risk(executor)
+    current_intent = PositionIntent.FLAT
+    desired_quantity = 0.0
+    returns: list[float] = []
+    contributions = {"LONG": 0.0, "SHORT": 0.0, "FLAT": 0.0}
+    gap_segments = 0
+    post_open_segments = 0
+    partial_fill_intervals = 0
+    index = start_index
+
+    while index < stop_index:
+        observation = _strategy_observation(
+            dataset,
+            index=index,
+            symbol_index=symbol_index,
+            book=book,
+            current_intent=current_intent,
+        )
+        intent = strategy.decide(observation)
+        if not isinstance(intent, PositionIntent):
+            raise TypeError("strategy.decide must return PositionIntent")
+        changed_intent = intent is not current_intent
+        if changed_intent:
+            proposal_weight = target_weight_for_intent(
+                intent,
+                gross_budget=gross_budget,
+            )
+            desired_quantity = _desired_quantity_from_weight(
+                book,
+                proposal_weight,
+                symbol_index=symbol_index,
+            )
+        proposal_weight = _weight_for_desired_quantity(
+            book,
+            desired_quantity,
+            symbol_index=symbol_index,
+        )
+        proposal_weights = np.zeros(dataset.n_symbols, dtype=np.float64)
+        proposal_weights[symbol_index] = proposal_weight
+        constrained = risk.constrain(
+            proposal_weights,
+            current=book.weights,
+            drawdown=book.max_drawdown,
+        )
+        target_weight = float(constrained.weights[symbol_index])
+        if constrained.was_constrained and any(
+            reason != "max_turnover" for reason in constrained.reasons
+        ):
+            desired_quantity = _desired_quantity_from_weight(
+                book,
+                target_weight,
+                symbol_index=symbol_index,
+            )
+
+        processing_index = index + 1
+        if float(dataset.resolved_array("split_factor")[processing_index, symbol_index]) != 1.0:
+            raise RuntimeError("segmented diagnostic does not attribute split bars")
+        if not bool(dataset.resolved_array("asset_active")[processing_index, symbol_index]):
+            raise RuntimeError("segmented diagnostic does not attribute inactive-asset bars")
+        if float(dataset.resolved_array("dividend")[processing_index, symbol_index]) != 0.0:
+            raise RuntimeError("segmented diagnostic does not attribute dividend bars")
+
+        period_start_value = max(book.portfolio_value, _TOLERANCE)
+        gap_book = book.clone()
+        gap_book.revalue(dataset.open[processing_index])
+        gap_return = max(gap_book.portfolio_value, 0.0) / period_start_value - 1.0
+        if not math.isfinite(gap_return) or gap_return <= -1.0:
+            raise RuntimeError("segmented diagnostic gap return is invalid")
+
+        execution = executor.execute_interval(
+            book,
+            constrained.weights,
+            start_index=index,
+            bars=1,
+        )
+        if execution.next_index != processing_index:
+            raise RuntimeError("segmented execution did not advance exactly one bar")
+        if execution.interval_cost != 0.0:
+            raise RuntimeError("segmented zero-cost replay produced transaction cost")
+        if execution.interval_funding != 0.0 or execution.interval_borrow_cost != 0.0:
+            raise RuntimeError("segmented zero-cost replay produced financing cost")
+        if execution.interval_cash_interest != 0.0 or execution.interval_dividend != 0.0:
+            raise RuntimeError("segmented zero-cost replay produced carry outside attribution")
+        if execution.termination_reason is not None:
+            raise RuntimeError("segmented diagnostic does not attribute terminated intervals")
+
+        interval_return = float(execution.interval_net_return)
+        if not math.isfinite(interval_return) or interval_return <= -1.0:
+            raise RuntimeError("segmented diagnostic interval return is invalid")
+        gap_log = math.log1p(gap_return)
+        post_open_log = math.log1p(interval_return) - gap_log
+        _add_intent_log(contributions, current_intent, gap_log)
+        _add_intent_log(contributions, intent, post_open_log)
+        gap_segments += 1
+        post_open_segments += 1
+        if execution.fill_ratio < 1.0 - _TOLERANCE:
+            partial_fill_intervals += 1
+
+        returns.append(interval_return)
+        book = execution.book
+        current_intent = intent
+        index = execution.next_index
+
+    return_values = np.asarray(returns, dtype=np.float64)
+    total_log = float(np.log1p(return_values).sum())
+    attributed_log = sum(contributions.values())
+    if not math.isclose(total_log, attributed_log, rel_tol=1e-12, abs_tol=1e-12):
+        raise RuntimeError("segmented intent attribution does not reconstruct total log return")
+    final_log = math.log(max(book.portfolio_value, _TOLERANCE) / initial_capital)
+    if not math.isclose(total_log, final_log, rel_tol=1e-10, abs_tol=1e-10):
+        raise RuntimeError("segmented replay return path differs from final book value")
+
+    return {
+        "returns": returns,
+        "final_portfolio_value": book.portfolio_value,
+        "turnover_total": book.turnover_total,
+        "n_trades": book.n_trades,
+        "rebalance_events": book.rebalance_events,
+        "partial_fill_intervals": partial_fill_intervals,
+        "exact_intent_log_attribution": {
+            "long_log_return_contribution": contributions["LONG"],
+            "short_log_return_contribution": contributions["SHORT"],
+            "flat_log_return_contribution": contributions["FLAT"],
+            "total_log_return": total_log,
+            "gap_segments": gap_segments,
+            "post_open_segments": post_open_segments,
+            "partial_fill_intervals": partial_fill_intervals,
+            "timing_semantics": (
+                "close_to_next_open_gap_is_prior_intent; post_open_residual_is_new_intent"
+            ),
+        },
+    }
+
+
 def _load_json(path: Path) -> dict[str, object]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
@@ -188,7 +446,11 @@ def _mean_reversion_entry(summary: dict[str, object], symbol_index: int) -> dict
     strategies = symbol.get("strategies")
     if not isinstance(strategies, list):
         raise RuntimeError("candidate summary strategy roster malformed")
-    matches = [entry for entry in strategies if isinstance(entry, dict) and entry.get("name") == "mean_reversion"]
+    matches = [
+        entry
+        for entry in strategies
+        if isinstance(entry, dict) and entry.get("name") == "mean_reversion"
+    ]
     if len(matches) != 1:
         raise RuntimeError("candidate summary mean_reversion entry missing or duplicated")
     return matches[0]
@@ -215,7 +477,10 @@ def _integer(mapping: object, field: str) -> int:
     return value
 
 
-def _evaluation_indices(dataset: MarketDataset, summary: dict[str, object]) -> tuple[int, int, float, float]:
+def _evaluation_indices(
+    dataset: MarketDataset,
+    summary: dict[str, object],
+) -> tuple[int, int, float, float]:
     evaluation = summary.get("evaluation")
     if not isinstance(evaluation, dict):
         raise RuntimeError("candidate evaluation metadata malformed")
@@ -260,12 +525,12 @@ def _zero_cost_variant(
     symbols = summary.get("symbols")
     if symbols != list(dataset.symbols):
         raise RuntimeError("candidate summary symbol roster differs from Dataset")
-    strategy = _strategy_from_summary(summary)
     results: list[dict[str, object]] = []
     for symbol_index, symbol in enumerate(dataset.symbols):
         nominal = _mean_reversion_entry(summary, symbol_index)
         nominal_metrics = nominal.get("metrics")
-        replay = run_single_symbol_replay(
+        strategy = _strategy_from_summary(summary)
+        replay = run_segmented_zero_cost_replay(
             dataset,
             strategy,
             symbol_index=symbol_index,
@@ -273,38 +538,26 @@ def _zero_cost_variant(
             stop_index=stop,
             gross_budget=gross_budget,
             initial_capital=initial_capital,
-            execution_cost=ExecutionCostConfig.zero(),
-            risk=None,
         )
-        if replay.diagnostics.total_cost != 0.0:
-            raise RuntimeError("zero-cost replay produced nonzero transaction cost")
-        if replay.diagnostics.funding_pnl != 0.0:
-            raise RuntimeError("zero-cost replay produced nonzero funding PnL")
-        if replay.diagnostics.borrow_cost != 0.0:
-            raise RuntimeError("zero-cost replay produced nonzero borrow cost")
-        returns = np.asarray(replay.returns.values, dtype=np.float64)
-        if returns.size != len(replay.decisions):
-            raise RuntimeError("zero-cost replay decision/return length mismatch")
-        total_return = float(replay.book.portfolio_value / initial_capital - 1.0)
+        returns = np.asarray(replay["returns"], dtype=np.float64)
+        total_return = float(replay["final_portfolio_value"]) / initial_capital - 1.0
         compounded = float(np.prod(1.0 + returns, dtype=np.float64) - 1.0)
         if not math.isclose(total_return, compounded, rel_tol=1e-10, abs_tol=1e-10):
             raise RuntimeError("zero-cost replay book return differs from interval compounding")
-        attribution = direction_log_return_attribution(
-            returns,
-            [decision.intent for decision in replay.decisions],
-        )
         results.append(
             {
                 "symbol": symbol,
                 "zero_cost_total_return": total_return,
-                "zero_cost_final_portfolio_value": replay.book.portfolio_value,
-                "zero_cost_turnover_total": replay.diagnostics.turnover_total,
-                "zero_cost_n_trades": replay.diagnostics.n_trades,
-                "zero_cost_rebalance_events": replay.diagnostics.rebalance_events,
-                "zero_cost_total_cost": replay.diagnostics.total_cost,
-                "zero_cost_funding_pnl": replay.diagnostics.funding_pnl,
-                "zero_cost_borrow_cost": replay.diagnostics.borrow_cost,
-                "direction_attribution": attribution,
+                "zero_cost_final_portfolio_value": replay["final_portfolio_value"],
+                "zero_cost_turnover_total": replay["turnover_total"],
+                "zero_cost_n_trades": replay["n_trades"],
+                "zero_cost_rebalance_events": replay["rebalance_events"],
+                "zero_cost_total_cost": 0.0,
+                "zero_cost_funding_pnl": 0.0,
+                "zero_cost_borrow_cost": 0.0,
+                "exact_next_open_intent_attribution": replay[
+                    "exact_intent_log_attribution"
+                ],
                 "nominal_total_return": _number(nominal_metrics, "total_return"),
                 "nominal_turnover_total": _number(nominal_metrics, "turnover_total"),
                 "nominal_total_cost": _number(nominal_metrics, "total_cost"),
@@ -323,11 +576,21 @@ def _zero_cost_variant(
     else:
         classification = "MIXED_GROSS_EDGE"
     long_positive = sum(
-        float(entry["direction_attribution"]["long_log_return_contribution"]) > 0.0  # type: ignore[index]
+        float(
+            entry["exact_next_open_intent_attribution"][  # type: ignore[index]
+                "long_log_return_contribution"
+            ]
+        )
+        > 0.0
         for entry in results
     )
     short_positive = sum(
-        float(entry["direction_attribution"]["short_log_return_contribution"]) > 0.0  # type: ignore[index]
+        float(
+            entry["exact_next_open_intent_attribution"][  # type: ignore[index]
+                "short_log_return_contribution"
+            ]
+        )
+        > 0.0
         for entry in results
     )
     return {
@@ -339,8 +602,8 @@ def _zero_cost_variant(
             "median_zero_cost_total_return": median_return,
             "worst_zero_cost_total_return": min(totals),
             "best_zero_cost_total_return": max(totals),
-            "long_positive_contribution_symbol_count": long_positive,
-            "short_positive_contribution_symbol_count": short_positive,
+            "long_positive_exact_intent_contribution_symbol_count": long_positive,
+            "short_positive_exact_intent_contribution_symbol_count": short_positive,
             "root_cause_classification": classification,
         },
     }
@@ -381,7 +644,7 @@ def run_diagnostic(result_root: Path, output_root: Path) -> dict[str, object]:
     if not isinstance(exp2_aggregate, dict):
         raise RuntimeError("Exp2 diagnostic aggregate malformed")
     report: dict[str, object] = {
-        "schema_version": "canonical_m2_zero_cost_root_cause_diagnostic_v1",
+        "schema_version": "canonical_m2_zero_cost_root_cause_diagnostic_v2",
         "diagnostic_only": True,
         "not_study_evidence": True,
         "not_final_test_evidence": True,
@@ -394,6 +657,10 @@ def run_diagnostic(result_root: Path, output_root: Path) -> dict[str, object]:
         "preserved_execution_arrays": list(PRESERVED_EXECUTION_ARRAYS),
         "variants": variants,
         "exp2_root_cause_classification": exp2_aggregate.get("root_cause_classification"),
+        "intent_attribution_semantics": (
+            "next-open exact temporal split: close-to-next-open gap is prior intent; "
+            "remaining interval log return after next-open processing is new intent"
+        ),
         "interpretation_note": (
             "Zero-cost is a counterfactual development diagnostic. It removes dataset-authoritative "
             "transaction/financing costs while preserving market path, causal features, liquidity "
@@ -425,4 +692,5 @@ __all__ = [
     "direction_log_return_attribution",
     "make_zero_cost_diagnostic_dataset",
     "run_diagnostic",
+    "run_segmented_zero_cost_replay",
 ]

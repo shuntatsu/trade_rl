@@ -86,7 +86,11 @@ def _artifact_payload(
     }
 
 
-def _checked_new_root(output_root: str | Path) -> Path:
+def _checked_new_root(
+    output_root: str | Path,
+    *,
+    study_root: str | Path,
+) -> Path:
     root = Path(output_root)
     if root.name in {"", ".", ".."}:
         raise InvalidExperimentStateError("authorization output root is invalid")
@@ -100,13 +104,23 @@ def _checked_new_root(output_root: str | Path) -> Path:
         )
     try:
         resolved_parent = parent.resolve(strict=True)
+        resolved_study = Path(study_root).resolve(strict=True)
     except OSError as error:
         raise ArtifactIntegrityError(
-            "authorization output parent cannot be trusted"
+            "authorization output or Study root cannot be trusted"
         ) from error
     if resolved_parent != parent:
         raise ArtifactIntegrityError(
             "authorization output path must not traverse symlinks"
+        )
+    resolved_target = resolved_parent / absolute.name
+    try:
+        resolved_target.relative_to(resolved_study)
+    except ValueError:
+        pass
+    else:
+        raise InvalidExperimentStateError(
+            "authorization output root must be outside the frozen Study"
         )
     return absolute
 
@@ -114,8 +128,10 @@ def _checked_new_root(output_root: str | Path) -> Path:
 def _publish_once(
     output_root: str | Path,
     authorization: FinalEvaluationAuthorization,
+    *,
+    study_root: str | Path,
 ) -> Path:
-    target = _checked_new_root(output_root)
+    target = _checked_new_root(output_root, study_root=study_root)
     staging = target.with_name(f".{target.name}.staging-{uuid.uuid4().hex}")
     if staging.exists() or staging.is_symlink():
         raise ArtifactIntegrityError("authorization staging path already exists")
@@ -240,7 +256,11 @@ def authorize_final_evaluation(
         authorized_by=authorized_by,
         authorized_at=authorized_at,
     )
-    published = _publish_once(output_root, authorization)
+    published = _publish_once(
+        output_root,
+        authorization,
+        study_root=study_root,
+    )
     rebuilt = inspect_final_evaluation_authorization(
         published,
         study_root=study_root,

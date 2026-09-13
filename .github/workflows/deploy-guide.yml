@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      GUIDE_SOURCE_REV: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout verified main SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -77,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      GUIDE_SOURCE_REV: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout deployed SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

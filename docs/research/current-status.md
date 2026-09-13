@@ -6,14 +6,14 @@
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。
 
-一方、**Portable Controlled Experiment 0001は開始済みで、結果は未解釈**である。Issue #511では結果前preregistrationとfresh verificationを完了し、事前登録した唯一のbound 5-seed candidate runを実行中である。結果Artifactと独立post-result verificationが確定するまでstrategy効果を解釈しない。したがって現在は次を主張しない。
+一方、**Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionはKEEP_BASELINE**である。事前登録した唯一のcandidateはmean-reversionで5 / 5 symbolsをbaseline比改善し、median turnoverも低下したが、candidate total returnが正だったのは1 / 5 symbolsだけだった。結果前に固定したformal ruleではこの条件がKEEP_BASELINEに該当する。したがって現在も次を主張しない。
 
 - profitabilityは未証明。
 - winnerは未選定。
 - Production/live order routingは未認可。
 - PPOやforecastがruleを上回るという結論はない。
 
-次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。事前登録済みのbound candidate runを完了させ、immutable result Artifactをpre-result-frozen verifierで再取得・独立再計算し、その検証がGreenになった後だけformal decisionを解釈することである。別candidate runへの乗り換えや結果後の判定基準変更はしない。
+次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## 研究目的
 
@@ -106,7 +106,7 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - quantity-preserving independent symbol replay
 - DB/UI/teacher pipelineなしで成立するcore CI
 
-### M2 — Canonical real-data baseline verified; Controlled Experiment 0001 in progress
+### M2 — Canonical real-data baseline and Controlled Experiment 0001 verified
 
 実装・検証済み:
 
@@ -153,22 +153,21 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - preregisteredな5 PPO seedsと5 symbols × 8 strategiesの完全なbaseline evidenceが存在する。
 - tradeが発生した175 observationsすべてで`total_cost > 0`、cash 25 observationsはzero-trade / zero-cost / zero-return、aggregate realized trading costは正である。
 - fresh post-Artifact verifier run `34704606059` はsealed source、portable preregistration、baseline Artifactを再取得し、Dataset / StudyPlanを独立再構築したうえでraw Candidate Runsからreturn・cost・seed invarianceを再検証した。verifier Artifact IDは `10300932825`、outer digestは `sha256:77c26e8cdeecdc023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9` である。
-- Portable Controlled Experiment 0001 (#511) は結果前preregistration run `34706927260` / Artifact ID `10302710124` を封印し、fresh verifier run `34707135657` でcandidate不在・definition binding・frozen baseline turnoverを独立再検証した。唯一のbound candidate run `34707652616` は5-seed実行中で、result Artifactとformal decisionはまだ解釈していない。
+- Portable Controlled Experiment 0001 (#511) は結果前preregistrationを封印・fresh verificationした唯一のcandidate EvidenceSetを再実行せずに完遂し、fresh runnerで公開result Artifactを再取得して独立再検証した。formal decisionは`KEEP_BASELINE`。mean-reversionのfactor effectは5 / 5 symbolsで正、median excess total returnは`+0.16996869069426646`、candidate positive-total-return symbolsは1 / 5、candidate median turnoverは`467.48617120292243`（baseline `858.3114067468092`）だった。unaffected raw-return equality 150 checks、deterministic metric seed invariance 1120 checks、tradeあり175 / 175 positive-cost、cash 25 zero-trade / zero-cost / zero-returnもGreenである。
 - publication indexは独立再構築後のcross-checkにだけ使い、結果のoracleにはしていない。
 - `research/m2-canonical-study-004` はpre-portable `market_build_v2` numericsで生成されたimmutable historical evidenceとしてhead/treeを維持するが、current canonical inputとしてはportable successorにsupersedeされた。旧Studyを書き換えたり削除したりしない。
-- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないhistorical lineとして保持する。portable lineageではIssue #511のExperiment 0001を結果前preregistrationとfresh verification後に開始し、現在はbound 5-seed candidate runを実行中である。結果は未解釈である。
+- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないhistorical lineとして保持する。portable lineageのExperiment 0001は結果前preregistrationからfresh result re-verificationまで完了し、`KEEP_BASELINE`をdevelopment decisionとして固定した。
 - PPO cross-seed candidate-metric aggregation defect (#476) はcurrent mainで修正済みだが、Issue #511は修正前にfreeze/startしたimplementation provenanceを維持する。PPO aggregate candidate metricsはformal decisionのoracleに使わず、raw-return equality controlとしてのみ扱う。
 - baseline成立はresearch environment / identity / evidence pathの検証であり、profitability、winner、Production readinessを意味しない。
 
 未完了:
 
-1. 事前登録済みのbound candidate run `34707652616` だけを完了させ、別runへ乗り換えない。
-2. 完成したresult Artifactをimmutable evidenceとしてexact runへbindする。
-3. pre-result-frozen verifierでfactor isolation、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semanticsを独立再検証する。
-4. verifierがGreenになった後だけformal decisionと全strategy side effectを解釈・報告する。
-5. 以後のdevelopment Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。
+1. Experiment 0001の`KEEP_BASELINE`を維持し、次のControlled Factorを結果を見る前にpreregisterする。
+2. 次のExperimentでもone-factor delta、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semantics、fresh post-Artifact verificationを必須にする。
+3. development Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。
+4. winner候補が成立した場合だけsealed unused-future / final-testへ進み、Production/live tradingとは引き続き分離する。
 
-**Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了し、Portable Controlled Experiment 0001は開始済みで、結果は未解釈である。** 現在の進行はpreregistered bound runとpre-result-frozen verifierに限定される。Baseline成立やExperiment開始はprofitabilityやwinnerの証拠ではない。
+**Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了し、Portable Controlled Experiment 0001もfresh result re-verificationまで完了してformal decisionはKEEP_BASELINEである。** このExperimentは相対改善とturnover低下を示したが、candidate profitabilityやwinnerを成立させなかった。Baseline成立やKEEP_BASELINE decisionはProduction readinessの証拠ではない。
 
 ### M3 — Finalize and delete: not started
 

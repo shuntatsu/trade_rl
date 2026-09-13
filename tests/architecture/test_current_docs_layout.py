@@ -134,7 +134,7 @@ def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
         "Canonical M2 bootstrap",
         "bootstrap_canonical_m2_study",
         "Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了",
-        "Portable Controlled Experiment 0001は開始済みで、結果は未解釈",
+        "Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionはKEEP_BASELINE",
     ):
         assert required in research
 
@@ -228,7 +228,7 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "constant_short",
         "fit_symbol_names",
         "no winner",
-        "Portable Controlled Experiment 0001は開始済みで、結果は未解釈",
+        "Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionはKEEP_BASELINE",
         "python -m trade_rl.evaluation.runs.candidate",
         "fee adverse",
         "spread adverse",

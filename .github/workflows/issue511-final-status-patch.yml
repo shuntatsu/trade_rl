@@ -71,6 +71,10 @@ jobs:
               "- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないhistorical lineとして保持する。portable lineageのExperiment 0001は結果前preregistrationからfresh result re-verificationまで完了し、`KEEP_BASELINE`をdevelopment decisionとして固定した。",
           )
           replace_once(
+              "**Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了し、Portable Controlled Experiment 0001は開始済みで、結果は未解釈である。** 現在の進行はpreregistered bound runとpre-result-frozen verifierに限定される。Baseline成立やExperiment開始はprofitabilityやwinnerの証拠ではない。",
+              "**Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了し、Portable Controlled Experiment 0001もfresh result re-verificationまで完了してformal decisionはKEEP_BASELINEである。** このExperimentは相対改善とturnover低下を示したが、candidate profitabilityやwinnerを成立させなかった。Baseline成立やKEEP_BASELINE decisionはProduction readinessの証拠ではない。",
+          )
+          replace_once(
               "未完了:\n\n1. 事前登録済みのbound candidate run `34707652616` だけを完了させ、別runへ乗り換えない。\n2. 完成したresult Artifactをimmutable evidenceとしてexact runへbindする。\n3. pre-result-frozen verifierでfactor isolation、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semanticsを独立再検証する。\n4. verifierがGreenになった後だけformal decisionと全strategy side effectを解釈・報告する。\n5. 以後のdevelopment Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。",
               "未完了:\n\n1. Experiment 0001の`KEEP_BASELINE`を維持し、次のControlled Factorを結果を見る前にpreregisterする。\n2. 次のExperimentでもone-factor delta、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semantics、fresh post-Artifact verificationを必須にする。\n3. development Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。\n4. winner候補が成立した場合だけsealed unused-future / final-testへ進み、Production/live tradingとは引き続き分離する。",
           )

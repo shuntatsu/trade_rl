@@ -62,7 +62,9 @@ def _source_dataset() -> MarketDataset:
     )
 
 
-def test_calibrated_dataset_changes_only_participation_array_and_identity(tmp_path) -> None:
+def test_calibrated_dataset_changes_only_participation_array_and_identity(
+    tmp_path,
+) -> None:
     source = _source_dataset()
     source_publication = publish_market_dataset_artifact(tmp_path / "source", source)
     authority = canonical_aggtrades_capacity_authority()
@@ -96,8 +98,9 @@ def test_calibrated_dataset_changes_only_participation_array_and_identity(tmp_pa
         == source_publication.artifact_digest
     )
     assert (
-        identity["source_dataset"]["identity_payload"]["execution_economics"]
-        ["max_participation_rate"]
+        identity["source_dataset"]["identity_payload"]["execution_economics"][
+            "max_participation_rate"
+        ]
         == 0.05
     )
     assert identity["execution_capacity_calibration"] == authority.to_payload()
@@ -115,7 +118,9 @@ def test_calibrated_dataset_changes_only_participation_array_and_identity(tmp_pa
     )
 
 
-def test_calibration_authority_preserves_exact_symbol_cap_mapping_without_pnl_inputs() -> None:
+def test_calibration_authority_preserves_exact_symbol_cap_mapping_without_pnl_inputs() -> (
+    None
+):
     authority = canonical_aggtrades_capacity_authority()
 
     assert authority.symbols == _SYMBOLS

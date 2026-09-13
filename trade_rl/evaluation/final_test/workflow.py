@@ -36,7 +36,9 @@ def _winner_snapshot(study_root: str | Path) -> StudySnapshot:
     if freeze.selected_evidence_digest is None or freeze.selected_strategy is None:
         raise ArtifactIntegrityError("WINNER Study freeze lacks selected evidence")
     if freeze.selected_evidence_digest not in snapshot.lineage_evidence_digests:
-        raise ArtifactIntegrityError("WINNER evidence is absent from accepted Study lineage")
+        raise ArtifactIntegrityError(
+            "WINNER evidence is absent from accepted Study lineage"
+        )
     return snapshot
 
 
@@ -89,13 +91,19 @@ def _checked_new_root(output_root: str | Path) -> Path:
         raise InvalidExperimentStateError("authorization output root already exists")
     parent = absolute.parent
     if parent.is_symlink() or not parent.is_dir():
-        raise ArtifactIntegrityError("authorization output parent must be a regular directory")
+        raise ArtifactIntegrityError(
+            "authorization output parent must be a regular directory"
+        )
     try:
         resolved_parent = parent.resolve(strict=True)
     except OSError as error:
-        raise ArtifactIntegrityError("authorization output parent cannot be trusted") from error
+        raise ArtifactIntegrityError(
+            "authorization output parent cannot be trusted"
+        ) from error
     if resolved_parent != parent:
-        raise ArtifactIntegrityError("authorization output path must not traverse symlinks")
+        raise ArtifactIntegrityError(
+            "authorization output path must not traverse symlinks"
+        )
     return absolute
 
 
@@ -142,11 +150,18 @@ def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
     try:
         raw = json.loads(artifact_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ArtifactIntegrityError("authorization artifact JSON is malformed") from error
+        raise ArtifactIntegrityError(
+            "authorization artifact JSON is malformed"
+        ) from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
-        raise ArtifactIntegrityError("authorization artifact must contain a JSON object")
+        raise ArtifactIntegrityError(
+            "authorization artifact must contain a JSON object"
+        )
     payload = cast(dict[str, object], raw)
-    if set(payload) != _ARTIFACT_KEYS or payload.get("schema_version") != _ARTIFACT_SCHEMA:
+    if (
+        set(payload) != _ARTIFACT_KEYS
+        or payload.get("schema_version") != _ARTIFACT_SCHEMA
+    ):
         raise ArtifactIntegrityError("authorization artifact schema is malformed")
     digest = payload.get("authorization_digest")
     body = payload.get("authorization")

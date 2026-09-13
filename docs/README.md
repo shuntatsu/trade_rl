@@ -39,7 +39,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
-- Study/Experiment/EvidenceSet、Canonical M2 bootstrap preparation、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
+- Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/topics/*.json` を再確認し、`--refresh` / `--refresh-code` を対象topicだけ実行して `guide/tools/content_contract.py --check` を通す
 - Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する

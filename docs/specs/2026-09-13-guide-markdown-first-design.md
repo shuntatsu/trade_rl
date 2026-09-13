@@ -1,7 +1,8 @@
 # Human Guide Markdown-first redesign
 
 Date: 2026-09-13
-Status: written design pending user review; implementation not started
+Status: Active
+Phase: written design pending user review; implementation not started
 Base: `main` at `e91d8d51d5b2dcce038311221967b7701c72ecb3`
 
 ## 結論

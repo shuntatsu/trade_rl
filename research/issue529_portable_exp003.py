@@ -25,10 +25,10 @@ from research.issue519_portable_exp002 import (
     EXPECTED_SYMBOLS,
 )
 from research.issue519_portable_exp002_execute import (
-    EXPECTED_CANDIDATE_FINGERPRINT as EXPECTED_EXP002_CANDIDATE_FINGERPRINT,
-)
-from research.issue519_portable_exp002_execute import (
     EXPECTED_DEFINITION_DIGEST as EXPECTED_EXP002_DEFINITION_DIGEST,
+)
+from research.issue519_portable_exp002_recovery import (
+    EXPECTED_CANDIDATE_FINGERPRINT as EXPECTED_EXP002_CANDIDATE_FINGERPRINT,
 )
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (

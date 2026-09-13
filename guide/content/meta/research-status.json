@@ -1,0 +1,31 @@
+{
+  "id": "research-status",
+  "title": "研究の現在地",
+  "nav_label": "研究の現在地",
+  "summary": "何が検証済みで、何が次の課題・未証明・制約として残っているかを分離して表示します。",
+  "role": "status",
+  "keywords": [
+    "M2",
+    "baseline",
+    "verified",
+    "portable numerics",
+    "market_build_v3",
+    "KEEP_BASELINE",
+    "profitability",
+    "winner",
+    "limitations"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "結論",
+      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "M2 — Canonical real-data baseline and Controlled Experiment 0001 verified",
+      "sha256": "ec3c4ba755225fc09c6e84834b6beed594485e5d547f7546324642e836b1a60a"
+    }
+  ],
+  "code_references": []
+}

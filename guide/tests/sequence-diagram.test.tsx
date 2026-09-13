@@ -1,89 +1,36 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { CodeInspector } from "../src/components/CodeInspector";
+import { MarkdownArticle } from "../src/components/MarkdownArticle";
 import { codeSymbolIndex, getCodeSymbol } from "../src/content/codeSymbols";
-import type { GuideTopic, SequenceVisualization } from "../src/content/schema";
+import { loadTopics } from "../src/content/loadTopics";
 import { buildCodeSourceUrl } from "../src/content/sourceLinks";
-import { SequenceDiagram } from "../src/visualizations/SequenceDiagram";
 
-const visualization: SequenceVisualization = {
-  kind: "sequence",
-  actors: [
-    { id: "dataset", label_ja: "市場データセット" },
-    { id: "replay", label_ja: "リプレイ統括", code_ref: "replay-run" },
-    { id: "risk", label_ja: "ハードリスク", code_ref: "risk-constrain" },
-  ],
-  messages: [
-    {
-      id: "observe",
-      from: "dataset",
-      to: "replay",
-      label_ja: "その時点の観測を組み立てる",
-      code_ref: "replay-observation",
-    },
-    {
-      id: "risk-constrain",
-      from: "replay",
-      to: "risk",
-      label_ja: "リスク制約を適用する",
-      code_ref: "risk-constrain",
-      state_changes_ja: ["目標weightをhard limit内へ射影する"],
-    },
-  ],
-};
-
-const inspectorTopic: GuideTopic = {
-  id: "implementation-replay",
-  title: "1本のバーを追う",
-  nav_label: "1本のバーを追う",
-  summary: "実装順を追跡する。",
-  keywords: [],
-  source_sections: [
-    {
-      path: "docs/architecture/lean-core.md",
-      heading: "Data contract",
-      sha256: "0".repeat(64),
-    },
-  ],
-  code_references: [
-    {
-      id: "risk-constrain",
-      symbol: "trade_rl.risk.pretrade.PreTradeRisk.constrain",
-      kind: "method",
-      source_sha256: "0".repeat(64),
-      label_ja: "ハードリスクを適用",
-      description_ja: "提案weightをhard riskの内側へ射影します。",
-      variables: [],
-      tests: ["tests/risk/test_pretrade.py"],
-    },
-  ],
-  sections: [],
-  visualization,
-};
+function replayTopic() {
+  const topic = loadTopics().find((item) => item.id === "implementation-replay");
+  if (!topic) throw new Error("missing replay topic");
+  return topic;
+}
 
 describe("Guide replay sequence", () => {
-  it("renders messages in declared execution order and selects one", async () => {
-    const user = userEvent.setup();
-    const onSelectStep = vi.fn();
-    render(
-      <SequenceDiagram
-        visualization={visualization}
-        selectedStep="observe"
-        onSelectStep={onSelectStep}
-      />,
-    );
+  it("renders the complete replay order as static document content", () => {
+    const topic = replayTopic();
+    render(<MarkdownArticle topic={topic} />);
 
-    const messages = screen.getAllByRole("button", { name: /観測|リスク制約/ });
-    expect(messages.map((message) => message.textContent)).toEqual([
-      expect.stringContaining("その時点の観測を組み立てる"),
-      expect.stringContaining("リスク制約を適用する"),
-    ]);
-    expect(messages[0]).toHaveAttribute("aria-current", "step");
+    const markdown = topic.markdown;
+    const observe = markdown.indexOf("## 1. 観測を作る");
+    const risk = markdown.indexOf("## 4. hard riskを適用する");
+    const execution = markdown.indexOf("## 5. 約定と会計を行う");
+    const book = markdown.indexOf("## 6. BookStateを引き継ぐ");
 
-    await user.click(messages[1]!);
-    expect(onSelectStep).toHaveBeenCalledWith("risk-constrain");
+    expect(observe).toBeGreaterThanOrEqual(0);
+    expect(observe).toBeLessThan(risk);
+    expect(risk).toBeLessThan(execution);
+    expect(execution).toBeLessThan(book);
+    expect(screen.getByText(/desired_quantity → proposal_weight/)).toBeInTheDocument();
+    expect(screen.getByText(/PreTradeRisk\.constrain/)).toBeInTheDocument();
+    expect(screen.getByText(/MarketExecutor\.execute_interval/)).toBeInTheDocument();
   });
 
   it("builds source links against the generated exact revision", () => {
@@ -97,12 +44,14 @@ describe("Guide replay sequence", () => {
   });
 
   it("shows Japanese purpose before exact implementation details and links", () => {
-    render(<CodeInspector referenceId="risk-constrain" topic={inspectorTopic} />);
+    render(<CodeInspector referenceId="risk-constrain" topic={replayTopic()} />);
 
     expect(
       screen.getByRole("heading", { level: 3, name: "ハードリスクを適用" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("提案weightをhard riskの内側へ射影します。")).toBeInTheDocument();
+    expect(
+      screen.getByText(/提案ウェイトへturnover、単一ウェイト上限/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("trade_rl.risk.pretrade.PreTradeRisk.constrain"),
     ).toBeInTheDocument();

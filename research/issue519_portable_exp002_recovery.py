@@ -133,6 +133,30 @@ def crosscheck_persisted_comparison(
         raise RuntimeError("persisted mean-reversion median differs from raw oracle")
 
 
+def _normalize_deterministic_effects(value: object) -> dict[str, object]:
+    effects = _mapping(value, field="recovery deterministic effects")
+    normalized: dict[str, object] = {}
+    for strategy, raw_effect in effects.items():
+        effect = _mapping(raw_effect, field=f"recovery deterministic effect {strategy}")
+        if set(effect) != {"by_symbol", "aggregate"}:
+            raise RuntimeError("recovery deterministic effect schema drift")
+        by_symbol = effect.get("by_symbol")
+        if not isinstance(by_symbol, dict):
+            raise RuntimeError("recovery deterministic by-symbol evidence malformed")
+        aggregate = dict(
+            _mapping(
+                effect.get("aggregate"),
+                field=f"recovery deterministic aggregate {strategy}",
+            )
+        )
+        aggregate.pop("symbol_count", None)
+        normalized[strategy] = {
+            "by_symbol": by_symbol,
+            "aggregate": aggregate,
+        }
+    return normalized
+
+
 def normalize_independent_for_postverify(
     independent: Mapping[str, object],
 ) -> dict[str, object]:
@@ -147,9 +171,9 @@ def normalize_independent_for_postverify(
         independent.get("unaffected_raw_return_equality_checks"),
         field="unaffected raw-return equality checks",
     )
-    deterministic = independent.get("deterministic_effects")
-    if not isinstance(deterministic, dict):
-        raise RuntimeError("recovery deterministic effects malformed")
+    deterministic = _normalize_deterministic_effects(
+        independent.get("deterministic_effects")
+    )
     formal = independent.get("mean_reversion_formal_inputs")
     if not isinstance(formal, dict):
         raise RuntimeError("recovery formal inputs malformed")

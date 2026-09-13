@@ -32,7 +32,7 @@
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.ppo._encode_observation",
       "kind": "function",
-      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source_sha256": "38c8c5e2212c343cca44d5bf3ac9d1ee9cd7c4765ed7efa485954de81693bc82",
       "label_ja": "PPO観測 v2を符号化",
       "description_ja": "選択したローカル特徴量、その利用可能性と有限性、鮮度遅延、現在の売買意図、現在ウェイトを固定順序で1本のベクトルへ連結します。",
       "variables": [
@@ -70,7 +70,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source_sha256": "d58a44837887ba38dfb2ca40bc741b61e51c3508b58bfc653565bf9a88b39afb",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定し、区間net returnからrewardを計算して次の観測へ進みます。",
       "variables": [
@@ -108,7 +108,7 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source_sha256": "da40e907b59087809cb5e3d1b551ae2388676034dd43e7bdb943889a2ed53697",
       "label_ja": "PPO方策を学習する",
       "description_ja": "同じObservation v2と環境を使ってstable-baselines3のPPOを学習し、学習済みmodelをPPOIntentStrategyとして返します。",
       "variables": [],
@@ -120,7 +120,7 @@
       "id": "ppo-decide",
       "symbol": "trade_rl.strategies.rl.ppo.PPOIntentStrategy.decide",
       "kind": "method",
-      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source_sha256": "5837fd86301c0b6106bfc7bf9ea77b8e967507d479bb907e40860e253ef8bc84",
       "label_ja": "学習済みPPOで売買意図を決める",
       "description_ja": "実行時も同じencoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
       "variables": [

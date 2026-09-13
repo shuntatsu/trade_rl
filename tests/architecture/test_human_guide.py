@@ -38,9 +38,11 @@ def test_human_guide_generated_outputs_are_ignored() -> None:
         "guide/coverage/",
         "guide/playwright-report/",
         "guide/test-results/",
-        "guide/.generated/",
     ):
         assert path in ignored
+
+    guide_ignored = (GUIDE / ".gitignore").read_text(encoding="utf-8")
+    assert ".generated/" in guide_ignored
 
 
 def test_human_guide_has_durable_code_linked_contract() -> None:

@@ -35,7 +35,7 @@ export function App() {
       document.getElementById(route.heading ?? "")?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [route.heading, topic?.id]);
+  }, [route.heading, topic]);
 
   if (!topic) return null;
 

@@ -21,7 +21,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "5be69c7321de526c3bb40c75a07119632ef49e20a18b63cb49f601f1abe8ff98"
+      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
     }
   ],
   "sections": [
@@ -36,7 +36,7 @@
       "title": "現在の位置",
       "body": [
         "市場データ構築 v3（market_build_v3）、CPU差を抑えた再現可能数値計算（portable_feature_numerics_v1）、実行コスト仮定、PPO観測 v2を持つ実データ基準系は、結果を見る前の事前登録からartifact後の独立検証まで完了しています。",
-        "Portable Controlled Experiment 0001は結果前の事前登録とfresh verificationを終えてbound 5-seed runを実行中ですが、結果は未解釈です。利益性、勝者選定、本番運用の認可はまだ証明していません。"
+        "Portable Controlled Experiment 0001も別runnerで公開result artifactまで独立再検証され、正式判断はKEEP_BASELINEです。mean-reversionは5 / 5銘柄でbaseline比を改善しましたが、candidate total returnが正だったのは1 / 5銘柄でした。継続的な利益性、勝者選定、本番運用の認可はまだ証明していません。"
       ]
     }
   ],

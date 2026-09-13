@@ -1,57 +1,49 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { MarkdownArticle } from "../src/components/MarkdownArticle";
 import { loadTopics } from "../src/content/loadTopics";
-import { SequenceDiagram } from "../src/visualizations/SequenceDiagram";
+
+function ppoTopic() {
+  const topic = loadTopics().find((item) => item.id === "implementation-ppo");
+  if (!topic) throw new Error("missing PPO implementation topic");
+  return topic;
+}
 
 describe("PPO implementation sequence", () => {
-  it("explains the five observation segments in implementation order", () => {
-    const topic = loadTopics().find((item) => item.id === "implementation-ppo");
-    expect(topic).toBeDefined();
-    if (!topic || topic.visualization.kind !== "sequence") return;
+  it("shows all five observation segments without interaction", () => {
+    render(<MarkdownArticle topic={ppoTopic()} />);
 
-    const observation = topic.visualization.messages.find(
-      (message) => message.id === "encode-observation",
-    );
-    expect(observation?.state_changes_ja).toEqual([
-      "選択したローカル特徴量 → local_values",
-      "利用可能かつ有限のマスク → local_available / finite",
-      "正規化された鮮度遅延 → local_staleness",
-      "現在の売買意図 → current_intent",
-      "現在のウェイト → current_weight",
-    ]);
-
-    render(
-      <SequenceDiagram
-        visualization={topic.visualization}
-        selectedStep="encode-observation"
-        onSelectStep={() => undefined}
-      />,
-    );
-    expect(screen.getByText("現在のウェイト → current_weight")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    for (const text of [
+      "local_values",
+      "local_available",
+      "local_staleness",
+      "current_intent",
+      "current_weight",
+    ]) {
+      expect(within(table).getByText(new RegExp(text))).toBeInTheDocument();
+    }
   });
 
-  it("keeps environment risk, execution, and reward in source order", () => {
-    const topic = loadTopics().find((item) => item.id === "implementation-ppo");
-    expect(topic).toBeDefined();
-    if (!topic || topic.visualization.kind !== "sequence") return;
+  it("keeps risk, execution, and reward in the static source order", () => {
+    const markdown = ppoTopic().markdown;
+    const risk = markdown.indexOf("## 4. hard riskを通す");
+    const execution = markdown.indexOf("## 5. 約定・会計を通す");
+    const reward = markdown.indexOf("## 6. net returnからrewardを作る");
 
-    const ids = topic.visualization.messages.map((message) => message.id);
-    expect(ids.indexOf("env-risk")).toBeLessThan(ids.indexOf("env-execute"));
-    expect(ids.indexOf("env-execute")).toBeLessThan(ids.indexOf("env-reward"));
+    expect(risk).toBeGreaterThanOrEqual(0);
+    expect(risk).toBeLessThan(execution);
+    expect(execution).toBeLessThan(reward);
   });
 
-  it("shows that fitting returns the fitted intent strategy used by decide", () => {
-    const topic = loadTopics().find((item) => item.id === "implementation-ppo");
-    expect(topic).toBeDefined();
-    if (!topic || topic.visualization.kind !== "sequence") return;
+  it("states that fitting and runtime decisions share the same encoder", () => {
+    render(<MarkdownArticle topic={ppoTopic()} />);
 
-    const fit = topic.visualization.messages.find((message) => message.id === "fit-strategy");
-    const decide = topic.visualization.messages.find(
-      (message) => message.id === "runtime-decide",
-    );
-    expect(fit?.label_ja).toContain("学習済み売買判断を返す");
-    expect(fit?.code_ref).toBe("fit-ppo");
-    expect(decide?.code_ref).toBe("ppo-decide");
+    expect(
+      screen.getByRole("heading", { name: "学習後も同じ観測契約を使う" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/_encode_observation/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/実行時も学習時と同じencoderを使う/)).toBeInTheDocument();
   });
 });

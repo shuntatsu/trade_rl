@@ -23,7 +23,10 @@ test("published Guide serves the code-linked replay journey", async ({ page }) =
   await page.keyboard.press("Control+K");
   const search = page.getByRole("textbox", { name: "ガイドを検索" });
   await search.fill("desired_quantity");
-  await page.getByRole("button", { name: /希望保有数量/ }).click();
+  await page
+    .getByRole("dialog", { name: "ガイド検索" })
+    .getByRole("button", { name: /希望保有数量/ })
+    .click();
   await expect(page).toHaveURL(
     /#implementation-replay\?symbol=trade_rl\.evaluation\.replay\.run_single_symbol_replay$/,
   );

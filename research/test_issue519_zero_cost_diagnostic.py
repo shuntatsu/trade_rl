@@ -6,6 +6,7 @@ from importlib.util import find_spec
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.strategies.position_intent import PositionIntent
 
 MODULE = "research.issue519_zero_cost_diagnostic"
 
@@ -101,11 +102,7 @@ def test_zero_cost_dataset_changes_only_economic_cost_arrays() -> None:
         assert np.array_equal(diagnostic.resolved_array(field), source.resolved_array(field))
 
 
-def test_direction_attribution_reconstructs_total_log_return() -> None:
-    module = _module()
-    returns = np.asarray([0.10, -0.05, 0.02, -0.01], dtype=np.float64)
-    intents = ["LONG", "SHORT", "LONG", "FLAT"]
-    result = module.direction_log_return_attribution(returns, intents)
+def _assert_direction_attribution(result: dict[str, object], returns: np.ndarray) -> None:
     expected = float(np.log1p(returns).sum())
     assert np.isclose(
         result["long_log_return_contribution"]
@@ -116,6 +113,31 @@ def test_direction_attribution_reconstructs_total_log_return() -> None:
     assert result["long_intervals"] == 2
     assert result["short_intervals"] == 1
     assert result["flat_intervals"] == 1
+
+
+def test_direction_attribution_reconstructs_total_log_return() -> None:
+    module = _module()
+    returns = np.asarray([0.10, -0.05, 0.02, -0.01], dtype=np.float64)
+    result = module.direction_log_return_attribution(
+        returns,
+        ["LONG", "SHORT", "LONG", "FLAT"],
+    )
+    _assert_direction_attribution(result, returns)
+
+
+def test_direction_attribution_accepts_actual_position_intent_enum() -> None:
+    module = _module()
+    returns = np.asarray([0.10, -0.05, 0.02, -0.01], dtype=np.float64)
+    result = module.direction_log_return_attribution(
+        returns,
+        [
+            PositionIntent.LONG,
+            PositionIntent.SHORT,
+            PositionIntent.LONG,
+            PositionIntent.FLAT,
+        ],
+    )
+    _assert_direction_attribution(result, returns)
 
 
 def test_direction_attribution_rejects_length_mismatch() -> None:

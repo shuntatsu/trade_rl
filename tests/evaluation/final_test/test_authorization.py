@@ -299,7 +299,9 @@ def test_concurrent_authorization_publication_has_single_winner(
     study_root, _ = _winner_study(tmp_path, monkeypatch)
     output = tmp_path / "authorization"
 
-    def attempt(actor: str) -> FinalEvaluationAuthorization | InvalidExperimentStateError:
+    def attempt(
+        actor: str,
+    ) -> FinalEvaluationAuthorization | InvalidExperimentStateError:
         try:
             return authorize_final_evaluation(
                 output,
@@ -315,8 +317,12 @@ def test_concurrent_authorization_publication_has_single_winner(
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(attempt, ("gate-a", "gate-b")))
 
-    successes = [item for item in results if isinstance(item, FinalEvaluationAuthorization)]
-    failures = [item for item in results if isinstance(item, InvalidExperimentStateError)]
+    successes = [
+        item for item in results if isinstance(item, FinalEvaluationAuthorization)
+    ]
+    failures = [
+        item for item in results if isinstance(item, InvalidExperimentStateError)
+    ]
     assert len(successes) == 1
     assert len(failures) == 1
     assert "already exists" in str(failures[0])

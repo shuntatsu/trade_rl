@@ -7,6 +7,7 @@ on:
     paths:
       - research/test_issue511_portable_exp001_recovery.py
       - research/issue511_portable_exp001_recovery.py
+      - research/issue511_portable_exp001_postverify.py
       - .github/workflows/issue511-recovery-tdd.yml
 
 permissions:
@@ -34,8 +35,17 @@ jobs:
       - name: Install research environment
         run: uv sync --extra dev
 
-      - name: Lint recovery oracle
-        run: uv run ruff check research/test_issue511_portable_exp001_recovery.py
+      - name: Compile and lint recovery implementation and oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py
+          uv run ruff check \
+            research/issue511_portable_exp001_recovery.py \
+            research/issue511_portable_exp001_postverify.py \
+            research/test_issue511_portable_exp001_recovery.py
 
       - name: Run targeted recovery tests
         run: uv run pytest -q research/test_issue511_portable_exp001_recovery.py

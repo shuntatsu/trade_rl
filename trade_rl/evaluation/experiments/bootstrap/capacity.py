@@ -16,6 +16,9 @@ _SCHEMA_VERSION = "book_depth_capacity_calibration_protocol_v1"
 _CANONICAL_DATASET_ID = (
     "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
 )
+_CANONICAL_DATASET_ARTIFACT_DIGEST = (
+    "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+)
 _CANONICAL_STUDY_DIGEST = (
     "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
 )
@@ -43,6 +46,7 @@ _PAYLOAD_FIELDS = frozenset(
     {
         "schema_version",
         "canonical_dataset_id",
+        "canonical_dataset_artifact_digest",
         "canonical_study_digest",
         "market",
         "reference_volume_timeframe",
@@ -130,6 +134,7 @@ class BookDepthCapacityCalibrationProtocol:
     """Immutable canonical M2 capacity-calibration preregistration."""
 
     canonical_dataset_id: str
+    canonical_dataset_artifact_digest: str
     canonical_study_digest: str
     market: str
     reference_volume_timeframe: str
@@ -148,6 +153,10 @@ class BookDepthCapacityCalibrationProtocol:
 
     def __post_init__(self) -> None:
         dataset_id = _sha256(self.canonical_dataset_id, field="canonical_dataset_id")
+        dataset_artifact_digest = _sha256(
+            self.canonical_dataset_artifact_digest,
+            field="canonical_dataset_artifact_digest",
+        )
         study_digest = _sha256(
             self.canonical_study_digest,
             field="canonical_study_digest",
@@ -196,6 +205,7 @@ class BookDepthCapacityCalibrationProtocol:
 
         actual = (
             dataset_id,
+            dataset_artifact_digest,
             study_digest,
             market,
             reference_volume_timeframe,
@@ -214,6 +224,7 @@ class BookDepthCapacityCalibrationProtocol:
         )
         preregistered = (
             _CANONICAL_DATASET_ID,
+            _CANONICAL_DATASET_ARTIFACT_DIGEST,
             _CANONICAL_STUDY_DIGEST,
             _MARKET,
             _REFERENCE_VOLUME_TIMEFRAME,
@@ -236,6 +247,11 @@ class BookDepthCapacityCalibrationProtocol:
             )
 
         object.__setattr__(self, "canonical_dataset_id", dataset_id)
+        object.__setattr__(
+            self,
+            "canonical_dataset_artifact_digest",
+            dataset_artifact_digest,
+        )
         object.__setattr__(self, "canonical_study_digest", study_digest)
         object.__setattr__(self, "market", market)
         object.__setattr__(
@@ -284,6 +300,7 @@ class BookDepthCapacityCalibrationProtocol:
         return {
             "schema_version": self.schema_version,
             "canonical_dataset_id": self.canonical_dataset_id,
+            "canonical_dataset_artifact_digest": self.canonical_dataset_artifact_digest,
             "canonical_study_digest": self.canonical_study_digest,
             "market": self.market,
             "reference_volume_timeframe": self.reference_volume_timeframe,
@@ -310,6 +327,7 @@ def canonical_m2_book_depth_capacity_protocol() -> BookDepthCapacityCalibrationP
 
     return BookDepthCapacityCalibrationProtocol(
         canonical_dataset_id=_CANONICAL_DATASET_ID,
+        canonical_dataset_artifact_digest=_CANONICAL_DATASET_ARTIFACT_DIGEST,
         canonical_study_digest=_CANONICAL_STUDY_DIGEST,
         market=_MARKET,
         reference_volume_timeframe=_REFERENCE_VOLUME_TIMEFRAME,
@@ -360,6 +378,10 @@ def load_book_depth_capacity_calibration_protocol(
         canonical_dataset_id=_sha256(
             payload["canonical_dataset_id"],
             field="canonical_dataset_id",
+        ),
+        canonical_dataset_artifact_digest=_sha256(
+            payload["canonical_dataset_artifact_digest"],
+            field="canonical_dataset_artifact_digest",
         ),
         canonical_study_digest=_sha256(
             payload["canonical_study_digest"],

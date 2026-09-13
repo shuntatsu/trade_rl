@@ -1,0 +1,139 @@
+name: Issue 519 Experiment 0003 feature context
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp003-feature-context.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  RESULT_ROOT: /tmp/issue519-exp003-feature-context
+  FEATURE_NAME: 1h__cross_sectional_momentum_rank_24bar
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable formal result metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+
+      - name: Download immutable formal result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Validate feature identity and availability without inspecting PnL relation
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.data import load_market_dataset_artifact
+
+          root = Path(os.environ["RESULT_ROOT"])
+          dataset = load_market_dataset_artifact(root / "dataset")
+          name = os.environ["FEATURE_NAME"]
+          if name not in dataset.feature_names:
+              raise SystemExit(f"missing candidate feature: {name}")
+          index = dataset.feature_names.index(name)
+          if name in {
+              "1h__log_return_1bar",
+              "1h__log_return_4bar",
+              "1h__log_return_24bar",
+              "1h__realized_volatility_24bar",
+              "1h__volume_zscore_24bar",
+              "1h__funding_bps",
+              "1h__rsi_14bar",
+              "1h__macd_histogram_12_26_9",
+              "4h__log_return_4bar",
+              "4h__realized_volatility_24bar",
+              "1d__log_return_1bar",
+              "1d__realized_volatility_24bar",
+          }:
+              raise SystemExit("candidate feature is already in baseline feature set")
+
+          fit_cutoff = np.datetime64("2023-01-01T00:00:00", "ns")
+          fit_mask = dataset.timestamps < fit_cutoff
+          eval_mask = dataset.timestamps >= fit_cutoff
+          if not np.any(fit_mask) or not np.any(eval_mask):
+              raise SystemExit("fit/evaluation masks malformed")
+
+          available = dataset.feature_available[:, :, index]
+          values = dataset.features[:, :, index]
+          if np.any(available & ~np.isfinite(values)):
+              raise SystemExit("available candidate feature contains non-finite values")
+
+          def coverage(mask):
+              rows = int(np.count_nonzero(mask))
+              return {
+                  symbol: {
+                      "available_rows": int(np.count_nonzero(available[mask, symbol_index])),
+                      "total_rows": rows,
+                      "coverage": float(np.mean(available[mask, symbol_index])),
+                  }
+                  for symbol_index, symbol in enumerate(dataset.symbols)
+              }
+
+          payload = {
+              "dataset_id": dataset.dataset_id,
+              "feature_name": name,
+              "feature_index": index,
+              "feature_count": len(dataset.feature_names),
+              "symbols": list(dataset.symbols),
+              "fit_cutoff": str(fit_cutoff),
+              "fit_coverage": coverage(fit_mask),
+              "evaluation_coverage": coverage(eval_mask),
+              "no_return_target_or_pnl_relation_inspected": True,
+          }
+          print("EXP3_FEATURE_CONTEXT_BEGIN")
+          print(json.dumps(payload, sort_keys=True, indent=2))
+          print("EXP3_FEATURE_CONTEXT_END")
+          PY

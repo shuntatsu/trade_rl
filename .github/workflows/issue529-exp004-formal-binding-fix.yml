@@ -1,0 +1,79 @@
+name: Issue 529 Experiment 0004 formal binding fix
+
+on:
+  push:
+    branches:
+      - tmp/issue529-exp0004-execute
+    paths:
+      - .github/workflows/issue529-exp004-formal-binding-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue529-exp0004-execute
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Repair only stale formal bindings and one-shot guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/issue529-exp004-execute-reverify.yml')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              'EXECUTION_HELPER_BLOB: 0af470fae949309324872110434533461752f6db':
+                  'EXECUTION_HELPER_BLOB: 1cc3e354732de4b437e597d11dd3ba7d88ae1bc0',
+              'METRICVERIFY_BLOB: a07cac7aece39a337a2a5422ae1964064a9585fb':
+                  'METRICVERIFY_BLOB: 22f10e3629dd2bb5c97d5dc86f92ad20c9f2c06d',
+              'EXECUTION_TEST_BLOB: 096ede1f7bd44fc6522e1d98222521258be4aad5':
+                  'EXECUTION_TEST_BLOB: acfb929227763fcccaf988b9996e672dc9a64be2',
+              'POSTVERIFY_TEST_BLOB: cc93aa15f7197e99c0f57a1cb43dbc3869bdd3f8':
+                  'POSTVERIFY_TEST_BLOB: 416b88be948ee52992a07ffb43ce52f4916cfe56',
+              'METRICVERIFY_TEST_BLOB: d4f2b4b471b6d1a267083ade4267fe3d0dbad667':
+                  'METRICVERIFY_TEST_BLOB: 24539fdfc95c00008652be4806f6132f63e1af2a',
+              '      - .github/workflows/issue529-exp004-execute-reverify.yml\n':
+                  '      - .github/workflows/issue529-exp004-execute-reverify.yml\n      - .github/workflows/issue529-exp004-v2-trigger.txt\n',
+              '          test "$(jq -r \'.run_number\' <<<"$run")" = "1"\n':
+                  '          test "$(jq -r \'.run_number\' <<<"$run")" = "2"\n',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one binding occurrence, got {count}: {old}')
+              text = text.replace(old, new)
+
+          marker = '          test "$(jq -r \'.head_sha\' <<<"$run")" = "$GITHUB_SHA"\n'
+          if text.count(marker) != 1:
+              raise SystemExit('one-shot guard marker drift')
+          prior_guard = '''          previous_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/34765871283")"
+          test "$(jq -r '.status' <<<"$previous_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$previous_run")" = "failure"
+          test "$(jq -r '.head_sha' <<<"$previous_run")" = "abf95fadc478c0ddd93e7d19b9a892271dbc13e5"
+          previous_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/34765871283/jobs?per_page=100")"
+          test "$(jq -r '[.jobs[] | select(.id == 103746607088 and .name == "execute-and-preverify" and .conclusion == "failure")] | length' <<<"$previous_jobs")" = "1"
+          test "$(jq -r '[.jobs[] | select(.id == 103746607088) | .steps[] | select(.name == "Execute authorized Experiment 0004 candidate exactly once" and .conclusion == "skipped")] | length' <<<"$previous_jobs")" = "1"
+          previous_artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/34765871283/artifacts?per_page=100")"
+          test "$(jq -r '.total_count' <<<"$previous_artifacts")" = "0"
+'''
+          text = text.replace(marker, marker + prior_guard)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- .github/workflows/issue529-exp004-execute-reverify.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/issue529-exp004-execute-reverify.yml
+          git commit -m 'ci: bind Experiment 0004 formal run to tested helper blobs'
+          git push origin HEAD:tmp/issue529-exp0004-execute

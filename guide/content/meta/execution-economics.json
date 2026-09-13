@@ -1,0 +1,31 @@
+{
+  "id": "execution-economics",
+  "title": "約定コストと会計",
+  "nav_label": "約定・会計",
+  "summary": "手数料・spread・participation・borrowがどこで決まり、二重課金をどう防ぐかを整理します。",
+  "role": "detail",
+  "keywords": [
+    "execution economics",
+    "実行コスト",
+    "手数料",
+    "fee",
+    "spread",
+    "participation",
+    "borrow",
+    "zero overlay",
+    "cost"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Execution economics contract",
+      "sha256": "19da184a81e949b40ac8ba00fc3d4533d5cdbdc809efc83ebc324eaff2b587f1"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Execution / accounting authority",
+      "sha256": "5bd44d6f6a878e0ff8b01c61d442772244e3e1f8995366aae6a07522919f2305"
+    }
+  ],
+  "code_references": []
+}

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from research.issue511_portable_exp001_execute import (
+from research.issue511_portable_exp001_execute import (  # noqa: E402
     EXPECTED_BASELINE_FINGERPRINT,
     EXPECTED_DATASET_ARTIFACT_DIGEST,
     EXPECTED_DATASET_ID,
@@ -30,14 +30,14 @@ from research.issue511_portable_exp001_execute import (
     EXPECTED_STUDY_DIGEST,
     _independent_analysis,
 )
-from trade_rl.evaluation.experiments import (
+from trade_rl.evaluation.experiments import (  # noqa: E402
     ControlledVerificationStatus,
     ExperimentDecisionKind,
     decide_experiment,
     inspect_study,
 )
-from trade_rl.evaluation.experiments.inspection import _reconstruct
-from trade_rl.evaluation.experiments.store import StudyStore
+from trade_rl.evaluation.experiments.inspection import _reconstruct  # noqa: E402
+from trade_rl.evaluation.experiments.store import StudyStore  # noqa: E402
 
 EXPECTED_CANDIDATE_FINGERPRINT = (
     "5e1ee8a530097e6b1c4571efe1d3edd9e867a2e77b8346a558ce9ed385e1f672"

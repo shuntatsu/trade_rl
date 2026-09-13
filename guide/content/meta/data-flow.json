@@ -1,0 +1,31 @@
+{
+  "id": "data-flow",
+  "title": "データと特徴量の流れ",
+  "nav_label": "データと特徴量",
+  "summary": "取得対象を固定してからDatasetを構築し、売買判断・リプレイ・検証証拠へ渡るまでを順番に追います。",
+  "role": "detail",
+  "keywords": [
+    "source",
+    "freeze",
+    "feature",
+    "dataset",
+    "artifact",
+    "replay",
+    "evidence",
+    "causal",
+    "portable numerics"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Data contract",
+      "sha256": "d3fb6336c89f4630cd0d99ad85e6ae20fbaf61890b7fb6f104c9b0fbf3d0cba0"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Canonical M2 bootstrap preparation",
+      "sha256": "0ce763a1d56730cd6444cbb61560a8e49a3cbb33a77110ca37df033da3d7bd24"
+    }
+  ],
+  "code_references": []
+}

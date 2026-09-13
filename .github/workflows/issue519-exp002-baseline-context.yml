@@ -1,0 +1,102 @@
+name: Issue 519 frozen Study context for next experiment
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp002-baseline-context.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  RESULT_ROOT: /tmp/issue519-exp002-context
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Verify immutable formal result metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+
+      - name: Download immutable formal result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Emit frozen Study context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$RESULT_ROOT/bootstrap.json"
+          test -f "$RESULT_ROOT/study/plan.json"
+          echo 'EXP3_CONTEXT_BEGIN'
+          jq '{
+            bootstrap_schema: .schema_version,
+            baseline: {
+              signal_name: .baseline.signal_name,
+              feature_names: .baseline.feature_names,
+              fit_symbol_names: .baseline.fit_symbol_names,
+              fit_cutoff: .baseline.fit_cutoff,
+              evaluation_start: .baseline.evaluation_start,
+              evaluation_end: .baseline.evaluation_end,
+              rule_entry_threshold: .baseline.rule_entry_threshold,
+              rule_exit_threshold: .baseline.rule_exit_threshold,
+              forecast_entry_threshold: .baseline.forecast_entry_threshold,
+              forecast_exit_threshold: .baseline.forecast_exit_threshold,
+              ppo_total_timesteps: .baseline.ppo_total_timesteps,
+              gross_budget: .baseline.gross_budget,
+              initial_capital: .baseline.initial_capital
+            }
+          }' "$RESULT_ROOT/bootstrap.json"
+          jq '{
+            plan_schema: .schema_version,
+            allowed_factors,
+            max_experiments,
+            symbols,
+            ppo_seeds,
+            baseline_config: {
+              signal_name: .baseline_config.signal_name,
+              signal_index: .baseline_config.signal_index,
+              feature_names: .baseline_config.feature_names,
+              feature_indices: .baseline_config.feature_indices,
+              fit_symbol_names: .baseline_config.fit_symbol_names,
+              fit_symbol_indices: .baseline_config.fit_symbol_indices,
+              fit_cutoff: .baseline_config.fit_cutoff,
+              evaluation_start: .baseline_config.evaluation_start,
+              evaluation_end: .baseline_config.evaluation_end,
+              rule_entry_threshold: .baseline_config.rule_entry_threshold,
+              rule_exit_threshold: .baseline_config.rule_exit_threshold,
+              forecast_entry_threshold: .baseline_config.forecast_entry_threshold,
+              forecast_exit_threshold: .baseline_config.forecast_exit_threshold,
+              ppo_total_timesteps: .baseline_config.ppo_total_timesteps,
+              gross_budget: .baseline_config.gross_budget,
+              initial_capital: .baseline_config.initial_capital
+            }
+          }' "$RESULT_ROOT/study/plan.json"
+          echo 'EXP3_CONTEXT_END'

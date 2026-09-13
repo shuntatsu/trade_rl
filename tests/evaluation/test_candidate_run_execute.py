@@ -11,6 +11,7 @@ from trade_rl.evaluation.runs.config import (
     resolve_candidate_run_spec,
 )
 from trade_rl.evaluation.runs.execute import execute_candidate_run
+from trade_rl.simulation.execution import ExecutionCostConfig
 
 
 def market() -> MarketDataset:
@@ -83,20 +84,19 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert result.spec is spec
     assert result.symbols == dataset.symbols
     assert result.comparison is comparison
-    assert calls == [
-        (
-            dataset,
-            spec.lean_config,
-            {
-                "start_index": spec.evaluation_start_index,
-                "stop_index": spec.evaluation_stop_index,
-                "gross_budget": spec.config.gross_budget,
-                "initial_capital": spec.config.initial_capital,
-                "execution_cost": None,
-                "risk": None,
-            },
-        )
-    ]
+    assert len(calls) == 1
+    loaded, lean_config, kwargs = calls[0]
+    assert loaded is dataset
+    assert lean_config == spec.lean_config
+    assert kwargs["start_index"] == spec.evaluation_start_index
+    assert kwargs["stop_index"] == spec.evaluation_stop_index
+    assert kwargs["gross_budget"] == spec.config.gross_budget
+    assert kwargs["initial_capital"] == spec.config.initial_capital
+    execution_cost = kwargs["execution_cost"]
+    assert isinstance(execution_cost, ExecutionCostConfig)
+    assert execution_cost == ExecutionCostConfig.zero()
+    assert execution_cost.processing_bar_volume_capacity is True
+    assert kwargs["risk"] is None
 
 
 def test_execute_candidate_run_rejects_dataset_identity_mismatch() -> None:

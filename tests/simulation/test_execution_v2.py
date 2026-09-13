@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -47,6 +49,48 @@ def test_next_open_execution_uses_processing_bar_volume() -> None:
     )
     assert result.filled_turnover == pytest.approx(1.0)
     assert result.unfilled_turnover == pytest.approx(0.0)
+
+
+def test_causal_capacity_uses_previous_completed_bar_volume() -> None:
+    config = replace(
+        ExecutionCostConfig.zero(),
+        processing_bar_volume_capacity=False,
+        max_participation_rate=1.0,
+    )
+
+    first = market(
+        volume=np.array([[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
+    )
+    first_result = MarketExecutor(first, config).execute_interval(
+        BookState.zero(1, 1_000.0, first.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+    assert first_result.filled_turnover == pytest.approx(0.1)
+    assert first_result.unfilled_turnover == pytest.approx(0.9)
+
+    different_current_volume = market(
+        volume=np.array([[1.0], [10_000.0], [1_000.0], [1_000.0], [1_000.0]])
+    )
+    current_result = MarketExecutor(different_current_volume, config).execute_interval(
+        BookState.zero(1, 1_000.0, different_current_volume.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+    assert current_result.filled_turnover == pytest.approx(first_result.filled_turnover)
+
+    different_previous_volume = market(
+        volume=np.array([[2.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
+    )
+    previous_result = MarketExecutor(different_previous_volume, config).execute_interval(
+        BookState.zero(1, 1_000.0, different_previous_volume.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+    assert previous_result.filled_turnover == pytest.approx(0.2)
 
 
 def test_minimum_notional_lot_tick_and_borrow_constraints_are_enforced() -> None:

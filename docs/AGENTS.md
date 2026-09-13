@@ -19,17 +19,23 @@
 
 ## Interactive Guide update contract
 
-Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。説明本文と可視化modelは `guide/content/topics/*.json` に置き、正本Markdown sectionとの対応は各topicのsource fingerprintでfail-closedに検証する。
+Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。画面では日本語を主表示し、実identifier・型・file pathはsource照合の副表示として残す。説明本文、review済みsequence/code-map、CodeReferenceは `guide/content/topics/*.json` に置き、UI componentへ研究固有の真実を直接埋め込まない。
 
-Guideがbindしている `docs/architecture/*` または `docs/research/current-status.md` のsectionを変更した場合、対応topicの説明が新しい正本と一致することを人間が確認してから、対象topicだけを明示的にrefreshする。refreshを単なるCI通過手段として実行しない。
+正本Markdownとの対応はsection fingerprintで、Python実装との対応はAST由来の `guide/.generated/code-symbols.json` でfail-closedに検証する。生成indexはproduction moduleをimport/executeせず、current treeへcommitしない。sequence/code-map relationshipは人間がレビューしたcontentを正本とし、ASTから自動call graphを推測しない。
+
+Guideがbindしている `docs/architecture/*` または `docs/research/current-status.md` のsectionを変更した場合、対応topicの説明が新しい正本と一致することを人間が確認してから、対象topicだけを明示的にrefreshする。Guideが参照するPython symbolを変更した場合も、日本語説明・variables・関連testを読み直してから対象topicだけ `--refresh-code` する。refreshを単なるCI通過手段として実行しない。
 
 ```bash
+python3 guide/tools/content_contract.py --refresh-code <topic-id>
 python3 guide/tools/content_contract.py --refresh <topic-id>
 python3 guide/tools/content_contract.py --check
 npm --prefix guide run check
+npm --prefix guide run e2e
 ```
 
-正本sectionが変わっていない通常のGuide UI変更ではfingerprintを更新しない。Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
+`--refresh-code` は検証済みCodeReferenceのsource digestだけを更新し、説明やrelationshipを自動生成しない。`--refresh` はMarkdown section fingerprintだけを更新する。正本sectionやsourceが変わっていない通常のGuide UI変更ではfingerprintを更新しない。
+
+Guide source linkはfloating `main` ではなくbuildした**exact revision**へ固定する。CIはPR head SHA、Pages build/smokeはverified `workflow_run.head_sha` を `GUIDE_SOURCE_REV` として渡す。Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
 
 ## Local repository tooling
 
@@ -112,7 +118,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
-| Guideがbindする正本section | 対応する `guide/content/topics/*.json`, `guide/tools/content_contract.py --check` |
+| Guideがbindする正本section / Python symbol | 対応する `guide/content/topics/*.json`, `--refresh` / `--refresh-code`, `guide/tools/content_contract.py --check` |
 | Guide Pages deployment / public URL | `.github/workflows/deploy-guide.yml`, `guide/README.md`, Pages state read-back |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
@@ -158,11 +164,3 @@ uv run pytest -q tests
 さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
 
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
-
-テストGreenだけでは正しさを宣言しない。最終diff、削除物、public API、重要failure mode、未検証事項、残存riskを再確認する。
-
-## 作業線の終了と変更の証拠
-
-不要な作業線は、mainへのancestor関係、同一tree、または後継実装が固有差分を包含する独立した証拠で判断する。open PRのhead/baseと進行中の実行は保護し、削除直前のexact SHA確認と削除後の一覧確認を行う。名称が古いことだけでは削除しない。未統合の実験設定・非再生成可能な証拠は残す。superseded PRは理由と後継の正本を会話へ記録し、旧設計を再mergeしない。
-
-ソース移動やPython docstring変更でも、Runのimplementation manifestは相対パスとraw bytesにbindするため実装digestが変化する。同じStudyの比較途中へ移行を混ぜず、元のsource/runtimeを保持する。計算の意味保存と、期待されるprovenance変化は別々に検証する。

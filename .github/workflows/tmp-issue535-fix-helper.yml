@@ -1,0 +1,47 @@
+name: Temporary Issue 535 helper repair
+
+on:
+  push:
+    branches:
+      - research/issue535-aggtrades-flow-prereg
+    paths:
+      - .github/workflows/tmp-issue535-fix-helper.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue535-aggtrades-flow-prereg
+      - name: Repair helper type variable names
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue535-authority-patch.yml')
+          text = path.read_text(encoding='utf-8')
+          replacements = (
+              ("'        for field, value in (\\n'", "'        for identity_field, identity_value in (\\n'"),
+              ("'            if value <= 0:\\n'", "'            if identity_value <= 0:\\n'"),
+              ("'                raise ValueError(f\"{field} must be positive\")\\n'", "'                raise ValueError(f\"{identity_field} must be positive\")\\n'"),
+          )
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one helper repair target, got {count}: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/tmp-issue535-authority-patch.yml
+          git commit -m "chore: repair issue535 authority helper"
+          git push origin HEAD:research/issue535-aggtrades-flow-prereg

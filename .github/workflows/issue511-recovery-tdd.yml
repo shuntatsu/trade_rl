@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+env:
+  RECOVERY_HELPER_BLOB: 48904514b29aefcb6b9e2b2beeeec804705dbf77
+  POSTVERIFY_BLOB: 7f8713ba2e73b32cc480a91d728bb0d079a1bf17
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -24,6 +28,13 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify exact recovery implementation blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue511_portable_exp001_recovery.py)" = "$RECOVERY_HELPER_BLOB"
+          test "$(git hash-object research/issue511_portable_exp001_postverify.py)" = "$POSTVERIFY_BLOB"
 
       - name: Set up frozen uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4

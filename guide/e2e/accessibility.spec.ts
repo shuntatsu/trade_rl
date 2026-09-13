@@ -33,11 +33,22 @@ test("overview and replay have no serious or critical accessibility violations",
   }
 });
 
-test("keyboard alone can select a sequence step and reach its source link", async ({ page }) => {
+test("keyboard alone can select a sequence step and reach its source link", async (
+  { page },
+  testInfo,
+) => {
   await page.goto("/#implementation-replay");
 
-  await tabUntilText(page, "ハードリスクで目標を制約");
-  await page.keyboard.press("Enter");
+  if (testInfo.project.name === "mobile-320") {
+    await tabUntilText(page, "次へ");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+  } else {
+    await tabUntilText(page, "ハードリスクで目標を制約");
+    await page.keyboard.press("Enter");
+  }
+
   await expect(page).toHaveURL(/#implementation-replay\?step=risk-constrain$/);
   await expect(
     page.getByRole("button", { name: /ハードリスクで目標を制約/ }),

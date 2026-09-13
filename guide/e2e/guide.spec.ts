@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 
-test("overview reaches replay risk implementation and exact source", async ({ page }) => {
+test("overview reaches replay risk implementation and exact source", async (
+  { page },
+  testInfo,
+) => {
   await page.goto("/#overview");
   await expect(
     page.getByRole("heading", {
@@ -14,7 +17,15 @@ test("overview reaches replay risk implementation and exact source", async ({ pa
   await expect(page).toHaveURL(/#implementation-replay$/);
   await expect(page.getByRole("heading", { level: 1, name: "1本のバーを追う" })).toBeVisible();
 
-  await page.getByRole("button", { name: /ハードリスクで目標を制約/ }).click();
+  if (testInfo.project.name === "mobile-320") {
+    const next = page.getByRole("button", { name: "次へ" });
+    await next.click();
+    await next.click();
+    await next.click();
+  } else {
+    await page.getByRole("button", { name: /ハードリスクで目標を制約/ }).click();
+  }
+
   await expect(page).toHaveURL(/#implementation-replay\?step=risk-constrain$/);
   await expect(
     page.getByRole("heading", { level: 3, name: "ハードリスクを適用" }),

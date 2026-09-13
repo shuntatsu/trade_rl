@@ -63,6 +63,11 @@
   background: var(--accent-soft);
 }
 
+.sequence-message[aria-current="step"] .sequence-message__body small,
+.sequence-message[aria-current="step"] .sequence-message__body ul {
+  color: var(--text);
+}
+
 .sequence-message__index {
   display: grid;
   width: 28px;

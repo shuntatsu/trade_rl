@@ -1,6 +1,14 @@
 """Maintained Binance integration facade."""
 
 from trade_rl.data.contracts import InstrumentExecutionRule
+from trade_rl.integrations.binance.book_depth import (
+    BOOK_DEPTH_PERCENTAGE_BANDS,
+    BinanceBookDepthSeries,
+    parse_vision_book_depth_archive,
+    plan_vision_book_depth_urls,
+    validate_book_depth_reference_alignment,
+    vision_book_depth_url,
+)
 from trade_rl.integrations.binance.cache import (
     BinanceVisionCachePlan,
     BinanceVisionCacheReport,
@@ -40,6 +48,8 @@ from trade_rl.integrations.binance.vision import (
 )
 
 __all__ = [
+    "BOOK_DEPTH_PERCENTAGE_BANDS",
+    "BinanceBookDepthSeries",
     "BinanceDatasetBuildResult",
     "BinanceExchangeInfoSnapshot",
     "BinanceInstrumentMetadata",
@@ -58,12 +68,16 @@ __all__ = [
     "build_binance_market_dataset",
     "inspect_binance_vision_cache",
     "inspect_binance_vision_urls",
+    "parse_vision_book_depth_archive",
     "plan_binance_vision_cache",
+    "plan_vision_book_depth_urls",
     "plan_vision_kline_urls",
     "require_complete_binance_vision_cache",
     "sync_binance_vision_cache",
     "sync_binance_vision_urls",
+    "validate_book_depth_reference_alignment",
     "validate_cached_vision_payload",
+    "vision_book_depth_url",
     "vision_cache_path",
     "vision_funding_url",
     "vision_kline_url",

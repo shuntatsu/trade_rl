@@ -100,15 +100,15 @@ def test_archive_flow_uses_fixed_five_second_bins_and_both_taker_sides() -> None
     series = _series(
         timestamps_ms=[
             base_ms,
-            base_ms + 4_999,
-            base_ms + 5_000,
             base_ms + 1_000,
             base_ms + 3_000,
+            base_ms + 4_999,
+            base_ms + 5_000,
             base_ms + 5_001,
         ],
         prices=[10.0] * 6,
-        quantities=[10.0, 5.0, 12.0, 8.0, 2.0, 9.0],
-        buyer_is_maker=[False, False, False, True, True, True],
+        quantities=[10.0, 8.0, 2.0, 5.0, 12.0, 9.0],
+        buyer_is_maker=[False, True, True, False, False, True],
         source=url,
     )
 
@@ -191,7 +191,10 @@ def test_registered_coverage_failure_invalidates_without_fallback() -> None:
     assert btc.accepted_days == 19
     assert btc.q10 is None
     assert btc.symbol_cap is None
-    assert any("BTCUSDT" in failure and "accepted_days" in failure for failure in result.failures)
+    assert any(
+        "BTCUSDT" in failure and "accepted_days" in failure
+        for failure in result.failures
+    )
 
 
 def test_result_requires_exact_planned_roster_and_is_content_addressed() -> None:

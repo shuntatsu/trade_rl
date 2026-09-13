@@ -1,0 +1,48 @@
+name: Issue 519 Experiment 0002 prereg TDD
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-prereg
+    paths:
+      - .github/workflows/issue519-exp002-prereg-tdd.yml
+      - research/issue519_portable_exp002.py
+      - research/test_issue519_portable_exp002.py
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+
+jobs:
+  tdd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production subtree unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Run Experiment 0002 prereg tests
+        run: uv run pytest -q research/test_issue519_portable_exp002.py

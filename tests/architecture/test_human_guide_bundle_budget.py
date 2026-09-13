@@ -1,18 +1,11 @@
-from __future__ import annotations
-
-import importlib
-import json
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
 def _bundle_budget_module():
-    return importlib.import_module("guide.tools.bundle_budget")
+    return __import__("guide.tools.bundle_budget", fromlist=["*"])
 
 
-def test_bundle_budget_rejects_javascript_chunk_above_limit(tmp_path: Path) -> None:
+def test_bundle_budget_rejects_javascript_chunk_above_limit(tmp_path) -> None:
     bundle_budget = _bundle_budget_module()
     dist = tmp_path / "dist"
     assets = dist / "assets"
@@ -29,7 +22,7 @@ def test_bundle_budget_rejects_javascript_chunk_above_limit(tmp_path: Path) -> N
         raise AssertionError("expected BundleBudgetError for oversized JavaScript chunk")
 
 
-def test_bundle_budget_accepts_javascript_chunks_at_or_below_limit(tmp_path: Path) -> None:
+def test_bundle_budget_accepts_javascript_chunks_at_or_below_limit(tmp_path) -> None:
     bundle_budget = _bundle_budget_module()
     dist = tmp_path / "dist"
     assets = dist / "assets"
@@ -41,7 +34,9 @@ def test_bundle_budget_accepts_javascript_chunks_at_or_below_limit(tmp_path: Pat
 
 
 def test_guide_build_uses_compact_runtime_index_and_enforces_budget() -> None:
-    package = json.loads((ROOT / "guide" / "package.json").read_text(encoding="utf-8"))
+    package = __import__("json").loads(
+        (ROOT / "guide" / "package.json").read_text(encoding="utf-8")
+    )
     scripts = package["scripts"]
     assert isinstance(scripts, dict)
 

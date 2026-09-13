@@ -19,6 +19,9 @@ def test_canonical_book_depth_capacity_protocol_is_frozen_before_pnl() -> None:
     assert protocol.canonical_dataset_id == (
         "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
     )
+    assert protocol.canonical_dataset_artifact_digest == (
+        "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+    )
     assert protocol.canonical_study_digest == (
         "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
     )
@@ -68,6 +71,7 @@ def test_protocol_rejects_post_evaluation_calibration_and_semantic_drift() -> No
         {"reference_volume_timeframe": "4h"},
         {"symbols": ("BTCUSDT",)},
         {"canonical_dataset_id": "0" * 64},
+        {"canonical_dataset_artifact_digest": "0" * 64},
         {"canonical_study_digest": "0" * 64},
         {"sample_month_days": (1, 10)},
         {"capacity_bands": (-2, 2)},

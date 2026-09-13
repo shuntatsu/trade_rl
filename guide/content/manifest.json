@@ -3,10 +3,11 @@
   "home": "overview",
   "topics": [
     "overview",
+    "implementation-replay",
+    "implementation-ppo",
+    "code-map",
     "data-flow",
-    "architecture",
     "execution-economics",
-    "ppo-observation-v2",
     "experiment-loop",
     "research-status"
   ]

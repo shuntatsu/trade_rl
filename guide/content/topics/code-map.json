@@ -1,0 +1,194 @@
+{
+  "id": "code-map",
+  "title": "コード地図：どこが何を所有するか",
+  "nav_label": "コード地図",
+  "summary": "外部sourceからデータ契約、戦略、hard risk、約定・会計、評価・artifactへ流れる責務を、実クラスと関数へ結び付けて確認します。",
+  "keywords": [
+    "code map",
+    "責務",
+    "MarketDataset",
+    "SingleSymbolStrategy",
+    "PreTradeRisk",
+    "MarketExecutor",
+    "run_single_symbol_replay",
+    "ownership",
+    "dependency"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Ownership",
+      "sha256": "5eef4b077997e6ae133d93345984878606eb37bc560c2ff51de25e184696903f"
+    },
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Dependency direction",
+      "sha256": "f5333ea1c67847921d38ea2bc7707774b69ed02f933fbb82f19433b48f9a5024"
+    }
+  ],
+  "code_references": [
+    {
+      "id": "market-dataset",
+      "symbol": "trade_rl.data.market.MarketDataset",
+      "kind": "class",
+      "source_sha256": "9e58398e93264929313fd278bacc4cd4222060e06640982c57d1290b25572458",
+      "label_ja": "市場データの共通契約",
+      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
+      "variables": [],
+      "tests": [
+        "tests/data/test_market_artifact.py"
+      ]
+    },
+    {
+      "id": "single-symbol-strategy",
+      "symbol": "trade_rl.strategies.interface.SingleSymbolStrategy",
+      "kind": "class",
+      "source_sha256": "5884e0b30660ebd6e4d03fae14391b38d724b9183021f36395d2004aef780171",
+      "label_ja": "単銘柄戦略の共通インターフェース",
+      "description_ja": "rule・forecast・PPOを同じStrategyObservation→PositionIntent契約で評価できるようにします。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "pretrade-risk",
+      "symbol": "trade_rl.risk.pretrade.PreTradeRisk",
+      "kind": "class",
+      "source_sha256": "cf9486f51189329f920089b76b23582d2ec08d00491e56af072ea33813b886ca",
+      "label_ja": "hard riskの所有者",
+      "description_ja": "strategyが提案したtargetへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用します。",
+      "variables": [],
+      "tests": [
+        "tests/risk/test_pretrade.py"
+      ]
+    },
+    {
+      "id": "market-executor",
+      "symbol": "trade_rl.simulation.execution.MarketExecutor",
+      "kind": "class",
+      "source_sha256": "fbb702d584a778c125f8df814534352faddac5eccf033b5bd095db8c59437934",
+      "label_ja": "約定・会計の所有者",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
+      "variables": [],
+      "tests": [
+        "tests/simulation/test_execution_v2.py"
+      ]
+    },
+    {
+      "id": "single-symbol-replay",
+      "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
+      "kind": "function",
+      "source_sha256": "e8dd736986f9de98e10cd1be3c67257fcdcdf9d4900579c153e608d6fac96f06",
+      "label_ja": "共通評価リプレイ",
+      "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "責務は図の箱ごとに分ける",
+      "body": [
+        "dataはDataset、strategiesは売買意図、riskはhard limit、simulationは約定と会計、evaluationは比較可能なevidenceを所有します。同じ責務を複数packageへ複製しません。"
+      ]
+    },
+    {
+      "title": "矢印は宣言したものだけ",
+      "body": [
+        "この地図の矢印は説明上の責務・データの流れとして明示したedgeだけを描きます。node配列順や見た目の近さから、存在しない依存関係を推測して描画しません。"
+      ]
+    },
+    {
+      "title": "実装へ直接飛べる",
+      "body": [
+        "実装参照を持つnodeを選ぶと、対応するclass/function、定義位置、関連testを同じ画面で確認できます。"
+      ]
+    }
+  ],
+  "visualization": {
+    "kind": "code-map",
+    "nodes": [
+      {
+        "id": "integrations",
+        "label_ja": "外部接続",
+        "description_ja": "provider固有のレスポンスを内部で扱えるsource evidenceへ変換します。"
+      },
+      {
+        "id": "data",
+        "label_ja": "データ契約",
+        "description_ja": "causalなMarketDatasetとdataset identityを所有します。",
+        "code_ref": "market-dataset"
+      },
+      {
+        "id": "strategies",
+        "label_ja": "戦略",
+        "description_ja": "共通観測から論理的な売買意図を返します。",
+        "code_ref": "single-symbol-strategy"
+      },
+      {
+        "id": "risk",
+        "label_ja": "ハードリスク",
+        "description_ja": "戦略提案をturnover・exposure・drawdown等の事前リスク制約内へ射影します。",
+        "code_ref": "pretrade-risk"
+      },
+      {
+        "id": "simulation",
+        "label_ja": "約定・会計",
+        "description_ja": "fill、cost、funding、borrow、margin、BookStateを共通化します。",
+        "code_ref": "market-executor"
+      },
+      {
+        "id": "evaluation",
+        "label_ja": "評価",
+        "description_ja": "同じDataset・Risk・Executionで候補戦略を比較します。",
+        "code_ref": "single-symbol-replay"
+      },
+      {
+        "id": "artifacts",
+        "label_ja": "証拠artifact",
+        "description_ja": "dataset・run・research判断を再現可能な証拠として保存します。"
+      }
+    ],
+    "edges": [
+      {
+        "from": "integrations",
+        "to": "data",
+        "relation": "data-flow",
+        "label_ja": "provider evidenceを内部データ契約へ渡す"
+      },
+      {
+        "from": "data",
+        "to": "strategies",
+        "relation": "data-flow",
+        "label_ja": "causalな現在時点の観測を渡す"
+      },
+      {
+        "from": "strategies",
+        "to": "risk",
+        "relation": "data-flow",
+        "label_ja": "売買意図・提案targetを渡す"
+      },
+      {
+        "from": "risk",
+        "to": "simulation",
+        "relation": "data-flow",
+        "label_ja": "hard limit適用後のtargetを渡す"
+      },
+      {
+        "from": "simulation",
+        "to": "evaluation",
+        "relation": "data-flow",
+        "label_ja": "共通会計のfill・cost・returnを渡す"
+      },
+      {
+        "from": "evaluation",
+        "to": "artifacts",
+        "relation": "calls",
+        "label_ja": "比較結果を再現可能なevidenceとして固定する"
+      }
+    ]
+  }
+}

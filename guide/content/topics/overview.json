@@ -2,7 +2,7 @@
   "id": "overview",
   "title": "実データで動く、検証可能なトレーディングRLシステム",
   "nav_label": "全体像",
-  "summary": "市場データから検証可能な研究Evidenceまで、Trade RLの責務と流れを一枚でつかみます。",
+  "summary": "市場データから比較可能な検証証拠まで、Trade RLの責務と処理の流れを一枚でつかみます。",
   "keywords": [
     "全体像",
     "MarketDataset",
@@ -28,15 +28,15 @@
     {
       "title": "何をするシステムか",
       "body": [
-        "Trade RLは、point-in-timeの市場データを固定し、同じ実行・会計ルールの下で複数strategyを比較する研究基盤です。",
-        "重要なのは、モデルを複雑にすることより、入力・実行条件・Evidence・判断手順を追跡可能にすることです。"
+        "Trade RLは、その時点で利用可能だった市場データ（point-in-time data）を固定し、同じ約定・会計ルールの下で複数の売買判断を比較する研究基盤です。",
+        "重要なのは、モデルを複雑にすることより、入力・約定条件・検証証拠・判断手順を実装まで追跡できることです。"
       ]
     },
     {
       "title": "現在の位置",
       "body": [
-        "market_build_v3 / portable_feature_numerics_v1、real-cost assumption、PPO Observation v2を持つportable Canonical real-data baselineは、結果前preregistrationからpost-Artifact独立検証まで完了しています。",
-        "Portable Controlled Experiment 0001もfresh runnerで公開result Artifactを独立再検証し、formal decisionはKEEP_BASELINEです。mean-reversionは5 / 5銘柄でbaseline比改善しましたが、candidate total returnが正だったのは1 / 5銘柄でした。profitability・winner・Production authorizationは未証明です。"
+        "市場データ構築 v3（market_build_v3）、CPU差を抑えた再現可能数値計算（portable_feature_numerics_v1）、実行コスト仮定、PPO観測 v2を持つ実データ基準系は、結果を見る前の事前登録からartifact後の独立検証まで完了しています。",
+        "Portable Controlled Experiment 0001も別runnerで公開result artifactまで独立再検証され、正式判断はKEEP_BASELINEです。mean-reversionは5 / 5銘柄でbaseline比を改善しましたが、candidate total returnが正だったのは1 / 5銘柄でした。継続的な利益性、勝者選定、本番運用の認可はまだ証明していません。"
       ]
     }
   ],
@@ -46,47 +46,47 @@
       {
         "id": "market",
         "label": "市場データ",
-        "subtitle": "Point-in-time evidence",
-        "description": "価格・出来高・funding・venue metadataなどを、未来情報を混ぜずに扱います。",
-        "input": "Binance/Vision等のfrozen source",
-        "output": "causal raw evidence",
-        "not_owned": "strategy判断やP&L評価"
+        "subtitle": "その時点の市場証拠",
+        "description": "価格・出来高・funding・取引所metadataなどを、未来情報を混ぜずに扱います。",
+        "input": "固定済み市場source（Binance/Vision等）",
+        "output": "因果順序を守った生の市場証拠",
+        "not_owned": "売買判断や損益評価"
       },
       {
         "id": "build",
         "label": "データ構築",
-        "subtitle": "MarketDataset",
-        "description": "特徴量・availability・staleness・execution economicsを一つのimmutable Datasetへまとめます。",
-        "input": "frozen source + build config",
-        "output": "content-addressed Dataset artifact",
-        "not_owned": "strategy固有の意思決定"
+        "subtitle": "共通市場データ契約（MarketDataset）",
+        "description": "特徴量・利用可能性・鮮度遅延・実行コスト条件を、一つの変更不能なDatasetへまとめます。",
+        "input": "固定済みsource + 構築設定",
+        "output": "内容で識別できるDataset artifact",
+        "not_owned": "戦略固有の意思決定"
       },
       {
         "id": "strategy",
-        "label": "Strategy / PPO",
-        "subtitle": "Intent",
-        "description": "同じDatasetからSHORT / FLAT / LONGの論理intentを生成します。",
-        "input": "causal observation",
-        "output": "logical intent",
+        "label": "売買判断",
+        "subtitle": "戦略・PPO（Strategy / PPO）",
+        "description": "同じDatasetからSHORT / FLAT / LONGの論理的な売買意図を生成します。",
+        "input": "その時点までの観測",
+        "output": "売買意図（intent）",
         "not_owned": "fillや手数料の計上"
       },
       {
         "id": "execution",
-        "label": "Execution",
-        "subtitle": "Replay & accounting",
-        "description": "hard risk後のtargetをMarketExecutor + BookStateで約定・会計し、実コストを記録します。",
-        "input": "intent + Dataset economics",
-        "output": "returns / diagnostics",
-        "not_owned": "研究上のwinner判断"
+        "label": "約定・会計",
+        "subtitle": "実行・リプレイ（Execution / Replay）",
+        "description": "hard risk適用後の目標をMarketExecutor + BookStateで約定・会計し、実行コストを記録します。",
+        "input": "売買目標 + Datasetの実行条件",
+        "output": "収益率・診断値（returns / diagnostics）",
+        "not_owned": "研究上の勝者判断"
       },
       {
         "id": "experiment",
         "label": "検証・研究",
-        "subtitle": "Study / EvidenceSet",
-        "description": "multi-seed Evidenceを比較し、一つのControlled Factorだけを変えた実験として検証します。",
-        "input": "immutable Run evidence",
-        "output": "verification / comparison / decision",
-        "not_owned": "sealed final authorization"
+        "subtitle": "比較用の検証証拠（Study / EvidenceSet）",
+        "description": "複数seedの証拠を比較し、事前登録した一つの変更要因だけを変えた実験として検証します。",
+        "input": "変更不能な実行証拠（Run evidence）",
+        "output": "検証・比較・研究判断",
+        "not_owned": "最終運用認可"
       }
     ],
     "edges": [

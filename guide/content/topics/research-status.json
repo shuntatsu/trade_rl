@@ -2,13 +2,14 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "何が検証済みで、何が実行中・未解釈・未証明・制約として残っているかを分離して表示します。",
+  "summary": "何が検証済みで、何が次の課題・未証明・制約として残っているかを分離して表示します。",
   "keywords": [
     "M2",
     "baseline",
     "verified",
     "portable numerics",
     "market_build_v3",
+    "KEEP_BASELINE",
     "profitability",
     "winner",
     "limitations"
@@ -27,16 +28,16 @@
   ],
   "sections": [
     {
-      "title": "Portable baseline成立とstrategy勝利は別",
+      "title": "再現可能な基準系の成立と戦略の勝利は別",
       "body": [
-        "現在のEvidenceは、CPU-portableなDataset identity、real-cost条件、結果前preregistration、再現可能なbaseline pathに加え、最初のPortable Controlled Experimentをfresh result re-verificationまで完了したことを示します。",
-        "Experiment 0001はmean-reversionを5 / 5銘柄でbaseline比改善しturnoverも低下させましたが、candidate total returnが正だったのは1 / 5銘柄のため、事前登録ruleどおりKEEP_BASELINEです。strategyのprofitabilityやwinnerはまだ示していません。"
+        "現在の検証証拠は、CPU差を抑えたDataset identity、実行コスト条件、結果前の事前登録、再現可能なbaseline経路に加え、最初のPortable Controlled Experimentをfresh result re-verificationまで完了したことを示します。",
+        "Experiment 0001ではmean-reversionが5 / 5銘柄でbaseline比を改善しturnoverも低下しましたが、candidate total returnが正だったのは1 / 5銘柄でした。そのため事前登録ruleどおり正式判断はKEEP_BASELINEであり、継続的な利益性や勝者戦略はまだ示していません。"
       ]
     },
     {
-      "title": "Study 004は履歴として保持",
+      "title": "過去のStudy 004は履歴として保持",
       "body": [
-        "Study 004はpre-portable numericsで生成されたimmutable evidenceとして残しますが、current canonical inputはportable successorへ移行しました。旧Studyは書き換えません。"
+        "Study 004はportable numerics導入前に生成された変更不能な証拠として残しますが、現在の標準入力はportable successorへ移行しました。旧Studyは書き換えません。"
       ]
     }
   ],
@@ -47,44 +48,44 @@
         "id": "verified",
         "label": "検証済み",
         "items": [
-          "market_build_v3 / portable_feature_numerics_v1を固定",
-          "full priced Dataset identityをheterogeneous AMD / Intel runnerでbyte-identicalに再現",
-          "結果前のplan-only portable preregistrationをbaselineより先に封印",
-          "5 symbols × 8 strategies × 5 seedsのportable baseline evidence",
-          "tradeあり175 observationsで175 / 175 positive total_cost",
-          "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算",
-          "Portable Controlled Experiment 0001をfresh result re-verificationまで完了し、formal decisionをKEEP_BASELINEに固定",
-          "Experiment 0001でunaffected raw-return equality 150 checksとdeterministic metric seed invariance 1120 checksを検証"
+          "市場データ構築 v3（market_build_v3）と再現可能数値計算 v1（portable_feature_numerics_v1）を固定",
+          "価格付きDataset全体のidentityをAMD / Intelの異なるrunnerでbyte-identicalに再現",
+          "結果を見る前のportable preregistrationをbaseline実行より先に封印",
+          "5銘柄 × 8戦略 × 5 seedのportable baseline evidenceを生成",
+          "取引あり175 observationsすべてでtotal_costが正値であることを確認",
+          "別runnerでDataset / StudyPlanを再構築し、生のCandidate Runsから独立再計算",
+          "Portable Controlled Experiment 0001をfresh result re-verificationまで完了し、正式判断をKEEP_BASELINEに固定",
+          "Experiment 0001で影響外の生return一致150 checksと、決定的metricのseed不変性1120 checksを検証"
         ]
       },
       {
         "id": "pending",
-        "label": "次に実行",
+        "label": "次に行うこと",
         "items": [
-          "KEEP_BASELINEをcurrent development authorityとして維持する",
-          "次のControlled Factorを結果を見る前にpreregisterする",
+          "KEEP_BASELINEを現在のdevelopment基準として維持する",
+          "次の変更要因（Controlled Factor）を結果を見る前に事前登録する",
           "次のExperimentでもfactor isolation・raw-return equality・metric invariance・cost semanticsを独立再検証する",
           "development evidenceを積み上げ、winner / no-winner判断が成立した後だけsealed final-testへ進む"
         ]
       },
       {
         "id": "not-claimed",
-        "label": "まだ主張しない",
+        "label": "まだ主張しないこと",
         "items": [
-          "profitability",
-          "winner選定",
+          "継続的な利益性（profitability）",
+          "勝者戦略の選定（winner）",
           "PPOやforecastがruleより優れること",
-          "Production / live order routingの認可"
+          "本番・live order routingの認可"
         ]
       },
       {
         "id": "limitations",
-        "label": "残存制約",
+        "label": "残っている制約",
         "items": [
-          "portable numerics保証はcanonical Dataset constructionとrepositoryのsupported Python/runner環境が対象",
-          "fee/spreadは再現可能なresearch assumptionsでありaccount-specific venue truthではない",
-          "Dataset-authoritative market-impact/slippage modelは未導入",
-          "Experiment 0001はfreeze済み旧implementationで完了し、後発のPPO cross-seed aggregation修正を遡及適用していない。ただしPPO aggregate metricはformal decisionのoracleに使っていない"
+          "portable numerics保証は標準Dataset構築とrepositoryが支援するPython/runner環境が対象",
+          "手数料・spreadは再現可能な研究仮定であり、account-specificな取引所実績値そのものではない",
+          "Dataset-authoritativeなmarket-impact/slippage modelは未導入",
+          "Experiment 0001はfreeze済み旧implementationで完了し、後発のPPO cross-seed aggregation修正を遡及適用していない。ただしPPO aggregate metricは正式判断のoracleに使っていない"
         ]
       }
     ]

@@ -1,8 +1,8 @@
 {
   "id": "execution-economics",
-  "title": "実行コスト",
-  "nav_label": "実行コスト",
-  "summary": "fee・spread・participation・borrowがどこで決まり、二重課金をどう防ぐかを可視化します。",
+  "title": "約定コストと会計",
+  "nav_label": "約定・会計",
+  "summary": "手数料・spread・participation・borrowがどこで決まり、二重課金をどう防ぐかを可視化します。",
   "keywords": [
     "execution economics",
     "実行コスト",
@@ -28,15 +28,15 @@
   ],
   "sections": [
     {
-      "title": "Datasetが唯一の実行コストauthority",
+      "title": "Datasetが実行コスト条件の正本",
       "body": [
-        "Canonical M2ではbuild-level ExecutionEconomicsProfileをDataset fieldsへbindし、runtime overlayはzeroのままにします。"
+        "Canonical M2では構築時の実行コスト設定（ExecutionEconomicsProfile）をDataset fieldsへ固定し、実行時の追加overlayはゼロのままにします。"
       ]
     },
     {
-      "title": "research assumptionであってvenue truthではない",
+      "title": "取引所の実績値ではなく研究仮定",
       "body": [
-        "採用中のfee/spread等は再現可能な研究仮定です。historical account-specific Binance fee truthとは主張しません。"
+        "採用中の手数料・spread等は再現可能な研究仮定です。過去のaccount-specific Binance fee truthそのものだとは主張しません。"
       ]
     }
   ],
@@ -45,60 +45,60 @@
     "components": [
       {
         "id": "profile",
-        "label": "ExecutionEconomicsProfile",
-        "role": "Build authority",
-        "description": "fee / spread / participation / borrow assumptionsを一箇所で解決します。",
-        "status": "configured"
+        "label": "実行コスト設定",
+        "role": "構築時の正本（ExecutionEconomicsProfile）",
+        "description": "手数料・spread・参加率上限・borrow仮定を一箇所で解決します。",
+        "status": "設定済み"
       },
       {
         "id": "dataset",
-        "label": "MarketDataset",
-        "role": "Immutable fields",
-        "description": "resolved economics arraysをcontent identityへ含めます。",
-        "status": "authoritative"
+        "label": "市場データ契約",
+        "role": "変更不能なDataset fields",
+        "description": "解決済みの実行条件配列をDatasetのcontent identityへ含めます。",
+        "status": "正本"
       },
       {
         "id": "overlay",
-        "label": "Runtime overlay",
-        "role": "zero overlay",
-        "description": "Dataset fieldsと二重課金しないため、Canonical M2では追加overlayをゼロに固定します。",
-        "status": "disabled"
+        "label": "実行時の追加コスト",
+        "role": "ゼロoverlay",
+        "description": "Dataset fieldsとの二重課金を防ぐため、Canonical M2では追加overlayをゼロに固定します。",
+        "status": "無効"
       },
       {
         "id": "executor",
-        "label": "MarketExecutor",
-        "role": "Accounting",
-        "description": "fillsへDataset economicsを適用し、fee/slippage/funding/borrow等を記録します。",
-        "status": "active"
+        "label": "約定・会計エンジン",
+        "role": "会計の正本（MarketExecutor）",
+        "description": "fillへDataset economicsを適用し、手数料・slippage・funding・borrow等を記録します。",
+        "status": "有効"
       },
       {
         "id": "evidence",
-        "label": "Run diagnostics",
-        "role": "Evidence",
+        "label": "実行診断値",
+        "role": "検証証拠（Run diagnostics）",
         "description": "turnover、total_cost、funding_pnl等をsummaryとraw evidenceへ残します。",
-        "status": "verified"
+        "status": "検証対象"
       }
     ],
     "assumptions": [
       {
-        "label": "fee",
-        "state": "dataset-authoritative"
+        "label": "手数料（fee）",
+        "state": "Datasetが正本"
       },
       {
         "label": "spread",
-        "state": "dataset-authoritative"
+        "state": "Datasetが正本"
       },
       {
-        "label": "participation",
-        "state": "dataset-authoritative"
+        "label": "参加率上限（participation）",
+        "state": "Datasetが正本"
       },
       {
-        "label": "borrow",
-        "state": "dataset-authoritative"
+        "label": "借入コスト（borrow）",
+        "state": "Datasetが正本"
       },
       {
         "label": "market impact",
-        "state": "not modeled as Dataset authority"
+        "state": "Dataset正本のモデルは未導入"
       }
     ]
   }

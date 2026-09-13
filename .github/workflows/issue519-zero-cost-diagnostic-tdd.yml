@@ -55,3 +55,5 @@ jobs:
           uv run python -m py_compile "${files[@]}"
           uv run ruff check "${files[@]}"
           uv run pytest -q research/test_issue519_zero_cost_diagnostic.py
+
+# Explicit retrigger after one-shot Ruff cleanup.

@@ -59,7 +59,9 @@ def test_causal_capacity_uses_previous_completed_bar_volume() -> None:
     )
 
     first = market(
-        volume=np.array([[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
+        volume=np.array(
+            [[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]]
+        )
     )
     first_result = MarketExecutor(first, config).execute_interval(
         BookState.zero(1, 1_000.0, first.close[0]),
@@ -71,7 +73,9 @@ def test_causal_capacity_uses_previous_completed_bar_volume() -> None:
     assert first_result.unfilled_turnover == pytest.approx(0.9)
 
     different_current_volume = market(
-        volume=np.array([[1.0], [10_000.0], [1_000.0], [1_000.0], [1_000.0]])
+        volume=np.array(
+            [[1.0], [10_000.0], [1_000.0], [1_000.0], [1_000.0]]
+        )
     )
     current_result = MarketExecutor(different_current_volume, config).execute_interval(
         BookState.zero(1, 1_000.0, different_current_volume.close[0]),
@@ -82,7 +86,9 @@ def test_causal_capacity_uses_previous_completed_bar_volume() -> None:
     assert current_result.filled_turnover == pytest.approx(first_result.filled_turnover)
 
     different_previous_volume = market(
-        volume=np.array([[2.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
+        volume=np.array(
+            [[2.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]]
+        )
     )
     previous_result = MarketExecutor(different_previous_volume, config).execute_interval(
         BookState.zero(1, 1_000.0, different_previous_volume.close[0]),

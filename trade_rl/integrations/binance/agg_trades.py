@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import numpy as np
+from numpy.typing import DTypeLike
 
 from trade_rl.integrations.binance.types import (
     BinanceMarket,
@@ -34,8 +35,16 @@ _AGG_TRADES_HEADER = (
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _as_1d_copy(value: np.ndarray, *, dtype: np.dtype[object]) -> np.ndarray:
-    return np.asarray(value, dtype=dtype).reshape(-1).copy()
+def _as_1d_copy(
+    value: np.ndarray,
+    *,
+    name: str,
+    dtype: DTypeLike,
+) -> np.ndarray:
+    array_value = np.asarray(value)
+    if array_value.ndim != 1:
+        raise ValueError(f"{name} must have one-dimensional shape")
+    return np.asarray(value, dtype=dtype).copy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,18 +64,36 @@ class BinanceAggTradesSeries:
     header_present: bool
 
     def __post_init__(self) -> None:
-        aggregate_ids = _as_1d_copy(self.aggregate_trade_ids, dtype=np.dtype(np.int64))
-        prices = _as_1d_copy(self.prices, dtype=np.dtype(np.float64))
-        quantities = _as_1d_copy(self.quantities, dtype=np.dtype(np.float64))
-        first_ids = _as_1d_copy(self.first_trade_ids, dtype=np.dtype(np.int64))
-        last_ids = _as_1d_copy(self.last_trade_ids, dtype=np.dtype(np.int64))
+        aggregate_ids = _as_1d_copy(
+            self.aggregate_trade_ids,
+            name="aggregate_trade_ids",
+            dtype=np.int64,
+        )
+        prices = _as_1d_copy(self.prices, name="prices", dtype=np.float64)
+        quantities = _as_1d_copy(
+            self.quantities,
+            name="quantities",
+            dtype=np.float64,
+        )
+        first_ids = _as_1d_copy(
+            self.first_trade_ids,
+            name="first_trade_ids",
+            dtype=np.int64,
+        )
+        last_ids = _as_1d_copy(
+            self.last_trade_ids,
+            name="last_trade_ids",
+            dtype=np.int64,
+        )
         timestamps = _as_1d_copy(
             self.timestamps,
-            dtype=np.dtype("datetime64[ns]"),
+            name="timestamps",
+            dtype="datetime64[ns]",
         )
         buyer_is_maker = _as_1d_copy(
             self.buyer_is_maker,
-            dtype=np.dtype(np.bool_),
+            name="buyer_is_maker",
+            dtype=np.bool_,
         )
 
         if not self.source_uri:
@@ -145,7 +172,9 @@ def vision_agg_trades_url(
 
     resolved = _market(market)
     if resolved is not BinanceMarket.USDS_M:
-        raise ValueError("aggTrades evidence is currently supported only for Binance USD-M")
+        raise ValueError(
+            "aggTrades evidence is currently supported only for Binance USD-M"
+        )
     if not symbol:
         raise ValueError("symbol must be non-empty")
     date = _aware_utc(day, field="day").strftime("%Y-%m-%d")
@@ -218,7 +247,9 @@ def _timestamp_array(values: array[int], *, source: str) -> np.ndarray:
     milliseconds = np.array(values, dtype=np.int64, copy=True)
     timestamps = milliseconds.astype("datetime64[ms]").astype("datetime64[ns]")
     if np.any(np.isnat(timestamps)):
-        raise BinanceTransportError(f"aggTrades timestamp is not representable: {source}")
+        raise BinanceTransportError(
+            f"aggTrades timestamp is not representable: {source}"
+        )
     round_trip = timestamps.astype("datetime64[ms]").astype(np.int64)
     if not np.array_equal(round_trip, milliseconds):
         raise BinanceTransportError(
@@ -250,7 +281,8 @@ def parse_vision_agg_trades_archive(
             members = archive.infolist()
             if len(members) != 1 or members[0].is_dir():
                 raise BinanceTransportError(
-                    f"aggTrades archive must contain exactly one regular CSV file: {source}"
+                    "aggTrades archive must contain exactly one regular CSV file: "
+                    f"{source}"
                 )
             member = members[0]
             if not member.filename.lower().endswith(".csv"):
@@ -275,7 +307,8 @@ def parse_vision_agg_trades_archive(
                         int(first[0].strip())
                     except (IndexError, ValueError) as error:
                         raise BinanceTransportError(
-                            f"Binance Vision aggTrades header is unsupported: {tuple(first)}: {source}"
+                            "Binance Vision aggTrades header is unsupported: "
+                            f"{tuple(first)}: {source}"
                         ) from error
                     pending = first
 
@@ -319,14 +352,16 @@ def parse_vision_agg_trades_archive(
 
                     if first_trade_id > last_trade_id:
                         raise BinanceTransportError(
-                            f"aggTrades first trade ID cannot exceed last trade ID: {source}"
+                            "aggTrades first trade ID cannot exceed last trade ID: "
+                            f"{source}"
                         )
                     if (
                         previous_aggregate_id is not None
                         and aggregate_id <= previous_aggregate_id
                     ):
                         raise BinanceTransportError(
-                            f"aggTrades aggregate trade IDs must be strictly increasing: {source}"
+                            "aggTrades aggregate trade IDs must be strictly increasing: "
+                            f"{source}"
                         )
                     if (
                         previous_timestamp_ms is not None
@@ -348,7 +383,9 @@ def parse_vision_agg_trades_archive(
     except BinanceTransportError:
         raise
     except (UnicodeDecodeError, zipfile.BadZipFile, csv.Error, OSError) as error:
-        raise BinanceTransportError(f"invalid Binance Vision aggTrades archive: {source}") from error
+        raise BinanceTransportError(
+            f"invalid Binance Vision aggTrades archive: {source}"
+        ) from error
 
     if not aggregate_ids:
         raise BinanceTransportError(f"aggTrades archive contains no data rows: {source}")

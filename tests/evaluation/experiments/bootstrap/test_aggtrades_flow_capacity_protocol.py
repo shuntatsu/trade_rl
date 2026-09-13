@@ -13,7 +13,7 @@ from trade_rl.evaluation.experiments.bootstrap.agg_flow_capacity import (
 )
 
 
-def test_canonical_aggtrades_flow_protocol_is_frozen_before_numeric_flow() -> None:
+def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
     protocol = canonical_m2_aggtrades_flow_capacity_protocol()
 
     assert protocol.canonical_dataset_id == (
@@ -40,7 +40,9 @@ def test_canonical_aggtrades_flow_protocol_is_frozen_before_numeric_flow() -> No
         "ADAUSDT",
     )
     assert protocol.calibration_start == datetime(2021, 1, 1, tzinfo=UTC)
-    assert protocol.calibration_stop_exclusive == datetime(2023, 1, 1, tzinfo=UTC)
+    assert protocol.calibration_stop_exclusive == datetime(
+        2023, 1, 1, tzinfo=UTC
+    )
     assert protocol.evaluation_start == datetime(2023, 1, 1, tzinfo=UTC)
     assert protocol.sample_month_days == (1,)
     assert protocol.burst_window_milliseconds == 5_000
@@ -105,7 +107,7 @@ def test_protocol_rejects_semantic_drift_and_post_evaluation_data() -> None:
             replace(protocol, **mutation)
 
 
-def test_protocol_order_statistic_rank_is_exact_and_interpolation_free() -> None:
+def test_order_statistic_rank_is_exact_and_interpolation_free() -> None:
     protocol = canonical_m2_aggtrades_flow_capacity_protocol()
 
     assert protocol.lower_tail_rank(1) == 0
@@ -116,7 +118,7 @@ def test_protocol_order_statistic_rank_is_exact_and_interpolation_free() -> None
         protocol.lower_tail_rank(0)
 
 
-def test_protocol_payload_is_strict_and_contains_no_pnl_inputs(tmp_path) -> None:
+def test_payload_is_strict_and_contains_no_pnl_inputs(tmp_path) -> None:
     protocol = canonical_m2_aggtrades_flow_capacity_protocol()
     payload = protocol.to_payload()
 
@@ -149,7 +151,7 @@ def test_protocol_payload_is_strict_and_contains_no_pnl_inputs(tmp_path) -> None
         load_aggtrades_flow_capacity_protocol(path)
 
 
-def test_protocol_loader_rejects_nonfinite_and_naive_boundaries(tmp_path) -> None:
+def test_loader_rejects_nonfinite_and_naive_boundaries(tmp_path) -> None:
     protocol = canonical_m2_aggtrades_flow_capacity_protocol()
     payload = protocol.to_payload()
     path = tmp_path / "protocol.json"

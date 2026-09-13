@@ -1,0 +1,37 @@
+name: Temporary Guide contract compatibility patch v2
+
+on:
+  push:
+    branches:
+      - guide/markdown-first-redesign
+    paths:
+      - .github/workflows/tmp-guide-contract-compat-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: guide/markdown-first-redesign
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply compatibility patch
+        run: python3 .github/tmp_patch_guide_contract.py
+
+      - name: Commit compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add guide/tools/content_contract.py
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: preserve Guide contract validator APIs"
+          git push origin HEAD:guide/markdown-first-redesign

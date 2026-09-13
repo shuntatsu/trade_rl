@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from statistics import median
 

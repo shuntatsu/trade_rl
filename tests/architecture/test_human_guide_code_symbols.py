@@ -145,7 +145,9 @@ def test_index_rejects_source_file_symlink_that_escapes_source_root(tmp_path) ->
     except code_symbols.GuideCodeSymbolError as exc:
         assert "escapes source root" in str(exc)
     else:
-        raise AssertionError("expected GuideCodeSymbolError for escaping source symlink")
+        raise AssertionError(
+            "expected GuideCodeSymbolError for escaping source symlink"
+        )
 
 
 def test_index_rejects_non_commit_revision(tmp_path) -> None:

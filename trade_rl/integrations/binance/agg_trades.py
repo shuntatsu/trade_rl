@@ -212,9 +212,7 @@ def _nonnegative_int(value: str, *, field: str, source: str) -> int:
             f"aggTrades {field} must be an integer: {source}"
         ) from error
     if result < 0:
-        raise BinanceTransportError(
-            f"aggTrades {field} must be non-negative: {source}"
-        )
+        raise BinanceTransportError(f"aggTrades {field} must be non-negative: {source}")
     return result
 
 
@@ -388,7 +386,9 @@ def parse_vision_agg_trades_archive(
         ) from error
 
     if not aggregate_ids:
-        raise BinanceTransportError(f"aggTrades archive contains no data rows: {source}")
+        raise BinanceTransportError(
+            f"aggTrades archive contains no data rows: {source}"
+        )
 
     return BinanceAggTradesSeries(
         aggregate_trade_ids=np.array(aggregate_ids, dtype=np.int64, copy=True),

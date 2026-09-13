@@ -52,7 +52,7 @@ npm run e2e
 
 GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` jobで同じ検査を実行します。Human Guide job全体へPR headの `GUIDE_SOURCE_REV` を渡すため、unit/buildだけでなくPlaywright dev serverが再生成するcode indexも同じSHAへbindされます。Playwright reportやscreenshotはCI artifactとして短期保持します。
 
-`guide/node_modules/`、`guide/dist/`、`guide/coverage/`、`guide/playwright-report/`、`guide/test-results/`、`guide/.generated/`はroot `.gitignore` で除外し、current treeへcommitしません。
+`guide/node_modules/`、`guide/dist/`、`guide/coverage/`、`guide/playwright-report/`、`guide/test-results/`はroot `.gitignore`、`guide/.generated/`は `guide/.gitignore` で除外し、current treeへcommitしません。
 
 ## GitHub Pages deployment
 

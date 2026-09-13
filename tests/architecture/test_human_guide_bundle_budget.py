@@ -19,7 +19,9 @@ def test_bundle_budget_rejects_javascript_chunk_above_limit(tmp_path) -> None:
         assert "501" in str(exc)
         assert "500" in str(exc)
     else:
-        raise AssertionError("expected BundleBudgetError for oversized JavaScript chunk")
+        raise AssertionError(
+            "expected BundleBudgetError for oversized JavaScript chunk"
+        )
 
 
 def test_bundle_budget_accepts_javascript_chunks_at_or_below_limit(tmp_path) -> None:

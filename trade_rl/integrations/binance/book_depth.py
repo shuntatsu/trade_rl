@@ -71,6 +71,10 @@ class BinanceBookDepthSeries:
             raise ValueError("bookDepth series must contain at least one snapshot")
         if available_at.shape != timestamps.shape:
             raise ValueError("available_at must match timestamps")
+        if np.any(np.isnat(timestamps)):
+            raise ValueError("timestamps must not contain NaT")
+        if np.any(np.isnat(available_at)):
+            raise ValueError("available_at must not contain NaT")
         for name, values in (
             ("depth", depth),
             ("notional", notional),

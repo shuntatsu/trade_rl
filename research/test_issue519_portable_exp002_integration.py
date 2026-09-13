@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from research.issue519_portable_exp002 import preregister, verify_prereg
 from trade_rl.evaluation.experiments import inspect_study
 
@@ -71,3 +73,14 @@ def test_preregister_only_adds_result_blind_experiment_0002_definition(
     assert report["definition_is_result_blind"] is True
     assert report["candidate_absent"] is True
     assert (report_root / "exp002-prereg-verification.json").is_file()
+
+    stored["accept_positive_factor_effect_symbols_min"] = 3
+    (root / "portable-exp002-prereg-index.json").write_text(
+        json.dumps(stored, sort_keys=True, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Experiment 0002 preregistration index drift",
+    ):
+        verify_prereg(root, tmp_path / "tampered-verify")

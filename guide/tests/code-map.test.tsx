@@ -130,7 +130,9 @@ describe("Guide code map renderer", () => {
     expect(container.querySelector('[data-edge="data->integrations"]')).toBeNull();
     expect(screen.getByText("市場sourceを内部契約へ変換")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /外部接続/ }));
+    await user.click(
+      screen.getByRole("button", { name: "外部接続の実装詳細" }),
+    );
     expect(onSelectNode).toHaveBeenCalledWith("integrations");
   });
 });

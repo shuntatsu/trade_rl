@@ -31,6 +31,7 @@ export function CodeMap({
           <button
             type="button"
             key={node.id}
+            aria-label={`${node.label_ja}を一覧で選択`}
             data-selected={node.id === selectedNode ? "true" : "false"}
             onClick={() => onSelectNode(node.id)}
           >
@@ -51,6 +52,7 @@ export function CodeMap({
                   type="button"
                   className="code-map__node"
                   key={node.id}
+                  aria-label={`${node.label_ja}の実装詳細`}
                   data-selected={node.id === selectedNode ? "true" : "false"}
                   data-mobile-visible={visibleOnMobile.has(node.id) ? "true" : "false"}
                   aria-current={node.id === selectedNode ? "true" : undefined}

@@ -147,10 +147,9 @@ describe("interactive guide workflow", () => {
         name: "コード地図：どこが何を所有するか",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ハードリスク/ })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: "ハードリスクの実装詳細" }),
+    ).toHaveAttribute("aria-current", "true");
     expect(
       screen.getByRole("heading", { level: 3, name: "hard riskの所有者" }),
     ).toBeInTheDocument();

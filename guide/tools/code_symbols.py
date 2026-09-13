@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_ROOT = ROOT / "trade_rl"
-DEFAULT_TOPICS_DIR = ROOT / "guide" / "content" / "topics"
 SCHEMA_VERSION = "guide-code-symbols-v1"
 _REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 

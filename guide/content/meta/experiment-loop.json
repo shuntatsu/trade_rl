@@ -1,0 +1,29 @@
+{
+  "id": "experiment-loop",
+  "title": "一因子ずつ検証する実験ループ",
+  "nav_label": "実験と証拠",
+  "summary": "基準系の固定、一因子実験、独立検証、判断、freezeまでの状態遷移を追います。",
+  "role": "detail",
+  "keywords": [
+    "Study",
+    "Experiment",
+    "EvidenceSet",
+    "preregistration",
+    "verification",
+    "decision",
+    "freeze"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Controlled Experiment",
+      "sha256": "6bb4f32d53f3568b738525c82bf5a59fbe2b4f96983a7a555414d99b8a80d44a"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "State machine and lineage",
+      "sha256": "aea54983333177472e9db0f7ea7a89f9c070504e6cb77113ac56f24a604cedb8"
+    }
+  ],
+  "code_references": []
+}

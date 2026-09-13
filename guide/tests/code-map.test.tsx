@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -17,11 +17,17 @@ describe("Guide code map reference", () => {
     render(<MarkdownArticle topic={codeMapTopic()} />);
 
     expect(screen.getByRole("heading", { name: "Ownership" })).toBeInTheDocument();
-    const table = screen.getByRole("table");
-    expect(table).toHaveTextContent("責務");
-    expect(table).toHaveTextContent("owns");
-    expect(table).toHaveTextContent("does not own");
-    expect(table).toHaveTextContent("hard risk");
+    const ownershipTable = screen
+      .getAllByRole("table")
+      .find((table) => table.textContent?.includes("所有する責務"));
+    expect(ownershipTable).toBeDefined();
+    if (!ownershipTable) return;
+
+    const table = within(ownershipTable);
+    expect(table.getByRole("columnheader", { name: "所有する責務" })).toBeInTheDocument();
+    expect(table.getByRole("columnheader", { name: "所有しないもの" })).toBeInTheDocument();
+    expect(ownershipTable).toHaveTextContent("turnover、exposure、drawdown等のhard limitを適用");
+    expect(ownershipTable).toHaveTextContent("entry/exitの経済判断");
   });
 
   it("keeps code-map outside the normal reading order", async () => {
@@ -41,8 +47,6 @@ describe("Guide code map reference", () => {
 
     await user.click(summary);
     expect(details).toHaveAttribute("open");
-    expect(
-      screen.getByText("trade_rl.risk.pretrade.PreTradeRisk.constrain"),
-    ).toBeVisible();
+    expect(screen.getByText("trade_rl.risk.pretrade.PreTradeRisk")).toBeVisible();
   });
 });

@@ -1,0 +1,126 @@
+name: Issue 519 profitability evidence audit
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-profitability-audit.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORMAL_RUN_ID: "34750227256"
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  ROOT: /tmp/issue519-profitability-audit-result
+  OUT: /tmp/issue519-profitability-audit-out
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable result binding through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          a="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$a")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$a")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$a")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$a")" = "false"
+
+      - name: Download immutable recovered result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Extract baseline Exp1 Exp2 deterministic economics
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$ROOT/study/baseline/evidence/runs/seed-0/summary.json"
+          exp1="$ROOT/study/experiments/0001/candidate/evidence/runs/seed-0/summary.json"
+          exp2="$ROOT/study/experiments/0002/candidate/evidence/runs/seed-0/summary.json"
+          test -f "$baseline" && test -f "$exp1" && test -f "$exp2"
+          mkdir -p "$OUT"
+
+          jq -n \
+            --slurpfile b "$baseline" \
+            --slurpfile e1 "$exp1" \
+            --slurpfile e2 "$exp2" '
+              def strategy($symbol; $name): ($symbol.strategies[] | select(.name == $name));
+              def metrics($entry; $capital): {
+                total_return: $entry.metrics.total_return,
+                final_portfolio_value: $entry.final_portfolio_value,
+                net_pnl: ($entry.final_portfolio_value - $capital),
+                turnover_total: $entry.metrics.turnover_total,
+                total_cost: $entry.metrics.total_cost,
+                cost_fraction_initial_capital: ($entry.metrics.total_cost / $capital),
+                n_trades: $entry.metrics.n_trades,
+                rebalance_events: $entry.metrics.rebalance_events,
+                fill_count: $entry.fill_count,
+                accounting_cost_addback_return_diagnostic: (($entry.final_portfolio_value + $entry.metrics.total_cost) / $capital - 1)
+              };
+              ($b[0].evaluation.initial_capital) as $capital |
+              {
+                schema_version: "canonical_m2_profitability_evidence_audit_v1",
+                note: "accounting_cost_addback_return_diagnostic is NOT a zero-cost counterfactual replay",
+                initial_capital_per_symbol: $capital,
+                symbols: [
+                  range(0; ($b[0].by_symbol | length)) as $i |
+                  ($b[0].by_symbol[$i]) as $bs |
+                  ($e1[0].by_symbol[$i]) as $s1 |
+                  ($e2[0].by_symbol[$i]) as $s2 |
+                  (strategy($bs; "mean_reversion")) as $bm |
+                  (strategy($s1; "mean_reversion")) as $m1 |
+                  (strategy($s2; "mean_reversion")) as $m2 |
+                  (strategy($bs; "trend")) as $bt |
+                  (strategy($s2; "trend")) as $t2 |
+                  {
+                    symbol: $bs.symbol,
+                    mean_reversion: {
+                      baseline: metrics($bm; $capital),
+                      exp1_entry_threshold_0_02: metrics($m1; $capital),
+                      exp2_daily_signal: metrics($m2; $capital),
+                      exp2_minus_baseline: {
+                        total_return: ($m2.metrics.total_return - $bm.metrics.total_return),
+                        turnover_total: ($m2.metrics.turnover_total - $bm.metrics.turnover_total),
+                        total_cost: ($m2.metrics.total_cost - $bm.metrics.total_cost),
+                        n_trades: ($m2.metrics.n_trades - $bm.metrics.n_trades)
+                      }
+                    },
+                    trend_side_effect: {
+                      baseline: metrics($bt; $capital),
+                      exp2_daily_signal: metrics($t2; $capital)
+                    }
+                  }
+                ]
+              }
+            ' > "$OUT/profitability-audit.json"
+
+          cat "$OUT/profitability-audit.json"
+
+      - name: Upload profitability evidence audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-m2-profitability-evidence-audit-v1-${{ github.run_id }}
+          path: ${{ env.OUT }}
+          retention-days: 90

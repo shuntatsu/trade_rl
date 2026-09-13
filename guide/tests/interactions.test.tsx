@@ -137,7 +137,7 @@ describe("Markdown-first guide workflow", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Ownership" })).toBeInTheDocument();
-    expect(screen.getByText("hard riskの所有者")).toBeInTheDocument();
+    expect(screen.getAllByText("hard riskの所有者").length).toBeGreaterThanOrEqual(2);
     const details = screen.getByText("実装詳細: hard riskの所有者").closest("details");
     expect(details).not.toHaveAttribute("open");
   });

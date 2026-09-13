@@ -3,8 +3,8 @@
 The original authorized execution completed the candidate EvidenceSet, controlled
 verification, and persisted comparison, then failed in a research-only cross-check
 because recursively frozen JSON is exposed as ``MappingProxyType`` rather than
-``dict``.  Recovery never executes a candidate and never recomputes the persisted
-comparison.  It revalidates the exact immutable evidence, independently replays the
+``dict``. Recovery never executes a candidate and never recomputes the persisted
+comparison. It revalidates the exact immutable evidence, independently replays the
 preregistered decision rule, and appends only the missing decision plus a result
 index that remains interpretation-sealed until independent post-verification.
 """
@@ -30,7 +30,9 @@ from research.issue519_portable_exp002 import (
     EXPECTED_EXP001_VERIFICATION_DIGEST,
     EXPECTED_IMPLEMENTATION_DIGEST,
     EXPECTED_RUNTIME_DIGEST,
+    EXPECTED_SEEDS,
     EXPECTED_STUDY_DIGEST,
+    EXPECTED_SYMBOLS,
 )
 from research.issue519_portable_exp002_execute import (
     EXPECTED_CHANGED_PATHS,
@@ -82,6 +84,12 @@ def _number(value: object, *, field: str) -> float:
     return resolved
 
 
+def _nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"{field} malformed")
+    return value
+
+
 def crosscheck_persisted_comparison(
     comparison: object,
     independent: Mapping[str, object],
@@ -123,6 +131,85 @@ def crosscheck_persisted_comparison(
         abs_tol=1e-12,
     ):
         raise RuntimeError("persisted mean-reversion median differs from raw oracle")
+
+
+def normalize_independent_for_postverify(
+    independent: Mapping[str, object],
+) -> dict[str, object]:
+    """Normalize execution-side evidence to the fresh postverifier oracle schema."""
+
+    baseline_fp = independent.get("baseline_fingerprint")
+    candidate_fp = independent.get("candidate_fingerprint")
+    if not isinstance(baseline_fp, str) or not isinstance(candidate_fp, str):
+        raise RuntimeError("recovery independent evidence fingerprint malformed")
+
+    unaffected = _nonnegative_int(
+        independent.get("unaffected_raw_return_equality_checks"),
+        field="unaffected raw-return equality checks",
+    )
+    deterministic = independent.get("deterministic_effects")
+    if not isinstance(deterministic, dict):
+        raise RuntimeError("recovery deterministic effects malformed")
+    formal = independent.get("mean_reversion_formal_inputs")
+    if not isinstance(formal, dict):
+        raise RuntimeError("recovery formal inputs malformed")
+    costs = independent.get("candidate_cost_semantics")
+    if not isinstance(costs, dict):
+        raise RuntimeError("recovery candidate cost semantics malformed")
+    formal_decision = independent.get("formal_decision")
+    if not isinstance(formal_decision, str):
+        raise RuntimeError("recovery formal decision malformed")
+    if independent.get("ppo_cross_symbol_metrics_used_for_decision") is not False:
+        raise RuntimeError("PPO cross-symbol metrics unexpectedly used for decision")
+
+    ppo_by_seed = _mapping(
+        independent.get("ppo_by_seed_symbol"),
+        field="recovery PPO evidence",
+    )
+    if set(ppo_by_seed) != {str(seed) for seed in EXPECTED_SEEDS}:
+        raise RuntimeError("PPO seed evidence roster drift")
+    ppo_checks = 0
+    expected_symbols = set(EXPECTED_SYMBOLS)
+    for seed in EXPECTED_SEEDS:
+        per_symbol = _mapping(
+            ppo_by_seed.get(str(seed)),
+            field=f"recovery PPO seed {seed}",
+        )
+        if set(per_symbol) != expected_symbols:
+            raise RuntimeError("PPO symbol evidence roster drift")
+        for symbol in EXPECTED_SYMBOLS:
+            entry = _mapping(
+                per_symbol.get(symbol),
+                field=f"recovery PPO {seed}/{symbol}",
+            )
+            baseline_total = _number(
+                entry.get("baseline_total_return"),
+                field=f"PPO baseline total return {seed}/{symbol}",
+            )
+            candidate_total = _number(
+                entry.get("candidate_total_return"),
+                field=f"PPO candidate total return {seed}/{symbol}",
+            )
+            excess = _number(
+                entry.get("excess_total_return"),
+                field=f"PPO excess total return {seed}/{symbol}",
+            )
+            if candidate_total != baseline_total or excess != 0.0:
+                raise RuntimeError("PPO recovery evidence is not exact-zero effect")
+            ppo_checks += 1
+    if ppo_checks != len(EXPECTED_SEEDS) * len(EXPECTED_SYMBOLS):
+        raise RuntimeError("PPO exact-zero effect check count drift")
+
+    return {
+        "baseline_evidence_fingerprint": baseline_fp,
+        "candidate_evidence_fingerprint": candidate_fp,
+        "unaffected_raw_return_equality_checks": unaffected,
+        "ppo_exact_zero_effect_checks": ppo_checks,
+        "deterministic_effects": deterministic,
+        "mean_reversion_formal_inputs": formal,
+        "candidate_cost_semantics": costs,
+        "formal_decision": formal_decision,
+    }
 
 
 def _exp1_binding(experiment: object) -> tuple[object, object, object, object, object]:
@@ -208,6 +295,7 @@ def recover(root: Path) -> dict[str, object]:
     if independent.get("candidate_fingerprint") != candidate_fingerprint:
         raise RuntimeError("independent candidate fingerprint differs during recovery")
     crosscheck_persisted_comparison(exp2.comparison, independent)
+    normalized_independent = normalize_independent_for_postverify(independent)
     decision_kind = ExperimentDecisionKind(str(independent["formal_decision"]))
     decision = decide_experiment(
         study_root,
@@ -273,7 +361,7 @@ def recover(root: Path) -> dict[str, object]:
         "comparison_digest": comparison_digest,
         "decision_digest": recovered_exp2.decision.digest,
         "decision": recovered_exp2.decision.decision.value,
-        "independent_raw_evidence": independent,
+        "independent_raw_evidence": normalized_independent,
         "candidate_execution_count": 1,
         "candidate_rerun": False,
         "candidate_reexecuted_during_recovery": False,
@@ -303,4 +391,8 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["crosscheck_persisted_comparison", "recover"]
+__all__ = [
+    "crosscheck_persisted_comparison",
+    "normalize_independent_for_postverify",
+    "recover",
+]

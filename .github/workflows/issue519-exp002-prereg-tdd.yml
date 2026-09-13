@@ -8,17 +8,24 @@ on:
       - .github/workflows/issue519-exp002-prereg-tdd.yml
       - research/issue519_portable_exp002.py
       - research/test_issue519_portable_exp002.py
+      - research/test_issue519_portable_exp002_integration.py
 
 permissions:
+  actions: read
   contents: read
 
 env:
   FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  SOURCE_RUN_ID: "34733780367"
+  SOURCE_ARTIFACT: canonical-m2-portable-exp001-recovered-result-v1-34733780367
+  SOURCE_ARTIFACT_ID: "10309859809"
+  SOURCE_ARTIFACT_DIGEST: sha256:cbada8936bc361e7dfcd05c6c213da97e3225a69dca7d0a79a0533e49fd2aaca
+  SOURCE_ROOT: /tmp/issue519-recovered
 
 jobs:
   tdd:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout exact test head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -44,5 +51,31 @@ jobs:
       - name: Install research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Run Experiment 0002 prereg tests
+      - name: Run pure Experiment 0002 prereg tests
         run: uv run pytest -q research/test_issue519_portable_exp002.py
+
+      - name: Verify immutable source artifact metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$SOURCE_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$SOURCE_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+
+      - name: Download immutable recovered Study
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: ${{ env.SOURCE_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Run actual-artifact preregistration contract test
+        env:
+          ISSUE519_RECOVERED_ROOT: ${{ env.SOURCE_ROOT }}
+        run: uv run pytest -q research/test_issue519_portable_exp002_integration.py

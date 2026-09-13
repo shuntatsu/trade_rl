@@ -28,6 +28,7 @@ from trade_rl.data import (
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -135,8 +136,9 @@ def _validate_diagnostic_dataset(
 
 
 def _intent_label(value: object) -> str:
-    raw = getattr(value, "value", value)
-    label = str(raw)
+    if isinstance(value, PositionIntent):
+        return value.name
+    label = str(value)
     if label not in {"LONG", "SHORT", "FLAT"}:
         raise ValueError(f"unsupported intent label: {label}")
     return label

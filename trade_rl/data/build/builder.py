@@ -390,7 +390,11 @@ class MarketDatasetBuilder:
                         volume=volume[:, symbol_index],
                         funding_rate=funding_rate[:, symbol_index],
                         funding_available=funding_available[:, symbol_index],
-                        row_present=causal_row_present[:, symbol_index],
+                        row_present=(
+                            row_present[:, symbol_index]
+                            if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
+                            else causal_row_present[:, symbol_index]
+                        ),
                         active=symbol_active[:, symbol_index],
                         taker_buy_quote_volume=(
                             taker_buy_quote_volume[:, symbol_index]
@@ -400,6 +404,23 @@ class MarketDatasetBuilder:
                         tradable=tradable[:, symbol_index],
                     )
                     if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+                        decision_information_valid = np.zeros(n_bars, dtype=np.bool_)
+                        for event_index in np.flatnonzero(event_valid):
+                            start = int(event_index) - spec.lookback + 1
+                            if start < 0:
+                                continue
+                            decision_information_valid[event_index] = bool(
+                                np.all(
+                                    available_at[
+                                        start : int(event_index) + 1,
+                                        symbol_index,
+                                    ]
+                                    <= timestamps[event_index]
+                                )
+                            )
+                        event_valid = event_valid & decision_information_valid
+                        event_values = event_values.copy()
+                        event_values[~event_valid] = 0.0
                         values = event_values
                         available = event_valid
                         age_hours = np.full(

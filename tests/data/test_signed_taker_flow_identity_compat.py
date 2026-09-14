@@ -160,3 +160,39 @@ def test_signed_flow_market_config_rejects_non_1h_base_clock() -> None:
                 ),
             ),
         )
+
+
+def test_builder_signed_flow_respects_delayed_row_at_each_decision_time() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    available_at = timestamps.copy()
+    available_at[5] = timestamps[24]
+    raw = RawMarketSeries(
+        timestamps=timestamps,
+        available_at=available_at,
+        open=np.concatenate((close[:1], close[:-1])),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(n, 10.0, dtype=np.float64),
+        taker_buy_quote_volume=np.full(n, 6.0, dtype=np.float64),
+        funding_rate=np.zeros(n, dtype=np.float64),
+        tradable=np.ones(n, dtype=np.bool_),
+    )
+    dataset = _signed_flow_builder().build(
+        InMemoryMarketDataSource({"BTCUSDT": raw}),
+        (
+            InstrumentContract(
+                symbol="BTCUSDT",
+                volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            ),
+        ),
+    )
+
+    assert not dataset.feature_available[23, 0, 0]
+    assert dataset.features[23, 0, 0] == 0.0
+    assert dataset.feature_available[24, 0, 0]
+    assert dataset.features[24, 0, 0] == np.float32(0.2)

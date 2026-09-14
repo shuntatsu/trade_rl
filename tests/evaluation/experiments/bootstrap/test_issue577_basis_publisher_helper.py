@@ -340,6 +340,7 @@ def test_synthetic_dataset_and_result_are_deterministic_strict_and_result_blind(
     assert first.dataset_id == second.dataset_id
     np.testing.assert_array_equal(first.features, second.features)
     np.testing.assert_array_equal(first.feature_available, second.feature_available)
+    assert first.index_price is not None
     np.testing.assert_array_equal(first.index_price, first.close)
 
     result = common.build_result(first, source_manifest_digest=manifest_digest)

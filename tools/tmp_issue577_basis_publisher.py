@@ -5,7 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from tmp_issue577_basis_common import (
+from tools.tmp_issue577_basis_common import (
     CALIBRATION_HEAD,
     ISSUE_NUMBER,
     PROTOCOL_DIGEST,
@@ -15,7 +15,6 @@ from tmp_issue577_basis_common import (
     reconstruct_from_raw,
     result_bytes,
 )
-
 from trade_rl.artifacts.canonical import canonical_json_bytes
 
 

@@ -119,6 +119,12 @@ def _require_hex(value: object, *, field: str) -> str:
     return value
 
 
+def _require_nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"{field} must be a non-negative integer")
+    return value
+
+
 def _fetch_bytes(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     last_error = "network_error"
@@ -352,9 +358,9 @@ def load_index_preflight(
         "evaluation_pnl_inspected": False,
         "production_authorized": False,
     }
-    for key, expected in exact.items():
-        if report.get(key) != expected:
-            raise RuntimeError(f"index-preflight field differs: {key}")
+    for field_name, expected in exact.items():
+        if report.get(field_name) != expected:
+            raise RuntimeError(f"index-preflight field differs: {field_name}")
     if report.get("symbols") != list(SYMBOLS):
         raise RuntimeError("index-preflight symbol roster differs")
     if report.get("months") != list(MONTHS):
@@ -370,8 +376,8 @@ def load_index_preflight(
         month = raw_entry.get("month")
         if not isinstance(symbol, str) or not isinstance(month, str):
             raise RuntimeError("index-preflight entry key is malformed")
-        key = (symbol, month)
-        if key in resolved or symbol not in SYMBOLS or month not in MONTHS:
+        entry_key = (symbol, month)
+        if entry_key in resolved or symbol not in SYMBOLS or month not in MONTHS:
             raise RuntimeError("index-preflight entry key is duplicate or unexpected")
         expected_url = (
             f"{INDEX_ROOT}/{symbol}/{INTERVAL}/{symbol}-{INTERVAL}-{month}.zip"
@@ -389,7 +395,7 @@ def load_index_preflight(
         missing = raw_entry.get("missing_grid_rows")
         if isinstance(missing, bool) or not isinstance(missing, int) or missing < 0:
             raise RuntimeError("index-preflight missing_grid_rows is malformed")
-        resolved[key] = raw_entry
+        resolved[entry_key] = raw_entry
     if set(resolved) != {(symbol, month) for symbol in SYMBOLS for month in MONTHS}:
         raise RuntimeError("index-preflight exact key roster differs")
     return resolved
@@ -478,7 +484,9 @@ def build_source_manifest(entries: list[dict[str, object]]) -> dict[str, object]
         raise RuntimeError("source manifest requires exactly 240 archive entries")
     missing_contract = {
         symbol: sum(
-            int(entry["missing_grid_rows"])
+            _require_nonnegative_int(
+                entry["missing_grid_rows"], field="contract missing_grid_rows"
+            )
             for entry in entries
             if entry["symbol"] == symbol and entry["kind"] == "perpetual_klines"
         )
@@ -486,7 +494,9 @@ def build_source_manifest(entries: list[dict[str, object]]) -> dict[str, object]
     }
     missing_index = {
         symbol: sum(
-            int(entry["missing_grid_rows"])
+            _require_nonnegative_int(
+                entry["missing_grid_rows"], field="index missing_grid_rows"
+            )
             for entry in entries
             if entry["symbol"] == symbol and entry["kind"] == "indexPriceKlines"
         )

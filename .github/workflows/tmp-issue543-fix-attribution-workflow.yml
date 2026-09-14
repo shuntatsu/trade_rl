@@ -1,0 +1,39 @@
+name: Temporary Issue 543 attribution workflow patch
+
+on:
+  push:
+    branches:
+      - verify/issue543-baseline-attribution
+    paths:
+      - .github/workflows/tmp-issue543-fix-attribution-workflow.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue543-baseline-attribution
+      - name: Fix metadata transport only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/tmp-issue543-baseline-attribution.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '''          printf '%s' "$meta" | python3 - <<'PY'\n          import json, os, sys\n          x = json.load(sys.stdin)\n          assert x['id'] == int(os.environ['SOURCE_ARTIFACT_ID'])\n          assert x['name'] == os.environ['SOURCE_ARTIFACT_NAME']\n          assert x['workflow_run']['id'] == int(os.environ['SOURCE_RUN_ID'])\n          assert x['digest'] == os.environ['SOURCE_ARTIFACT_DIGEST']\n          assert x['expired'] is False\n          PY\n'''
+          new = '''          META="$meta" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"] == int(os.environ["SOURCE_ARTIFACT_ID"]); assert x["name"] == os.environ["SOURCE_ARTIFACT_NAME"]; assert x["workflow_run"]["id"] == int(os.environ["SOURCE_RUN_ID"]); assert x["digest"] == os.environ["SOURCE_ARTIFACT_DIGEST"]; assert x["expired"] is False'\n'''
+          if text.count(old) != 1:
+              raise SystemExit('metadata transport block not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/tmp-issue543-baseline-attribution.yml
+          git commit -m 'ci: fix baseline artifact metadata transport'
+          git push origin HEAD:verify/issue543-baseline-attribution

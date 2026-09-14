@@ -246,7 +246,12 @@ class MeanReversionEconomicGateProtocol:
             "evaluation_stop_exclusive",
         ):
             _require_aware(getattr(self, field_name), field=field_name)
-        if not self.fit_start < self.fit_cutoff == self.evaluation_start < self.evaluation_stop_exclusive:
+        if (
+            not self.fit_start
+            < self.fit_cutoff
+            == self.evaluation_start
+            < self.evaluation_stop_exclusive
+        ):
             raise ValueError("preregistered research clock is invalid")
         if self.symbols != _SYMBOLS or len(self.capacity_caps) != len(self.symbols):
             raise ValueError("preregistered symbol/capacity roster is invalid")
@@ -316,14 +321,18 @@ class MeanReversionEconomicGateProtocol:
         )
 
     def to_payload(self) -> dict[str, object]:
-        return {item.name: _json_value(getattr(self, item.name)) for item in fields(self)}
+        return {
+            item.name: _json_value(getattr(self, item.name)) for item in fields(self)
+        }
 
     @property
     def digest(self) -> str:
         return content_digest(self.to_payload())
 
 
-def canonical_mean_reversion_economic_gate_protocol() -> MeanReversionEconomicGateProtocol:
+def canonical_mean_reversion_economic_gate_protocol() -> (
+    MeanReversionEconomicGateProtocol
+):
     """Return the only preregistered protocol authorized by Issue #545."""
 
     return MeanReversionEconomicGateProtocol(**_CANONICAL_FIELD_VALUES)  # type: ignore[arg-type]
@@ -372,7 +381,9 @@ def load_mean_reversion_economic_gate_protocol(
 
     converted = dict(raw)
     converted["symbols"] = _tuple_strings(raw["symbols"], field="symbols")
-    converted["capacity_caps"] = _tuple_floats(raw["capacity_caps"], field="capacity_caps")
+    converted["capacity_caps"] = _tuple_floats(
+        raw["capacity_caps"], field="capacity_caps"
+    )
     converted["unaffected_strategies"] = _tuple_strings(
         raw["unaffected_strategies"], field="unaffected_strategies"
     )

@@ -1,0 +1,38 @@
+name: Temporary Issue 549 format evaluation test
+
+on:
+  push:
+    branches:
+      - verify/issue549-evaluation-red
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: "484c3d5bd923f876d187fe8c8f1778cce535575c"
+  TARGET_BRANCH: research/issue549-economic-gate-evaluation
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff format tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py
+      - name: Commit formatter-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py
+          git diff --cached --quiet && exit 0
+          git commit -m "style: format issue549 evaluation test"
+          git push origin "HEAD:${TARGET_BRANCH}"

@@ -24,6 +24,7 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
     VolumeUnit,
 )
+from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_calibration import (
     calibrate_signed_taker_flow,
@@ -68,6 +69,12 @@ def _canonical_digest(payload: dict[str, object]) -> str:
         payload, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+def _missing_grid_rows(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError("missing_grid_rows must be a non-negative integer")
+    return value
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -291,7 +298,7 @@ def _manifest_from_fresh_entries(
 ) -> dict[str, object]:
     missing = {
         symbol: sum(
-            int(item["missing_grid_rows"])
+            _missing_grid_rows(item["missing_grid_rows"])
             for item in entries
             if item["symbol"] == symbol
         )
@@ -362,7 +369,7 @@ def _rebuild_dataset(
         str, list[tuple[int, float, float, float, float, float, float]]
     ],
     manifest_digest: str,
-):
+) -> MarketDataset:
     source_values: dict[str, RawMarketSeries] = {}
     for symbol in SYMBOLS:
         rows = rows_by_symbol[symbol]

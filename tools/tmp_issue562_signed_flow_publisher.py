@@ -24,6 +24,7 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
     VolumeUnit,
 )
+from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_calibration import (
     calibrate_signed_taker_flow,
@@ -127,6 +128,12 @@ def _canonical_digest(payload: dict[str, object]) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _missing_grid_rows(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError("missing_grid_rows must be a non-negative integer")
+    return value
 
 
 def _month_bounds(month: str) -> tuple[int, int, int]:
@@ -289,7 +296,7 @@ def _source_manifest(
 ) -> dict[str, object]:
     missing_by_symbol = {
         symbol: sum(
-            int(item["missing_grid_rows"])
+            _missing_grid_rows(item["missing_grid_rows"])
             for item in entries
             if item["symbol"] == symbol
         )
@@ -358,7 +365,7 @@ def _build_dataset(
         str, list[tuple[int, float, float, float, float, float, float]]
     ],
     source_manifest_digest: str,
-):
+) -> MarketDataset:
     source = InMemoryMarketDataSource(
         {symbol: _series_from_rows(rows_by_symbol[symbol]) for symbol in SYMBOLS}
     )

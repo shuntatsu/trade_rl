@@ -13,7 +13,6 @@ import zipfile
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -67,9 +66,7 @@ CALIBRATION_HEAD = "6d7139eb65ea3db95c6dc93e2b3123a65fb092db"
 CALIBRATION_VERIFICATION_RUN_ID = 34906099963
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 MONTHS = tuple(
-    f"{year:04d}-{month:02d}"
-    for year in (2021, 2022)
-    for month in range(1, 13)
+    f"{year:04d}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
 )
 INTERVAL = "1h"
 INTERVAL_MS = 3_600_000
@@ -134,7 +131,9 @@ def _fetch_bytes(url: str) -> bytes:
             return payload
         except urllib.error.HTTPError as error:
             if error.code == 404:
-                raise RuntimeError(f"required archive/checksum missing (404): {url}") from error
+                raise RuntimeError(
+                    f"required archive/checksum missing (404): {url}"
+                ) from error
             last_error = f"http_{error.code}"
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             last_error = type(error).__name__
@@ -157,8 +156,10 @@ def _month_bounds(month: str) -> tuple[int, int, int]:
 
 
 def _iso_ms(value: int) -> str:
-    return datetime.fromtimestamp(value / 1000.0, tz=UTC).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.fromtimestamp(value / 1000.0, tz=UTC)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 
@@ -271,13 +272,13 @@ def _parse_archive(
             raise RuntimeError(f"timestamps are not strictly increasing: {url}")
         open_times.append(open_ms)
         if kind == "perpetual_klines":
-            contract_rows.append(
-                (open_ms, open_price, high, low, close, quote_volume)
-            )
+            contract_rows.append((open_ms, open_price, high, low, close, quote_volume))
         else:
             index_rows.append((open_ms, close))
 
-    expected_grid = [month_start + index * INTERVAL_MS for index in range(expected_rows)]
+    expected_grid = [
+        month_start + index * INTERVAL_MS for index in range(expected_rows)
+    ]
     observed = set(open_times)
     if len(observed) != len(open_times):
         raise RuntimeError(f"duplicate timestamp in archive: {url}")
@@ -408,7 +409,9 @@ def download_all_sources(
     dict[str, list[IndexRow]],
 ]:
     entries: list[dict[str, object]] = []
-    contract_by_symbol: dict[str, list[ContractRow]] = {symbol: [] for symbol in SYMBOLS}
+    contract_by_symbol: dict[str, list[ContractRow]] = {
+        symbol: [] for symbol in SYMBOLS
+    }
     index_by_symbol: dict[str, list[IndexRow]] = {symbol: [] for symbol in SYMBOLS}
     for symbol in SYMBOLS:
         for month in MONTHS:
@@ -436,14 +439,15 @@ def download_all_sources(
             )
             authority = preflight[(symbol, month)]
             if index_entry["raw_sha256"] != authority.get("raw_sha256"):
-                raise RuntimeError(f"index raw SHA differs from frozen preflight: {symbol} {month}")
+                raise RuntimeError(
+                    f"index raw SHA differs from frozen preflight: {symbol} {month}"
+                )
             if index_entry["missing_grid_rows"] != authority.get("missing_grid_rows"):
                 raise RuntimeError(
                     f"index missing-grid count differs from frozen preflight: {symbol} {month}"
                 )
-            if (
-                index_entry["missing_grid_open_times_sha256"]
-                != authority.get("missing_grid_open_times_sha256")
+            if index_entry["missing_grid_open_times_sha256"] != authority.get(
+                "missing_grid_open_times_sha256"
             ):
                 raise RuntimeError(
                     f"index missing-grid identity differs from frozen preflight: {symbol} {month}"
@@ -458,8 +462,12 @@ def download_all_sources(
             (index_by_symbol[symbol], "index"),
         ):
             timestamps = [item[0] for item in rows]
-            if not timestamps or any(b <= a for a, b in zip(timestamps, timestamps[1:])):
-                raise RuntimeError(f"{label} rows are not strictly increasing: {symbol}")
+            if not timestamps or any(
+                b <= a for a, b in zip(timestamps, timestamps[1:])
+            ):
+                raise RuntimeError(
+                    f"{label} rows are not strictly increasing: {symbol}"
+                )
             if len(set(timestamps)) != len(timestamps):
                 raise RuntimeError(f"{label} rows contain duplicates: {symbol}")
     return entries, contract_by_symbol, index_by_symbol
@@ -527,7 +535,9 @@ def build_source_manifest(entries: list[dict[str, object]]) -> dict[str, object]
 
 def _contract_series(rows: list[ContractRow]) -> RawMarketSeries:
     open_ms = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_ms + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    timestamps = (
+        (open_ms + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    )
     count = len(rows)
     return RawMarketSeries(
         timestamps=timestamps,
@@ -546,7 +556,9 @@ def _contract_series(rows: list[ContractRow]) -> RawMarketSeries:
 
 def _index_series(rows: list[IndexRow]) -> RawIndexPriceSeries:
     open_ms = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_ms + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    timestamps = (
+        (open_ms + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    )
     return RawIndexPriceSeries(
         timestamps=timestamps,
         available_at=timestamps,

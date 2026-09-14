@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tools import tmp_issue577_basis_common as common
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_calibration import (
     load_perp_index_basis_calibration_result,
@@ -17,7 +18,6 @@ from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_calibration impo
 from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_prereg import (
     canonical_perp_index_basis_protocol,
 )
-from tools import tmp_issue577_basis_common as common
 
 
 def _row(open_ms: int, *, price: float = 100.0) -> list[object]:
@@ -145,8 +145,7 @@ def _complete_hourly_rows() -> tuple[
         (timestamp, 110.0, 110.0, 110.0, 110.0, 1.0) for timestamp in open_times
     ]
     index_template = [
-        (timestamp, 100.0)
-        for timestamp in range(start, stop, common.INTERVAL_MS)
+        (timestamp, 100.0) for timestamp in range(start, stop, common.INTERVAL_MS)
     ]
     return (
         {symbol: list(contract_template) for symbol in common.SYMBOLS},

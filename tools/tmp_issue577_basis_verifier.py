@@ -5,16 +5,16 @@ import hashlib
 import json
 from pathlib import Path
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_calibration import (
-    load_perp_index_basis_calibration_result,
-)
-
 from tmp_issue577_basis_common import (
     ISSUE_NUMBER,
     manifest_bytes,
     reconstruct_from_raw,
     result_bytes,
+)
+
+from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_calibration import (
+    load_perp_index_basis_calibration_result,
 )
 
 
@@ -48,7 +48,10 @@ def execute(
     publisher_metadata = _load_json_object(published_dir / "publisher-metadata.json")
     if publisher_metadata.get("issue_number") != ISSUE_NUMBER:
         raise RuntimeError("publisher metadata issue authority differs")
-    if publisher_metadata.get("interpretation_deferred_until_fresh_reconstruction") is not True:
+    if (
+        publisher_metadata.get("interpretation_deferred_until_fresh_reconstruction")
+        is not True
+    ):
         raise RuntimeError("publisher did not defer interpretation")
     for key in (
         "economic_values_logged",

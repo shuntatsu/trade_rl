@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
 from pathlib import Path
-
-from trade_rl.artifacts.canonical import canonical_json_bytes
 
 from tmp_issue577_basis_common import (
     CALIBRATION_HEAD,
@@ -18,6 +15,8 @@ from tmp_issue577_basis_common import (
     reconstruct_from_raw,
     result_bytes,
 )
+
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 
 def _digest_body(payload: dict[str, object]) -> dict[str, object]:

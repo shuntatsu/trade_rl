@@ -1,0 +1,33 @@
+name: Temporary Issue 539 publisher run RED
+
+on:
+  push:
+    branches:
+      - verify/issue539-result-run-id-red
+    paths:
+      - .github/workflows/tmp-issue539-result-run-id-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Expect regression oracle to fail before implementation
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_calibrated_capacity_materialization.py
+          rc=$?
+          set -e
+          test "$rc" -ne 0

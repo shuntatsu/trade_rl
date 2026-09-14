@@ -1,0 +1,52 @@
+name: Temporary Issue 577 helper formatter
+
+on:
+  push:
+    branches:
+      - automation/issue577-helper-format
+    paths:
+      - .github/workflows/tmp-issue577-helper-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue577-basis-publisher
+          fetch-depth: 0
+      - name: Assert expected starting head
+        run: test "$(git rev-parse HEAD)" = "3c1d6623f20abb971f00861e749809dadb56d9dc"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Fix imports and format only Issue 577 helper files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="tools/tmp_issue577_basis_common.py tools/tmp_issue577_basis_publisher.py tools/tmp_issue577_basis_verifier.py tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py"
+          uv run ruff check --fix $files
+          uv run ruff format $files
+          uv run ruff check $files
+          uv run ruff format --check $files
+          git diff --check
+      - name: Guard and publish formatting-only repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=3c1d6623f20abb971f00861e749809dadb56d9dc
+          remote="$(git ls-remote origin refs/heads/prepare/issue577-basis-publisher | cut -f1)"
+          test "$remote" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/tmp_issue577_basis_common.py tools/tmp_issue577_basis_publisher.py tools/tmp_issue577_basis_verifier.py tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+          git commit -m "style: format Issue 577 publisher helpers"
+          git push origin HEAD:prepare/issue577-basis-publisher

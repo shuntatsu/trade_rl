@@ -1,0 +1,36 @@
+name: Temporary Issue 547 format calibration module
+
+on:
+  push:
+    branches:
+      - verify/issue547-calibration-green
+    paths:
+      - .github/workflows/tmp-issue547-format-module.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue547-economic-gate-calibration
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff format trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_calibration.py
+      - name: Commit formatter-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only)" = "trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_calibration.py"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_calibration.py
+          git commit -m 'style: format issue547 calibration executor'
+          git push origin HEAD:research/issue547-economic-gate-calibration

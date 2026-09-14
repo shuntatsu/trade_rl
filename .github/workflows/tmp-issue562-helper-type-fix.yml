@@ -1,4 +1,4 @@
-name: Temporary Issue 562 helper type repair
+name: Temporary Issue 562 helper type repair v2
 
 on:
   push:
@@ -77,10 +77,16 @@ jobs:
       - name: Validate repaired helpers
         run: |
           set -euo pipefail
+          uv run ruff check --fix \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
           uv run ruff format \
             tools/tmp_issue562_signed_flow_publisher.py \
             tools/tmp_issue562_signed_flow_verifier.py
           uv run ruff check \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run ruff format --check \
             tools/tmp_issue562_signed_flow_publisher.py \
             tools/tmp_issue562_signed_flow_verifier.py
           uv run mypy \

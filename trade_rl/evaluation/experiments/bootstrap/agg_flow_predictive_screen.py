@@ -236,11 +236,11 @@ class AggTradesPredictiveFlowScreenProtocol:
     def __post_init__(self) -> None:
         for field_name, expected in _EXPECTED_FIELDS.items():
             actual = getattr(self, field_name)
+            if type(actual) is not type(expected):
+                raise ValueError(
+                    "fields must match the preregistered predictive-flow contract"
+                )
             if isinstance(expected, datetime):
-                if not isinstance(actual, datetime):
-                    raise ValueError(
-                        "fields must match the preregistered predictive-flow contract"
-                    )
                 if actual.tzinfo is None or actual.utcoffset() is None:
                     raise ValueError(f"{field_name} must be timezone-aware")
                 actual = actual.astimezone(UTC)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -28,8 +29,7 @@ def _dataset(*, slopes: tuple[float, ...]) -> MarketDataset:
         log_price = (
             5.0
             + 0.00005 * time
-            + 0.01
-            * np.sin(2.0 * math.pi * time / 168.0 + 0.31 * symbol_index)
+            + 0.01 * np.sin(2.0 * math.pi * time / 168.0 + 0.31 * symbol_index)
         )
         open_price[:, symbol_index] = np.exp(log_price)
 
@@ -85,9 +85,7 @@ def _dataset(*, slopes: tuple[float, ...]) -> MarketDataset:
 def test_valid_calibration_uses_conservative_fourth_order_statistic() -> None:
     protocol = canonical_mean_reversion_economic_gate_protocol()
     slopes = (-0.60, -0.50, -0.40, -0.30, 0.20)
-    result = calibrate_mean_reversion_economic_gate(
-        _dataset(slopes=slopes), protocol
-    )
+    result = calibrate_mean_reversion_economic_gate(_dataset(slopes=slopes), protocol)
 
     assert result.status == "VALID_CALIBRATION"
     assert result.protocol_digest == protocol.digest
@@ -132,7 +130,7 @@ def test_calibration_fails_closed_on_insufficient_tradable_coverage() -> None:
     dataset = _dataset(slopes=(-0.60, -0.50, -0.40, -0.30, 0.20))
     tradable = np.asarray(dataset.tradable).copy()
     tradable[1:10_500, 0] = False
-    broken = dataset.with_updates(tradable=tradable)
+    broken = replace(dataset, tradable=tradable)
 
     result = calibrate_mean_reversion_economic_gate(broken, protocol)
 
@@ -151,7 +149,7 @@ def test_calibration_requires_continuous_tradability_through_label_window() -> N
     # Row 100 is inside the t+1..t+25 holding window for 25 decision rows.
     tradable[100, 0] = False
     changed = calibrate_mean_reversion_economic_gate(
-        dataset.with_updates(tradable=tradable), protocol
+        replace(dataset, tradable=tradable), protocol
     )
 
     assert (
@@ -167,14 +165,14 @@ def test_calibration_rejects_dataset_and_signal_identity_drift() -> None:
 
     with pytest.raises(ValueError, match="dataset_id"):
         calibrate_mean_reversion_economic_gate(
-            dataset.with_updates(dataset_id="0" * 64), protocol
+            replace(dataset, dataset_id="0" * 64), protocol
         )
 
     names = list(dataset.feature_names)
     names[protocol.signal_index] = "wrong_signal"
     with pytest.raises(ValueError, match="signal"):
         calibrate_mean_reversion_economic_gate(
-            dataset.with_updates(feature_names=tuple(names)), protocol
+            replace(dataset, feature_names=tuple(names)), protocol
         )
 
 
@@ -185,4 +183,4 @@ def test_calibration_rejects_cost_semantic_drift_at_execution_rows() -> None:
     fee[2, 0] = 0.001
 
     with pytest.raises(ValueError, match="execution cost"):
-        calibrate_mean_reversion_economic_gate(dataset.with_updates(fee_rate=fee), protocol)
+        calibrate_mean_reversion_economic_gate(replace(dataset, fee_rate=fee), protocol)

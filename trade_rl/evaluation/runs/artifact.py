@@ -21,6 +21,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
 from trade_rl.evaluation.metrics import PerformanceMetrics
+from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
@@ -164,7 +165,9 @@ def _result_payload(
             "stop_exclusive": str(config.evaluation_stop_exclusive),
             "gross_budget": config.gross_budget,
             "initial_capital": config.initial_capital,
-            "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+            "execution_overlay": getattr(
+                spec, "execution_overlay", LEGACY_DATASET_EXECUTION_OVERLAY
+            ),
         },
         "by_symbol": symbols_payload,
     }

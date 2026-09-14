@@ -65,6 +65,7 @@ from trade_rl.evaluation.experiments.inspection import (
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs import (
+    LEGACY_DATASET_EXECUTION_OVERLAY,
     CandidateRunConfig,
     build_candidate_run_provenance,
     resolve_candidate_run_spec,
@@ -175,6 +176,7 @@ def create_study(
     max_experiments: int,
     n_bootstrap: int,
     bootstrap_seed: int,
+    execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY,
 ) -> StudySnapshot:
     """Create one immutable Study plan without executing development evidence."""
 
@@ -195,6 +197,7 @@ def create_study(
             dataset_artifact_schema=artifact.schema_version,
             dataset_artifact_digest=artifact.artifact_digest,
             config=baseline_config,
+            execution_overlay=execution_overlay,
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
@@ -292,6 +295,7 @@ def define_experiment(
             dataset_artifact_schema=artifact.schema_version,
             dataset_artifact_digest=artifact.artifact_digest,
             config=candidate_config,
+            execution_overlay=state.plan.baseline_config.execution_overlay,
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         _validate_fixed_fields(state.plan, resolved)

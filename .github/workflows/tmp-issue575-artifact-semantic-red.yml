@@ -1,0 +1,49 @@
+name: Temporary Issue 575 artifact semantic RED
+
+on:
+  push:
+    branches:
+      - automation/issue575-artifact-semantic-red
+    paths:
+      - .github/workflows/tmp-issue575-artifact-semantic-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 87f188b4f6b3b519e8f5e4d5ea720d81f9790479
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact RED head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+      - name: Require intended semantic RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q 'DID NOT RAISE' /tmp/red.log
+          ! grep -q 'ImportError\|ModuleNotFoundError\|SyntaxError' /tmp/red.log

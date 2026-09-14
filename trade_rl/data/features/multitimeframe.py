@@ -106,9 +106,27 @@ def align_native_feature(
 
     event_time_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
     availability_ns = event_available_at.astype("datetime64[ns]").astype(np.int64)
-    order = valid_indices[np.argsort(availability_ns[valid_indices], kind="stable")]
     base_ns = base_timestamps.astype("datetime64[ns]").astype(np.int64)
 
+    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+        for base_index, timestamp_ns in enumerate(base_ns):
+            if not base_active[base_index]:
+                continue
+            event_index = int(np.searchsorted(event_time_ns, timestamp_ns, side="left"))
+            if (
+                event_index >= len(event_time_ns)
+                or event_time_ns[event_index] != timestamp_ns
+                or not event_valid[event_index]
+                or availability_ns[event_index] > timestamp_ns
+            ):
+                continue
+            values[base_index] = event_values[event_index]
+            available[base_index] = True
+            age_hours[base_index] = 0.0
+            staleness[base_index] = 0.0
+        return values, available, age_hours, staleness
+
+    order = valid_indices[np.argsort(availability_ns[valid_indices], kind="stable")]
     cursor = 0
     latest_index: int | None = None
     for base_index, timestamp_ns in enumerate(base_ns):

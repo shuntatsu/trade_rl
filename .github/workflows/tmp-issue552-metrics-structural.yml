@@ -1,0 +1,207 @@
+name: Temporary Issue 552 metrics structural probe
+
+on:
+  push:
+    branches:
+      - verify/issue552-metrics-structural
+    paths:
+      - .github/workflows/tmp-issue552-metrics-structural.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Probe frozen 20 symbol-days without economic summaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue552/raw /tmp/issue552/out
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import hashlib
+          import io
+          import json
+          import math
+          import subprocess
+          import zipfile
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+          DATES = ("2021-01-01", "2021-07-01", "2022-01-01", "2022-07-01")
+          ROOT = "https://data.binance.vision/data/futures/um/daily/metrics"
+          out: list[dict[str, object]] = []
+          headers: set[tuple[str, ...]] = set()
+          available = 0
+          structural_failures: list[str] = []
+
+          def curl(url: str, target: Path) -> bool:
+              result = subprocess.run(
+                  ["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "2", "--output", str(target), url],
+                  check=False,
+              )
+              return result.returncode == 0
+
+          def parse_time(text: str) -> datetime:
+              value = text.strip().replace("Z", "+00:00")
+              try:
+                  parsed = datetime.fromisoformat(value)
+              except ValueError:
+                  parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=timezone.utc)
+              return parsed.astimezone(timezone.utc)
+
+          for symbol in SYMBOLS:
+              for day in DATES:
+                  name = f"{symbol}-metrics-{day}.zip"
+                  url = f"{ROOT}/{symbol}/{name}"
+                  zip_path = Path("/tmp/issue552/raw") / name
+                  checksum_path = zip_path.with_suffix(zip_path.suffix + ".CHECKSUM")
+                  entry: dict[str, object] = {"symbol": symbol, "date": day, "url": url}
+                  if not curl(url, zip_path):
+                      entry.update({"available": False, "reason": "http_unavailable"})
+                      out.append(entry)
+                      continue
+                  available += 1
+                  payload = zip_path.read_bytes()
+                  raw_sha = hashlib.sha256(payload).hexdigest()
+                  entry.update({"available": True, "raw_size": len(payload), "raw_sha256": raw_sha})
+
+                  checksum_url = url + ".CHECKSUM"
+                  checksum_available = curl(checksum_url, checksum_path)
+                  entry["checksum_available"] = checksum_available
+                  if checksum_available:
+                      checksum_text = checksum_path.read_text(encoding="utf-8").strip()
+                      expected = checksum_text.split()[0]
+                      entry["checksum_verified"] = expected == raw_sha
+                      if expected != raw_sha:
+                          structural_failures.append(f"{symbol} {day}: checksum mismatch")
+                  else:
+                      entry["checksum_verified"] = None
+
+                  try:
+                      with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                          members = [info for info in archive.infolist() if not info.is_dir()]
+                          if len(members) != 1:
+                              raise ValueError(f"expected one CSV member, got {len(members)}")
+                          member = members[0]
+                          if not member.filename.lower().endswith(".csv"):
+                              raise ValueError("member is not CSV")
+                          with archive.open(member, "r") as raw:
+                              text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
+                              reader = csv.reader(text)
+                              try:
+                                  header = tuple(next(reader))
+                              except StopIteration as exc:
+                                  raise ValueError("empty CSV") from exc
+                              if not header:
+                                  raise ValueError("empty header")
+                              headers.add(header)
+                              if "create_time" not in header or "symbol" not in header:
+                                  raise ValueError("required create_time/symbol columns absent")
+                              ts_index = header.index("create_time")
+                              symbol_index = header.index("symbol")
+                              numeric_indices = [i for i, name in enumerate(header) if i not in (ts_index, symbol_index)]
+                              row_count = 0
+                              first_ts: datetime | None = None
+                              last_ts: datetime | None = None
+                              previous_ts: datetime | None = None
+                              spacings: set[int] = set()
+                              for row in reader:
+                                  if len(row) != len(header):
+                                      raise ValueError("row field count differs from header")
+                                  if row[symbol_index] != symbol:
+                                      raise ValueError("symbol column mismatch")
+                                  timestamp = parse_time(row[ts_index])
+                                  if first_ts is None:
+                                      first_ts = timestamp
+                                  if previous_ts is not None:
+                                      delta = int((timestamp - previous_ts).total_seconds())
+                                      if delta < 0:
+                                          raise ValueError("timestamps decrease")
+                                      spacings.add(delta)
+                                  previous_ts = timestamp
+                                  last_ts = timestamp
+                                  for index in numeric_indices:
+                                      value = float(row[index])
+                                      if not math.isfinite(value):
+                                          raise ValueError(f"non-finite numeric field {header[index]}")
+                                  row_count += 1
+                              if row_count == 0 or first_ts is None or last_ts is None:
+                                  raise ValueError("no data rows")
+                              expected_date = datetime.strptime(day, "%Y-%m-%d").date()
+                              if first_ts.date() != expected_date or last_ts.date() != expected_date:
+                                  raise ValueError("timestamp date differs from requested UTC day")
+                              entry.update(
+                                  {
+                                      "csv_member": member.filename,
+                                      "header": list(header),
+                                      "column_count": len(header),
+                                      "row_count": row_count,
+                                      "first_timestamp": first_ts.isoformat(),
+                                      "last_timestamp": last_ts.isoformat(),
+                                      "spacing_seconds": sorted(spacings),
+                                      "structurally_valid": True,
+                                  }
+                              )
+                  except Exception as exc:
+                      entry["structurally_valid"] = False
+                      entry["reason"] = f"{type(exc).__name__}: {exc}"
+                      structural_failures.append(f"{symbol} {day}: {type(exc).__name__}: {exc}")
+                  out.append(entry)
+
+          valid = sum(bool(item.get("structurally_valid")) for item in out)
+          exact_header_count = len(headers)
+          if valid == len(SYMBOLS) * len(DATES) and exact_header_count == 1 and not structural_failures:
+              status = "PASS"
+          elif exact_header_count <= 1 and valid > 0:
+              status = "PARTIAL_SOURCE"
+          else:
+              status = "INCOMPATIBLE_SOURCE"
+
+          report = {
+              "schema_version": "issue552_binance_metrics_structural_probe_v1",
+              "issue_number": 552,
+              "symbols": list(SYMBOLS),
+              "dates": list(DATES),
+              "planned_symbol_days": len(SYMBOLS) * len(DATES),
+              "available_symbol_days": available,
+              "valid_symbol_days": valid,
+              "distinct_exact_headers": [list(item) for item in sorted(headers)],
+              "status": status,
+              "structural_failures": structural_failures,
+              "economic_values_inspected": False,
+              "return_or_pnl_computed": False,
+              "target_relation_computed": False,
+              "entries": out,
+          }
+          canonical = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+          report["content_digest"] = hashlib.sha256(canonical).hexdigest()
+          target = Path("/tmp/issue552/out/structural-report.json")
+          target.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+          print(json.dumps({k: report[k] for k in ("status", "planned_symbol_days", "available_symbol_days", "valid_symbol_days", "distinct_exact_headers", "structural_failures", "content_digest")}, sort_keys=True))
+          if status == "INCOMPATIBLE_SOURCE":
+              raise SystemExit(2)
+          PY
+
+      - name: Upload structural-only report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue552-binance-metrics-structural-${{ github.run_id }}
+          path: /tmp/issue552/out/structural-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

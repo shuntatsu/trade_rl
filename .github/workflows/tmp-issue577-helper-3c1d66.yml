@@ -17,13 +17,13 @@ jobs:
       - name: Checkout exact helper target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 600d4a26a894127f9227dfa8865904ef7f368ec4
+          ref: b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4
           persist-credentials: false
       - name: Assert exact target
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "600d4a26a894127f9227dfa8865904ef7f368ec4"
+          test "$(git rev-parse HEAD)" = "b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4"
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -50,5 +50,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "600d4a26a894127f9227dfa8865904ef7f368ec4"
+          test "$(git rev-parse HEAD)" = "b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4"
           test -z "$(git status --porcelain --untracked-files=no)"

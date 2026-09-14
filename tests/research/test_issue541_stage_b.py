@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from trade_rl.simulation.execution import MarketExecutor
 from tools.issue541_stage_b import (
     StageBCapacityAudit,
     StageBCapacityAuditError,
+    audited_market_executor,
     stage_b_suite_decision,
 )
 
@@ -107,6 +111,83 @@ def test_capacity_audit_rejects_dataset_identity_drift() -> None:
             runtime_max_participation_rate=1.0,
             participation_by_symbol=np.zeros(5, dtype=np.float64),
         )
+
+
+def test_audited_market_executor_observes_result_and_restores_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audit = _audit()
+    original_calls: list[tuple[int, int]] = []
+
+    def fake_execute(
+        _self: object,
+        _book: object,
+        _target: object,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> object:
+        original_calls.append((start_index, bars))
+        return SimpleNamespace(
+            participation_by_symbol=np.asarray(
+                [CAPS[0] * 0.25, 0.0, 0.0, 0.0, CAPS[4] * 0.5],
+                dtype=np.float64,
+            )
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", fake_execute)
+    executor = SimpleNamespace(
+        dataset=SimpleNamespace(dataset_id=DATASET_ID),
+        cost=SimpleNamespace(
+            processing_bar_volume_capacity=False,
+            max_participation_rate=1.0,
+        ),
+    )
+
+    with audited_market_executor(audit):
+        result = MarketExecutor.execute_interval(
+            executor, object(), object(), start_index=3, bars=1
+        )
+        assert result.participation_by_symbol[0] == CAPS[0] * 0.25
+
+    assert MarketExecutor.execute_interval is fake_execute
+    assert original_calls == [(3, 1)]
+    assert audit.execution_intervals_checked == 1
+
+
+def test_audited_market_executor_restores_method_after_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audit = _audit()
+
+    def fake_execute(
+        _self: object,
+        _book: object,
+        _target: object,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> object:
+        del start_index, bars
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", fake_execute)
+    executor = SimpleNamespace(
+        dataset=SimpleNamespace(dataset_id=DATASET_ID),
+        cost=SimpleNamespace(
+            processing_bar_volume_capacity=False,
+            max_participation_rate=1.0,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with audited_market_executor(audit):
+            MarketExecutor.execute_interval(
+                executor, object(), object(), start_index=0, bars=1
+            )
+
+    assert MarketExecutor.execute_interval is fake_execute
+    assert audit.execution_intervals_checked == 0
 
 
 def test_stage_b_suite_decision_is_frozen_by_empty_source_eligible_roster() -> None:

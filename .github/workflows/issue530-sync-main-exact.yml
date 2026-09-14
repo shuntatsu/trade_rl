@@ -1,0 +1,150 @@
+name: Issue 530 sync current main exact verification
+
+on:
+  push:
+    branches:
+      - verify/issue530-sync-main-df62
+    paths:
+      - .github/workflows/issue530-sync-main-exact.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: e8527a0471a68fe27b094a6353cf872037eb9100
+  OLD_HEAD: db8193c81dd0ca334a15ffc1895d75884238f8a9
+  CURRENT_MAIN: df62c4a27093129e104d02c8f06f6eba6e073a45
+  EXPECTED_TREE: 3ebf67ec07eec8460e7989284583c4c50294c3fa
+
+jobs:
+  core:
+    name: Synced Lean Core
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e8527a0471a68fe27b094a6353cf872037eb9100
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove merge identity and zero content drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse HEAD^1)" = "$OLD_HEAD"
+          test "$(git rev-parse HEAD^2)" = "$CURRENT_MAIN"
+          git merge-base --is-ancestor "$CURRENT_MAIN" HEAD
+          git merge-base --is-ancestor "$OLD_HEAD" HEAD
+          test "$(git rev-parse "$OLD_HEAD^{tree}")" = "$EXPECTED_TREE"
+          test "$(git rev-parse "$CURRENT_MAIN^{tree}")" = "284b2cc418be5f2e266e616aa2480ee753ee6034"
+          test "$(git rev-parse 73e7ba80ea55dddfe36caceb91676bae0cdf4540^{tree})" = "284b2cc418be5f2e266e616aa2480ee753ee6034"
+          test -z "$(git diff --name-only "$OLD_HEAD" "$TARGET_SHA")"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  guide:
+    name: Synced Human Guide
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: e8527a0471a68fe27b094a6353cf872037eb9100
+    steps:
+      - name: Checkout exact candidate merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e8527a0471a68fe27b094a6353cf872037eb9100
+          persist-credentials: false
+      - name: Prove exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e

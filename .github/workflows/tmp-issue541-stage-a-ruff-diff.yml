@@ -1,0 +1,27 @@
+name: Temporary Issue 541 Stage A Ruff diff
+
+on:
+  push:
+    branches:
+      - tmp/issue541-stage-a-ruff-diff
+    paths:
+      - .github/workflows/tmp-issue541-stage-a-ruff-diff.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue541-stage-a-ruff-diff
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Print Ruff-required import diff only
+        run: uv run ruff check --select I --fix --diff tests/research/test_issue541_stage_a.py

@@ -1,0 +1,93 @@
+name: Temporary Issue 549 Study plan metadata
+
+on:
+  push:
+    branches:
+      - verify/issue549-plan-metadata
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: "c5617ce386f06cef48aa0342f6766e647846d211"
+  SOURCE_RUN_ID: "34803217815"
+  SOURCE_ARTIFACT_ID: "10331899302"
+  SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SOURCE_ARTIFACT_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  EXPECTED_STUDY_DIGEST: "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
+
+jobs:
+  plan_metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Bind immutable successor bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          META="$meta" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["SOURCE_ARTIFACT_ID"]); assert x["name"]==os.environ["SOURCE_ARTIFACT_NAME"]; assert x["workflow_run"]["id"]==int(os.environ["SOURCE_RUN_ID"]); assert x["digest"]==os.environ["SOURCE_ARTIFACT_DIGEST"]; assert x["expired"] is False'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/issue549-successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          digest-mismatch: error
+      - name: Read Study plan only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue549-plan
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+
+          path = Path('/tmp/issue549-successor/study/plan.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          if content_digest(payload) != os.environ['EXPECTED_STUDY_DIGEST']:
+              raise SystemExit('Study digest mismatch')
+          baseline = payload['baseline_config']
+          allowed = {
+              'signal_index', 'feature_indices', 'fit_symbol_indices', 'fit_cutoff',
+              'evaluation_start', 'evaluation_stop_exclusive', 'rule_entry_threshold',
+              'rule_exit_threshold', 'gross_budget', 'initial_capital', 'execution_overlay',
+              'schema_version', 'ppo_observation_schema', 'ppo_global_feature_names',
+          }
+          result = {
+              'schema_version': 'issue549_study_plan_metadata_v1',
+              'study_digest': os.environ['EXPECTED_STUDY_DIGEST'],
+              'dataset_id': payload['dataset_id'],
+              'dataset_artifact_digest': payload['dataset_artifact_digest'],
+              'symbols': payload['symbols'],
+              'baseline_config': {k: baseline[k] for k in baseline if k in allowed},
+              'baseline_evidence_read': False,
+              'evaluation_pnl_inspected': False,
+          }
+          Path('/tmp/issue549-plan/plan-metadata.json').write_text(
+              json.dumps(result, sort_keys=True, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(result, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue549-study-plan-metadata-${{ github.run_id }}
+          path: /tmp/issue549-plan/plan-metadata.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

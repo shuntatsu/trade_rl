@@ -186,7 +186,9 @@ def test_protocol_rejects_any_semantic_drift() -> None:
             replace(protocol, **mutation)
 
 
-def test_payload_is_strict_and_contains_no_calibration_or_evaluation_result(tmp_path) -> None:
+def test_payload_is_strict_and_contains_no_calibration_or_evaluation_result(
+    tmp_path,
+) -> None:
     protocol = canonical_mean_reversion_economic_gate_protocol()
     payload = protocol.to_payload()
 

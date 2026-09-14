@@ -1,0 +1,134 @@
+name: Temporary Issue 575 publisher helper verification
+
+on:
+  push:
+    branches:
+      - verify/issue575-publisher-helper
+    paths:
+      - .github/workflows/tmp-issue575-publisher-helper-verify.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PREFLIGHT_RUN_ID: "34868358617"
+  PREFLIGHT_ARTIFACT_ID: "10358261087"
+  PREFLIGHT_API_DIGEST: sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact helper candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert helper candidate
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check \
+            tools/tmp_issue575_basis_publisher.py \
+            tools/tmp_issue575_basis_verifier.py \
+            tests/evaluation/experiments/bootstrap/test_issue575_publisher_helpers.py
+          uv run ruff check \
+            tools/tmp_issue575_basis_publisher.py \
+            tools/tmp_issue575_basis_verifier.py \
+            tests/evaluation/experiments/bootstrap/test_issue575_publisher_helpers.py
+          uv run mypy \
+            tools/tmp_issue575_basis_publisher.py \
+            tools/tmp_issue575_basis_verifier.py
+      - name: Synthetic publisher/verifier oracle
+        run: |
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_issue575_publisher_helpers.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+      - name: Verify frozen preflight artifact identity without economic computation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue575-helper-preflight
+          mkdir -p /tmp/issue575-helper-preflight
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue575-helper-authority/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${PREFLIGHT_ARTIFACT_ID}" \
+            --output /tmp/issue575-helper-preflight/artifact.json
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          item = json.loads(Path('/tmp/issue575-helper-preflight/artifact.json').read_text())
+          if str(item.get('id')) != os.environ['PREFLIGHT_ARTIFACT_ID']:
+              raise SystemExit('preflight Artifact ID mismatch')
+          if item.get('digest') != os.environ['PREFLIGHT_API_DIGEST']:
+              raise SystemExit('preflight API digest mismatch')
+          if item.get('expired') is not False:
+              raise SystemExit('preflight artifact expired')
+          run = item.get('workflow_run') or {}
+          if str(run.get('id')) != os.environ['PREFLIGHT_RUN_ID']:
+              raise SystemExit('preflight workflow run mismatch')
+          PY
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue575-helper-download/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${PREFLIGHT_ARTIFACT_ID}/zip" \
+            --output /tmp/issue575-helper-preflight/preflight.zip
+          uv run python - <<'PY'
+          import hashlib
+          import io
+          import os
+          import zipfile
+          from pathlib import Path
+          raw = Path('/tmp/issue575-helper-preflight/preflight.zip').read_bytes()
+          if 'sha256:' + hashlib.sha256(raw).hexdigest() != os.environ['PREFLIGHT_API_DIGEST']:
+              raise SystemExit('downloaded preflight ZIP digest mismatch')
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              if archive.namelist() != ['full-index-preflight.json']:
+                  raise SystemExit(f'unexpected preflight members: {archive.namelist()!r}')
+              Path('/tmp/issue575-helper-preflight/full-index-preflight.json').write_bytes(
+                  archive.read('full-index-preflight.json')
+              )
+          PY
+          uv run python - <<'PY'
+          from pathlib import Path
+          from tools import tmp_issue575_basis_publisher as publisher
+          from tools import tmp_issue575_basis_verifier as verifier
+          path = Path('/tmp/issue575-helper-preflight/full-index-preflight.json')
+          publisher_payload, publisher_entries = publisher._load_preflight(path)
+          verifier_payload, verifier_entries = verifier._load_preflight(path)
+          if publisher_payload != verifier_payload or publisher_entries != verifier_entries:
+              raise SystemExit('publisher/verifier preflight authority normalization differs')
+          print('PREFLIGHT_AUTHORITY_VERIFIED=true')
+          print('BASIS_OR_RETURN_COMPUTED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY
+      - name: CLI smoke and interpretation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python tools/tmp_issue575_basis_publisher.py --help >/dev/null
+          uv run python tools/tmp_issue575_basis_verifier.py --help >/dev/null
+          ! grep -q 'VERIFIED_TRAINING_INTERPRETATION' tools/tmp_issue575_basis_verifier.py
+          ! grep -q 'print(.*\.status' tools/tmp_issue575_basis_publisher.py
+          ! grep -q 'print(.*\.status' tools/tmp_issue575_basis_verifier.py
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

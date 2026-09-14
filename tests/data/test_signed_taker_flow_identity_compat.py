@@ -3,13 +3,20 @@ from __future__ import annotations
 import numpy as np
 
 from trade_rl.data.build import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 
 
 def _series(*, taker: np.ndarray | None) -> RawMarketSeries:
     n = 30
-    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
     close = 100.0 + np.arange(n, dtype=np.float64)
     return RawMarketSeries(
         timestamps=timestamps,
@@ -25,10 +32,14 @@ def _series(*, taker: np.ndarray | None) -> RawMarketSeries:
     )
 
 
-def test_optional_taker_source_does_not_change_dataset_when_feature_is_omitted() -> None:
+def test_optional_taker_source_does_not_change_dataset_when_feature_is_omitted() -> (
+    None
+):
     config = MarketBuildConfig(
         base_timeframe="1h",
-        features=(FeatureSpec(name="return_1bar", kind=FeatureKind.LOG_RETURN, lookback=1),),
+        features=(
+            FeatureSpec(name="return_1bar", kind=FeatureKind.LOG_RETURN, lookback=1),
+        ),
     )
     builder = MarketDatasetBuilder(config)
     instruments = (InstrumentContract(symbol="BTCUSDT"),)

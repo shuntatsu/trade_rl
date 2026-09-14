@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureSpec, InstrumentContract, timeframe_hours
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    timeframe_hours,
+)
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import RawMarketSeries
 
@@ -52,6 +57,8 @@ def _native_events(
         funding_available=raw.funding_available,
         row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
         active=active,
+        taker_buy_quote_volume=raw.taker_buy_quote_volume,
+        tradable=raw.tradable,
     )
     available_at = np.full(
         len(raw.timestamps), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
@@ -77,6 +84,8 @@ def align_native_feature(
     """Calculate on the native clock and causally align to the base clock."""
 
     _validate_regular_native_series(raw, timeframe)
+    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW and timeframe != "1h":
+        raise ValueError("signed taker quote flow is defined only on the 1h clock")
     event_values, event_valid, event_available_at = _native_events(spec, raw, contract)
     values = np.zeros(len(base_timestamps), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)

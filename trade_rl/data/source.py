@@ -119,9 +119,7 @@ class RawMarketSeries:
             if np.any(taker_buy_quote_volume < 0.0):
                 raise ValueError("taker_buy_quote_volume must be non-negative")
             if np.any(taker_buy_quote_volume > arrays["volume"]):
-                raise ValueError(
-                    "taker_buy_quote_volume must not exceed quote volume"
-                )
+                raise ValueError("taker_buy_quote_volume must not exceed quote volume")
 
         if np.any(arrays["funding_event_count"] < 0):
             raise ValueError("funding_event_count must be non-negative")

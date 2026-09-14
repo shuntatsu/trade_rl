@@ -391,6 +391,43 @@ def _ichimoku_line(high: np.ndarray, low: np.ndarray, start: int, stop: int) -> 
     return 0.5 * (float(np.max(high[start:stop])) + float(np.min(low[start:stop])))
 
 
+def _signed_taker_quote_flow(
+    quote_volume: np.ndarray,
+    taker_buy_quote_volume: np.ndarray,
+    usable: np.ndarray,
+    lookback: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    values = np.zeros(len(quote_volume), dtype=np.float64)
+    valid = np.zeros(len(quote_volume), dtype=np.bool_)
+    source_start = np.full(len(quote_volume), -1, dtype=np.int64)
+    for index in range(len(quote_volume)):
+        start = index - lookback + 1
+        if not _window_is_valid(usable, start, index + 1):
+            continue
+        try:
+            quote_total = math.fsum(
+                float(item) for item in quote_volume[start : index + 1]
+            )
+            taker_total = math.fsum(
+                float(item) for item in taker_buy_quote_volume[start : index + 1]
+            )
+        except OverflowError as error:
+            raise ValueError(
+                "signed taker quote-flow accumulation must remain finite"
+            ) from error
+        if not math.isfinite(quote_total) or not math.isfinite(taker_total):
+            raise ValueError("signed taker quote-flow accumulation must remain finite")
+        if quote_total <= 0.0:
+            continue
+        value = (2.0 * taker_total - quote_total) / quote_total
+        if not math.isfinite(value) or not -1.0 <= value <= 1.0:
+            raise ValueError("signed taker quote-flow value violates [-1, 1] invariant")
+        values[index] = value
+        valid[index] = True
+        source_start[index] = start
+    return values, valid, source_start
+
+
 def calculate_feature_events(
     spec: FeatureSpec,
     *,
@@ -403,6 +440,8 @@ def calculate_feature_events(
     funding_available: np.ndarray,
     row_present: np.ndarray,
     active: np.ndarray,
+    taker_buy_quote_volume: np.ndarray | None = None,
+    tradable: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return feature events, validity and earliest source index for each event."""
 
@@ -429,6 +468,32 @@ def calculate_feature_events(
     valid = np.zeros(n_bars, dtype=np.bool_)
     source_start = np.full(n_bars, -1, dtype=np.int64)
     kind = FeatureKind(spec.kind)
+
+    if kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+        if taker_buy_quote_volume is None or tradable is None:
+            return values, valid, source_start
+        quote = np.asarray(volume, dtype=np.float64)
+        taker = np.asarray(taker_buy_quote_volume, dtype=np.float64)
+        tradable_mask = np.asarray(tradable, dtype=np.bool_)
+        if taker.shape != (n_bars,) or tradable_mask.shape != (n_bars,):
+            raise ValueError(
+                "signed taker quote-flow inputs must match feature input shape"
+            )
+        if not np.isfinite(quote).all() or np.any(quote < 0.0):
+            raise ValueError(
+                "signed taker quote flow requires finite non-negative quote volume"
+            )
+        if not np.isfinite(taker).all() or np.any(taker < 0.0):
+            raise ValueError(
+                "signed taker quote flow requires finite non-negative taker volume"
+            )
+        if np.any(taker > quote):
+            raise ValueError(
+                "signed taker buy quote volume must not exceed quote volume"
+            )
+        return _signed_taker_quote_flow(
+            quote, taker, usable & tradable_mask, spec.lookback
+        )
 
     if kind is FeatureKind.FUNDING_BPS:
         valid = np.asarray(funding_available, dtype=np.bool_) & usable

@@ -56,11 +56,25 @@ def _parse_kline_rows(
     interval_ms: int,
     start_ms: int,
     end_ms: int,
-) -> tuple[np.ndarray, ...]:
-    parsed: list[tuple[int, float, float, float, float, float]] = []
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray | None,
+]:
+    parsed: list[tuple[int, float, float, float, float, float, float]] = []
+    taker_layout: bool | None = None
     for row in rows:
         if len(row) < 8:
             raise ValueError("Binance kline row must contain at least eight fields")
+        row_has_taker = len(row) > 10
+        if taker_layout is None:
+            taker_layout = row_has_taker
+        elif taker_layout != row_has_taker:
+            raise ValueError("Binance kline taker field layout is mixed")
         open_ms = _normalize_epoch_ms(row[0])
         if not start_ms <= open_ms < end_ms:
             continue
@@ -72,7 +86,22 @@ def _parse_kline_rows(
         low = _finite_float(row[3], field="low")
         close = _finite_float(row[4], field="close")
         quote_volume = _finite_float(row[7], field="quote volume")
-        parsed.append((close_ms, open_price, high, low, close, quote_volume))
+        taker_buy_quote_volume = (
+            _finite_float(row[10], field="taker buy quote volume")
+            if row_has_taker
+            else 0.0
+        )
+        parsed.append(
+            (
+                close_ms,
+                open_price,
+                high,
+                low,
+                close,
+                quote_volume,
+                taker_buy_quote_volume,
+            )
+        )
     if len(parsed) < 2:
         raise ValueError("Binance range must contain at least two closed bars")
     timestamps = np.asarray([item[0] for item in parsed], dtype=np.int64)
@@ -87,6 +116,11 @@ def _parse_kline_rows(
         np.asarray([item[3] for item in parsed], dtype=np.float64),
         np.asarray([item[4] for item in parsed], dtype=np.float64),
         np.asarray([item[5] for item in parsed], dtype=np.float64),
+        (
+            np.asarray([item[6] for item in parsed], dtype=np.float64)
+            if taker_layout
+            else None
+        ),
     )
 
 
@@ -205,7 +239,15 @@ class BinanceMarketDataSource(MarketDataSource):
             mode=self.transport_mode,
         )
         self._record_source(kline_source)
-        timestamps, open_price, high, low, close, volume = _parse_kline_rows(
+        (
+            timestamps,
+            open_price,
+            high,
+            low,
+            close,
+            volume,
+            taker_buy_quote_volume,
+        ) = _parse_kline_rows(
             rows,
             interval_ms=interval_ms,
             start_ms=start_ms,
@@ -223,6 +265,7 @@ class BinanceMarketDataSource(MarketDataSource):
             low=low,
             close=close,
             volume=volume,
+            taker_buy_quote_volume=taker_buy_quote_volume,
             funding_rate=funding,
             funding_available=funding_available,
             funding_event_count=funding_event_count,

@@ -239,7 +239,9 @@ def test_signed_taker_flow_prefix_causality() -> None:
     np.testing.assert_array_equal(changed_values[:27], baseline_values[:27])
 
 
-def test_signed_taker_flow_rejects_alternate_lookback_timeframe_and_normalization() -> None:
+def test_signed_taker_flow_rejects_alternate_lookback_timeframe_and_normalization() -> (
+    None
+):
     with pytest.raises(ValueError, match="24"):
         _calculate(spec=_spec(lookback=23))
     with pytest.raises(ValueError, match="1h"):

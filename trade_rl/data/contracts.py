@@ -34,6 +34,7 @@ class FeatureKind(StrEnum):
     LOG_RETURN = "log_return"
     REALIZED_VOLATILITY = "realized_volatility"
     VOLUME_ZSCORE = "volume_zscore"
+    SIGNED_TAKER_QUOTE_FLOW = "signed_taker_quote_flow"
     FUNDING_BPS = "funding_bps"
     RSI = "rsi"
     MACD_LINE = "macd_line"
@@ -307,6 +308,16 @@ class FeatureSpec:
             or self.max_staleness_hours <= 0.0
         ):
             raise ValueError("max_staleness_hours must be finite and positive")
+        kind = FeatureKind(self.kind)
+        if kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+            if self.lookback != 24:
+                raise ValueError("signed taker quote flow requires exactly 24 bars")
+            if self.normalization is not NormalizationMode.NONE:
+                raise ValueError("signed taker quote flow requires normalization=none")
+            if self.timeframe not in {None, "1h"}:
+                raise ValueError(
+                    "signed taker quote flow is defined only on the 1h clock"
+                )
 
     def resolved_timeframe(self, base_timeframe: str) -> str:
         timeframe_hours(base_timeframe)

@@ -1,0 +1,347 @@
+name: Issue 541 post-integration authorization
+
+on:
+  push:
+    branches:
+      - execute/issue541-stage-a
+    paths:
+      - .github/workflows/issue541-post-integration-authorization.yml
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  MAIN_SHA: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+  MAIN_TREE: 107b2f65c2ddd8ec41a4fc91939fbc96eeda7b44
+  MAIN_CI_RUN_ID: "34811335706"
+  PR531_MERGE_SHA: fd681e72134f249df133a0c18fdd8789128c186c
+  PR540_MERGE_SHA: b1062a6d738989ce4babebf49ec16e01c9984028
+  PR542_MERGE_SHA: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+  PROTOCOL_DIGEST: 11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8
+  SEAL_RUN_ID: "34804388022"
+  SEAL_NAME: issue541-capacity-robustness-prereg-v3-34804388022
+  SEAL_ID: "10332098428"
+  SEAL_DIGEST: sha256:69f3c2b30bb85591483e8a3a77e69a489affdaafa5d57a6be96dcbb24edf348e
+  SEAL_FRESH_NAME: issue541-capacity-robustness-prereg-fresh-v3-34804388022
+  SEAL_FRESH_ID: "10332916765"
+  SEAL_FRESH_DIGEST: sha256:7675c0dc02a58f74c1c84080dd86eb74b4b3d118662c0099675d40025ce3ca6f
+  SUCCESSOR_RUN_ID: "34803217815"
+  SUCCESSOR_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SUCCESSOR_ID: "10331899302"
+  SUCCESSOR_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  SUCCESSOR_FRESH_RUN_ID: "34803432434"
+  SUCCESSOR_FRESH_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  SUCCESSOR_FRESH_ID: "10332575500"
+  SUCCESSOR_FRESH_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+  SUCCESSOR_DATASET_ID: 6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518
+  SUCCESSOR_DATASET_ARTIFACT_DIGEST: af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7
+  SUCCESSOR_STUDY_DIGEST: bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820
+
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact integrated main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.MAIN_SHA }}
+          persist-credentials: false
+      - name: Prove integration order and final main CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAIN_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$MAIN_TREE"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/main --jq .commit.sha)" = "$MAIN_SHA"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$MAIN_CI_RUN_ID)"
+          test "$(jq -r .head_sha <<<"$run")" = "$MAIN_SHA"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = success
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$MAIN_CI_RUN_ID/jobs?per_page=100)"
+          test "$(jq '[.jobs[]|select(.name=="Lean Core" and .conclusion=="success")]|length' <<<"$jobs")" = 1
+          test "$(jq '[.jobs[]|select(.name=="Human Guide" and .conclusion=="success")]|length' <<<"$jobs")" = 1
+          prev=""
+          for item in "531:$PR531_MERGE_SHA" "540:$PR540_MERGE_SHA" "542:$PR542_MERGE_SHA"; do
+            number="${item%%:*}"; expected="${item#*:}"
+            pr="$(gh api repos/$GITHUB_REPOSITORY/pulls/$number)"
+            test "$(jq -r .merged <<<"$pr")" = true
+            test "$(jq -r .merge_commit_sha <<<"$pr")" = "$expected"
+            at="$(jq -r .merged_at <<<"$pr")"
+            test "$at" != null
+            if [ -n "$prev" ]; then test "$prev" '<' "$at"; fi
+            prev="$at"
+          done
+      - name: API-bind immutable authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .digest <<<"$payload")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$run_id"
+            test "$(jq -r .expired <<<"$payload")" = false
+          }
+          verify_artifact "$SEAL_ID" "$SEAL_NAME" "$SEAL_DIGEST" "$SEAL_RUN_ID"
+          verify_artifact "$SEAL_FRESH_ID" "$SEAL_FRESH_NAME" "$SEAL_FRESH_DIGEST" "$SEAL_RUN_ID"
+          verify_artifact "$SUCCESSOR_ID" "$SUCCESSOR_NAME" "$SUCCESSOR_DIGEST" "$SUCCESSOR_RUN_ID"
+          verify_artifact "$SUCCESSOR_FRESH_ID" "$SUCCESSOR_FRESH_NAME" "$SUCCESSOR_FRESH_DIGEST" "$SUCCESSOR_FRESH_RUN_ID"
+      - name: Download v3 seal
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SEAL_NAME }}
+          path: /tmp/seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SEAL_RUN_ID }}
+      - name: Download v3 seal fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SEAL_FRESH_NAME }}
+          path: /tmp/seal-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SEAL_RUN_ID }}
+      - name: Re-fetch calibrated successor bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SUCCESSOR_RUN_ID }}
+      - name: Download successor fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_FRESH_NAME }}
+          path: /tmp/successor-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SUCCESSOR_FRESH_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reconstruct protocol and inspect successor on integrated main
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.data import load_market_dataset_artifact, inspect_published_market_dataset_artifact
+          from trade_rl.evaluation.experiments import inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+
+          p = canonical_capacity_robustness_protocol()
+          if p.digest != os.environ['PROTOCOL_DIGEST']:
+              raise RuntimeError('integrated-main protocol digest drift')
+          canonical = (json.dumps(p.to_payload(), allow_nan=False, sort_keys=True, indent=2) + '\n').encode()
+          if Path('/tmp/seal/protocol.json').read_bytes() != canonical:
+              raise RuntimeError('integrated-main protocol bytes differ from sealed v3')
+          fresh_files = list(Path('/tmp/seal-fresh').glob('*.json'))
+          if len(fresh_files) != 1:
+              raise RuntimeError('unexpected v3 fresh verification layout')
+          fresh = json.loads(fresh_files[0].read_text())
+          if not fresh.get('preregistration_authorized') or not fresh.get('canonical_protocol_bytes_match') or not fresh.get('external_authorities_api_reverified'):
+              raise RuntimeError('v3 fresh preregistration authority is invalid')
+          if any(fresh.get(k) for k in ('integration_gate_satisfied','execution_authorized','stage_a_executed','stage_b_executed','successor_pnl_inspected')):
+              raise RuntimeError('sealed pre-integration boundary was crossed')
+
+          root = Path('/tmp/successor')
+          index = json.loads((root / 'successor-index.json').read_text())
+          dataset = load_market_dataset_artifact(root / 'dataset')
+          artifact = inspect_published_market_dataset_artifact(root / 'dataset')
+          study = inspect_study(root / 'study')
+          if dataset.dataset_id != os.environ['SUCCESSOR_DATASET_ID'] or index['dataset_id'] != dataset.dataset_id:
+              raise RuntimeError('successor Dataset ID drift')
+          if artifact.artifact_digest != os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST'] or index['dataset_artifact_digest'] != artifact.artifact_digest:
+              raise RuntimeError('successor Dataset artifact drift')
+          if study.plan.digest != os.environ['SUCCESSOR_STUDY_DIGEST'] or index['study_digest'] != study.plan.digest:
+              raise RuntimeError('successor Study digest drift')
+          if study.baseline is not None or study.experiment_sequences or study.frozen:
+              raise RuntimeError('successor Study no longer PRE-PnL plan-only')
+          if any(index[k] for k in ('baseline_present','pnl_executed','returns_inspected','final_test_authorized','production_authorized')):
+              raise RuntimeError('successor bundle crossed PRE-PnL boundary')
+          verify_files = list(Path('/tmp/successor-fresh').glob('*.json'))
+          if len(verify_files) != 1:
+              raise RuntimeError('unexpected successor fresh verification layout')
+          successor_fresh = json.loads(verify_files[0].read_text())
+          if not successor_fresh.get('fresh_runner_reconstructed_from_source') or not successor_fresh.get('byte_level_tree_identity_verified') or not successor_fresh.get('pre_pnl_identity_authorized'):
+              raise RuntimeError('successor fresh verification is invalid')
+          if successor_fresh.get('pnl_executed') or successor_fresh.get('returns_inspected'):
+              raise RuntimeError('successor PnL was inspected before authorization')
+
+          authorization = {
+              'schema_version': 'issue541_post_integration_authorization_v1',
+              'main_sha': os.environ['MAIN_SHA'],
+              'main_tree': os.environ['MAIN_TREE'],
+              'main_ci_run_id': int(os.environ['MAIN_CI_RUN_ID']),
+              'pr_merge_commits': {'531': os.environ['PR531_MERGE_SHA'], '540': os.environ['PR540_MERGE_SHA'], '542': os.environ['PR542_MERGE_SHA']},
+              'protocol_digest': p.digest,
+              'seal_artifact_id': int(os.environ['SEAL_ID']),
+              'seal_artifact_digest': os.environ['SEAL_DIGEST'],
+              'successor_bundle_artifact_id': int(os.environ['SUCCESSOR_ID']),
+              'successor_bundle_artifact_digest': os.environ['SUCCESSOR_DIGEST'],
+              'successor_fresh_verification_artifact_id': int(os.environ['SUCCESSOR_FRESH_ID']),
+              'integration_gate_satisfied': True,
+              'execution_authorized': True,
+              'stage_a_authorized': True,
+              'stage_b_authorized': False,
+              'stage_a_executed': False,
+              'stage_b_executed': False,
+              'successor_pnl_inspected': False,
+          }
+          Path('/tmp/authorization.json').write_text(json.dumps(authorization, allow_nan=False, sort_keys=True, indent=2) + '\n')
+          print('AUTHORIZATION_DIGEST=' + hashlib.sha256(Path('/tmp/authorization.json').read_bytes()).hexdigest())
+          PY
+      - id: meta
+        run: echo "name=issue541-post-integration-authorization-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/authorization.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_authorize:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact integrated main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.MAIN_SHA }}
+          persist-credentials: false
+      - name: API-bind first authorization and final main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTH_ID: ${{ needs.authorize.outputs.artifact_id }}
+          AUTH_DIGEST_RAW: ${{ needs.authorize.outputs.artifact_digest }}
+          AUTH_NAME: ${{ needs.authorize.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAIN_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/main --jq .commit.sha)" = "$MAIN_SHA"
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$AUTH_ID)"
+          test "$(jq -r .name <<<"$payload")" = "$AUTH_NAME"
+          test "$(jq -r .digest <<<"$payload")" = "sha256:$AUTH_DIGEST_RAW"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$MAIN_CI_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+      - name: Download first authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.authorize.outputs.artifact_name }}
+          path: /tmp/auth
+      - name: Re-fetch calibrated successor bundle independently
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SUCCESSOR_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Freshly revalidate Stage A authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from trade_rl.data import load_market_dataset_artifact, inspect_published_market_dataset_artifact
+          from trade_rl.evaluation.experiments import inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+
+          auth = json.loads((Path('/tmp/auth') / 'authorization.json').read_text())
+          p = canonical_capacity_robustness_protocol()
+          expected = {
+              'schema_version': 'issue541_post_integration_authorization_v1',
+              'main_sha': os.environ['MAIN_SHA'],
+              'main_tree': os.environ['MAIN_TREE'],
+              'main_ci_run_id': int(os.environ['MAIN_CI_RUN_ID']),
+              'pr_merge_commits': {'531': os.environ['PR531_MERGE_SHA'], '540': os.environ['PR540_MERGE_SHA'], '542': os.environ['PR542_MERGE_SHA']},
+              'protocol_digest': p.digest,
+              'seal_artifact_id': int(os.environ['SEAL_ID']),
+              'seal_artifact_digest': os.environ['SEAL_DIGEST'],
+              'successor_bundle_artifact_id': int(os.environ['SUCCESSOR_ID']),
+              'successor_bundle_artifact_digest': os.environ['SUCCESSOR_DIGEST'],
+              'successor_fresh_verification_artifact_id': int(os.environ['SUCCESSOR_FRESH_ID']),
+              'integration_gate_satisfied': True,
+              'execution_authorized': True,
+              'stage_a_authorized': True,
+              'stage_b_authorized': False,
+              'stage_a_executed': False,
+              'stage_b_executed': False,
+              'successor_pnl_inspected': False,
+          }
+          if auth != expected:
+              raise RuntimeError('first authorization payload drift')
+          root = Path('/tmp/successor')
+          dataset = load_market_dataset_artifact(root/'dataset')
+          artifact = inspect_published_market_dataset_artifact(root/'dataset')
+          study = inspect_study(root/'study')
+          if dataset.dataset_id != os.environ['SUCCESSOR_DATASET_ID'] or artifact.artifact_digest != os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST'] or study.plan.digest != os.environ['SUCCESSOR_STUDY_DIGEST']:
+              raise RuntimeError('fresh successor authority drift')
+          fresh = dict(auth)
+          fresh['schema_version'] = 'issue541_post_integration_fresh_authorization_v1'
+          fresh['fresh_runner_reverified_successor_bundle'] = True
+          fresh['stage_a_execution_authorized'] = True
+          Path('/tmp/fresh-authorization.json').write_text(json.dumps(fresh, allow_nan=False, sort_keys=True, indent=2) + '\n')
+          PY
+      - id: meta
+        run: echo "name=issue541-post-integration-fresh-authorization-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh-authorization.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    needs: [authorize, fresh_authorize]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Audit fresh authorization artifact through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.fresh_authorize.outputs.artifact_id }}
+          DIGEST_RAW: ${{ needs.fresh_authorize.outputs.artifact_digest }}
+          NAME: ${{ needs.fresh_authorize.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ID)"
+          test "$(jq -r .name <<<"$payload")" = "$NAME"
+          test "$(jq -r .digest <<<"$payload")" = "sha256:$DIGEST_RAW"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false

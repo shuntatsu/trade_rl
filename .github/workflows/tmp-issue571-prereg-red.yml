@@ -1,0 +1,47 @@
+name: Temporary Issue 571 preregistration RED
+
+on:
+  push:
+    branches:
+      - verify/issue571-prereg-red
+    paths:
+      - .github/workflows/tmp-issue571-prereg-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: a2dd7ac05412d2732e52de8e88776d884510c854
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        run: |
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py
+      - name: Require missing-production RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "No module named 'trade_rl.evaluation.experiments.bootstrap.perp_index_basis_prereg'" /tmp/red.log
+          ! grep -q 'SyntaxError' /tmp/red.log

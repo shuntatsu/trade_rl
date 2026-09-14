@@ -242,7 +242,9 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
                 self.archive_roster_protocol_digest,
                 field="archive_roster_protocol_digest",
             ),
-            _integer(self.archive_roster_seal_run_id, field="archive_roster_seal_run_id"),
+            _integer(
+                self.archive_roster_seal_run_id, field="archive_roster_seal_run_id"
+            ),
             _integer(
                 self.archive_roster_seal_artifact_id,
                 field="archive_roster_seal_artifact_id",
@@ -561,7 +563,9 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
         )
     return AggTradesFlowPredictiveDiagnosticProtocol(
         schema_version=_text(payload["schema_version"], field="schema_version"),
-        provider_head_sha=_git_sha(payload["provider_head_sha"], field="provider_head_sha"),
+        provider_head_sha=_git_sha(
+            payload["provider_head_sha"], field="provider_head_sha"
+        ),
         provider_parser_blob_sha=_git_sha(
             payload["provider_parser_blob_sha"], field="provider_parser_blob_sha"
         ),
@@ -642,7 +646,9 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
         predictor_availability=_text(
             payload["predictor_availability"], field="predictor_availability"
         ),
-        predictor_formula=_text(payload["predictor_formula"], field="predictor_formula"),
+        predictor_formula=_text(
+            payload["predictor_formula"], field="predictor_formula"
+        ),
         label_formula=_text(payload["label_formula"], field="label_formula"),
         label_horizon_hours=_integer(
             payload["label_horizon_hours"], field="label_horizon_hours"

@@ -1,0 +1,71 @@
+name: Temporary Issue 577 network-free helper verification
+
+on:
+  push:
+    branches:
+      - verify/issue577-helper-3c1d66
+    paths:
+      - .github/workflows/tmp-issue577-helper-3c1d66.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 3c1d6623f20abb971f00861e749809dadb56d9dc
+
+jobs:
+  helper:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            tools/tmp_issue577_basis_common.py \
+            tools/tmp_issue577_basis_publisher.py \
+            tools/tmp_issue577_basis_verifier.py \
+            tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+          uv run ruff format --check \
+            tools/tmp_issue577_basis_common.py \
+            tools/tmp_issue577_basis_publisher.py \
+            tools/tmp_issue577_basis_verifier.py \
+            tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+          uv run mypy \
+            tools/tmp_issue577_basis_common.py \
+            tools/tmp_issue577_basis_publisher.py \
+            tools/tmp_issue577_basis_verifier.py \
+            tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+      - name: Network-free synthetic helper suite
+        env:
+          NO_PROXY: "*"
+          no_proxy: "*"
+          HTTP_PROXY: "http://127.0.0.1:9"
+          HTTPS_PROXY: "http://127.0.0.1:9"
+          ALL_PROXY: "http://127.0.0.1:9"
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+      - name: Existing authority regressions
+        run: |
+          uv run pytest -q \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+      - name: Re-assert clean exact target
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

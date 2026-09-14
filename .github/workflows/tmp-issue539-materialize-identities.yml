@@ -1,0 +1,415 @@
+name: Temporary Issue 539 calibrated causal identity materialization
+
+on:
+  push:
+    branches:
+      - run/issue539-calibrated-causal-identities
+    paths:
+      - .github/workflows/tmp-issue539-materialize-identities.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publish:
+    name: Materialize successor Dataset and Study identities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_ARTIFACT_ID: "10300479733"
+      SOURCE_ARTIFACT_DIGEST: "sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4"
+      BUNDLE_NAME: issue539-calibrated-causal-identities-${{ github.run_id }}
+    steps:
+      - name: Checkout immutable implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b7e234693f953e5bb62011dafd76bfdca772c036
+          persist-credentials: false
+      - name: Assert exact implementation head
+        run: test "$(git rev-parse HEAD)" = "b7e234693f953e5bb62011dafd76bfdca772c036"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Re-fetch and verify portable canonical source Artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue539-source /tmp/issue539-out /tmp/issue539-source.zip
+          mkdir -p /tmp/issue539-source /tmp/issue539-out
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          api_digest="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          test "$api_digest" = "$SOURCE_ARTIFACT_DIGEST"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            -o /tmp/issue539-source.zip
+          test "sha256:$(sha256sum /tmp/issue539-source.zip | awk '{print $1}')" = "$SOURCE_ARTIFACT_DIGEST"
+          unzip -q /tmp/issue539-source.zip -d /tmp/issue539-source
+      - name: Materialize calibrated Dataset and causal Study identity only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+              publish_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.capacity_materialization import (
+              build_aggtrades_calibrated_capacity_dataset,
+              canonical_aggtrades_capacity_authority,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+          from trade_rl.evaluation.experiments.workflow import create_study
+          from trade_rl.evaluation.runs import (
+              CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+
+          SOURCE = Path("/tmp/issue539-source")
+          OUT = Path("/tmp/issue539-out")
+          EXPECTED_SOURCE_DATASET_ID = "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
+          EXPECTED_SOURCE_ARTIFACT_DIGEST = "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+          EXPECTED_SOURCE_STUDY_DIGEST = "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
+          EXPECTED_CAPS = (
+              0.0021629560553901974,
+              0.002044685341258238,
+              0.002184898995567895,
+              0.0020480213652913385,
+              0.002346308308284808,
+          )
+
+          source_artifact = inspect_published_market_dataset_artifact(SOURCE / "dataset")
+          source = load_market_dataset_artifact(SOURCE / "dataset")
+          if source.dataset_id != EXPECTED_SOURCE_DATASET_ID:
+              raise SystemExit("source Dataset ID drifted")
+          if source_artifact.artifact_digest != EXPECTED_SOURCE_ARTIFACT_DIGEST:
+              raise SystemExit("source Dataset artifact digest drifted")
+          source_plan = json.loads((SOURCE / "study" / "plan.json").read_text(encoding="utf-8"))
+          if content_digest(source_plan) != EXPECTED_SOURCE_STUDY_DIGEST:
+              raise SystemExit("source Study plan digest drifted")
+
+          bootstrap = load_canonical_m2_bootstrap_config(SOURCE / "bootstrap.json")
+          authority = canonical_aggtrades_capacity_authority()
+          if authority.symbol_caps != EXPECTED_CAPS:
+              raise SystemExit("calibration authority cap vector drifted")
+          successor = build_aggtrades_calibrated_capacity_dataset(
+              source,
+              source_artifact_schema=source_artifact.schema_version,
+              source_artifact_digest=source_artifact.artifact_digest,
+              authority=authority,
+          )
+          published = publish_market_dataset_artifact(OUT / "dataset", successor)
+          reloaded = load_market_dataset_artifact(OUT / "dataset")
+          inspected = inspect_published_market_dataset_artifact(OUT / "dataset")
+          if reloaded.dataset_id != successor.dataset_id:
+              raise SystemExit("published successor Dataset ID changed")
+          if inspected.artifact_digest != published.artifact_digest:
+              raise SystemExit("published successor artifact digest changed")
+
+          source_arrays = source.identity_arrays()
+          successor_arrays = reloaded.identity_arrays()
+          if set(source_arrays) != set(successor_arrays):
+              raise SystemExit("successor identity-array roster drifted")
+          for name in sorted(source_arrays):
+              left = np.asarray(source_arrays[name])
+              right = np.asarray(successor_arrays[name])
+              if name == "max_participation_rate":
+                  expected = np.broadcast_to(
+                      np.asarray(EXPECTED_CAPS, dtype=np.float64), right.shape
+                  )
+                  if not np.array_equal(right, expected):
+                      raise SystemExit("published capacity array differs from sealed caps")
+              elif left.dtype != right.dtype or left.shape != right.shape or left.tobytes() != right.tobytes():
+                  raise SystemExit(f"non-cap identity array changed: {name}")
+
+          snapshot = create_study(
+              OUT / "study",
+              dataset_root=OUT / "dataset",
+              research_question=bootstrap.research_question,
+              baseline_config=bootstrap.baseline,
+              ppo_seeds=bootstrap.ppo_seeds,
+              allowed_factors=bootstrap.allowed_factors,
+              max_experiments=bootstrap.max_experiments,
+              n_bootstrap=bootstrap.n_bootstrap,
+              bootstrap_seed=bootstrap.bootstrap_seed,
+              execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+          if snapshot.baseline is not None or snapshot.experiment_sequences:
+              raise SystemExit("identity-only Study unexpectedly contains evidence")
+          if snapshot.frozen:
+              raise SystemExit("new identity-only Study must not be frozen")
+          if snapshot.plan.dataset_id != successor.dataset_id:
+              raise SystemExit("Study binds wrong successor Dataset ID")
+          if snapshot.plan.dataset_artifact_digest != published.artifact_digest:
+              raise SystemExit("Study binds wrong successor Dataset artifact")
+          if snapshot.plan.baseline_config.execution_overlay != CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
+              raise SystemExit("Study does not freeze causal capacity overlay")
+          if snapshot.plan.digest == EXPECTED_SOURCE_STUDY_DIGEST:
+              raise SystemExit("successor Study identity did not change")
+
+          plan_bytes = (OUT / "study" / "plan.json").read_bytes()
+          if content_digest(json.loads(plan_bytes.decode("utf-8"))) != snapshot.plan.digest:
+              raise SystemExit("published Study plan digest mismatch")
+
+          body = {
+              "schema_version": "aggtrades_calibrated_causal_identity_bundle_v1",
+              "implementation_head": "b7e234693f953e5bb62011dafd76bfdca772c036",
+              "source": {
+                  "artifact_id": 10300479733,
+                  "artifact_api_digest": "60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4",
+                  "dataset_id": source.dataset_id,
+                  "dataset_artifact_schema": source_artifact.schema_version,
+                  "dataset_artifact_digest": source_artifact.artifact_digest,
+                  "study_digest": EXPECTED_SOURCE_STUDY_DIGEST,
+              },
+              "capacity_calibration": authority.to_payload(),
+              "successor": {
+                  "dataset_id": successor.dataset_id,
+                  "dataset_artifact_schema": published.schema_version,
+                  "dataset_artifact_digest": published.artifact_digest,
+                  "study_digest": snapshot.plan.digest,
+                  "execution_overlay": CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+                  "baseline_present": False,
+                  "experiment_count": 0,
+                  "evidence_set_executed": False,
+                  "pnl_executed": False,
+              },
+          }
+          payload = {**body, "identity_index_digest": content_digest(body)}
+          (OUT / "identity-index.json").write_bytes(canonical_json_bytes(payload))
+
+          print(f"SUCCESSOR_DATASET_ID={successor.dataset_id}")
+          print(f"SUCCESSOR_DATASET_ARTIFACT_DIGEST={published.artifact_digest}")
+          print(f"SUCCESSOR_STUDY_DIGEST={snapshot.plan.digest}")
+          print(f"IDENTITY_INDEX_DIGEST={payload['identity_index_digest']}")
+          print(f"DATASET_ARRAYS_SHA256={hashlib.sha256((OUT / 'dataset' / 'arrays.npz').read_bytes()).hexdigest()}")
+          print(f"DATASET_MANIFEST_SHA256={hashlib.sha256((OUT / 'dataset' / 'manifest.json').read_bytes()).hexdigest()}")
+          print(f"STUDY_PLAN_SHA256={hashlib.sha256(plan_bytes).hexdigest()}")
+          print("P_AND_L_EXECUTED=false")
+          PY
+      - name: Upload immutable identity bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.BUNDLE_NAME }}
+          path: /tmp/issue539-out/
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh independent source re-fetch and byte reconstruction
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_ARTIFACT_ID: "10300479733"
+      SOURCE_ARTIFACT_DIGEST: "sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4"
+      BUNDLE_NAME: issue539-calibrated-causal-identities-${{ github.run_id }}
+    steps:
+      - name: Checkout immutable implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b7e234693f953e5bb62011dafd76bfdca772c036
+          persist-credentials: false
+      - name: Assert exact implementation head independently
+        run: test "$(git rev-parse HEAD)" = "b7e234693f953e5bb62011dafd76bfdca772c036"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Resolve and download published identity bundle through GitHub API
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue539-published /tmp/issue539-rebuilt /tmp/issue539-source /tmp/issue539-published.zip /tmp/issue539-source.zip
+          mkdir -p /tmp/issue539-published /tmp/issue539-rebuilt /tmp/issue539-source
+          list="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100")"
+          read -r bundle_id bundle_digest < <(printf '%s' "$list" | python3 -c 'import json,os,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"]==os.environ["BUNDLE_NAME"]]; assert len(xs)==1, len(xs); print(xs[0]["id"], xs[0]["digest"])')
+          test -n "$bundle_id"
+          test "$bundle_digest" != "null"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${bundle_id}/zip" \
+            -o /tmp/issue539-published.zip
+          test "sha256:$(sha256sum /tmp/issue539-published.zip | awk '{print $1}')" = "$bundle_digest"
+          unzip -q /tmp/issue539-published.zip -d /tmp/issue539-published
+          echo "PUBLISHED_BUNDLE_ARTIFACT_ID=$bundle_id"
+          echo "PUBLISHED_BUNDLE_API_DIGEST=$bundle_digest"
+      - name: Independently re-fetch canonical source Artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          api_digest="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          test "$api_digest" = "$SOURCE_ARTIFACT_DIGEST"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            -o /tmp/issue539-source.zip
+          test "sha256:$(sha256sum /tmp/issue539-source.zip | awk '{print $1}')" = "$SOURCE_ARTIFACT_DIGEST"
+          unzip -q /tmp/issue539-source.zip -d /tmp/issue539-source
+      - name: Independently reconstruct successor identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+              publish_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.capacity_materialization import (
+              build_aggtrades_calibrated_capacity_dataset,
+              canonical_aggtrades_capacity_authority,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+          from trade_rl.evaluation.experiments.workflow import create_study
+          from trade_rl.evaluation.runs import (
+              CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+
+          SOURCE = Path("/tmp/issue539-source")
+          OUT = Path("/tmp/issue539-rebuilt")
+          EXPECTED_SOURCE_STUDY_DIGEST = "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
+
+          source_artifact = inspect_published_market_dataset_artifact(SOURCE / "dataset")
+          source = load_market_dataset_artifact(SOURCE / "dataset")
+          bootstrap = load_canonical_m2_bootstrap_config(SOURCE / "bootstrap.json")
+          authority = canonical_aggtrades_capacity_authority()
+          successor = build_aggtrades_calibrated_capacity_dataset(
+              source,
+              source_artifact_schema=source_artifact.schema_version,
+              source_artifact_digest=source_artifact.artifact_digest,
+              authority=authority,
+          )
+          published = publish_market_dataset_artifact(OUT / "dataset", successor)
+          snapshot = create_study(
+              OUT / "study",
+              dataset_root=OUT / "dataset",
+              research_question=bootstrap.research_question,
+              baseline_config=bootstrap.baseline,
+              ppo_seeds=bootstrap.ppo_seeds,
+              allowed_factors=bootstrap.allowed_factors,
+              max_experiments=bootstrap.max_experiments,
+              n_bootstrap=bootstrap.n_bootstrap,
+              bootstrap_seed=bootstrap.bootstrap_seed,
+              execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+          if snapshot.baseline is not None or snapshot.experiment_sequences:
+              raise SystemExit("independent Study reconstruction produced evidence")
+
+          body = {
+              "schema_version": "aggtrades_calibrated_causal_identity_bundle_v1",
+              "implementation_head": "b7e234693f953e5bb62011dafd76bfdca772c036",
+              "source": {
+                  "artifact_id": 10300479733,
+                  "artifact_api_digest": "60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4",
+                  "dataset_id": source.dataset_id,
+                  "dataset_artifact_schema": source_artifact.schema_version,
+                  "dataset_artifact_digest": source_artifact.artifact_digest,
+                  "study_digest": EXPECTED_SOURCE_STUDY_DIGEST,
+              },
+              "capacity_calibration": authority.to_payload(),
+              "successor": {
+                  "dataset_id": successor.dataset_id,
+                  "dataset_artifact_schema": published.schema_version,
+                  "dataset_artifact_digest": published.artifact_digest,
+                  "study_digest": snapshot.plan.digest,
+                  "execution_overlay": CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+                  "baseline_present": False,
+                  "experiment_count": 0,
+                  "evidence_set_executed": False,
+                  "pnl_executed": False,
+              },
+          }
+          payload = {**body, "identity_index_digest": content_digest(body)}
+          (OUT / "identity-index.json").write_bytes(canonical_json_bytes(payload))
+          PY
+      - name: Require byte-identical bundle reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+
+          left = Path("/tmp/issue539-published")
+          right = Path("/tmp/issue539-rebuilt")
+          def manifest(root: Path) -> dict[str, str]:
+              result = {}
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      rel = path.relative_to(root).as_posix()
+                      result[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+              return result
+          a = manifest(left)
+          b = manifest(right)
+          if a != b:
+              only_a = sorted(set(a) - set(b))
+              only_b = sorted(set(b) - set(a))
+              diff = sorted(k for k in set(a) & set(b) if a[k] != b[k])
+              raise SystemExit(f"byte reconstruction mismatch only_published={only_a} only_rebuilt={only_b} differing={diff}")
+          index = json.loads((left / "identity-index.json").read_text(encoding="utf-8"))
+          successor = index["successor"]
+          if successor["baseline_present"] or successor["experiment_count"] != 0 or successor["evidence_set_executed"] or successor["pnl_executed"]:
+              raise SystemExit("published identity bundle crossed no-evidence/no-P&L boundary")
+          print("INDEPENDENT_BYTE_RECONSTRUCTION_VERIFIED=true")
+          print(f"SUCCESSOR_DATASET_ID={successor['dataset_id']}")
+          print(f"SUCCESSOR_DATASET_ARTIFACT_DIGEST={successor['dataset_artifact_digest']}")
+          print(f"SUCCESSOR_STUDY_DIGEST={successor['study_digest']}")
+          print(f"IDENTITY_INDEX_DIGEST={index['identity_index_digest']}")
+          print("P_AND_L_EXECUTED=false")
+          PY

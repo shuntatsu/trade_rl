@@ -55,6 +55,7 @@ def test_predictor_and_label_alignment_are_causal_and_frozen() -> None:
 
     assert protocol.buyer_taker_when_buyer_is_maker is False
     assert protocol.seller_taker_when_buyer_is_maker is True
+    assert protocol.event_time_field == "transact_time"
     assert protocol.trade_notional_formula == "price_times_quantity"
     assert protocol.predictor_formula == "buy_minus_sell_over_buy_plus_sell"
     assert protocol.predictor_hour_alignment == "completed_utc_hour"
@@ -115,6 +116,7 @@ def test_protocol_rejects_post_result_tuning_and_alignment_mutation() -> None:
 
     mutations: tuple[dict[str, object], ...] = (
         {"buyer_taker_when_buyer_is_maker": True},
+        {"event_time_field": "archive_publication_time"},
         {"predictor_formula": "sell_minus_buy_over_total"},
         {"predictor_hour_alignment": "rolling_15m"},
         {"execution_alignment": "same_bar_close"},
@@ -140,6 +142,20 @@ def test_protocol_rejects_post_result_tuning_and_alignment_mutation() -> None:
         {"post_2022_observations_allowed": True},
         {"strategy_pnl_allowed": True},
         {"numeric_capacity_result_allowed": True},
+    )
+    for mutation in mutations:
+        with pytest.raises(ValueError, match="preregistered predictive-flow contract"):
+            replace(protocol, **mutation)
+
+
+def test_protocol_rejects_bool_int_equivalence_type_spoofing() -> None:
+    protocol = canonical_m2_aggtrades_predictive_flow_screen_protocol()
+
+    mutations: tuple[dict[str, object], ...] = (
+        {"checksum_required": 1},
+        {"strict_positive_beta": 1},
+        {"label_horizon_bars": True},
+        {"source_roster_seal_artifact_id": True},
     )
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered predictive-flow contract"):

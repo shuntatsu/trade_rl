@@ -7,7 +7,9 @@ from tests.research.test_issue541_stage_a import _write_fixture, _write_json
 from tools.issue541_stage_a import verify_stage_a_bridge
 
 
-def test_bridge_allows_current_implementation_plan_and_context_only(tmp_path: Path) -> None:
+def test_bridge_allows_current_implementation_plan_and_context_only(
+    tmp_path: Path,
+) -> None:
     original = tmp_path / "original"
     replay = tmp_path / "replay"
     _write_fixture(original, implementation="1" * 64, fingerprint="2" * 64)

@@ -13,6 +13,7 @@ permissions:
 env:
   TARGET_BRANCH: feat/issue573-perp-index-basis-source
   TARGET_SHA: 413a7bb1a6760d170953fba7acecf007935c1a19
+  TEST_PATH: tests/integrations/test_binance_index_price_source.py
 
 jobs:
   red_publish_test:
@@ -24,70 +25,32 @@ jobs:
           ref: ${{ env.TARGET_SHA }}
           persist-credentials: true
           fetch-depth: 0
-      - name: Guard target branch
+      - name: Guard target and load RED helper
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "$TARGET_BRANCH" --no-tags
+          git fetch origin "$TARGET_BRANCH" automation/issue573-month-boundary-red --no-tags
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git show origin/automation/issue573-month-boundary-red:tools/tmp_issue573_add_month_boundary_test.py > /tmp/add_test.py
       - name: Add adversarial archive-month boundary test
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat >> tests/integrations/test_binance_index_price_source.py <<'PY'
-
-
-def test_transport_rejects_row_outside_archive_calendar_month(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    url = vision_monthly_index_price_kline_url(
-        market=BinanceMarket.USDS_M,
-        symbol="BTCUSDT",
-        interval="1h",
-        month="2022-01",
-    )
-    rows = [
-        _row(datetime(2022, 1, 31, 23, tzinfo=UTC), close=100.0),
-        _row(datetime(2022, 2, 1, 0, tzinfo=UTC), close=101.0),
-    ]
-    payload = _zip_bytes("BTCUSDT-1h-2022-01.csv", _csv_bytes(rows))
-    digest = hashlib.sha256(payload).hexdigest()
-    checksum = f"{digest}  BTCUSDT-1h-2022-01.zip\n".encode()
-    transport = BinancePublicTransport(max_attempts=1)
-
-    def request_bytes(request_url: str) -> bytes:
-        if request_url == url:
-            return payload
-        if request_url == url + ".CHECKSUM":
-            return checksum
-        raise AssertionError(request_url)
-
-    monkeypatch.setattr(transport, "_request_bytes", request_bytes)
-    with pytest.raises(BinanceTransportError, match="month|boundary|archive"):
-        transport.load_index_price_klines(
-            market=BinanceMarket.USDS_M,
-            symbol="BTCUSDT",
-            interval="1h",
-            start_ms=_ms(datetime(2022, 1, 1, tzinfo=UTC)),
-            end_ms=_ms(datetime(2022, 2, 1, tzinfo=UTC)),
-            mode=BinanceTransportMode.VISION,
-            expected_archive_sha256={url: digest},
-        )
-PY
-          uv run ruff format tests/integrations/test_binance_index_price_source.py || true
+        run: python3 /tmp/add_test.py
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: "0.10.0"
           python-version: "3.12"
       - run: uv sync --extra dev
+      - name: Format and lint RED test
+        run: |
+          uv run ruff format "$TEST_PATH"
+          uv run ruff check "$TEST_PATH"
       - name: Require intended RED
         shell: bash
         run: |
           set +e
           uv run pytest -q \
-            tests/integrations/test_binance_index_price_source.py::test_transport_rejects_row_outside_archive_calendar_month \
+            "$TEST_PATH"::test_transport_rejects_row_outside_archive_calendar_month \
             > /tmp/red.log 2>&1
           status=$?
           set -e
@@ -95,16 +58,14 @@ PY
           test "$status" -ne 0
           grep -q 'DID NOT RAISE' /tmp/red.log
           ! grep -q 'SyntaxError' /tmp/red.log
-      - name: Format lint and publish failing test only
+      - name: Guard and publish failing test only
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff format tests/integrations/test_binance_index_price_source.py
-          uv run ruff check tests/integrations/test_binance_index_price_source.py
           git fetch origin "$TARGET_BRANCH" --no-tags
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/integrations/test_binance_index_price_source.py
+          git add "$TEST_PATH"
           git commit -m "test: reject index archive month-boundary drift"
           git push origin HEAD:"$TARGET_BRANCH"

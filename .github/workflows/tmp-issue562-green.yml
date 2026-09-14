@@ -1,0 +1,46 @@
+name: Temporary Issue 562 synthetic GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue562-green-d90f8d4
+    paths:
+      - .github/workflows/tmp-issue562-green.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: d90f8d4fdf157cbeda28c5a863a4b4f599765bad
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format check
+        run: |
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+      - name: Ruff
+        run: |
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+      - name: Mypy
+        run: uv run mypy trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py
+      - name: Targeted calibration tests
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py

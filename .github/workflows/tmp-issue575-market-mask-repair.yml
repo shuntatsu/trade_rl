@@ -1,0 +1,141 @@
+name: Temporary Issue 575 market-mask repair
+
+on:
+  push:
+    branches:
+      - automation/issue575-market-mask-repair
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue575-basis-calibration
+  EXPECTED_HEAD: 1b6c48e66a66a664b5ea9a25c8c57d74beac38cf
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard exact target head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          remote="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
+          test "$remote" = "$EXPECTED_HEAD"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Apply minimal MarketDataset contract repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          production = Path("trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py")
+          text = production.read_text()
+          replacements = [
+              (
+                  ") -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:",
+                  ") -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:",
+              ),
+              (
+                  '    rows = _required_bool_matrix(dataset.row_present, field="row_present")\n',
+                  '',
+              ),
+              (
+                  '        ("row_present", rows),\n',
+                  '',
+              ),
+              (
+                  '    return feature_index, timestamps, features, available, opens, active, tradable, information, rows\n',
+                  '    return feature_index, timestamps, features, available, opens, active, tradable, information\n',
+              ),
+              (
+                  '        rows,\n    ) = _validate_dataset(dataset, protocol)\n',
+                  '    ) = _validate_dataset(dataset, protocol)\n',
+              ),
+              (
+                  '            if not (\n                rows[t, symbol_index]\n                and active[t, symbol_index]\n',
+                  '            if not (\n                active[t, symbol_index]\n',
+              ),
+              (
+                  '            label_window = slice(t + execution_offset, endpoint + 1)\n            if not np.all(rows[label_window, symbol_index]):\n                continue\n            if not np.all(active[label_window, symbol_index]):\n',
+                  '            # Raw row_present is intentionally not persisted on MarketDataset.\n            # The canonical builder folds it fail-closed into both tradable and\n            # information_available, so requiring those masks preserves row presence.\n            label_window = slice(t + execution_offset, endpoint + 1)\n            if not np.all(active[label_window, symbol_index]):\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"production replacement expected once, found {count}: {old!r}")
+              text = text.replace(old, new)
+          production.write_text(text)
+
+          tests = Path("tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py")
+          text = tests.read_text()
+          replacements = [
+              (
+                  '        row_present=np.ones(shape, dtype=np.bool_),\n',
+                  '',
+              ),
+              (
+                  '    "field", ["row_present", "information_available", "tradable", "asset_active"]\n',
+                  '    "field", ["information_available", "tradable", "asset_active"]\n',
+              ),
+              (
+                  'def test_label_window_requires_present_information_active_and_tradable(\n',
+                  'def test_label_window_requires_canonical_information_active_and_tradable(\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"test replacement expected once, found {count}: {old!r}")
+              text = text.replace(old, new)
+
+          marker = '\n\ndef test_unavailable_feature_excludes_exact_decision() -> None:\n'
+          if text.count(marker) != 1:
+              raise SystemExit("test insertion marker must occur exactly once")
+          regression = '''\n\ndef test_absent_label_row_is_excluded_by_canonical_market_masks() -> None:\n    module = _api()\n    protocol = canonical_perp_index_basis_protocol()\n    dataset = _dataset()\n    baseline = module.calibrate_perp_index_basis(dataset, protocol)\n    information = np.asarray(dataset.information_available).copy()\n    tradable = np.asarray(dataset.tradable).copy()\n    information[100, 0] = False\n    tradable[100, 0] = False\n    absent = _replace_array(dataset, "information_available", information)\n    absent = _replace_array(absent, "tradable", tradable)\n    changed = module.calibrate_perp_index_basis(absent, protocol)\n    assert (\n        baseline.symbol_results[0].eligible_observations\n        - changed.symbol_results[0].eligible_observations\n        == 26\n    )\n'''
+          text = text.replace(marker, regression + marker)
+          tests.write_text(text)
+          PY
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+      - name: Focused static checks
+        run: |
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py
+      - name: Focused calibration GREEN
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+      - name: Review repair diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff -- trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+          test "$(git diff --name-only | wc -l)" -eq 2
+      - name: Commit and publish repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
+          test "$remote" = "$EXPECTED_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py
+          git commit -m "fix: align basis calibration with market masks"
+          git push origin "HEAD:$TARGET_BRANCH"

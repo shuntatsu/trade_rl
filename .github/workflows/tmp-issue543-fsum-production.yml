@@ -1,0 +1,85 @@
+name: Temporary Issue 543 portable sensitivity fix
+
+on:
+  push:
+    branches:
+      - research/issue543-loss-attribution
+    paths:
+      - .github/workflows/tmp-issue543-fsum-production.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue543-loss-attribution
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Replace BLAS reductions with fixed-order scalar sums
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/loss_attribution.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    strategy_centered = strategy - float(np.mean(strategy))
+    market_centered = market - float(np.mean(market))
+    strategy_ss = float(np.dot(strategy_centered, strategy_centered))
+    market_ss = float(np.dot(market_centered, market_centered))
+    if strategy_ss <= _TOLERANCE or market_ss <= _TOLERANCE:
+        return None, None
+    cross = float(np.dot(strategy_centered, market_centered))
+    correlation = cross / math.sqrt(strategy_ss * market_ss)
+    beta = cross / market_ss
+    return float(correlation), float(beta)
+'''
+          new = '''    if strategy.size == 0:
+        raise ValueError("strategy and mark returns must not be empty")
+    strategy_mean = math.fsum(float(value) for value in strategy) / strategy.size
+    market_mean = math.fsum(float(value) for value in market) / market.size
+    strategy_centered = tuple(float(value) - strategy_mean for value in strategy)
+    market_centered = tuple(float(value) - market_mean for value in market)
+    strategy_ss = math.fsum(value * value for value in strategy_centered)
+    market_ss = math.fsum(value * value for value in market_centered)
+    if strategy_ss <= _TOLERANCE or market_ss <= _TOLERANCE:
+        return None, None
+    cross = math.fsum(
+        strategy_value * market_value
+        for strategy_value, market_value in zip(
+            strategy_centered,
+            market_centered,
+            strict=True,
+        )
+    )
+    correlation = cross / math.sqrt(strategy_ss * market_ss)
+    beta = cross / market_ss
+    return correlation, beta
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected BLAS sensitivity block not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          uv run ruff format trade_rl/evaluation/loss_attribution.py
+          uv run ruff check trade_rl/evaluation/loss_attribution.py tests/evaluation/test_loss_attribution_portability.py
+          uv run ruff format --check trade_rl/evaluation/loss_attribution.py tests/evaluation/test_loss_attribution_portability.py
+          uv run pytest -q tests/evaluation/test_loss_attribution_portability.py tests/evaluation/test_loss_attribution.py
+      - name: Commit production fix only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/loss_attribution.py
+          test "$(git diff --cached --name-only)" = "trade_rl/evaluation/loss_attribution.py"
+          git commit -m 'fix: make loss attribution sensitivity portable'
+          git push origin HEAD:research/issue543-loss-attribution

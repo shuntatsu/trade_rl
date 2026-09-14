@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+import trade_rl.evaluation.loss_attribution as loss_attribution
 from trade_rl.evaluation.loss_attribution import _market_sensitivity
 
 
-def test_market_sensitivity_is_fixed_order_and_blas_independent() -> None:
+def _inputs() -> tuple[np.ndarray, np.ndarray]:
     strategy = np.asarray(
         [
             -0.009891213503478508,
@@ -36,6 +38,28 @@ def test_market_sensitivity_is_fixed_order_and_blas_independent() -> None:
         ],
         dtype=np.float64,
     )
+    return strategy, market
+
+
+def test_market_sensitivity_is_fixed_order_and_blas_independent() -> None:
+    strategy, market = _inputs()
+
+    correlation, beta = _market_sensitivity(strategy, market)
+
+    assert correlation == 0.22849169250485715
+    assert beta == 0.08809694283757973
+
+
+def test_market_sensitivity_does_not_use_numpy_reductions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy, market = _inputs()
+
+    def forbidden(*args: object, **kwargs: object) -> object:
+        raise AssertionError("portable sensitivity must not use NumPy reductions")
+
+    monkeypatch.setattr(loss_attribution.np, "mean", forbidden)
+    monkeypatch.setattr(loss_attribution.np, "dot", forbidden)
 
     correlation, beta = _market_sensitivity(strategy, market)
 

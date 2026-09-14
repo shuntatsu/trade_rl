@@ -1,9 +1,9 @@
-name: Temporary Issue 571 full index source preflight
+name: Temporary Issue 571 full index source preflight v2
 
 on:
   push:
     branches:
-      - verify/issue571-full-index-preflight
+      - verify/issue571-full-index-preflight-v2
     paths:
       - .github/workflows/tmp-issue571-full-index-preflight.yml
 
@@ -12,16 +12,16 @@ permissions:
   contents: read
 
 env:
-  PREREG_PR_HEAD: b4cb6ac9f713021ffd141765812f12af31c2856e
-  PREREG_PROTOCOL_DIGEST: dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013
-  PREREG_PROTOCOL_SHA256: dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013
-  PREREG_SEAL_RUN_ID: "34866000147"
-  PREREG_SEAL_ARTIFACT_ID: "10357270841"
-  PREREG_SEAL_ARTIFACT_NAME: issue571-perp-index-basis-prereg-seal-v1-34866000147
-  PREREG_SEAL_ARTIFACT_DIGEST: sha256:0a8bd8c1fcc4838ec0773b81a723062ebe438ac182ad3ac8dcb7e8da1428cea3
-  PREREG_FRESH_ARTIFACT_ID: "10357655222"
-  PREREG_FRESH_ARTIFACT_NAME: issue571-perp-index-basis-prereg-fresh-v1-34866000147
-  PREREG_FRESH_ARTIFACT_DIGEST: sha256:fdf3d453cc484d35b2c2193d843e5fb051289792ae9e832fc052e17f9e6e1358
+  PREREG_PR_HEAD: 795b2e9efc2e7d9d65a7131a160c7da16ba02043
+  PREREG_PROTOCOL_DIGEST: 1dc531fb15bde8cb5d87531456bf9220843b1380f33831764ee56c7312c2a091
+  PREREG_PROTOCOL_SHA256: 1dc531fb15bde8cb5d87531456bf9220843b1380f33831764ee56c7312c2a091
+  PREREG_SEAL_RUN_ID: "34867687158"
+  PREREG_SEAL_ARTIFACT_ID: "10357004799"
+  PREREG_SEAL_ARTIFACT_NAME: issue571-perp-index-basis-prereg-seal-v2-34867687158
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:e4b156b66d273bebe012b664ed0f72ef551d46cb48ca0a8fddb04ba5ff61c96b
+  PREREG_FRESH_ARTIFACT_ID: "10357836707"
+  PREREG_FRESH_ARTIFACT_NAME: issue571-perp-index-basis-prereg-fresh-v2-34867687158
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:ff4ce128b2b2103c309d94f2731505bd2c5e0029df99c47d9783b6e566c548f4
 
 jobs:
   publisher:
@@ -91,6 +91,11 @@ jobs:
               raise RuntimeError('issue authority differs')
           if protocol.get('full_preflight_required') is not True:
               raise RuntimeError('full preflight is not authorized')
+          expected_months = [
+              f'{year}-{month:02d}' for year in (2021, 2022) for month in range(1, 13)
+          ]
+          if protocol.get('full_preflight_months') != expected_months:
+              raise RuntimeError('preflight month roster differs')
           if protocol.get('full_preflight_start_month') != '2021-01':
               raise RuntimeError('preflight start differs')
           if protocol.get('full_preflight_end_month') != '2022-12':
@@ -101,10 +106,31 @@ jobs:
               raise RuntimeError('source family differs')
           if protocol.get('full_preflight_interval') != '1h':
               raise RuntimeError('interval differs')
+          if protocol.get('index_source_market') != 'USD_M':
+              raise RuntimeError('index market differs')
+          if protocol.get('perpetual_source_market') != 'USD_M':
+              raise RuntimeError('perpetual market differs')
+          if protocol.get('perpetual_source_family') != 'klines':
+              raise RuntimeError('perpetual source family differs')
+          if protocol.get('full_preflight_archive_root') != 'https://data.binance.vision/data/futures/um/monthly/indexPriceKlines':
+              raise RuntimeError('archive root differs')
+          if protocol.get('full_preflight_archive_url_template') != 'https://data.binance.vision/data/futures/um/monthly/indexPriceKlines/{symbol}/1h/{symbol}-1h-{month}.zip':
+              raise RuntimeError('archive URL template differs')
+          if protocol.get('full_preflight_checksum_suffix') != '.CHECKSUM':
+              raise RuntimeError('checksum suffix differs')
+          if protocol.get('full_preflight_checksum_required') is not True:
+              raise RuntimeError('checksum requirement differs')
           if protocol.get('full_preflight_sparse_rows_remain_unavailable') is not True:
               raise RuntimeError('sparse policy differs')
           if protocol.get('full_preflight_replacement_source_allowed') is not False:
               raise RuntimeError('replacement source boundary differs')
+          for key in (
+              'rank_transform_allowed',
+              'weighted_regression_allowed',
+              'robust_regression_fallback_allowed',
+          ):
+              if protocol.get(key) is not False:
+                  raise RuntimeError(f'hardened rescue boundary differs: {key}')
           for key in (
               'training_relation_executed',
               'evaluation_pnl_inspected',
@@ -118,11 +144,15 @@ jobs:
                   raise RuntimeError(f'protocol result boundary violated: {key}')
 
           seal = json.loads(Path('/tmp/prereg-seal/seal-index.json').read_bytes())
+          if seal.get('schema_version') != 'issue571_perp_index_basis_prereg_seal_v2':
+              raise RuntimeError('seal schema differs')
           if seal.get('pr_head') != os.environ['PREREG_PR_HEAD']:
               raise RuntimeError('prereg head differs')
           if seal.get('protocol_digest') != os.environ['PREREG_PROTOCOL_DIGEST']:
               raise RuntimeError('prereg digest differs')
           fresh = json.loads(Path('/tmp/prereg-fresh/fresh-verification.json').read_bytes())
+          if fresh.get('schema_version') != 'issue571_perp_index_basis_prereg_fresh_verification_v2':
+              raise RuntimeError('fresh schema differs')
           if fresh.get('fresh_reconstruction_passed') is not True:
               raise RuntimeError('prereg fresh reconstruction did not pass')
           if fresh.get('protocol_digest') != os.environ['PREREG_PROTOCOL_DIGEST']:
@@ -153,7 +183,7 @@ jobs:
           echo "content_digest=$content_digest" >> "$GITHUB_OUTPUT"
           printf 'report sha256=%s content_digest=%s\n' "$report_sha256" "$content_digest"
       - id: meta
-        run: echo "name=issue571-full-index-preflight-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+        run: echo "name=issue571-full-index-preflight-v2-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
       - name: Upload immutable publisher report
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -226,7 +256,7 @@ jobs:
           printf 'fresh byte-identical reconstruction: OK sha256=%s content_digest=%s\n' \
             "$actual_sha256" "$actual_content_digest"
       - id: meta
-        run: echo "name=issue571-full-index-preflight-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+        run: echo "name=issue571-full-index-preflight-v2-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
       - name: Upload fresh reconstructed report
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -275,13 +305,26 @@ jobs:
           cmp /tmp/publisher/full-index-preflight.json /tmp/fresh/full-index-preflight.json
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           report = json.loads(Path('/tmp/publisher/full-index-preflight.json').read_bytes())
+          if report.get('schema_version') != 'issue571_full_index_preflight_v2':
+              raise RuntimeError('preflight schema differs')
           if report.get('planned_archives') != 120:
               raise RuntimeError('planned archive count differs')
-          if report.get('prereg_protocol_digest') != 'dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013':
+          if report.get('prereg_pr_head') != os.environ['PREREG_PR_HEAD']:
+              raise RuntimeError('prereg head binding differs')
+          if report.get('prereg_protocol_digest') != os.environ['PREREG_PROTOCOL_DIGEST']:
               raise RuntimeError('protocol binding differs')
+          if report.get('prereg_seal_run_id') != int(os.environ['PREREG_SEAL_RUN_ID']):
+              raise RuntimeError('seal run binding differs')
+          if report.get('source_root') != 'https://data.binance.vision/data/futures/um/monthly/indexPriceKlines':
+              raise RuntimeError('source root differs')
+          if report.get('months') != [
+              f'{year}-{month:02d}' for year in (2021, 2022) for month in range(1, 13)
+          ]:
+              raise RuntimeError('month roster differs')
           if report.get('sparse_rows_remain_unavailable') is not True:
               raise RuntimeError('sparse policy differs')
           if report.get('replacement_source_used') is not False:
@@ -295,5 +338,5 @@ jobs:
           ):
               if report.get(key) is not False:
                   raise RuntimeError(f'result-blind boundary violated: {key}')
-          print('Issue 571 full index preflight audit: PASS status=' + str(report.get('status')))
+          print('Issue 571 full index preflight v2 audit: PASS status=' + str(report.get('status')))
           PY

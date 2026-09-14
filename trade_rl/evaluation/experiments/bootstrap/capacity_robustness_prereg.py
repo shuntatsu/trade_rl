@@ -17,7 +17,7 @@ from trade_rl._validation import (
 )
 from trade_rl.artifacts.hashing import content_digest
 
-_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v2"
+_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v3"
 _SOURCE_BASELINE_ARTIFACT_ID = 10301701698
 _SOURCE_BASELINE_ARTIFACT_DIGEST = (
     "f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a"
@@ -57,6 +57,7 @@ _CAPACITY_RESULT_DIGEST = (
 _CAPACITY_RESULT_JSON_SHA256 = (
     "397004e6a1a9c3b30b32212066ac41366f7af74edc0ae23372f847e50c6c5a4e"
 )
+_CAPACITY_RESULT_RUN_ID = 34766830666
 _CAPACITY_RESULT_ARTIFACT_ID = 10320428830
 _CAPACITY_RESULT_ARTIFACT_DIGEST = (
     "810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35"
@@ -70,37 +71,38 @@ _CAPACITY_VERIFIER_ARTIFACT_DIGEST = (
 _CAUSAL_CAPACITY_PR = 531
 _CAUSAL_CAPACITY_HEAD_SHA = "db8193c81dd0ca334a15ffc1895d75884238f8a9"
 _IDENTITY_LAYER_PR = 540
-_IDENTITY_LAYER_HEAD_SHA = "15bf6546996dc969d4d6e946261d73e3d43336e6"
-_IDENTITY_LAYER_CI_RUN_ID = 34793925990
-_SUCCESSOR_BUNDLE_RUN_ID = 34794384559
-_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10329107309
+_IDENTITY_LAYER_HEAD_SHA = "3e111a59153b7353e26080bd569b9775190577be"
+_IDENTITY_LAYER_CI_RUN_ID = 34803217815
+_SUCCESSOR_BUNDLE_RUN_ID = 34803217815
+_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10331899302
 _SUCCESSOR_BUNDLE_ARTIFACT_DIGEST = (
-    "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"
+    "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
 _SUCCESSOR_DATASET_ID = (
-    "6a9d6066fe8f92d46fe57a1d8172a60092568e625b2e843dc7a0c3930d79de86"
+    "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
 )
 _SUCCESSOR_DATASET_ARTIFACT_DIGEST = (
-    "9a3f01bc4608c256b5c448e5cee123c4653fe02060040dc7909b4eb1c6c3e30f"
+    "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
 )
 _SUCCESSOR_STUDY_DIGEST = (
-    "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"
+    "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
 )
 _SUCCESSOR_DATASET_TREE_DIGEST = (
-    "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"
+    "2dd187a2cf4634e1c902f58592a15b4942127190a9eee16e0efe004da8a470f0"
 )
 _SUCCESSOR_STUDY_TREE_DIGEST = (
-    "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"
+    "5fda054135f90ff6b35353a145dfe488dbeb45d43f9a5d391bc7e394c2dcc151"
 )
 _SUCCESSOR_MATERIALIZATION_INDEX_SHA256 = (
-    "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+    "9bddde683d4ca8d3596fb62a5612b1b4487aaa1dc11ef631923b5e51e030ba3c"
 )
 _SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST = (
     "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"
 )
-_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID = 10329905111
+_SUCCESSOR_FRESH_VERIFICATION_RUN_ID = 34803432434
+_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID = 10332575500
 _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST = (
-    "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"
+    "2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589"
 )
 _SUCCESSOR_EXECUTION_OVERLAY = (
     "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
@@ -299,6 +301,7 @@ class CapacityRobustnessProtocol:
     capacity_protocol_digest: str
     capacity_result_digest: str
     capacity_result_json_sha256: str
+    capacity_result_run_id: int
     capacity_result_artifact_id: int
     capacity_result_artifact_digest: str
     capacity_verifier_run_id: int
@@ -319,6 +322,7 @@ class CapacityRobustnessProtocol:
     successor_study_tree_digest: str
     successor_materialization_index_sha256: str
     successor_runtime_environment_digest: str
+    successor_fresh_verification_run_id: int
     successor_fresh_verification_artifact_id: int
     successor_fresh_verification_artifact_digest: str
     successor_execution_overlay: str
@@ -415,6 +419,10 @@ class CapacityRobustnessProtocol:
             field="capacity_result_json_sha256",
         )
         _positive_int(
+            self.capacity_result_run_id,
+            field="capacity_result_run_id",
+        )
+        _positive_int(
             self.capacity_result_artifact_id,
             field="capacity_result_artifact_id",
         )
@@ -487,6 +495,10 @@ class CapacityRobustnessProtocol:
         require_sha256(
             self.successor_runtime_environment_digest,
             field="successor_runtime_environment_digest",
+        )
+        _positive_int(
+            self.successor_fresh_verification_run_id,
+            field="successor_fresh_verification_run_id",
         )
         _positive_int(
             self.successor_fresh_verification_artifact_id,
@@ -651,6 +663,7 @@ class CapacityRobustnessProtocol:
             "capacity_protocol_digest": self.capacity_protocol_digest,
             "capacity_result_digest": self.capacity_result_digest,
             "capacity_result_json_sha256": self.capacity_result_json_sha256,
+            "capacity_result_run_id": self.capacity_result_run_id,
             "capacity_result_artifact_id": self.capacity_result_artifact_id,
             "capacity_result_artifact_digest": self.capacity_result_artifact_digest,
             "capacity_verifier_run_id": self.capacity_verifier_run_id,
@@ -671,6 +684,7 @@ class CapacityRobustnessProtocol:
             "successor_study_tree_digest": self.successor_study_tree_digest,
             "successor_materialization_index_sha256": self.successor_materialization_index_sha256,
             "successor_runtime_environment_digest": self.successor_runtime_environment_digest,
+            "successor_fresh_verification_run_id": self.successor_fresh_verification_run_id,
             "successor_fresh_verification_artifact_id": self.successor_fresh_verification_artifact_id,
             "successor_fresh_verification_artifact_digest": self.successor_fresh_verification_artifact_digest,
             "successor_execution_overlay": self.successor_execution_overlay,
@@ -743,6 +757,7 @@ def _registered_payload() -> dict[str, object]:
         "capacity_protocol_digest": _CAPACITY_PROTOCOL_DIGEST,
         "capacity_result_digest": _CAPACITY_RESULT_DIGEST,
         "capacity_result_json_sha256": _CAPACITY_RESULT_JSON_SHA256,
+        "capacity_result_run_id": _CAPACITY_RESULT_RUN_ID,
         "capacity_result_artifact_id": _CAPACITY_RESULT_ARTIFACT_ID,
         "capacity_result_artifact_digest": _CAPACITY_RESULT_ARTIFACT_DIGEST,
         "capacity_verifier_run_id": _CAPACITY_VERIFIER_RUN_ID,
@@ -763,6 +778,7 @@ def _registered_payload() -> dict[str, object]:
         "successor_study_tree_digest": _SUCCESSOR_STUDY_TREE_DIGEST,
         "successor_materialization_index_sha256": _SUCCESSOR_MATERIALIZATION_INDEX_SHA256,
         "successor_runtime_environment_digest": _SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST,
+        "successor_fresh_verification_run_id": _SUCCESSOR_FRESH_VERIFICATION_RUN_ID,
         "successor_fresh_verification_artifact_id": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID,
         "successor_fresh_verification_artifact_digest": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST,
         "successor_execution_overlay": _SUCCESSOR_EXECUTION_OVERLAY,
@@ -852,6 +868,9 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         capacity_protocol_digest=cast(str, raw.get("capacity_protocol_digest")),
         capacity_result_digest=cast(str, raw.get("capacity_result_digest")),
         capacity_result_json_sha256=cast(str, raw.get("capacity_result_json_sha256")),
+        capacity_result_run_id=_positive_int(
+            raw.get("capacity_result_run_id"), field="capacity_result_run_id"
+        ),
         capacity_result_artifact_id=_positive_int(
             raw.get("capacity_result_artifact_id"), field="capacity_result_artifact_id"
         ),
@@ -903,6 +922,10 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         ),
         successor_runtime_environment_digest=cast(
             str, raw.get("successor_runtime_environment_digest")
+        ),
+        successor_fresh_verification_run_id=_positive_int(
+            raw.get("successor_fresh_verification_run_id"),
+            field="successor_fresh_verification_run_id",
         ),
         successor_fresh_verification_artifact_id=_positive_int(
             raw.get("successor_fresh_verification_artifact_id"),

@@ -41,44 +41,46 @@ def test_capacity_robustness_protocol_freezes_pre_successor_authority() -> None:
         "cb92548157200067907abdb221bcfb9cea5fa527dd22193ae065fcad9c4fdbe7"
     )
 
+    assert protocol.capacity_result_run_id == 34766830666
     assert protocol.causal_capacity_head_sha == (
         "db8193c81dd0ca334a15ffc1895d75884238f8a9"
     )
     assert protocol.identity_layer_head_sha == (
-        "15bf6546996dc969d4d6e946261d73e3d43336e6"
+        "3e111a59153b7353e26080bd569b9775190577be"
     )
-    assert protocol.identity_layer_ci_run_id == 34793925990
-    assert protocol.successor_bundle_run_id == 34794384559
-    assert protocol.successor_bundle_artifact_id == 10329107309
+    assert protocol.identity_layer_ci_run_id == 34803217815
+    assert protocol.successor_bundle_run_id == 34803217815
+    assert protocol.successor_bundle_artifact_id == 10331899302
     assert protocol.successor_bundle_artifact_digest == (
-        "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"
+        "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
     )
     assert protocol.successor_dataset_id == (
-        "6a9d6066fe8f92d46fe57a1d8172a60092568e625b2e843dc7a0c3930d79de86"
+        "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
     )
     assert protocol.successor_dataset_artifact_digest == (
-        "9a3f01bc4608c256b5c448e5cee123c4653fe02060040dc7909b4eb1c6c3e30f"
+        "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
     )
     assert protocol.successor_study_digest == (
-        "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"
+        "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
     )
     assert protocol.successor_dataset_tree_digest == (
-        "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"
+        "2dd187a2cf4634e1c902f58592a15b4942127190a9eee16e0efe004da8a470f0"
     )
     assert protocol.successor_study_tree_digest == (
-        "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"
+        "5fda054135f90ff6b35353a145dfe488dbeb45d43f9a5d391bc7e394c2dcc151"
     )
     assert protocol.successor_materialization_index_sha256 == (
-        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+        "9bddde683d4ca8d3596fb62a5612b1b4487aaa1dc11ef631923b5e51e030ba3c"
     )
     assert protocol.successor_runtime_environment_digest == (
         "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"
     )
-    assert protocol.successor_fresh_verification_artifact_id == 10329905111
+    assert protocol.successor_fresh_verification_run_id == 34803432434
+    assert protocol.successor_fresh_verification_artifact_id == 10332575500
     assert protocol.successor_fresh_verification_artifact_digest == (
-        "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"
+        "2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589"
     )
-    assert protocol.schema_version == "calibrated_capacity_robustness_prereg_v2"
+    assert protocol.schema_version == "calibrated_capacity_robustness_prereg_v3"
     assert protocol.successor_execution_overlay == (
         "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
     )
@@ -192,6 +194,7 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"source_implementation_sha": "0" * 40},
         {"source_runtime_environment_digest": "0" * 64},
         {"capacity_result_digest": "0" * 64},
+        {"capacity_result_run_id": 1},
         {"capacity_result_artifact_id": 1},
         {"capacity_verifier_artifact_digest": "0" * 64},
         {"successor_bundle_artifact_id": 1},
@@ -207,6 +210,7 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"successor_study_tree_digest": "0" * 64},
         {"successor_materialization_index_sha256": "0" * 64},
         {"successor_runtime_environment_digest": "0" * 64},
+        {"successor_fresh_verification_run_id": 1},
         {"successor_fresh_verification_artifact_id": 1},
         {"successor_fresh_verification_artifact_digest": "0" * 64},
         {"capacity_caps": (0.05,) * 5},
@@ -254,7 +258,7 @@ def test_protocol_payload_is_strict_and_contains_no_successor_result(tmp_path) -
     assert forbidden.isdisjoint(payload)
     assert "successor_identity_index_digest" not in payload
     assert payload["successor_materialization_index_sha256"] == (
-        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+        "9bddde683d4ca8d3596fb62a5612b1b4487aaa1dc11ef631923b5e51e030ba3c"
     )
 
     path = tmp_path / "capacity-robustness-prereg.json"

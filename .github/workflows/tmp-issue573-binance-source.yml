@@ -66,8 +66,10 @@ jobs:
           set -euo pipefail
           uv run pytest -q \
             tests/integrations/test_binance_index_price_source.py \
-            tests/integrations/test_binance_vision.py \
             tests/integrations/test_binance.py \
+            tests/integrations/test_binance_multitimeframe.py \
+            tests/integrations/test_binance_vision_cache.py \
+            tests/integrations/test_binance_cache.py \
             tests/data/test_perp_index_basis_feature.py \
             tests/data/test_market_builder.py \
             tests/data/test_information_availability.py
@@ -78,7 +80,7 @@ jobs:
           git fetch origin "$TARGET_BRANCH" --no-tags
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+shuntatsu@users.noreply.github.com"
           git add \
             trade_rl/integrations/binance/vision.py \
             trade_rl/integrations/binance/transport.py \

@@ -71,7 +71,6 @@ def _dataset(
         periods_per_year=8_760,
         asset_active=np.ones(shape, dtype=np.bool_),
         information_available=np.ones(shape, dtype=np.bool_),
-        row_present=np.ones(shape, dtype=np.bool_),
         available_at=np.broadcast_to(timestamps[:, None], shape).copy(),
     )
 
@@ -164,10 +163,8 @@ def test_coverage_and_zero_denominator_fail_closed() -> None:
     assert result.symbol_results[0].beta is None
 
 
-@pytest.mark.parametrize(
-    "field", ["row_present", "information_available", "tradable", "asset_active"]
-)
-def test_label_window_requires_present_information_active_and_tradable(
+@pytest.mark.parametrize("field", ["information_available", "tradable", "asset_active"])
+def test_label_window_requires_canonical_information_active_and_tradable(
     field: str,
 ) -> None:
     module = _api()
@@ -179,6 +176,25 @@ def test_label_window_requires_present_information_active_and_tradable(
     changed = module.calibrate_perp_index_basis(
         _replace_array(dataset, field, values), protocol
     )
+    assert (
+        baseline.symbol_results[0].eligible_observations
+        - changed.symbol_results[0].eligible_observations
+        == 26
+    )
+
+
+def test_absent_label_row_is_excluded_by_canonical_market_masks() -> None:
+    module = _api()
+    protocol = canonical_perp_index_basis_protocol()
+    dataset = _dataset()
+    baseline = module.calibrate_perp_index_basis(dataset, protocol)
+    information = np.asarray(dataset.information_available).copy()
+    tradable = np.asarray(dataset.tradable).copy()
+    information[100, 0] = False
+    tradable[100, 0] = False
+    absent = _replace_array(dataset, "information_available", information)
+    absent = _replace_array(absent, "tradable", tradable)
+    changed = module.calibrate_perp_index_basis(absent, protocol)
     assert (
         baseline.symbol_results[0].eligible_observations
         - changed.symbol_results[0].eligible_observations

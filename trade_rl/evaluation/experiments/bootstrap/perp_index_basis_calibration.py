@@ -224,7 +224,9 @@ class PerpIndexBasisCalibrationResult:
                 else protocol.reject_status
             )
             if self.status != expected_status:
-                raise ValueError("calibration decision does not match frozen slope gate")
+                raise ValueError(
+                    "calibration decision does not match frozen slope gate"
+                )
 
         fixed_authority = {
             "prereg_head": _PREREG_HEAD,
@@ -318,7 +320,9 @@ class PerpIndexBasisCalibrationResult:
         if self.calibration_head is None:
             raise ValueError("calibration_head is required for artifact publication")
         if self.source_manifest_digest is None:
-            raise ValueError("source_manifest_digest is required for artifact publication")
+            raise ValueError(
+                "source_manifest_digest is required for artifact publication"
+            )
 
     def to_artifact_payload(self) -> dict[str, object]:
         self._require_publication_authority()
@@ -328,7 +332,16 @@ class PerpIndexBasisCalibrationResult:
 def _validate_dataset(
     dataset: MarketDataset,
     protocol: PerpIndexBasisProtocol,
-) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[
+    int,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     if tuple(dataset.symbols) != protocol.symbols:
         raise ValueError("Dataset symbol roster does not match the sealed protocol")
     matches = [
@@ -357,7 +370,6 @@ def _validate_dataset(
     information = _required_bool_matrix(
         dataset.information_available, field="information_available"
     )
-    rows = _required_bool_matrix(dataset.row_present, field="row_present")
     if features.shape[:2] != expected_shape or available.shape != features.shape:
         raise ValueError("Dataset feature shape is invalid")
     for field_name, array in (
@@ -365,11 +377,19 @@ def _validate_dataset(
         ("asset_active", active),
         ("tradable", tradable),
         ("information_available", information),
-        ("row_present", rows),
     ):
         if array.shape != expected_shape:
             raise ValueError(f"Dataset {field_name} shape is invalid")
-    return feature_index, timestamps, features, available, opens, active, tradable, information, rows
+    return (
+        feature_index,
+        timestamps,
+        features,
+        available,
+        opens,
+        active,
+        tradable,
+        information,
+    )
 
 
 def calibrate_perp_index_basis(
@@ -381,7 +401,9 @@ def calibrate_perp_index_basis(
 ) -> PerpIndexBasisCalibrationResult:
     canonical = canonical_perp_index_basis_protocol()
     if protocol != canonical or protocol.digest != canonical.digest:
-        raise ValueError("protocol differs from sealed perpetual-index basis preregistration")
+        raise ValueError(
+            "protocol differs from sealed perpetual-index basis preregistration"
+        )
     if calibration_head is not None:
         _require_hex(calibration_head, length=40, field="calibration_head")
     if source_manifest_digest is not None:
@@ -396,7 +418,6 @@ def calibrate_perp_index_basis(
         active,
         tradable,
         information,
-        rows,
     ) = _validate_dataset(dataset, protocol)
     fit_start = _datetime64(protocol.fit_start)
     fit_cutoff = _datetime64(protocol.fit_cutoff)
@@ -417,15 +438,15 @@ def calibrate_perp_index_basis(
             if not feature_available[t, symbol_index, feature_index]:
                 continue
             if not (
-                rows[t, symbol_index]
-                and active[t, symbol_index]
+                active[t, symbol_index]
                 and tradable[t, symbol_index]
                 and information[t, symbol_index]
             ):
                 continue
+            # Raw row_present is intentionally not persisted on MarketDataset.
+            # The canonical builder folds it fail-closed into both tradable and
+            # information_available, so requiring those masks preserves row presence.
             label_window = slice(t + execution_offset, endpoint + 1)
-            if not np.all(rows[label_window, symbol_index]):
-                continue
             if not np.all(active[label_window, symbol_index]):
                 continue
             if not np.all(tradable[label_window, symbol_index]):
@@ -435,7 +456,9 @@ def calibrate_perp_index_basis(
 
             signal = float(features[t, symbol_index, feature_index])
             if not math.isfinite(signal):
-                raise ValueError("available perpetual-index basis feature must be finite")
+                raise ValueError(
+                    "available perpetual-index basis feature must be finite"
+                )
             start_open = float(opens[t + execution_offset, symbol_index])
             end_open = float(opens[endpoint, symbol_index])
             if (
@@ -523,7 +546,9 @@ def _symbol_result_from_payload(raw: object) -> PerpIndexBasisSymbolCalibration:
         raise ValueError("perpetual-index symbol result has unknown or missing fields")
     return PerpIndexBasisSymbolCalibration(
         symbol=_require_string(raw["symbol"], field="symbol"),
-        eligible_observations=_require_int(raw["eligible_observations"], field="eligible_observations"),
+        eligible_observations=_require_int(
+            raw["eligible_observations"], field="eligible_observations"
+        ),
         numerator=_require_float_or_none(raw["numerator"], field="numerator"),
         denominator=_require_float_or_none(raw["denominator"], field="denominator"),
         beta=_require_float_or_none(raw["beta"], field="beta"),
@@ -540,80 +565,179 @@ def load_perp_index_basis_calibration_result(
         raw_text = raw_bytes.decode("utf-8")
         raw: Any = json.loads(raw_text)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("perpetual-index basis calibration result is malformed") from error
+        raise ValueError(
+            "perpetual-index basis calibration result is malformed"
+        ) from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
-        raise ValueError("perpetual-index basis calibration result must be a JSON object")
+        raise ValueError(
+            "perpetual-index basis calibration result must be a JSON object"
+        )
     try:
         canonical_bytes = canonical_json_bytes(raw)
     except (TypeError, ValueError) as error:
-        raise ValueError("perpetual-index basis calibration result is malformed") from error
+        raise ValueError(
+            "perpetual-index basis calibration result is malformed"
+        ) from error
     if raw_bytes != canonical_bytes:
-        raise ValueError("perpetual-index basis calibration result must use canonical JSON bytes")
+        raise ValueError(
+            "perpetual-index basis calibration result must use canonical JSON bytes"
+        )
 
     expected = {
-        "schema_version", "protocol_digest", "prereg_head", "prereg_seal_run_id",
-        "prereg_seal_artifact_id", "prereg_seal_api_digest", "prereg_fresh_artifact_id",
-        "prereg_fresh_api_digest", "source_preflight_run_id", "source_preflight_artifact_id",
-        "source_preflight_artifact_api_digest", "source_preflight_fresh_artifact_id",
-        "source_preflight_fresh_api_digest", "source_preflight_report_sha256",
-        "source_preflight_content_digest", "source_implementation_head",
-        "source_implementation_ci_run_id", "calibration_head", "source_manifest_digest",
-        "dataset_id", "fit_start", "fit_cutoff", "symbols", "symbol_results",
-        "negative_slope_count", "status", "failures", "training_relation_executed",
-        "evaluation_pnl_inspected", "evaluation_execution_authorized", "final_test_authorized",
-        "shared_cash_profitability_established", "production_eligible", "live_trading_authorized",
+        "schema_version",
+        "protocol_digest",
+        "prereg_head",
+        "prereg_seal_run_id",
+        "prereg_seal_artifact_id",
+        "prereg_seal_api_digest",
+        "prereg_fresh_artifact_id",
+        "prereg_fresh_api_digest",
+        "source_preflight_run_id",
+        "source_preflight_artifact_id",
+        "source_preflight_artifact_api_digest",
+        "source_preflight_fresh_artifact_id",
+        "source_preflight_fresh_api_digest",
+        "source_preflight_report_sha256",
+        "source_preflight_content_digest",
+        "source_implementation_head",
+        "source_implementation_ci_run_id",
+        "calibration_head",
+        "source_manifest_digest",
+        "dataset_id",
+        "fit_start",
+        "fit_cutoff",
+        "symbols",
+        "symbol_results",
+        "negative_slope_count",
+        "status",
+        "failures",
+        "training_relation_executed",
+        "evaluation_pnl_inspected",
+        "evaluation_execution_authorized",
+        "final_test_authorized",
+        "shared_cash_profitability_established",
+        "production_eligible",
+        "live_trading_authorized",
         "content_digest",
     }
     if set(raw) != expected:
-        raise ValueError("perpetual-index basis calibration result has unknown or missing keys")
+        raise ValueError(
+            "perpetual-index basis calibration result has unknown or missing keys"
+        )
     protocol = canonical_perp_index_basis_protocol()
-    if raw["fit_start"] != _datetime_text(protocol.fit_start) or raw["fit_cutoff"] != _datetime_text(protocol.fit_cutoff):
+    if raw["fit_start"] != _datetime_text(protocol.fit_start) or raw[
+        "fit_cutoff"
+    ] != _datetime_text(protocol.fit_cutoff):
         raise ValueError("calibration fit clock is not canonical")
     symbols_raw = raw["symbols"]
     results_raw = raw["symbol_results"]
     failures_raw = raw["failures"]
-    if not isinstance(symbols_raw, list) or any(not isinstance(item, str) for item in symbols_raw):
+    if not isinstance(symbols_raw, list) or any(
+        not isinstance(item, str) for item in symbols_raw
+    ):
         raise ValueError("symbols must be a string array")
     if not isinstance(results_raw, list):
         raise ValueError("symbol_results must be an array")
-    if not isinstance(failures_raw, list) or any(not isinstance(item, str) or not item for item in failures_raw):
+    if not isinstance(failures_raw, list) or any(
+        not isinstance(item, str) or not item for item in failures_raw
+    ):
         raise ValueError("failures must be a string array")
 
     result = PerpIndexBasisCalibrationResult(
         schema_version=_require_string(raw["schema_version"], field="schema_version"),
-        protocol_digest=_require_string(raw["protocol_digest"], field="protocol_digest"),
+        protocol_digest=_require_string(
+            raw["protocol_digest"], field="protocol_digest"
+        ),
         prereg_head=_require_string(raw["prereg_head"], field="prereg_head"),
-        prereg_seal_run_id=_require_int(raw["prereg_seal_run_id"], field="prereg_seal_run_id"),
-        prereg_seal_artifact_id=_require_int(raw["prereg_seal_artifact_id"], field="prereg_seal_artifact_id"),
-        prereg_seal_api_digest=_require_string(raw["prereg_seal_api_digest"], field="prereg_seal_api_digest"),
-        prereg_fresh_artifact_id=_require_int(raw["prereg_fresh_artifact_id"], field="prereg_fresh_artifact_id"),
-        prereg_fresh_api_digest=_require_string(raw["prereg_fresh_api_digest"], field="prereg_fresh_api_digest"),
-        source_preflight_run_id=_require_int(raw["source_preflight_run_id"], field="source_preflight_run_id"),
-        source_preflight_artifact_id=_require_int(raw["source_preflight_artifact_id"], field="source_preflight_artifact_id"),
-        source_preflight_artifact_api_digest=_require_string(raw["source_preflight_artifact_api_digest"], field="source_preflight_artifact_api_digest"),
-        source_preflight_fresh_artifact_id=_require_int(raw["source_preflight_fresh_artifact_id"], field="source_preflight_fresh_artifact_id"),
-        source_preflight_fresh_api_digest=_require_string(raw["source_preflight_fresh_api_digest"], field="source_preflight_fresh_api_digest"),
-        source_preflight_report_sha256=_require_string(raw["source_preflight_report_sha256"], field="source_preflight_report_sha256"),
-        source_preflight_content_digest=_require_string(raw["source_preflight_content_digest"], field="source_preflight_content_digest"),
-        source_implementation_head=_require_string(raw["source_implementation_head"], field="source_implementation_head"),
-        source_implementation_ci_run_id=_require_int(raw["source_implementation_ci_run_id"], field="source_implementation_ci_run_id"),
-        calibration_head=_require_hex(raw["calibration_head"], length=40, field="calibration_head"),
-        source_manifest_digest=_require_hex(raw["source_manifest_digest"], length=64, field="source_manifest_digest"),
+        prereg_seal_run_id=_require_int(
+            raw["prereg_seal_run_id"], field="prereg_seal_run_id"
+        ),
+        prereg_seal_artifact_id=_require_int(
+            raw["prereg_seal_artifact_id"], field="prereg_seal_artifact_id"
+        ),
+        prereg_seal_api_digest=_require_string(
+            raw["prereg_seal_api_digest"], field="prereg_seal_api_digest"
+        ),
+        prereg_fresh_artifact_id=_require_int(
+            raw["prereg_fresh_artifact_id"], field="prereg_fresh_artifact_id"
+        ),
+        prereg_fresh_api_digest=_require_string(
+            raw["prereg_fresh_api_digest"], field="prereg_fresh_api_digest"
+        ),
+        source_preflight_run_id=_require_int(
+            raw["source_preflight_run_id"], field="source_preflight_run_id"
+        ),
+        source_preflight_artifact_id=_require_int(
+            raw["source_preflight_artifact_id"], field="source_preflight_artifact_id"
+        ),
+        source_preflight_artifact_api_digest=_require_string(
+            raw["source_preflight_artifact_api_digest"],
+            field="source_preflight_artifact_api_digest",
+        ),
+        source_preflight_fresh_artifact_id=_require_int(
+            raw["source_preflight_fresh_artifact_id"],
+            field="source_preflight_fresh_artifact_id",
+        ),
+        source_preflight_fresh_api_digest=_require_string(
+            raw["source_preflight_fresh_api_digest"],
+            field="source_preflight_fresh_api_digest",
+        ),
+        source_preflight_report_sha256=_require_string(
+            raw["source_preflight_report_sha256"],
+            field="source_preflight_report_sha256",
+        ),
+        source_preflight_content_digest=_require_string(
+            raw["source_preflight_content_digest"],
+            field="source_preflight_content_digest",
+        ),
+        source_implementation_head=_require_string(
+            raw["source_implementation_head"], field="source_implementation_head"
+        ),
+        source_implementation_ci_run_id=_require_int(
+            raw["source_implementation_ci_run_id"],
+            field="source_implementation_ci_run_id",
+        ),
+        calibration_head=_require_hex(
+            raw["calibration_head"], length=40, field="calibration_head"
+        ),
+        source_manifest_digest=_require_hex(
+            raw["source_manifest_digest"], length=64, field="source_manifest_digest"
+        ),
         dataset_id=_require_string(raw["dataset_id"], field="dataset_id"),
         symbols=tuple(symbols_raw),
         symbol_results=tuple(_symbol_result_from_payload(item) for item in results_raw),
-        negative_slope_count=_require_int(raw["negative_slope_count"], field="negative_slope_count"),
+        negative_slope_count=_require_int(
+            raw["negative_slope_count"], field="negative_slope_count"
+        ),
         status=_require_string(raw["status"], field="status"),
         failures=tuple(failures_raw),
-        training_relation_executed=_require_bool(raw["training_relation_executed"], field="training_relation_executed"),
-        evaluation_pnl_inspected=_require_bool(raw["evaluation_pnl_inspected"], field="evaluation_pnl_inspected"),
-        evaluation_execution_authorized=_require_bool(raw["evaluation_execution_authorized"], field="evaluation_execution_authorized"),
-        final_test_authorized=_require_bool(raw["final_test_authorized"], field="final_test_authorized"),
-        shared_cash_profitability_established=_require_bool(raw["shared_cash_profitability_established"], field="shared_cash_profitability_established"),
-        production_eligible=_require_bool(raw["production_eligible"], field="production_eligible"),
-        live_trading_authorized=_require_bool(raw["live_trading_authorized"], field="live_trading_authorized"),
+        training_relation_executed=_require_bool(
+            raw["training_relation_executed"], field="training_relation_executed"
+        ),
+        evaluation_pnl_inspected=_require_bool(
+            raw["evaluation_pnl_inspected"], field="evaluation_pnl_inspected"
+        ),
+        evaluation_execution_authorized=_require_bool(
+            raw["evaluation_execution_authorized"],
+            field="evaluation_execution_authorized",
+        ),
+        final_test_authorized=_require_bool(
+            raw["final_test_authorized"], field="final_test_authorized"
+        ),
+        shared_cash_profitability_established=_require_bool(
+            raw["shared_cash_profitability_established"],
+            field="shared_cash_profitability_established",
+        ),
+        production_eligible=_require_bool(
+            raw["production_eligible"], field="production_eligible"
+        ),
+        live_trading_authorized=_require_bool(
+            raw["live_trading_authorized"], field="live_trading_authorized"
+        ),
     )
-    expected_digest = _require_hex(raw["content_digest"], length=64, field="content_digest")
+    expected_digest = _require_hex(
+        raw["content_digest"], length=64, field="content_digest"
+    )
     if result.digest != expected_digest:
         raise ValueError("perpetual-index basis calibration content digest mismatch")
     return result

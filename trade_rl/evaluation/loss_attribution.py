@@ -104,11 +104,15 @@ def _strategy_entry(
     return matches[0]
 
 
-def _metric_diagnostic_values(entry: dict[str, object]) -> tuple[dict[str, float | int], dict[str, float | int]]:
+def _metric_diagnostic_values(
+    entry: dict[str, object],
+) -> tuple[dict[str, float | int], dict[str, float | int]]:
     metrics = _object(entry.get("metrics"), field="candidate metrics")
     diagnostics = _object(entry.get("diagnostics"), field="candidate diagnostics")
     metric_values: dict[str, float | int] = {
-        "total_return": _finite_float(metrics.get("total_return"), field="total return"),
+        "total_return": _finite_float(
+            metrics.get("total_return"), field="total return"
+        ),
         "turnover_total": _finite_float(
             metrics.get("turnover_total"), field="turnover_total", non_negative=True
         ),
@@ -200,7 +204,9 @@ def _market_sensitivity(
     strategy = np.asarray(returns, dtype=np.float64)
     market = np.asarray(mark_returns, dtype=np.float64)
     if strategy.shape != market.shape or strategy.ndim != 1:
-        raise ValueError("strategy and mark returns must have identical one-dimensional shape")
+        raise ValueError(
+            "strategy and mark returns must have identical one-dimensional shape"
+        )
     if not np.isfinite(strategy).all() or not np.isfinite(market).all():
         raise ValueError("strategy and mark returns must be finite")
     strategy_centered = strategy - float(np.mean(strategy))
@@ -308,8 +314,10 @@ def analyze_deterministic_loss_attribution(
     if not runs:
         raise ValueError("candidate runs must not be empty")
     strategies = tuple(deterministic_strategies)
-    if not strategies or len(set(strategies)) != len(strategies) or any(
-        not item for item in strategies
+    if (
+        not strategies
+        or len(set(strategies)) != len(strategies)
+        or any(not item for item in strategies)
     ):
         raise ValueError("deterministic_strategies must be unique and non-empty")
 
@@ -323,7 +331,9 @@ def analyze_deterministic_loss_attribution(
         raise ValueError("candidate symbol roster does not match dataset")
 
     reference_eval = _object(reference_summary.get("evaluation"), field="evaluation")
-    start_text = _non_empty_string(reference_eval.get("start"), field="evaluation start")
+    start_text = _non_empty_string(
+        reference_eval.get("start"), field="evaluation start"
+    )
     stop_text = _non_empty_string(
         reference_eval.get("stop_exclusive"), field="evaluation stop_exclusive"
     )
@@ -334,7 +344,9 @@ def analyze_deterministic_loss_attribution(
     if initial_capital <= 0.0:
         raise ValueError("initial_capital must be positive")
     start_index = _locate_timestamp(dataset, start_text, field="evaluation start")
-    stop_index = _locate_timestamp(dataset, stop_text, field="evaluation stop_exclusive")
+    stop_index = _locate_timestamp(
+        dataset, stop_text, field="evaluation stop_exclusive"
+    )
     if not 0 <= start_index < stop_index < dataset.n_bars:
         raise ValueError("evaluation clock does not define a valid replay interval")
     expected_length = stop_index - start_index
@@ -345,12 +357,13 @@ def analyze_deterministic_loss_attribution(
     mark = np.asarray(dataset.resolved_array("mark_price"), dtype=np.float64)
     if mark.shape != (dataset.n_bars, dataset.n_symbols):
         raise ValueError("dataset mark_price shape is invalid")
-    mark_returns = mark[start_index + 1 : stop_index + 1] / mark[
-        start_index:stop_index
-    ] - 1.0
-    if mark_returns.shape != (expected_length, dataset.n_symbols) or not np.isfinite(
-        mark_returns
-    ).all():
+    mark_returns = (
+        mark[start_index + 1 : stop_index + 1] / mark[start_index:stop_index] - 1.0
+    )
+    if (
+        mark_returns.shape != (expected_length, dataset.n_symbols)
+        or not np.isfinite(mark_returns).all()
+    ):
         raise ValueError("dataset mark-return alignment is invalid")
 
     seen_seeds: set[int] = set()
@@ -367,7 +380,9 @@ def analyze_deterministic_loss_attribution(
         evaluation = _object(summary.get("evaluation"), field="evaluation")
         for key in ("start", "stop_exclusive", "initial_capital", "execution_overlay"):
             if evaluation.get(key) != reference_eval.get(key):
-                raise ValueError(f"candidate evaluation field drifted across seeds: {key}")
+                raise ValueError(
+                    f"candidate evaluation field drifted across seeds: {key}"
+                )
         config = _object(summary.get("candidate_config"), field="candidate_config")
         seed = _non_negative_int(config.get("ppo_seed"), field="ppo_seed")
         if seed in seen_seeds:
@@ -434,7 +449,9 @@ def analyze_deterministic_loss_attribution(
             residual_pnl = net_pnl + total_cost - funding_pnl + borrow_cost
             recomposed = residual_pnl - total_cost + funding_pnl - borrow_cost
             if not math.isclose(recomposed, net_pnl, rel_tol=0.0, abs_tol=1e-10):
-                raise ValueError("realized-path accounting decomposition does not balance")
+                raise ValueError(
+                    "realized-path accounting decomposition does not balance"
+                )
 
             year_returns = _period_returns(
                 representative_returns,
@@ -447,7 +464,9 @@ def analyze_deterministic_loss_attribution(
                 rel_tol=0.0,
                 abs_tol=1e-12,
             ):
-                raise ValueError("calendar-year return decomposition does not recompose")
+                raise ValueError(
+                    "calendar-year return decomposition does not recompose"
+                )
             positive_months, month_count = _month_positive_count(
                 representative_returns,
                 interval_owners,

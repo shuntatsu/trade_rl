@@ -105,10 +105,18 @@ def _parse_kline_rows(
     if len(parsed) < 2:
         raise ValueError("Binance range must contain at least two closed bars")
     timestamps = np.asarray([item[0] for item in parsed], dtype=np.int64)
-    if np.any(np.diff(timestamps) <= 0):
+    deltas = np.diff(timestamps)
+    if np.any(deltas <= 0):
         raise ValueError("Binance kline timestamps must be strictly increasing")
-    if np.any(np.diff(timestamps) != interval_ms):
-        raise ValueError("Binance kline range must be complete and exactly regular")
+    expected_close_grid_origin = start_ms + interval_ms
+    if np.any((timestamps - expected_close_grid_origin) % interval_ms != 0):
+        raise ValueError(
+            "Binance kline timestamps must align to the requested interval grid"
+        )
+    if np.any(deltas % interval_ms != 0):
+        raise ValueError(
+            "Binance kline timestamp gaps must be integer interval multiples"
+        )
     return (
         timestamps.astype("datetime64[ms]").astype("datetime64[ns]"),
         np.asarray([item[1] for item in parsed], dtype=np.float64),
@@ -127,16 +135,25 @@ def _parse_kline_rows(
 def _align_funding(
     timestamps: np.ndarray,
     events: Sequence[tuple[int, float]],
+    *,
+    interval_ms: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Aggregate every funding event into its completed native bar."""
+    """Aggregate funding only into observed bars on the nominal native grid."""
 
+    if (
+        isinstance(interval_ms, bool)
+        or not isinstance(interval_ms, int)
+        or interval_ms <= 0
+    ):
+        raise ValueError("funding interval_ms must be a positive integer")
     timestamp_ms = timestamps.astype("datetime64[ms]").astype(np.int64)
     if timestamp_ms.size < 2:
         raise ValueError("funding alignment requires at least two native bars")
     intervals = np.diff(timestamp_ms)
-    if np.any(intervals <= 0) or np.any(intervals != intervals[0]):
-        raise ValueError("funding alignment requires a regular native clock")
-    interval_ms = int(intervals[0])
+    if np.any(intervals <= 0):
+        raise ValueError("funding alignment requires strictly increasing native bars")
+    if np.any(intervals % interval_ms != 0):
+        raise ValueError("funding alignment timestamps must remain on the nominal grid")
     funding = np.zeros(len(timestamps), dtype=np.float64)
     counts = np.zeros(len(timestamps), dtype=np.int32)
     previous: int | None = None
@@ -256,6 +273,7 @@ class BinanceMarketDataSource(MarketDataSource):
         funding, funding_available, funding_event_count = _align_funding(
             timestamps,
             self._funding_events(symbol),
+            interval_ms=interval_ms,
         )
         series = RawMarketSeries(
             timestamps=timestamps,

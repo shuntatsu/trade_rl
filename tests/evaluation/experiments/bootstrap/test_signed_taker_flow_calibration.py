@@ -391,7 +391,7 @@ def test_result_artifact_is_strict_content_addressed_and_forbids_evaluation_fiel
     assert artifact["protocol_digest"] == protocol.digest
     assert artifact["protocol_seal_run_id"] == 34844820406
     assert artifact["protocol_seal_artifact_id"] == 10347597245
-    assert artifact["implementation_head"] == "adf835cf45936dbc40bf8d4f74879825ae211ef9"
+    assert artifact["implementation_head"] == "9092c8360d6625c97700de5342ba0e0cbec1d1a0"
     assert artifact["content_digest"] == result.digest
     assert len(result.digest) == 64
 

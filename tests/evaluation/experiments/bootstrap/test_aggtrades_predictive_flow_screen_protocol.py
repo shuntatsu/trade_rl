@@ -66,6 +66,24 @@ def test_predictor_and_label_alignment_are_causal_and_frozen() -> None:
     assert protocol.post_2022_observations_allowed is False
 
 
+def test_input_validity_and_no_transform_contract_is_explicit() -> None:
+    protocol = canonical_m2_aggtrades_predictive_flow_screen_protocol()
+
+    assert protocol.finite_positive_trade_inputs_required is True
+    assert protocol.positive_total_taker_notional_required is True
+    assert protocol.event_timestamp_before_evaluation_required is True
+    assert protocol.archive_publication_time_as_feature_allowed is False
+    assert protocol.predictor_transform == "identity"
+    assert protocol.winsorization_allowed is False
+    assert protocol.fitted_normalization_allowed is False
+    assert protocol.volume_threshold_allowed is False
+    assert protocol.predictor_clipping_rule == "mathematical_bounds_only"
+    assert protocol.label_open_finite_positive_required is True
+    assert protocol.active_tradable_at_decision_execution_required is True
+    assert protocol.contiguous_label_interval_required is True
+    assert protocol.label_endpoints_before_evaluation_required is True
+
+
 def test_statistic_decision_and_coverage_contract_are_frozen() -> None:
     protocol = canonical_m2_aggtrades_predictive_flow_screen_protocol()
 
@@ -102,6 +120,19 @@ def test_protocol_rejects_post_result_tuning_and_alignment_mutation() -> None:
         {"execution_alignment": "same_bar_close"},
         {"label_formula": "same_hour_log_return"},
         {"label_horizon_bars": 4},
+        {"finite_positive_trade_inputs_required": False},
+        {"positive_total_taker_notional_required": False},
+        {"event_timestamp_before_evaluation_required": False},
+        {"archive_publication_time_as_feature_allowed": True},
+        {"predictor_transform": "rank"},
+        {"winsorization_allowed": True},
+        {"fitted_normalization_allowed": True},
+        {"volume_threshold_allowed": True},
+        {"predictor_clipping_rule": "winsorized"},
+        {"label_open_finite_positive_required": False},
+        {"active_tradable_at_decision_execution_required": False},
+        {"contiguous_label_interval_required": False},
+        {"label_endpoints_before_evaluation_required": False},
         {"fit_rule": "ordinary_least_squares_without_intercept"},
         {"min_positive_full_sample_symbols": 3},
         {"min_positive_year_symbols": 2},
@@ -125,29 +156,20 @@ def test_payload_is_content_addressed_strict_and_round_trips(tmp_path: Path) -> 
     assert {"pnl", "strategy", "candidate_result"}.isdisjoint(payload)
 
     path = tmp_path / "predictive-flow-protocol.json"
-    path.write_text(
-        json.dumps(payload, sort_keys=True),
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
     loaded = load_aggtrades_predictive_flow_screen_protocol(path)
     assert loaded == protocol
     assert loaded.digest == protocol.digest
 
     tampered = dict(payload)
     tampered["label_horizon_bars"] = 4
-    path.write_text(
-        json.dumps(tampered, sort_keys=True),
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(tampered, sort_keys=True), encoding="utf-8")
     with pytest.raises(ValueError, match="sealed canonical payload"):
         load_aggtrades_predictive_flow_screen_protocol(path)
 
     extra = dict(payload)
     extra["pnl"] = 123.0
-    path.write_text(
-        json.dumps(extra, sort_keys=True),
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(extra, sort_keys=True), encoding="utf-8")
     with pytest.raises(ValueError, match="sealed canonical payload"):
         load_aggtrades_predictive_flow_screen_protocol(path)
 

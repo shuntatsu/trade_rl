@@ -1,0 +1,187 @@
+name: Temporary Issue 570 premium sparse source validation
+
+on:
+  push:
+    branches:
+      - verify/issue570-premium-sparse-source
+    paths:
+      - .github/workflows/tmp-issue570-premium-sparse-source.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publisher:
+    name: Result-blind full source publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact probe authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert source-validation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          ! grep -E -n 'strategy_return|total_return|information_coefficient|target_return|2023-|2024-|2025-' tools/tmp_issue570_premium_sparse_probe.py
+      - name: Execute structural sparse-source probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue570-publisher
+          mkdir -p /tmp/issue570-publisher
+          python tools/tmp_issue570_premium_sparse_probe.py \
+            --output /tmp/issue570-publisher/source-report.json
+          PROBE_HEAD="$(git rev-parse HEAD)" \
+          PROBE_SCRIPT_SHA256="$(sha256sum tools/tmp_issue570_premium_sparse_probe.py | awk '{print $1}')" \
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          path = Path('/tmp/issue570-publisher/source-report.json')
+          report = json.loads(path.read_text(encoding='utf-8'))
+          report.pop('content_digest', None)
+          report['probe_head'] = os.environ['PROBE_HEAD']
+          report['probe_script_sha256'] = os.environ['PROBE_SCRIPT_SHA256']
+          canonical = json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')
+          report['content_digest'] = hashlib.sha256(canonical).hexdigest()
+          final = json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')
+          path.write_bytes(final)
+          print(json.dumps({
+              'FINAL_SOURCE_STATUS': report['status'],
+              'FINAL_CONTENT_DIGEST': report['content_digest'],
+              'PROBE_HEAD': report['probe_head'],
+              'PROBE_SCRIPT_SHA256': report['probe_script_sha256'],
+              'ANNUAL_MISSING_GRID_ROWS': {
+                  symbol: {
+                      year: report['annual_coverage'][symbol][year]['missing_grid_rows']
+                      for year in ('2021','2022')
+                  }
+                  for symbol in report['symbols']
+              },
+              'PREMIUM_VALUE_DISTRIBUTION_INSPECTED': report['premium_value_distribution_inspected'],
+              'TARGET_RELATION_COMPUTED': report['target_relation_computed'],
+              'STRATEGY_PNL_COMPUTED': report['strategy_pnl_computed'],
+          }, sort_keys=True))
+          PY
+      - name: Upload immutable structural report
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue570-premium-sparse-source-${{ github.run_id }}
+          path: /tmp/issue570-publisher/source-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verifier:
+    name: Fresh API re-fetch and byte-identical reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PUBLISHED_ARTIFACT_ID: ${{ needs.publisher.outputs.artifact_id }}
+      PUBLISHED_UPLOAD_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+    steps:
+      - name: Checkout exact probe authority independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert exact probe authority independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -n "$PUBLISHED_ARTIFACT_ID"
+      - name: Resolve and download publisher artifact through GitHub API
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue570-verifier
+          mkdir -p /tmp/issue570-verifier/published /tmp/issue570-verifier/fresh
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue570-verifier/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${PUBLISHED_ARTIFACT_ID}" \
+            --output /tmp/issue570-verifier/artifact-meta.json
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue570-verifier/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${PUBLISHED_ARTIFACT_ID}/zip" \
+            --output /tmp/issue570-verifier/published.zip
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+
+          meta = json.loads(Path('/tmp/issue570-verifier/artifact-meta.json').read_text())
+          raw_upload = os.environ['PUBLISHED_UPLOAD_DIGEST'].lower()
+          expected = raw_upload if raw_upload.startswith('sha256:') else 'sha256:' + raw_upload
+          if meta.get('digest') != expected:
+              raise SystemExit('upload-artifact digest differs from API digest')
+          if str(meta.get('id')) != os.environ['PUBLISHED_ARTIFACT_ID'] or meta.get('expired') is not False:
+              raise SystemExit('publisher artifact identity/expiry mismatch')
+          payload = Path('/tmp/issue570-verifier/published.zip').read_bytes()
+          if 'sha256:' + hashlib.sha256(payload).hexdigest() != expected:
+              raise SystemExit('downloaded publisher ZIP digest differs from API digest')
+          with zipfile.ZipFile('/tmp/issue570-verifier/published.zip') as archive:
+              if archive.namelist() != ['source-report.json']:
+                  raise SystemExit(f'unexpected artifact members: {archive.namelist()!r}')
+              Path('/tmp/issue570-verifier/published/source-report.json').write_bytes(archive.read('source-report.json'))
+          print(f'PUBLISHER_API_DIGEST={expected}')
+          PY
+      - name: Freshly re-fetch all 120 official archives/checksums and reconstruct
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/tmp_issue570_premium_sparse_probe.py \
+            --output /tmp/issue570-verifier/fresh/source-report.json
+          PROBE_HEAD="$(git rev-parse HEAD)" \
+          PROBE_SCRIPT_SHA256="$(sha256sum tools/tmp_issue570_premium_sparse_probe.py | awk '{print $1}')" \
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          path = Path('/tmp/issue570-verifier/fresh/source-report.json')
+          report = json.loads(path.read_text(encoding='utf-8'))
+          report.pop('content_digest', None)
+          report['probe_head'] = os.environ['PROBE_HEAD']
+          report['probe_script_sha256'] = os.environ['PROBE_SCRIPT_SHA256']
+          canonical = json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')
+          report['content_digest'] = hashlib.sha256(canonical).hexdigest()
+          path.write_bytes(json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8'))
+          PY
+          cmp /tmp/issue570-verifier/published/source-report.json /tmp/issue570-verifier/fresh/source-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('/tmp/issue570-verifier/fresh/source-report.json').read_text())
+          if report['premium_value_distribution_inspected'] is not False:
+              raise SystemExit('premium distribution boundary violated')
+          if report['target_relation_computed'] is not False or report['strategy_pnl_computed'] is not False:
+              raise SystemExit('target/P&L boundary violated')
+          print(f"FRESH_RECONSTRUCTION_BYTE_IDENTICAL=true")
+          print(f"INTERPRETATION_AUTHORIZED=true")
+          print(f"SOURCE_STATUS={report['status']}")
+          print(f"CONTENT_DIGEST={report['content_digest']}")
+          PY
+      - name: Upload independent byte-identical reconstruction
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue570-premium-sparse-source-fresh-${{ github.run_id }}
+          path: /tmp/issue570-verifier/fresh/source-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

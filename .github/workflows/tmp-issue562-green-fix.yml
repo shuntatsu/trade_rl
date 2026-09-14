@@ -30,6 +30,41 @@ jobs:
           git fetch origin "$TARGET_BRANCH" --no-tags
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Repair only synthetic MarketDataset fixture invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py")
+          text = path.read_text()
+          old = '''def _replace_array(
+              dataset: MarketDataset, field: str, value: np.ndarray
+          ) -> MarketDataset:
+              return replace(dataset, **{field: value})
+          '''
+          new = '''def _replace_array(
+              dataset: MarketDataset, field: str, value: np.ndarray
+          ) -> MarketDataset:
+              changes: dict[str, object] = {field: value}
+              if field == "feature_available":
+                  staleness = np.asarray(dataset.feature_staleness).copy()
+                  staleness[~np.asarray(value, dtype=np.bool_)] = 1.0
+                  changes["feature_staleness"] = staleness
+              elif field == "asset_active":
+                  active = np.asarray(value, dtype=np.bool_)
+                  changes["symbol_active"] = active
+                  tradable = np.asarray(dataset.tradable).copy()
+                  tradable[~active] = False
+                  changes["tradable"] = tradable
+                  information = np.asarray(dataset.information_available).copy()
+                  information[~active] = False
+                  changes["information_available"] = information
+              return replace(dataset, **changes)
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError("expected one _replace_array fixture helper")
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -47,7 +82,7 @@ jobs:
           uv run mypy trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py
       - name: Synthetic GREEN tests
         run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
-      - name: Recheck and publish only verified formatting
+      - name: Recheck and publish only verified changes
         run: |
           set -euo pipefail
           git fetch origin "$TARGET_BRANCH" --no-tags
@@ -60,5 +95,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "style: format signed taker-flow calibration"
+          git commit -m "test: preserve synthetic MarketDataset invariants"
           git push origin HEAD:"$TARGET_BRANCH"

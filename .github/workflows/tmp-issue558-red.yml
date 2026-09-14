@@ -14,7 +14,7 @@ jobs:
   red:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 8dab31c69fb7013db60c4a4fd73099a4f032fe3f
+      TARGET_SHA: 964b0f8f0323161e4d1ec5d58b29ad481a6831e1
     steps:
       - name: Checkout exact test head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

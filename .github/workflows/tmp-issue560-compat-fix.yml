@@ -1,0 +1,81 @@
+name: Temporary Issue 560 positional compatibility fix
+
+on:
+  push:
+    branches:
+      - automation/issue560-compat-fix
+    paths:
+      - .github/workflows/tmp-issue560-compat-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue560-signed-taker-flow
+  TARGET_SHA: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
+
+jobs:
+  compat_fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Preserve legacy positional constructor order
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('trade_rl/data/source.py')
+          text = source.read_text()
+          old = '''    funding_rate: np.ndarray\n    tradable: np.ndarray\n    taker_buy_quote_volume: np.ndarray | None = None\n    funding_available: np.ndarray | None = None\n    available_at: np.ndarray | None = None\n    funding_event_count: np.ndarray | None = None\n'''
+          new = '''    funding_rate: np.ndarray\n    tradable: np.ndarray\n    funding_available: np.ndarray | None = None\n    available_at: np.ndarray | None = None\n    funding_event_count: np.ndarray | None = None\n    taker_buy_quote_volume: np.ndarray | None = None\n'''
+          if text.count(old) != 1:
+              raise RuntimeError('RawMarketSeries field-order patch no longer applies exactly once')
+          source.write_text(text.replace(old, new, 1))
+
+          test_file = Path('tests/data/test_signed_taker_flow_feature.py')
+          tests = test_file.read_text()
+          anchor = '''def test_raw_market_series_preserves_optional_taker_quote_volume_read_only() -> None:\n'''
+          if tests.count(anchor) != 1:
+              raise RuntimeError('signed taker feature test anchor changed')
+          regression = '''def test_raw_market_series_preserves_legacy_optional_positional_arguments() -> None:\n    n = 30\n    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(\n        n\n    ) * np.timedelta64(1, "h")\n    close = 100.0 + np.arange(n, dtype=np.float64)\n    funding_available = np.ones(n, dtype=np.bool_)\n    available_at = timestamps.copy()\n    funding_event_count = np.ones(n, dtype=np.int32)\n\n    series = RawMarketSeries(\n        timestamps,\n        np.concatenate((close[:1], close[:-1])),\n        close + 1.0,\n        close - 1.0,\n        close,\n        np.full(n, 10.0, dtype=np.float64),\n        np.zeros(n, dtype=np.float64),\n        np.ones(n, dtype=np.bool_),\n        funding_available,\n        available_at,\n        funding_event_count,\n    )\n\n    assert series.taker_buy_quote_volume is None\n    np.testing.assert_array_equal(series.funding_available, funding_available)\n    np.testing.assert_array_equal(series.available_at, available_at)\n    np.testing.assert_array_equal(series.funding_event_count, funding_event_count)\n\n\n'''
+          test_file.write_text(tests.replace(anchor, regression + anchor, 1))
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify compatibility fix
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/data/source.py tests/data/test_signed_taker_flow_feature.py
+          uv run ruff check trade_rl/data/source.py tests/data/test_signed_taker_flow_feature.py
+          uv run mypy trade_rl/data/source.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Publish only if target did not move
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/data/source.py tests/data/test_signed_taker_flow_feature.py
+          git diff --cached --check
+          git commit -m "fix: preserve RawMarketSeries positional compatibility"
+          git push origin HEAD:"$TARGET_BRANCH"

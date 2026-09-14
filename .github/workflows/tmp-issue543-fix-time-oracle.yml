@@ -1,0 +1,38 @@
+name: Temporary Issue 543 interval ownership oracle
+
+on:
+  push:
+    branches:
+      - research/issue543-loss-attribution
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue543-loss-attribution
+      - name: Correct interval ownership oracle only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/evaluation/test_loss_attribution.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    assert cell.year_returns == (\n        (2026, pytest.approx(-0.01)),\n        (2027, pytest.approx(0.20)),\n    )\n'''
+          new = '''    assert cell.year_returns == (\n        (2025, pytest.approx(0.10)),\n        (2026, pytest.approx(0.08)),\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected year-return oracle block not found exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/evaluation/test_loss_attribution.py
+          test "$(git diff --cached --name-only)" = "tests/evaluation/test_loss_attribution.py"
+          git commit -m 'test: bind attribution periods to interval start'
+          git push origin HEAD:research/issue543-loss-attribution

@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureSpec, InstrumentContract, timeframe_hours
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    VolumeUnit,
+    timeframe_hours,
+)
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import RawMarketSeries
 
@@ -52,6 +58,8 @@ def _native_events(
         funding_available=raw.funding_available,
         row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
         active=active,
+        taker_buy_quote_volume=raw.taker_buy_quote_volume,
+        tradable=raw.tradable,
     )
     available_at = np.full(
         len(raw.timestamps), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
@@ -77,6 +85,13 @@ def align_native_feature(
     """Calculate on the native clock and causally align to the base clock."""
 
     _validate_regular_native_series(raw, timeframe)
+    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+        if timeframe != "1h":
+            raise ValueError("signed taker quote flow is defined only on the 1h clock")
+        if VolumeUnit(contract.volume_unit) is not VolumeUnit.QUOTE_NOTIONAL:
+            raise ValueError(
+                "signed taker quote flow requires quote-notional volume semantics"
+            )
     event_values, event_valid, event_available_at = _native_events(spec, raw, contract)
     values = np.zeros(len(base_timestamps), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)
@@ -91,9 +106,27 @@ def align_native_feature(
 
     event_time_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
     availability_ns = event_available_at.astype("datetime64[ns]").astype(np.int64)
-    order = valid_indices[np.argsort(availability_ns[valid_indices], kind="stable")]
     base_ns = base_timestamps.astype("datetime64[ns]").astype(np.int64)
 
+    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+        for base_index, timestamp_ns in enumerate(base_ns):
+            if not base_active[base_index]:
+                continue
+            event_index = int(np.searchsorted(event_time_ns, timestamp_ns, side="left"))
+            if (
+                event_index >= len(event_time_ns)
+                or event_time_ns[event_index] != timestamp_ns
+                or not event_valid[event_index]
+                or availability_ns[event_index] > timestamp_ns
+            ):
+                continue
+            values[base_index] = event_values[event_index]
+            available[base_index] = True
+            age_hours[base_index] = 0.0
+            staleness[base_index] = 0.0
+        return values, available, age_hours, staleness
+
+    order = valid_indices[np.argsort(availability_ns[valid_indices], kind="stable")]
     cursor = 0
     latest_index: int | None = None
     for base_index, timestamp_ns in enumerate(base_ns):

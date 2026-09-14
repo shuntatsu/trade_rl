@@ -1,0 +1,350 @@
+from __future__ import annotations
+
+import math
+from dataclasses import replace
+
+import numpy as np
+import pytest
+
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    NormalizationMode,
+    VolumeUnit,
+)
+from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.source import RawMarketSeries
+
+
+def _raw(
+    *,
+    taker: np.ndarray | None,
+    available_at: np.ndarray | None = None,
+) -> RawMarketSeries:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    return RawMarketSeries(
+        timestamps=timestamps,
+        available_at=timestamps if available_at is None else available_at,
+        open=np.concatenate((close[:1], close[:-1])),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(n, 10.0, dtype=np.float64),
+        taker_buy_quote_volume=taker,
+        funding_rate=np.zeros(n, dtype=np.float64),
+        tradable=np.ones(n, dtype=np.bool_),
+    )
+
+
+def _spec(**changes: object) -> FeatureSpec:
+    spec = FeatureSpec(
+        name="1h__signed_taker_quote_flow_24bar",
+        kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,
+        lookback=24,
+        normalization=NormalizationMode.NONE,
+        timeframe="1h",
+    )
+    return replace(spec, **changes)
+
+
+def _calculate(
+    *,
+    volume: np.ndarray | None = None,
+    taker: np.ndarray | None = None,
+    row_present: np.ndarray | None = None,
+    active: np.ndarray | None = None,
+    tradable: np.ndarray | None = None,
+    spec: FeatureSpec | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n = 30
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    if volume is None:
+        volume = np.full(n, 10.0, dtype=np.float64)
+    if taker is None:
+        taker = np.full(n, 6.0, dtype=np.float64)
+    if row_present is None:
+        row_present = np.ones(n, dtype=np.bool_)
+    if active is None:
+        active = np.ones(n, dtype=np.bool_)
+    if tradable is None:
+        tradable = np.ones(n, dtype=np.bool_)
+    return calculate_feature_events(
+        _spec() if spec is None else spec,
+        open_price=np.concatenate((close[:1], close[:-1])),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=volume,
+        taker_buy_quote_volume=taker,
+        funding_rate=np.zeros(n, dtype=np.float64),
+        funding_available=np.zeros(n, dtype=np.bool_),
+        row_present=row_present,
+        active=active,
+        tradable=tradable,
+    )
+
+
+def test_raw_market_series_preserves_legacy_optional_positional_arguments() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    funding_available = np.ones(n, dtype=np.bool_)
+    available_at = timestamps.copy()
+    funding_event_count = np.ones(n, dtype=np.int32)
+
+    series = RawMarketSeries(
+        timestamps,
+        np.concatenate((close[:1], close[:-1])),
+        close + 1.0,
+        close - 1.0,
+        close,
+        np.full(n, 10.0, dtype=np.float64),
+        np.zeros(n, dtype=np.float64),
+        np.ones(n, dtype=np.bool_),
+        funding_available,
+        available_at,
+        funding_event_count,
+    )
+
+    assert series.taker_buy_quote_volume is None
+    np.testing.assert_array_equal(series.funding_available, funding_available)
+    np.testing.assert_array_equal(series.available_at, available_at)
+    np.testing.assert_array_equal(series.funding_event_count, funding_event_count)
+
+
+def test_raw_market_series_preserves_optional_taker_quote_volume_read_only() -> None:
+    taker = np.linspace(1.0, 9.0, 30, dtype=np.float64)
+    series = _raw(taker=taker)
+
+    assert series.taker_buy_quote_volume is not None
+    np.testing.assert_allclose(series.taker_buy_quote_volume, taker)
+    assert not series.taker_buy_quote_volume.flags.writeable
+    assert _raw(taker=None).taker_buy_quote_volume is None
+
+
+@pytest.mark.parametrize(
+    "taker,match",
+    [
+        (np.ones(29), "shape"),
+        (np.concatenate((np.ones(29), [np.nan])), "finite"),
+        (np.concatenate((np.ones(29), [-1.0])), "non-negative"),
+        (np.full(30, 11.0), "volume"),
+    ],
+)
+def test_raw_market_series_rejects_invalid_taker_quote_volume(
+    taker: np.ndarray,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        _raw(taker=taker)
+
+
+def test_signed_taker_flow_exact_24_bar_formula_and_bounds() -> None:
+    values, valid, source_start = _calculate()
+
+    assert not np.any(valid[:23])
+    assert valid[23]
+    assert values[23] == pytest.approx(0.2)
+    assert source_start[23] == 0
+    assert valid[24]
+    assert source_start[24] == 1
+
+    buy_values, buy_valid, _ = _calculate(taker=np.full(30, 10.0))
+    sell_values, sell_valid, _ = _calculate(taker=np.zeros(30))
+    assert buy_valid[23] and sell_valid[23]
+    assert buy_values[23] == pytest.approx(1.0)
+    assert sell_values[23] == pytest.approx(-1.0)
+
+
+def test_signed_taker_flow_uses_fixed_order_fsum_not_vector_reduction() -> None:
+    quote = np.asarray([1.0e16, *([1.0] * 23), *([10.0] * 6)], dtype=np.float64)
+    taker = np.asarray([5.0e15, *([0.6] * 23), *([6.0] * 6)], dtype=np.float64)
+
+    values, valid, _ = _calculate(volume=quote, taker=taker)
+
+    expected_quote = math.fsum(float(item) for item in quote[:24])
+    expected_taker = math.fsum(float(item) for item in taker[:24])
+    expected = (2.0 * expected_taker - expected_quote) / expected_quote
+    vectorized = (2.0 * float(np.sum(taker[:24])) - float(np.sum(quote[:24]))) / float(
+        np.sum(quote[:24])
+    )
+    assert expected != vectorized
+    assert valid[23]
+    assert values[23] == expected
+
+
+def test_signed_taker_flow_zero_denominator_is_unavailable() -> None:
+    volume = np.full(30, 10.0)
+    volume[:24] = 0.0
+    taker = np.full(30, 6.0)
+    taker[:24] = 0.0
+
+    values, valid, source_start = _calculate(volume=volume, taker=taker)
+
+    assert not valid[23]
+    assert values[23] == 0.0
+    assert source_start[23] == -1
+
+
+def test_signed_taker_flow_missing_raw_field_is_unavailable() -> None:
+    n = 30
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    values, valid, source_start = calculate_feature_events(
+        _spec(),
+        open_price=np.concatenate((close[:1], close[:-1])),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(n, 10.0),
+        taker_buy_quote_volume=None,
+        funding_rate=np.zeros(n),
+        funding_available=np.zeros(n, dtype=np.bool_),
+        row_present=np.ones(n, dtype=np.bool_),
+        active=np.ones(n, dtype=np.bool_),
+        tradable=np.ones(n, dtype=np.bool_),
+    )
+
+    assert not np.any(valid)
+    assert not np.any(values)
+    assert np.all(source_start == -1)
+
+
+def test_signed_taker_flow_requires_complete_active_tradable_window() -> None:
+    row_present = np.ones(30, dtype=np.bool_)
+    active = np.ones(30, dtype=np.bool_)
+    tradable = np.ones(30, dtype=np.bool_)
+    row_present[0] = False
+    active[2] = False
+    tradable[5] = False
+
+    _, valid, _ = _calculate(
+        row_present=row_present,
+        active=active,
+        tradable=tradable,
+    )
+
+    assert not np.any(valid[23:29])
+    assert valid[29]
+
+
+def test_signed_taker_flow_delayed_source_row_is_not_visible_early() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    available_at = timestamps.copy()
+    available_at[5] = timestamps[24]
+    raw = _raw(
+        taker=np.full(n, 6.0, dtype=np.float64),
+        available_at=available_at,
+    )
+
+    _, available, _, _ = align_native_feature(
+        _spec(),
+        raw,
+        InstrumentContract(
+            symbol="BTCUSDT",
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+        ),
+        timestamps,
+        np.ones(n, dtype=np.bool_),
+        timeframe="1h",
+    )
+
+    assert not available[23]
+    assert available[24]
+
+
+def test_signed_taker_flow_prefix_causality() -> None:
+    baseline_values, baseline_valid, _ = _calculate()
+    taker = np.full(30, 6.0)
+    taker[27:] = 10.0
+    changed_values, changed_valid, _ = _calculate(taker=taker)
+
+    np.testing.assert_array_equal(changed_valid[:27], baseline_valid[:27])
+    np.testing.assert_array_equal(changed_values[:27], baseline_values[:27])
+
+
+def test_signed_taker_flow_rejects_alternate_lookback_timeframe_and_normalization() -> (
+    None
+):
+    with pytest.raises(ValueError, match="24"):
+        _calculate(spec=_spec(lookback=23))
+    with pytest.raises(ValueError, match="1h"):
+        _calculate(spec=_spec(timeframe="4h"))
+    with pytest.raises(ValueError, match="normalization"):
+        _calculate(
+            spec=_spec(
+                normalization=NormalizationMode.ROLLING_ZSCORE,
+                normalization_window=24,
+                min_periods=24,
+            )
+        )
+
+
+def test_signed_taker_flow_native_alignment_rejects_non_quote_volume_semantics() -> (
+    None
+):
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    raw = _raw(taker=np.full(n, 6.0, dtype=np.float64))
+
+    with pytest.raises(ValueError, match="quote.*notional"):
+        align_native_feature(
+            _spec(),
+            raw,
+            InstrumentContract(symbol="BTCUSDT"),
+            timestamps,
+            np.ones(n, dtype=np.bool_),
+            timeframe="1h",
+        )
+
+
+def test_signed_taker_flow_native_alignment_does_not_carry_invalid_window() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    tradable = np.ones(n, dtype=np.bool_)
+    tradable[24] = False
+    raw = _raw(taker=np.full(n, 6.0, dtype=np.float64))
+    raw = RawMarketSeries(
+        timestamps=raw.timestamps,
+        available_at=raw.available_at,
+        open=raw.open,
+        high=raw.high,
+        low=raw.low,
+        close=raw.close,
+        volume=raw.volume,
+        funding_rate=raw.funding_rate,
+        funding_available=raw.funding_available,
+        funding_event_count=raw.funding_event_count,
+        tradable=tradable,
+        taker_buy_quote_volume=raw.taker_buy_quote_volume,
+    )
+
+    values, available, _, _ = align_native_feature(
+        _spec(),
+        raw,
+        InstrumentContract(
+            symbol="BTCUSDT",
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+        ),
+        timestamps,
+        np.ones(n, dtype=np.bool_),
+        timeframe="1h",
+    )
+
+    assert available[23]
+    assert not available[24]
+    assert values[24] == 0.0

@@ -1,0 +1,62 @@
+name: Temporary Issue 573 source-feature RED
+
+on:
+  push:
+    branches:
+      - verify/issue573-red-cf723a
+    paths:
+      - .github/workflows/tmp-issue573-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: cf723af1917b8c61e376216fb50e86f10c90c3f3
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify RED test source quality
+        run: |
+          uv run ruff format --check \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+          uv run ruff check \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+      - name: Require data-side missing-production RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest --collect-only -q tests/data/test_perp_index_basis_feature.py > /tmp/data-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/data-red.log
+          test "$status" -ne 0
+          grep -Eq "cannot import name 'RawIndexPriceSeries'|has no attribute 'PERP_INDEX_LOG_BASIS_BPS'" /tmp/data-red.log
+          ! grep -q 'SyntaxError' /tmp/data-red.log
+      - name: Require Binance-side missing-production RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest --collect-only -q tests/integrations/test_binance_index_price_source.py > /tmp/binance-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/binance-red.log
+          test "$status" -ne 0
+          grep -Eq "cannot import name 'vision_monthly_index_price_kline_url'|has no attribute 'load_index_price_klines'" /tmp/binance-red.log
+          ! grep -q 'SyntaxError' /tmp/binance-red.log

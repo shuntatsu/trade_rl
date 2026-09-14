@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import (
@@ -290,7 +291,16 @@ class SignedTakerFlowCalibrationResult:
     def digest(self) -> str:
         return content_digest(self.to_payload())
 
+    def _require_publication_authority(self) -> None:
+        if self.calibration_head is None:
+            raise ValueError("calibration_head is required for artifact publication")
+        if self.source_manifest_digest is None:
+            raise ValueError(
+                "source_manifest_digest is required for artifact publication"
+            )
+
     def to_artifact_payload(self) -> dict[str, object]:
+        self._require_publication_authority()
         return {**self.to_payload(), "content_digest": self.digest}
 
 
@@ -534,12 +544,23 @@ def load_signed_taker_flow_calibration_result(
 ) -> SignedTakerFlowCalibrationResult:
     """Load a strict canonical result artifact and verify its content digest."""
 
+    source = Path(path)
     try:
-        raw: Any = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw_bytes = source.read_bytes()
+        raw_text = raw_bytes.decode("utf-8")
+        raw: Any = json.loads(raw_text)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("signed taker-flow calibration result is malformed") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError("signed taker-flow calibration result must be a JSON object")
+    try:
+        canonical_bytes = canonical_json_bytes(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("signed taker-flow calibration result is malformed") from error
+    if raw_bytes != canonical_bytes:
+        raise ValueError(
+            "signed taker-flow calibration result must use canonical JSON bytes"
+        )
 
     expected = {
         "schema_version",
@@ -594,21 +615,13 @@ def load_signed_taker_flow_calibration_result(
     ):
         raise ValueError("failures must be a string array")
 
-    calibration_head_raw = raw["calibration_head"]
-    calibration_head = (
-        None
-        if calibration_head_raw is None
-        else _require_hex(calibration_head_raw, length=40, field="calibration_head")
+    calibration_head = _require_hex(
+        raw["calibration_head"], length=40, field="calibration_head"
     )
-    source_manifest_raw = raw["source_manifest_digest"]
-    source_manifest_digest = (
-        None
-        if source_manifest_raw is None
-        else _require_hex(
-            source_manifest_raw,
-            length=64,
-            field="source_manifest_digest",
-        )
+    source_manifest_digest = _require_hex(
+        raw["source_manifest_digest"],
+        length=64,
+        field="source_manifest_digest",
     )
 
     result = SignedTakerFlowCalibrationResult(

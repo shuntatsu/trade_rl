@@ -1,0 +1,138 @@
+name: Temporary Issue 577 helper type repair
+
+on:
+  push:
+    branches:
+      - automation/issue577-helper-types
+    paths:
+      - .github/workflows/tmp-issue577-helper-types.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue577-basis-publisher
+          fetch-depth: 0
+      - name: Assert expected starting head
+        run: test "$(git rev-parse HEAD)" = "b22b115c4bcfec1848b74ef365c312bfe054ca6a"
+      - name: Apply type-only repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one anchor in {path}, got {count}: {old!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          common = Path("tools/tmp_issue577_basis_common.py")
+          replace_once(
+              common,
+              'def _fetch_bytes(url: str) -> bytes:\n',
+              'def _require_nonnegative_int(value: object, *, field: str) -> int:\n'
+              '    if isinstance(value, bool) or not isinstance(value, int) or value < 0:\n'
+              '        raise RuntimeError(f"{field} must be a non-negative integer")\n'
+              '    return value\n\n\n'
+              'def _fetch_bytes(url: str) -> bytes:\n',
+          )
+          replace_once(
+              common,
+              '    for key, expected in exact.items():\n'
+              '        if report.get(key) != expected:\n'
+              '            raise RuntimeError(f"index-preflight field differs: {key}")\n',
+              '    for field_name, expected in exact.items():\n'
+              '        if report.get(field_name) != expected:\n'
+              '            raise RuntimeError(f"index-preflight field differs: {field_name}")\n',
+          )
+          replace_once(
+              common,
+              '        key = (symbol, month)\n'
+              '        if key in resolved or symbol not in SYMBOLS or month not in MONTHS:\n',
+              '        entry_key = (symbol, month)\n'
+              '        if entry_key in resolved or symbol not in SYMBOLS or month not in MONTHS:\n',
+          )
+          replace_once(
+              common,
+              '        resolved[key] = raw_entry\n',
+              '        resolved[entry_key] = raw_entry\n',
+          )
+          replace_once(
+              common,
+              '            int(entry["missing_grid_rows"])\n'
+              '            for entry in entries\n'
+              '            if entry["symbol"] == symbol and entry["kind"] == "perpetual_klines"\n',
+              '            _require_nonnegative_int(\n'
+              '                entry["missing_grid_rows"], field="contract missing_grid_rows"\n'
+              '            )\n'
+              '            for entry in entries\n'
+              '            if entry["symbol"] == symbol and entry["kind"] == "perpetual_klines"\n',
+          )
+          replace_once(
+              common,
+              '            int(entry["missing_grid_rows"])\n'
+              '            for entry in entries\n'
+              '            if entry["symbol"] == symbol and entry["kind"] == "indexPriceKlines"\n',
+              '            _require_nonnegative_int(\n'
+              '                entry["missing_grid_rows"], field="index missing_grid_rows"\n'
+              '            )\n'
+              '            for entry in entries\n'
+              '            if entry["symbol"] == symbol and entry["kind"] == "indexPriceKlines"\n',
+          )
+
+          for name in ("tmp_issue577_basis_publisher.py", "tmp_issue577_basis_verifier.py"):
+              path = Path("tools") / name
+              replace_once(
+                  path,
+                  'from tmp_issue577_basis_common import (\n',
+                  'from tools.tmp_issue577_basis_common import (\n',
+              )
+
+          test = Path(
+              "tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py"
+          )
+          replace_once(
+              test,
+              '    np.testing.assert_array_equal(first.index_price, first.close)\n',
+              '    assert first.index_price is not None\n'
+              '    np.testing.assert_array_equal(first.index_price, first.close)\n',
+          )
+          PY
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format and prove static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="tools/tmp_issue577_basis_common.py tools/tmp_issue577_basis_publisher.py tools/tmp_issue577_basis_verifier.py tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py"
+          uv run ruff format $files
+          uv run ruff check $files
+          uv run ruff format --check $files
+          uv run mypy $files
+          git diff --check
+      - name: Guard and publish typed helper repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=b22b115c4bcfec1848b74ef365c312bfe054ca6a
+          remote="$(git ls-remote origin refs/heads/prepare/issue577-basis-publisher | cut -f1)"
+          test "$remote" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/tmp_issue577_basis_common.py tools/tmp_issue577_basis_publisher.py tools/tmp_issue577_basis_verifier.py tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py
+          git commit -m "fix: tighten Issue 577 helper type contracts"
+          git push origin HEAD:prepare/issue577-basis-publisher

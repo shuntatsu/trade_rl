@@ -1,4 +1,4 @@
-name: Temporary Issue 562 publisher/verifier static validation
+name: Temporary Issue 562 publisher/verifier static validation v2
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
       - name: Checkout exact staged helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 7f2a95e8663cfc046913934f975a1242ff156509
+          ref: d7c6ee64bc3a8534d2197dfb4678341520c23141
           persist-credentials: false
       - name: Assert exact staged head
-        run: test "$(git rev-parse HEAD)" = "7f2a95e8663cfc046913934f975a1242ff156509"
+        run: test "$(git rev-parse HEAD)" = "d7c6ee64bc3a8534d2197dfb4678341520c23141"
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:

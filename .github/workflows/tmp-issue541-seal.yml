@@ -1,0 +1,308 @@
+name: Temporary Issue 541 preregistration seal
+
+on:
+  push:
+    branches:
+      - seal/issue541-capacity-robustness-prereg
+    paths:
+      - .github/workflows/tmp-issue541-seal.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publish:
+    name: Seal preregistration
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4e14e040fa399a3720c6affe8fee50d123e58051
+          persist-credentials: false
+      - name: Assert exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4e14e040fa399a3720c6affe8fee50d123e58051"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Build canonical seal payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue541-seal
+          mkdir -p /tmp/issue541-seal
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import (
+              canonical_capacity_robustness_protocol,
+          )
+
+          ROOT = Path('/tmp/issue541-seal')
+          SOURCE = Path('trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py')
+          TEST = Path('tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py')
+          protocol = canonical_capacity_robustness_protocol()
+          protocol_bytes = canonical_json_bytes(protocol.to_payload())
+          (ROOT / 'protocol.json').write_bytes(protocol_bytes)
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          body = {
+              'schema_version': 'capacity_robustness_prereg_seal_v1',
+              'source_head': '4e14e040fa399a3720c6affe8fee50d123e58051',
+              'source_tree': tree,
+              'protocol_digest': protocol.digest,
+              'protocol_json_sha256': hashlib.sha256(protocol_bytes).hexdigest(),
+              'protocol_module_sha256': hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+              'contract_test_sha256': hashlib.sha256(TEST.read_bytes()).hexdigest(),
+              'source_eligibility_artifact_id': protocol.source_eligibility_artifact_id,
+              'source_eligibility_artifact_digest': protocol.source_eligibility_artifact_digest,
+              'source_eligibility_digest': protocol.source_eligibility_digest,
+              'successor_bundle_artifact_id': protocol.successor_bundle_artifact_id,
+              'successor_bundle_artifact_digest': protocol.successor_bundle_artifact_digest,
+              'source_profitable_core_strategies': list(protocol.source_profitable_core_strategies),
+              'pre_successor_suite_status': protocol.pre_successor_suite_status,
+              'integration_gate_satisfied': protocol.integration_gate_satisfied,
+              'execution_authorized': protocol.execution_authorized,
+              'stage_a_executed': protocol.stage_a_executed,
+              'stage_b_executed': protocol.stage_b_executed,
+              'successor_pnl_inspected': protocol.successor_pnl_inspected,
+          }
+          index = {**body, 'seal_index_digest': content_digest(body)}
+          (ROOT / 'seal-index.json').write_bytes(canonical_json_bytes(index))
+          print(f"PROTOCOL_DIGEST={protocol.digest}")
+          print(f"PROTOCOL_JSON_SHA256={hashlib.sha256(protocol_bytes).hexdigest()}")
+          print(f"PROTOCOL_MODULE_SHA256={body['protocol_module_sha256']}")
+          print(f"CONTRACT_TEST_SHA256={body['contract_test_sha256']}")
+          print(f"SEAL_INDEX_DIGEST={index['seal_index_digest']}")
+          print('SUCCESSOR_PNL_INSPECTED=false')
+          print('EXECUTION_AUTHORIZED=false')
+          PY
+      - name: Upload preregistration seal
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-capacity-robustness-prereg-${{ github.run_id }}
+          path: /tmp/issue541-seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh independent preregistration verifier
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PUBLISHED_ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+      PUBLISHED_ARTIFACT_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
+      SEAL_NAME: issue541-capacity-robustness-prereg-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4e14e040fa399a3720c6affe8fee50d123e58051
+          persist-credentials: false
+      - name: Assert exact source independently
+        run: test "$(git rev-parse HEAD)" = "4e14e040fa399a3720c6affe8fee50d123e58051"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: API-resolve and download sealed Artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue541-verify /tmp/issue541-seal.zip /tmp/issue541-source-eligibility.zip /tmp/issue541-successor.zip
+          mkdir -p /tmp/issue541-verify/seal /tmp/issue541-verify/source-eligibility /tmp/issue541-verify/successor
+          raw_digest="${PUBLISHED_ARTIFACT_DIGEST,,}"
+          if [[ "$raw_digest" == sha256:* ]]; then expected_digest="$raw_digest"; else expected_digest="sha256:$raw_digest"; fi
+          list="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100")"
+          read -r api_id api_digest < <(printf '%s' "$list" | python3 -c 'import json,os,sys; xs=[x for x in json.load(sys.stdin)["artifacts"] if x["name"]==os.environ["SEAL_NAME"]]; assert len(xs)==1, len(xs); print(xs[0]["id"], xs[0]["digest"])')
+          test "$api_id" = "$PUBLISHED_ARTIFACT_ID"
+          test "$api_digest" = "$expected_digest"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${api_id}/zip" \
+            -o /tmp/issue541-seal.zip
+          test "sha256:$(sha256sum /tmp/issue541-seal.zip | awk '{print $1}')" = "$api_digest"
+          unzip -q /tmp/issue541-seal.zip -d /tmp/issue541-verify/seal
+      - name: Reconstruct sealed protocol and verify source/test identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import (
+              canonical_capacity_robustness_protocol,
+              load_capacity_robustness_protocol,
+          )
+
+          seal = Path('/tmp/issue541-verify/seal')
+          protocol_path = seal / 'protocol.json'
+          index = json.loads((seal / 'seal-index.json').read_text(encoding='utf-8'))
+          protocol = canonical_capacity_robustness_protocol()
+          loaded = load_capacity_robustness_protocol(protocol_path)
+          if loaded != protocol or loaded.digest != protocol.digest:
+              raise SystemExit('sealed protocol reconstruction mismatch')
+          expected_bytes = canonical_json_bytes(protocol.to_payload())
+          if protocol_path.read_bytes() != expected_bytes:
+              raise SystemExit('sealed protocol bytes differ from canonical reconstruction')
+          if index['protocol_digest'] != protocol.digest:
+              raise SystemExit('seal index binds wrong protocol digest')
+          if index['protocol_json_sha256'] != hashlib.sha256(expected_bytes).hexdigest():
+              raise SystemExit('protocol JSON SHA mismatch')
+          module = Path('trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py')
+          test = Path('tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py')
+          if index['protocol_module_sha256'] != hashlib.sha256(module.read_bytes()).hexdigest():
+              raise SystemExit('protocol module SHA mismatch')
+          if index['contract_test_sha256'] != hashlib.sha256(test.read_bytes()).hexdigest():
+              raise SystemExit('contract-test SHA mismatch')
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          if index['source_head'] != '4e14e040fa399a3720c6affe8fee50d123e58051' or index['source_tree'] != tree:
+              raise SystemExit('sealed source identity mismatch')
+          body = dict(index)
+          claimed = body.pop('seal_index_digest')
+          if content_digest(body) != claimed:
+              raise SystemExit('seal index digest mismatch')
+          if index['source_profitable_core_strategies'] != []:
+              raise SystemExit('sealed eligible strategy roster is not empty')
+          if index['pre_successor_suite_status'] != 'NO_PROFITABLE_CORE_BASELINE':
+              raise SystemExit('sealed pre-successor status drifted')
+          for key in ('integration_gate_satisfied', 'execution_authorized', 'stage_a_executed', 'stage_b_executed', 'successor_pnl_inspected'):
+              if index[key] is not False:
+                  raise SystemExit(f'seal illegally authorizes/records execution: {key}')
+          print(f"PROTOCOL_DIGEST={protocol.digest}")
+          print(f"SEAL_INDEX_DIGEST={claimed}")
+          PY
+      - name: Re-fetch and verify source-only eligibility Artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/10329551558")"
+          digest="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          test "$digest" = "sha256:907599e2330e52fe832872b3b11a5f0ad62316fe4a170acd4453ab39ba1a0800"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/10329551558/zip" \
+            -o /tmp/issue541-source-eligibility.zip
+          test "sha256:$(sha256sum /tmp/issue541-source-eligibility.zip | awk '{print $1}')" = "$digest"
+          unzip -q /tmp/issue541-source-eligibility.zip -d /tmp/issue541-verify/source-eligibility
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+          p = canonical_capacity_robustness_protocol()
+          files = list(Path('/tmp/issue541-verify/source-eligibility').rglob('source-eligibility.json'))
+          if len(files) != 1:
+              raise SystemExit(f'expected one source eligibility JSON, found {files!r}')
+          payload = json.loads(files[0].read_text(encoding='utf-8'))
+          body = dict(payload); claimed = body.pop('diagnostic_digest')
+          if claimed != p.source_eligibility_digest or content_digest(body) != claimed:
+              raise SystemExit('source eligibility content digest mismatch')
+          if payload.get('source_profitable_core_strategies') != [] or payload.get('successor_pnl_inspected') is not False:
+              raise SystemExit('source-only eligibility semantics drifted')
+          symbols = list(p.symbols)
+          expected = {name: dict(zip(symbols, values, strict=True)) for name, values in p.source_core_total_returns}
+          if payload.get('core_total_returns') != expected:
+              raise SystemExit('source baseline return table differs from sealed preregistration')
+          PY
+      - name: Re-fetch and verify successor identity bundle remains no-P&L
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/10328956351")"
+          digest="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          test "$digest" = "sha256:98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/10328956351/zip" \
+            -o /tmp/issue541-successor.zip
+          test "sha256:$(sha256sum /tmp/issue541-successor.zip | awk '{print $1}')" = "$digest"
+          unzip -q /tmp/issue541-successor.zip -d /tmp/issue541-verify/successor
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+          p = canonical_capacity_robustness_protocol()
+          files = list(Path('/tmp/issue541-verify/successor').rglob('identity-index.json'))
+          if len(files) != 1:
+              raise SystemExit(f'expected one successor identity index, found {files!r}')
+          index = json.loads(files[0].read_text(encoding='utf-8'))
+          body = dict(index); claimed = body.pop('identity_index_digest')
+          if claimed != p.successor_identity_index_digest or content_digest(body) != claimed:
+              raise SystemExit('successor identity-index digest mismatch')
+          successor = index['successor']
+          if successor['dataset_id'] != p.successor_dataset_id or successor['dataset_artifact_digest'] != p.successor_dataset_artifact_digest or successor['study_digest'] != p.successor_study_digest:
+              raise SystemExit('successor identity bundle differs from preregistration')
+          if successor['execution_overlay'] != p.successor_execution_overlay:
+              raise SystemExit('successor execution overlay drifted')
+          if successor['baseline_present'] or successor['experiment_count'] != 0 or successor['evidence_set_executed'] or successor['pnl_executed']:
+              raise SystemExit('successor identity bundle crossed no-evidence/no-P&L boundary')
+          print('SUCCESSOR_PNL_INSPECTED=false')
+          print('EXECUTION_AUTHORIZED=false')
+          PY
+      - name: Verify bound implementation commits are resolvable and still unmerged
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/commits/db8193c81dd0ca334a15ffc1895d75884238f8a9" >/dev/null
+          curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/commits/15bf6546996dc969d4d6e946261d73e3d43336e6" >/dev/null
+          pr531="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" "https://api.github.com/repos/shuntatsu/trade_rl/pulls/531")"
+          pr540="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" "https://api.github.com/repos/shuntatsu/trade_rl/pulls/540")"
+          test "$(printf '%s' "$pr531" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["merged"]).lower())')" = false
+          test "$(printf '%s' "$pr540" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["merged"]).lower())')" = false
+      - name: Upload independently reconstructed protocol copy
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-capacity-robustness-prereg-verified-${{ github.run_id }}
+          path: /tmp/issue541-verify/seal/protocol.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

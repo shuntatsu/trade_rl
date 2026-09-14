@@ -1,0 +1,111 @@
+name: Temporary Issue 545 successor metadata
+
+on:
+  push:
+    branches:
+      - probe/issue545-economic-gate-metadata
+    paths:
+      - .github/workflows/tmp-issue545-successor-metadata.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SOURCE_RUN_ID: "34803217815"
+  SOURCE_ARTIFACT_ID: "10331899302"
+  SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SOURCE_ARTIFACT_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  EXPECTED_DATASET_ID: 6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518
+  EXPECTED_DATASET_ARTIFACT_DIGEST: af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Bind immutable successor artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          META="$meta" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["SOURCE_ARTIFACT_ID"]); assert x["name"]==os.environ["SOURCE_ARTIFACT_NAME"]; assert x["workflow_run"]["id"]==int(os.environ["SOURCE_RUN_ID"]); assert x["digest"]==os.environ["SOURCE_ARTIFACT_DIGEST"]; assert x["expired"] is False'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          digest-mismatch: error
+      - name: Locate successor dataset and extract metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+
+          root = Path('/tmp/successor')
+          candidates = []
+          for manifest in root.rglob('manifest.json'):
+              parent = manifest.parent
+              try:
+                  dataset = load_market_dataset_artifact(parent)
+              except Exception:
+                  continue
+              candidates.append((parent, dataset))
+          matches = [(p,d) for p,d in candidates if d.dataset_id == os.environ['EXPECTED_DATASET_ID']]
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one successor dataset, found {[(str(p), d.dataset_id) for p,d in candidates]}')
+          path, dataset = matches[0]
+          artifact = inspect_published_market_dataset_artifact(path)
+          if artifact.artifact_digest != os.environ['EXPECTED_DATASET_ARTIFACT_DIGEST']:
+              raise SystemExit('successor Dataset artifact digest mismatch')
+          signal_name = '1h__log_return_24bar'
+          signal_index = dataset.feature_names.index(signal_name)
+          cutoff = np.datetime64('2023-01-01T00:00:00', 'ns')
+          fit = dataset.timestamps < cutoff
+          def summary(name: str) -> dict[str, object]:
+              x = np.asarray(dataset.resolved_array(name), dtype=np.float64)[fit]
+              if not np.isfinite(x).all(): raise SystemExit(f'non-finite {name}')
+              return {'min':[float(v) for v in x.min(axis=0)], 'max':[float(v) for v in x.max(axis=0)]}
+          payload = {
+              'dataset_root': str(path.relative_to(root)),
+              'dataset_id': dataset.dataset_id,
+              'dataset_artifact_digest': artifact.artifact_digest,
+              'symbols': list(dataset.symbols),
+              'signal_name': signal_name,
+              'signal_index': signal_index,
+              'fit_start': str(dataset.timestamps[np.flatnonzero(fit)[0]]),
+              'fit_last': str(dataset.timestamps[np.flatnonzero(fit)[-1]]),
+              'fee_rate_fit': summary('fee_rate'),
+              'taker_fee_rate_fit': summary('taker_fee_rate'),
+              'spread_rate_fit': summary('spread_rate'),
+              'max_participation_rate_fit': summary('max_participation_rate'),
+          }
+          Path('/tmp/out/successor-metadata.json').write_text(json.dumps(payload,sort_keys=True,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(payload,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue545-successor-metadata-${{ github.run_id }}
+          path: /tmp/out/successor-metadata.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

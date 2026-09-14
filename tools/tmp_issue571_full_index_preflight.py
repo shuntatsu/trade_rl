@@ -15,21 +15,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ISSUE_NUMBER = 571
-SCHEMA_VERSION = "issue571_full_index_preflight_v1"
+SCHEMA_VERSION = "issue571_full_index_preflight_v2"
 BASE_MAIN_SHA = "c5a1ce8395feaedd8833f7e596fddc9d8f3115fc"
 PREREG_PR_NUMBER = 572
-PREREG_PR_HEAD = "b4cb6ac9f713021ffd141765812f12af31c2856e"
+PREREG_PR_HEAD = "795b2e9efc2e7d9d65a7131a160c7da16ba02043"
 PREREG_PROTOCOL_DIGEST = (
-    "dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013"
+    "1dc531fb15bde8cb5d87531456bf9220843b1380f33831764ee56c7312c2a091"
 )
-PREREG_SEAL_RUN_ID = 34866000147
-PREREG_SEAL_ARTIFACT_ID = 10357270841
+PREREG_SEAL_RUN_ID = 34867687158
+PREREG_SEAL_ARTIFACT_ID = 10357004799
 PREREG_SEAL_API_DIGEST = (
-    "sha256:0a8bd8c1fcc4838ec0773b81a723062ebe438ac182ad3ac8dcb7e8da1428cea3"
+    "sha256:e4b156b66d273bebe012b664ed0f72ef551d46cb48ca0a8fddb04ba5ff61c96b"
 )
-PREREG_FRESH_ARTIFACT_ID = 10357655222
+PREREG_FRESH_ARTIFACT_ID = 10357836707
 PREREG_FRESH_API_DIGEST = (
-    "sha256:fdf3d453cc484d35b2c2193d843e5fb051289792ae9e832fc052e17f9e6e1358"
+    "sha256:ff4ce128b2b2103c309d94f2731505bd2c5e0029df99c47d9783b6e566c548f4"
 )
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 MONTHS = tuple(
@@ -69,7 +69,7 @@ def _fetch(url: str) -> tuple[bytes | None, str | None]:
     for attempt in range(3):
         request = urllib.request.Request(
             url,
-            headers={"User-Agent": "trade-rl-issue571-full-index-preflight/1"},
+            headers={"User-Agent": "trade-rl-issue571-full-index-preflight/2"},
         )
         try:
             with urllib.request.urlopen(request, timeout=90) as response:

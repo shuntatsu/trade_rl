@@ -120,7 +120,9 @@ def test_evaluation_spec_rejects_semantic_drift() -> None:
             replace(spec, **mutation)
 
 
-def test_evaluation_uses_common_replay_and_promotes_cost_avoiding_synthetic_case() -> None:
+def test_evaluation_uses_common_replay_and_promotes_cost_avoiding_synthetic_case() -> (
+    None
+):
     spec = canonical_mean_reversion_economic_gate_evaluation_spec()
     dataset = _dataset()
 
@@ -147,8 +149,13 @@ def test_evaluation_uses_common_replay_and_promotes_cost_avoiding_synthetic_case
         assert symbol_result.candidate_total_return == pytest.approx(0.0, abs=1e-15)
         assert symbol_result.excess_total_return > 0.0
         assert symbol_result.candidate_total_cost < symbol_result.baseline_total_cost
-        assert symbol_result.candidate_turnover_total < symbol_result.baseline_turnover_total
-        assert symbol_result.candidate_max_drawdown <= symbol_result.baseline_max_drawdown
+        assert (
+            symbol_result.candidate_turnover_total
+            < symbol_result.baseline_turnover_total
+        )
+        assert (
+            symbol_result.candidate_max_drawdown <= symbol_result.baseline_max_drawdown
+        )
         assert symbol_result.baseline_n_periods == symbol_result.candidate_n_periods
         assert len(symbol_result.baseline_return_sha256) == 64
         assert len(symbol_result.candidate_return_sha256) == 64

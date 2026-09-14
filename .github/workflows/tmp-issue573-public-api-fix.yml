@@ -1,0 +1,89 @@
+name: Temporary Issue 573 public API compatibility fix
+
+on:
+  push:
+    branches:
+      - automation/issue573-public-api-fix
+    paths:
+      - .github/workflows/tmp-issue573-public-api-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue573-perp-index-basis-source
+  TARGET_SHA: dd3347b676ce64f26383e91f451d78de31af3e36
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Preserve existing public API boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          init = Path("trade_rl/integrations/binance/__init__.py")
+          text = init.read_text(encoding="utf-8")
+          text = text.replace("    vision_monthly_index_price_kline_url,\n", "")
+          text = text.replace('    "vision_monthly_index_price_kline_url",\n', "")
+          init.write_text(text, encoding="utf-8")
+
+          test = Path("tests/integrations/test_binance_index_price_source.py")
+          text = test.read_text(encoding="utf-8")
+          old = '''    BinanceTransportError,\n    BinanceTransportMode,\n    vision_monthly_index_price_kline_url,\n)\n'''
+          new = '''    BinanceTransportError,\n    BinanceTransportMode,\n)\nfrom trade_rl.integrations.binance.vision import (\n    vision_monthly_index_price_kline_url,\n)\n'''
+          if text.count(old) != 1:
+              raise RuntimeError("expected exactly one index URL public-import site")
+          test.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/integrations/binance/__init__.py \
+            tests/integrations/test_binance_index_price_source.py
+          uv run ruff check \
+            trade_rl/integrations/binance/__init__.py \
+            tests/integrations/test_binance_index_price_source.py \
+            tests/architecture/test_lean_binance_layout.py
+          uv run pytest -q \
+            tests/architecture/test_lean_binance_layout.py \
+            tests/integrations/test_binance_index_price_source.py \
+            tests/integrations/test_binance.py
+      - name: Guard and publish only Green changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/integrations/binance/__init__.py \
+            tests/integrations/test_binance_index_price_source.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: preserve Binance public API compatibility"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -36,6 +36,7 @@ from trade_rl.integrations.binance.vision import (
     plan_vision_kline_urls,
     vision_funding_url,
     vision_kline_url,
+    vision_monthly_index_price_kline_url,
     vision_monthly_kline_url,
 )
 
@@ -67,5 +68,6 @@ __all__ = [
     "vision_cache_path",
     "vision_funding_url",
     "vision_kline_url",
+    "vision_monthly_index_price_kline_url",
     "vision_monthly_kline_url",
 ]

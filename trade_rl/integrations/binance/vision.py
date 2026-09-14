@@ -123,6 +123,38 @@ def vision_monthly_kline_url(
     )
 
 
+def vision_monthly_index_price_kline_url(
+    market: BinanceMarket | str,
+    symbol: str,
+    interval: str,
+    month: datetime | str,
+) -> str:
+    """Return the sole maintained monthly USD-M indexPriceKlines archive URL."""
+
+    resolved = _market(market)
+    if resolved is not BinanceMarket.USDS_M:
+        raise ValueError("indexPriceKlines are maintained only for Binance USD-M")
+    if interval != "1h":
+        raise ValueError("sealed indexPriceKlines source requires the 1h interval")
+    _interval_ms(interval)
+    if isinstance(month, str):
+        try:
+            parsed = datetime.strptime(month, "%Y-%m").replace(tzinfo=UTC)
+        except ValueError as error:
+            raise ValueError("month must use YYYY-MM") from error
+        if parsed.strftime("%Y-%m") != month:
+            raise ValueError("month must use YYYY-MM")
+        period = month
+    else:
+        period = _aware_utc(month, field="month").strftime("%Y-%m")
+    if not symbol:
+        raise ValueError("Binance symbol must not be empty")
+    return (
+        f"{_VISION_ROOT}/futures/um/monthly/indexPriceKlines/{symbol}/{interval}/"
+        f"{symbol}-{interval}-{period}.zip"
+    )
+
+
 def _next_month(value: datetime) -> datetime:
     if value.month == 12:
         return value.replace(year=value.year + 1, month=1, day=1)

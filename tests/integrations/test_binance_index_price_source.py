@@ -142,7 +142,7 @@ def test_transport_normalizes_headerless_and_headered_index_archives(
 
     assert sources == (url,)
     assert len(rows) == 2
-    assert rows[0][0] == _ms(datetime(2022, 1, 1, tzinfo=UTC))
+    assert int(rows[0][0]) == _ms(datetime(2022, 1, 1, tzinfo=UTC))
     assert float(rows[0][4]) == 100.0
     assert float(rows[1][4]) == 101.0
 

@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
@@ -20,7 +21,11 @@ from trade_rl.data.contracts import (
     VolumeUnit,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.source import (
+    MarketDataSource,
+    RawIndexPriceSeries,
+    RawMarketSeries,
+)
 from trade_rl.integrations.binance.metadata import (
     BinanceInstrumentMetadata,
     _metadata_from_exchange_info,
@@ -90,6 +95,56 @@ def _parse_kline_rows(
     )
 
 
+def _parse_index_price_rows(
+    rows: Sequence[Sequence[object]],
+    *,
+    interval_ms: int,
+    start_ms: int,
+    end_ms: int,
+) -> RawIndexPriceSeries:
+    timestamps: list[int] = []
+    closes: list[float] = []
+    previous_open: int | None = None
+    for row in rows:
+        if len(row) != 12:
+            raise ValueError("Binance index-price row must contain exactly 12 fields")
+        open_ms = _normalize_epoch_ms(row[0])
+        close_event_ms = open_ms + interval_ms
+        if not start_ms <= open_ms < end_ms or close_event_ms > end_ms:
+            continue
+        raw_close_ms = _normalize_epoch_ms(row[6])
+        if raw_close_ms != close_event_ms - 1:
+            raise ValueError("Binance index-price close-time contract mismatch")
+        if open_ms % interval_ms != 0:
+            raise ValueError("Binance index-price timestamp is off the native grid")
+        if previous_open is not None and open_ms <= previous_open:
+            raise ValueError(
+                "Binance index-price timestamps must be strictly increasing"
+            )
+        if previous_open is not None and (open_ms - previous_open) % interval_ms != 0:
+            raise ValueError(
+                "Binance index-price timestamps must remain on the 1h grid"
+            )
+        previous_open = open_ms
+        close = _finite_float(row[4], field="index price close")
+        if close <= 0.0:
+            raise ValueError("Binance index price close must be strictly positive")
+        timestamps.append(close_event_ms)
+        closes.append(close)
+    if not timestamps:
+        raise ValueError("Binance index-price range contains no closed bars")
+    completed = (
+        np.asarray(timestamps, dtype=np.int64)
+        .astype("datetime64[ms]")
+        .astype("datetime64[ns]")
+    )
+    return RawIndexPriceSeries(
+        timestamps=completed,
+        available_at=completed,
+        close=np.asarray(closes, dtype=np.float64),
+    )
+
+
 def _align_funding(
     timestamps: np.ndarray,
     events: Sequence[tuple[int, float]],
@@ -133,6 +188,8 @@ class BinanceMarketDataSource(MarketDataSource):
         end_time: datetime,
         transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
         transport: Any | None = None,
+        index_archive_sha256: Mapping[str, str] | None = None,
+        index_manifest_digest: str | None = None,
     ) -> None:
         self.market = _market(market)
         self.interval = interval
@@ -147,13 +204,55 @@ class BinanceMarketDataSource(MarketDataSource):
             raise ValueError("Binance range boundaries must align to the interval")
         self.transport_mode = _mode(transport_mode)
         self.transport = transport or BinancePublicTransport()
+        if index_archive_sha256 is None:
+            self.index_archive_sha256: dict[str, str] | None = None
+        else:
+            resolved_index_digests: dict[str, str] = {}
+            for url, digest in index_archive_sha256.items():
+                if not isinstance(url, str) or not url:
+                    raise ValueError(
+                        "index archive manifest URLs must be non-empty strings"
+                    )
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or digest.lower() != digest
+                    or any(char not in "0123456789abcdef" for char in digest)
+                ):
+                    raise ValueError(
+                        "index archive manifest values must be lowercase SHA-256 digests"
+                    )
+                resolved_index_digests[url] = digest
+            self.index_archive_sha256 = dict(sorted(resolved_index_digests.items()))
+        if index_manifest_digest is not None and (
+            len(index_manifest_digest) != 64
+            or index_manifest_digest.lower() != index_manifest_digest
+            or any(char not in "0123456789abcdef" for char in index_manifest_digest)
+        ):
+            raise ValueError("index_manifest_digest must be a lowercase SHA-256 digest")
+        self.index_manifest_digest = index_manifest_digest
         self._sources_used: set[str] = set()
+        self._index_sources_used: set[str] = set()
         self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        self._index_series_cache: dict[tuple[str, str], RawIndexPriceSeries] = {}
         self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
 
     @property
     def sources_used(self) -> tuple[str, ...]:
         return tuple(sorted(self._sources_used))
+
+    @property
+    def index_price_provenance(self) -> Mapping[str, object]:
+        if self.index_archive_sha256 is None or self.index_manifest_digest is None:
+            raise ValueError("index-price provenance requires a frozen source manifest")
+        return {
+            "schema_version": "binance_index_price_source_v1",
+            "source_family": "indexPriceKlines",
+            "market": self.market.value,
+            "manifest_digest": self.index_manifest_digest,
+            "archive_sha256_digest": content_digest(self.index_archive_sha256),
+            "sources": sorted(self._index_sources_used),
+        }
 
     def _record_source(self, source: object) -> None:
         if isinstance(source, str):
@@ -181,6 +280,46 @@ class BinanceMarketDataSource(MarketDataSource):
 
     def load(self, symbol: str) -> RawMarketSeries:
         return self.load_timeframe(symbol, self.interval)
+
+    def load_index_price(self, symbol: str, timeframe: str) -> RawIndexPriceSeries:
+        if not symbol:
+            raise ValueError("Binance symbol must not be empty")
+        if self.market is not BinanceMarket.USDS_M:
+            raise ValueError("sealed index-price history requires Binance USD-M")
+        if timeframe != "1h":
+            raise ValueError("sealed index-price history requires the 1h timeframe")
+        if self.transport_mode is not BinanceTransportMode.VISION:
+            raise ValueError(
+                "sealed index-price history requires Binance Vision mode; fallback is forbidden"
+            )
+        if self.index_archive_sha256 is None or self.index_manifest_digest is None:
+            raise ValueError(
+                "sealed index-price history requires frozen manifest SHA digests"
+            )
+        key = (symbol, timeframe)
+        cached = self._index_series_cache.get(key)
+        if cached is not None:
+            return cached
+        start_ms = _epoch_ms(self.start_time)
+        end_ms = _epoch_ms(self.end_time)
+        rows, sources = self.transport.load_index_price_klines(
+            market=self.market,
+            symbol=symbol,
+            interval=timeframe,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode=self.transport_mode,
+            expected_archive_sha256=self.index_archive_sha256,
+        )
+        series = _parse_index_price_rows(
+            rows,
+            interval_ms=_interval_ms(timeframe),
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        self._index_sources_used.update(str(item) for item in sources)
+        self._index_series_cache[key] = series
+        return series
 
     def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries:
         if not symbol:

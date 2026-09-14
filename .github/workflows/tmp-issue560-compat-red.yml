@@ -1,0 +1,47 @@
+name: Temporary Issue 560 positional compatibility RED
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-compat-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
+          persist-credentials: false
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Expected positional API RED
+        run: |
+          python - <<'PY'
+          from dataclasses import fields
+          from trade_rl.data.source import RawMarketSeries
+
+          names = tuple(field.name for field in fields(RawMarketSeries))
+          assert names[:11] == (
+              "timestamps",
+              "open",
+              "high",
+              "low",
+              "close",
+              "volume",
+              "funding_rate",
+              "tradable",
+              "funding_available",
+              "available_at",
+              "funding_event_count",
+          )
+          assert names[11:] == ("taker_buy_quote_volume",)
+          PY

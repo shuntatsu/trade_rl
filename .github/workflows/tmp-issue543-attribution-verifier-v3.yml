@@ -1,0 +1,138 @@
+name: Temporary Issue 543 attribution verifier v3
+
+on:
+  push:
+    branches:
+      - verify/issue543-baseline-attribution
+    paths:
+      - .github/workflows/tmp-issue543-attribution-verifier-v3.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TARGET_SHA: 63e5d7f1688a9fcd1730718c49cf574baa37b155
+  SOURCE_RUN_ID: 34700123151
+  SOURCE_ARTIFACT_ID: 10301701698
+  SOURCE_ARTIFACT_NAME: canonical-m2-portable-baseline-v1-34700123151
+  SOURCE_ARTIFACT_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  SOURCE_EVIDENCE_FINGERPRINT: 526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29
+  PUBLISHED_RUN_ID: 34807300429
+  PUBLISHED_ID: 10333521803
+  PUBLISHED_NAME: issue543-baseline-loss-attribution-v1-34807300429
+  PUBLISHED_DIGEST: sha256:91ba1b3b7c88ae44732bab503983b96e6b024a8eb8017817308c162159d711d9
+
+jobs:
+  verify:
+    name: Independent fixed-artifact reconstruction
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact implementation head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: API-bind published attribution
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${PUBLISHED_ID}")"
+          printf '%s' "$meta" | python3 -c 'import json,os,sys; x=json.load(sys.stdin); assert x["id"] == int(os.environ["PUBLISHED_ID"]); assert x["name"] == os.environ["PUBLISHED_NAME"]; assert x["digest"] == os.environ["PUBLISHED_DIGEST"]; assert x["workflow_run"]["id"] == int(os.environ["PUBLISHED_RUN_ID"]); assert x["expired"] is False'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PUBLISHED_NAME }}
+          path: /tmp/issue543-published-v3
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PUBLISHED_RUN_ID }}
+      - name: API-bind immutable baseline independently
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          printf '%s' "$meta" | python3 -c 'import json,os,sys; x=json.load(sys.stdin); assert x["id"] == int(os.environ["SOURCE_ARTIFACT_ID"]); assert x["digest"] == os.environ["SOURCE_ARTIFACT_DIGEST"]; assert x["workflow_run"]["id"] == int(os.environ["SOURCE_RUN_ID"]); assert x["expired"] is False'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/issue543-source-v3
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Reconstruct report from baseline and compare exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue543-verified-v3
+          mkdir -p /tmp/issue543-verified-v3
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.loss_attribution import analyze_deterministic_loss_attribution
+          from trade_rl.evaluation.runs import load_candidate_run_artifact
+
+          published = json.loads(Path('/tmp/issue543-published-v3/loss-attribution.json').read_text(encoding='utf-8'))
+          body = dict(published)
+          claimed = body.pop('diagnostic_digest')
+          if content_digest(body) != claimed:
+              raise SystemExit('published diagnostic content digest mismatch')
+          root = Path('/tmp/issue543-source-v3')
+          dataset = load_market_dataset_artifact(root / 'dataset')
+          artifact = inspect_published_market_dataset_artifact(root / 'dataset')
+          evidence = json.loads((root / 'study/baseline/evidence/manifest.json').read_text(encoding='utf-8'))
+          if evidence.get('fingerprint') != os.environ['SOURCE_EVIDENCE_FINGERPRINT']:
+              raise SystemExit('fresh EvidenceSet fingerprint mismatch')
+          seeds = tuple(evidence.get('ppo_seeds', ()))
+          if seeds != (0, 1, 2, 3, 4):
+              raise SystemExit(f'fresh seed roster mismatch: {seeds!r}')
+          runs = tuple(load_candidate_run_artifact(root / f'study/baseline/evidence/runs/seed-{seed}') for seed in seeds)
+          strategies = ('cash','constant_long','constant_short','trend','mean_reversion','ridge24','lightgbm24')
+          report = analyze_deterministic_loss_attribution(runs, dataset, deterministic_strategies=strategies)
+          if published.get('report') != report.to_payload():
+              raise SystemExit('fresh attribution payload differs from fixed publisher artifact')
+          if published.get('report_digest') != report.digest:
+              raise SystemExit('fresh attribution report digest mismatch')
+          if published.get('source_dataset_id') != dataset.dataset_id:
+              raise SystemExit('published Dataset ID mismatch')
+          if published.get('source_dataset_artifact_digest') != artifact.artifact_digest:
+              raise SystemExit('published Dataset artifact digest mismatch')
+          if published.get('strategy_execution_performed') is not False:
+              raise SystemExit('diagnostic illegally records strategy execution')
+          if published.get('successor_pnl_inspected') is not False:
+              raise SystemExit('diagnostic crossed successor PnL boundary')
+          verification = {
+              'schema_version': 'portable_baseline_loss_attribution_verify_v1',
+              'diagnostic_artifact_id': int(os.environ['PUBLISHED_ID']),
+              'diagnostic_artifact_api_digest': os.environ['PUBLISHED_DIGEST'],
+              'diagnostic_digest': claimed,
+              'report_digest': report.digest,
+              'fresh_reconstruction_equal': True,
+              'strategy_execution_performed': False,
+              'successor_pnl_inspected': False,
+          }
+          Path('/tmp/issue543-verified-v3/verification.json').write_text(json.dumps(verification, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(verification, sort_keys=True))
+          PY
+      - name: Upload independent verification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue543-baseline-loss-attribution-verified-v1-${{ github.run_id }}
+          path: /tmp/issue543-verified-v3/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

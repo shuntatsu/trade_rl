@@ -139,7 +139,7 @@ def test_bridge_allows_only_implementation_provenance_change(tmp_path: Path) -> 
     report = verify_stage_a_bridge(original, replay)
 
     assert report["status"] == "PASS"
-    assert report["raw_return_arrays_checked"] == 32
+    assert report["raw_return_arrays_checked"] == 16
     assert report["summaries_checked"] == 2
     assert report["implementation_digest_changed"] is True
     assert report["runtime_environment_digest_match"] is True

@@ -1,4 +1,4 @@
-name: Temporary Issue 559 causal-hardening GREEN
+name: Temporary Issue 559 exact-head full verification
 
 on:
   push:
@@ -11,12 +11,13 @@ permissions:
   contents: read
 
 jobs:
-  targeted-green:
+  core:
+    name: Lean Core exact head
     runs-on: ubuntu-24.04
     env:
       TARGET_SHA: 98b1d967692bc4a00f44b3723c1c2728395baed1
     steps:
-      - name: Checkout exact hardened head
+      - name: Checkout exact preregistration head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 98b1d967692bc4a00f44b3723c1c2728395baed1
@@ -28,13 +29,107 @@ jobs:
         with:
           version: "0.10.0"
           python-version: "3.12"
+          enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Static and targeted GREEN
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
         run: |
           set -euo pipefail
-          uv run ruff check trade_rl tests tools
-          uv run ruff format --check trade_rl tests tools
-          uv run mypy trade_rl
-          uv run mypy tools/agent_repo tests/architecture/distribution.py
-          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  guide:
+    name: Human Guide exact head
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 98b1d967692bc4a00f44b3723c1c2728395baed1
+      GUIDE_SOURCE_REV: 98b1d967692bc4a00f44b3723c1c2728395baed1
+    steps:
+      - name: Checkout exact preregistration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 98b1d967692bc4a00f44b3723c1c2728395baed1
+          persist-credentials: false
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e

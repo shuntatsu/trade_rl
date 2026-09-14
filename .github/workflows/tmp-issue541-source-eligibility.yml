@@ -1,0 +1,174 @@
+name: Temporary Issue 541 source-only eligibility diagnostic
+
+on:
+  push:
+    branches:
+      - diag/issue541-source-eligibility
+    paths:
+      - .github/workflows/tmp-issue541-source-eligibility.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_ARTIFACT_ID: "10301701698"
+      SOURCE_ARTIFACT_DIGEST: "sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a"
+      EXPECTED_FINGERPRINT: "526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 15bf6546996dc969d4d6e946261d73e3d43336e6
+          persist-credentials: false
+      - name: Assert no successor execution
+        run: test "$(git rev-parse HEAD)" = "15bf6546996dc969d4d6e946261d73e3d43336e6"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Re-fetch immutable historical baseline only
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue541-baseline /tmp/issue541-baseline.zip /tmp/issue541-out
+          mkdir -p /tmp/issue541-baseline /tmp/issue541-out
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          api_digest="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          test "$api_digest" = "$SOURCE_ARTIFACT_DIGEST"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            -o /tmp/issue541-baseline.zip
+          test "sha256:$(sha256sum /tmp/issue541-baseline.zip | awk '{print $1}')" = "$SOURCE_ARTIFACT_DIGEST"
+          unzip -q /tmp/issue541-baseline.zip -d /tmp/issue541-baseline
+      - name: Extract exact core-strategy baseline returns and eligibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import math
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.evidence import load_evidence_set
+
+          root = Path('/tmp/issue541-baseline')
+          expected = '526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29'
+          candidates = []
+          for path in root.rglob('manifest.json'):
+              try:
+                  payload = json.loads(path.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              if isinstance(payload, dict) and payload.get('fingerprint') == expected:
+                  candidates.append(path.parent)
+          if len(candidates) != 1:
+              raise SystemExit(f'expected one baseline EvidenceSet root, found {candidates!r}')
+          evidence_root = candidates[0]
+          loaded = load_evidence_set(evidence_root)
+          if loaded.evidence.fingerprint != expected:
+              raise SystemExit('historical baseline fingerprint drifted')
+
+          seeds = loaded.evidence.ppo_seeds
+          first = loaded.runs[seeds[0]]
+          symbols_raw = first.summary.get('symbols')
+          if not isinstance(symbols_raw, list) or not all(isinstance(x, str) for x in symbols_raw):
+              raise SystemExit('baseline symbol roster malformed')
+          symbols = tuple(symbols_raw)
+          if symbols != ('BTCUSDT','ETHUSDT','BNBUSDT','XRPUSDT','ADAUSDT'):
+              raise SystemExit(f'unexpected baseline symbols: {symbols!r}')
+          core = ('trend','mean_reversion','ridge24','lightgbm24')
+
+          def return_map(run):
+              out = {}
+              by_symbol = run.summary.get('by_symbol')
+              if not isinstance(by_symbol, list):
+                  raise SystemExit('baseline by_symbol malformed')
+              for entry in by_symbol:
+                  if not isinstance(entry, dict) or not isinstance(entry.get('symbol'), str):
+                      raise SystemExit('baseline symbol entry malformed')
+                  symbol = entry['symbol']
+                  strategies = entry.get('strategies')
+                  if not isinstance(strategies, list):
+                      raise SystemExit('baseline strategy roster malformed')
+                  for strategy in strategies:
+                      if not isinstance(strategy, dict):
+                          raise SystemExit('baseline strategy entry malformed')
+                      name = strategy.get('name')
+                      key = strategy.get('return_key')
+                      if isinstance(name, str) and isinstance(key, str):
+                          values = run.returns.get(key)
+                          if values is None:
+                              raise SystemExit(f'missing raw returns: {symbol}/{name}')
+                          out[(symbol, name)] = np.asarray(values, dtype=np.float64)
+              return out
+
+          maps = {seed: return_map(loaded.runs[seed]) for seed in seeds}
+          first_map = maps[seeds[0]]
+          for seed in seeds[1:]:
+              for symbol in symbols:
+                  for strategy in core:
+                      if not np.array_equal(first_map[(symbol, strategy)], maps[seed][(symbol, strategy)]):
+                          raise SystemExit(f'core deterministic return drift across seeds: {seed}/{symbol}/{strategy}')
+
+          def compound(values: np.ndarray) -> float:
+              wealth = 1.0
+              for value in values:
+                  x = float(value)
+                  if not math.isfinite(x) or x <= -1.0:
+                      raise SystemExit('invalid raw interval return')
+                  wealth *= 1.0 + x
+              return wealth - 1.0
+
+          returns = {}
+          eligible = []
+          for strategy in core:
+              values = [compound(first_map[(symbol, strategy)]) for symbol in symbols]
+              returns[strategy] = dict(zip(symbols, values, strict=True))
+              if all(value > 0.0 for value in values):
+                  eligible.append(strategy)
+
+          body = {
+              'schema_version': 'issue541_source_eligibility_v1',
+              'source_artifact_id': 10301701698,
+              'source_artifact_api_digest': 'f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a',
+              'baseline_evidence_fingerprint': expected,
+              'symbols': list(symbols),
+              'ppo_seeds': list(seeds),
+              'core_strategies': list(core),
+              'core_total_returns': returns,
+              'source_profitable_core_strategies': eligible,
+              'successor_pnl_inspected': False,
+          }
+          payload = {**body, 'diagnostic_digest': content_digest(body)}
+          target = Path('/tmp/issue541-out/source-eligibility.json')
+          target.write_bytes(canonical_json_bytes(payload))
+          print(json.dumps(payload, sort_keys=True, indent=2))
+          print('SUCCESSOR_PNL_INSPECTED=false')
+          PY
+      - name: Upload source-only eligibility diagnostic
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-source-eligibility-${{ github.run_id }}
+          path: /tmp/issue541-out/source-eligibility.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

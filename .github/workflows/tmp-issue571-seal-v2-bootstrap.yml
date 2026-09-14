@@ -1,0 +1,71 @@
+name: Temporary Issue 571 seal v2 bootstrap
+
+on:
+  push:
+    branches:
+      - seal/issue571-basis-prereg-v2
+    paths:
+      - .github/workflows/tmp-issue571-seal-v2-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: seal/issue571-basis-prereg-v2
+          fetch-depth: 0
+      - name: Transform v1 seal workflow to hardened v2 authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/issue571-basis-prereg-seal-v1.yml')
+          text = path.read_text(encoding='utf-8')
+          replacements = [
+              ('name: Issue 571 perpetual-index basis preregistration seal v1',
+               'name: Issue 571 perpetual-index basis preregistration seal v2'),
+              ('      - seal/issue571-basis-prereg-v1\n',
+               '      - seal/issue571-basis-prereg-v2\n'),
+              ('      - .github/workflows/issue571-basis-prereg-seal-v1.yml\n',
+               '      - .github/workflows/issue571-basis-prereg-seal-v1.yml\n'
+               '      - .github/issue571-basis-prereg-seal-v2-trigger\n'),
+              ('  PR_HEAD: b4cb6ac9f713021ffd141765812f12af31c2856e\n',
+               '  PR_HEAD: 795b2e9efc2e7d9d65a7131a160c7da16ba02043\n'),
+              ('  PR_CI_RUN_ID: "34865631673"\n',
+               '  PR_CI_RUN_ID: "34867043785"\n'),
+              ("'schema_version': 'issue571_perp_index_basis_prereg_seal_v1'",
+               "'schema_version': 'issue571_perp_index_basis_prereg_seal_v2'"),
+              ('issue571-perp-index-basis-prereg-seal-v1-${GITHUB_RUN_ID}',
+               'issue571-perp-index-basis-prereg-seal-v2-${GITHUB_RUN_ID}'),
+              ('issue571-perp-index-basis-prereg-fresh-v1-${GITHUB_RUN_ID}',
+               'issue571-perp-index-basis-prereg-fresh-v2-${GITHUB_RUN_ID}'),
+              ('uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py',
+               'uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py'),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one seal-v2 transform anchor, got {count}: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          grep -q 'PR_HEAD: 795b2e9efc2e7d9d65a7131a160c7da16ba02043' .github/workflows/issue571-basis-prereg-seal-v1.yml
+          grep -q 'PR_CI_RUN_ID: "34867043785"' .github/workflows/issue571-basis-prereg-seal-v1.yml
+          grep -q 'issue571_perp_index_basis_prereg_seal_v2' .github/workflows/issue571-basis-prereg-seal-v1.yml
+          grep -q 'test_perp_index_basis_prereg_hardening.py' .github/workflows/issue571-basis-prereg-seal-v1.yml
+      - name: Commit transformed seal workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/issue571-basis-prereg-seal-v1.yml
+          git commit -m "ci: bind Issue 571 seal v2 to hardened preregistration"
+          git push origin HEAD:seal/issue571-basis-prereg-v2

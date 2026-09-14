@@ -1,0 +1,38 @@
+name: Temporary Issue 559 RED
+
+on:
+  push:
+    branches:
+      - verify/issue559-red-8dab31c
+    paths:
+      - .github/workflows/tmp-issue559-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 8dab31c69fb7013db60c4a4fd73099a4f032fe3f
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8dab31c69fb7013db60c4a4fd73099a4f032fe3f
+          persist-credentials: false
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+      - name: Expected semantic RED
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py

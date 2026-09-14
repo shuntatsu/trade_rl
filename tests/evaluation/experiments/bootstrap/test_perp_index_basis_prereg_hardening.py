@@ -9,7 +9,9 @@ from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_prereg import (
 )
 
 
-def test_protocol_freezes_exact_official_index_preflight_roster_and_checksum() -> None:
+def test_protocol_freezes_exact_official_index_preflight_roster_and_checksum() -> (
+    None
+):
     protocol = canonical_perp_index_basis_protocol()
 
     assert protocol.full_preflight_months == tuple(

@@ -1,0 +1,294 @@
+name: Issue 558 signed taker-flow preregistration seal v2
+
+on:
+  push:
+    branches:
+      - seal/issue558-signed-taker-flow-prereg-v2
+    paths:
+      - .github/workflows/issue558-prereg-seal-v2.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PR_NUMBER: "559"
+  PR_HEAD: ea73d8995f9a46623a1571da80f0977c6bf05c8c
+  PR_CI_RUN_ID: "34844335176"
+  SOURCE_RUN_ID: "34840494198"
+  SOURCE_ARTIFACT_ID: "10345533785"
+  SOURCE_ARTIFACT_NAME: issue556-taker-structural-34840494198
+  SOURCE_ARTIFACT_DIGEST: sha256:689188893dec90b41819972e1cb151920ab198bf6bf27b1abeae2ab18e2fac0f
+  SOURCE_REPORT_CONTENT_DIGEST: e3b627cc8efa63623135512d344a883c1b1be8a0e1bc169c24605ec63abaa693
+  SOURCE_FRESH_RUN_ID: "34840645375"
+  SOURCE_FRESH_ARTIFACT_ID: "10346140972"
+  SOURCE_FRESH_ARTIFACT_NAME: issue556-taker-fresh-verification-34840645375
+  SOURCE_FRESH_ARTIFACT_DIGEST: sha256:16f91dcaab5f1914d19ee93934643cf27ad3ab94e1787cb04123b8dc3ad68a60
+
+jobs:
+  seal:
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PR_HEAD }}
+          persist-credentials: false
+      - name: Bind exact PR head and Green CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD"
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER --jq .head.sha)" = "$PR_HEAD"
+          ci="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PR_CI_RUN_ID)"
+          test "$(jq -r .head_sha <<<"$ci")" = "$PR_HEAD"
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PR_CI_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide") | .conclusion' <<<"$jobs")" = success
+      - name: API-bind Issue 556 artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$1)"
+            test "$(jq -r .digest <<<"$p")" = "$2"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$3"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          verify_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT_DIGEST" "$SOURCE_RUN_ID"
+          verify_artifact "$SOURCE_FRESH_ARTIFACT_ID" "$SOURCE_FRESH_ARTIFACT_DIGEST" "$SOURCE_FRESH_RUN_ID"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_FRESH_RUN_ID --jq .conclusion)" = success
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_FRESH_ARTIFACT_NAME }}
+          path: /tmp/source-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_FRESH_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove preregistration contract
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+      - name: Materialize canonical protocol
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import canonical_signed_taker_flow_protocol
+
+          source=json.loads(Path('/tmp/source/structural-report.json').read_text())
+          fresh=json.loads(Path('/tmp/source-fresh/fresh-verification.json').read_text())
+          if source.get('content_digest') != os.environ['SOURCE_REPORT_CONTENT_DIGEST']:
+              raise RuntimeError('source content digest differs')
+          if source.get('status') != 'PASS':
+              raise RuntimeError('source status differs')
+          if source.get('planned_archives') != 20 or source.get('available_archives') != 20 or source.get('valid_archives') != 20:
+              raise RuntimeError('source structural coverage differs')
+          for key in ('economic_values_inspected','return_or_pnl_computed','target_relation_computed'):
+              if source.get(key) is not False:
+                  raise RuntimeError(f'source result-blind flag differs: {key}')
+          if fresh.get('status') != 'PASS' or fresh.get('fresh_reconstruction_byte_equal') is not True:
+              raise RuntimeError('source fresh verification differs')
+          if fresh.get('structural_report_content_digest') != os.environ['SOURCE_REPORT_CONTENT_DIGEST']:
+              raise RuntimeError('source fresh content binding differs')
+
+          p=canonical_signed_taker_flow_protocol()
+          payload=p.to_payload()
+          for key in (
+              'require_label_open_finite_positive',
+              'require_execution_and_label_rows_information_available',
+              'require_calibration_denominator_finite_positive',
+              'require_calibration_beta_finite',
+          ):
+              if payload.get(key) is not True:
+                  raise RuntimeError(f'missing validity gate: {key}')
+          for forbidden in ('feature_values','beta_by_symbol','eligible_observations_by_symbol','training_result','candidate_total_returns','baseline_total_returns','evaluation_result','pnl','ic','correlation'):
+              if forbidden in payload:
+                  raise RuntimeError(f'forbidden result field present: {forbidden}')
+          for key in ('training_relation_executed','evaluation_pnl_inspected','evaluation_execution_authorized','production_eligible','final_test_authorized','shared_cash_profitability_established','live_trading_authorized'):
+              if payload.get(key) is not False:
+                  raise RuntimeError(f'pre-result boundary violated: {key}')
+
+          protocol_bytes=(json.dumps(payload,allow_nan=False,sort_keys=True,indent=2)+'\n').encode()
+          Path('/tmp/seal/protocol.json').write_bytes(protocol_bytes)
+          index={
+              'schema_version':'issue558_signed_taker_flow_prereg_seal_v1',
+              'pr_number':int(os.environ['PR_NUMBER']),
+              'pr_head':os.environ['PR_HEAD'],
+              'pr_ci_run_id':int(os.environ['PR_CI_RUN_ID']),
+              'protocol_digest':p.digest,
+              'protocol_json_sha256':hashlib.sha256(protocol_bytes).hexdigest(),
+              'source_artifact_id':int(os.environ['SOURCE_ARTIFACT_ID']),
+              'source_artifact_api_digest':os.environ['SOURCE_ARTIFACT_DIGEST'],
+              'source_report_content_digest':os.environ['SOURCE_REPORT_CONTENT_DIGEST'],
+              'source_fresh_artifact_id':int(os.environ['SOURCE_FRESH_ARTIFACT_ID']),
+              'source_fresh_artifact_api_digest':os.environ['SOURCE_FRESH_ARTIFACT_DIGEST'],
+              'training_relation_executed':False,
+              'evaluation_pnl_inspected':False,
+              'evaluation_execution_authorized':False,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          Path('/tmp/seal/seal-index.json').write_text(json.dumps(index,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          print('PROTOCOL_DIGEST='+p.digest)
+          print('PROTOCOL_JSON_SHA256='+hashlib.sha256(protocol_bytes).hexdigest())
+          PY
+      - id: meta
+        run: echo "name=issue558-signed-taker-flow-prereg-seal-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verify:
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PR_HEAD }}
+          persist-credentials: false
+      - name: API-bind published seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.id }}
+          SEAL_NAME: ${{ needs.seal.outputs.name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.digest }}
+        run: |
+          set -euo pipefail
+          p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$SEAL_ID)"
+          test "$(jq -r .name <<<"$p")" = "$SEAL_NAME"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$SEAL_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$p")" = false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_FRESH_ARTIFACT_NAME }}
+          path: /tmp/source-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_FRESH_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Fresh reconstruction
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import canonical_signed_taker_flow_protocol, load_signed_taker_flow_protocol
+
+          p=canonical_signed_taker_flow_protocol()
+          sealed=load_signed_taker_flow_protocol('/tmp/seal/protocol.json')
+          if sealed != p or sealed.digest != p.digest:
+              raise RuntimeError('protocol reconstruction mismatch')
+          expected=(json.dumps(p.to_payload(),allow_nan=False,sort_keys=True,indent=2)+'\n').encode()
+          actual=Path('/tmp/seal/protocol.json').read_bytes()
+          if actual != expected:
+              raise RuntimeError('canonical protocol bytes differ')
+          index=json.loads(Path('/tmp/seal/seal-index.json').read_text())
+          if index.get('protocol_digest') != p.digest or index.get('protocol_json_sha256') != hashlib.sha256(actual).hexdigest():
+              raise RuntimeError('seal index differs')
+          if index.get('pr_head') != os.environ['PR_HEAD'] or index.get('pr_ci_run_id') != int(os.environ['PR_CI_RUN_ID']):
+              raise RuntimeError('exact-head binding differs')
+          source=json.loads(Path('/tmp/source/structural-report.json').read_text())
+          fresh_source=json.loads(Path('/tmp/source-fresh/fresh-verification.json').read_text())
+          if source.get('content_digest') != os.environ['SOURCE_REPORT_CONTENT_DIGEST'] or source.get('status') != 'PASS':
+              raise RuntimeError('source authority differs')
+          if fresh_source.get('fresh_reconstruction_byte_equal') is not True or fresh_source.get('status') != 'PASS':
+              raise RuntimeError('source fresh authority differs')
+          fresh={
+              'schema_version':'issue558_signed_taker_flow_prereg_fresh_verification_v1',
+              'pr_head':os.environ['PR_HEAD'],
+              'pr_ci_run_id':int(os.environ['PR_CI_RUN_ID']),
+              'protocol_digest':p.digest,
+              'protocol_json_sha256':hashlib.sha256(actual).hexdigest(),
+              'source_report_content_digest':os.environ['SOURCE_REPORT_CONTENT_DIGEST'],
+              'source_fresh_reconstruction_byte_equal':True,
+              'training_relation_executed':False,
+              'evaluation_pnl_inspected':False,
+              'evaluation_execution_authorized':False,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+              'fresh_reconstruction_passed':True,
+          }
+          Path('/tmp/fresh.json').write_text(json.dumps(fresh,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+      - id: meta
+        run: echo "name=issue558-signed-taker-flow-prereg-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    needs: [seal, fresh_verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Audit fresh artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.fresh_verify.outputs.id }}
+          NAME: ${{ needs.fresh_verify.outputs.name }}
+          DIGEST: ${{ needs.fresh_verify.outputs.digest }}
+        run: |
+          set -euo pipefail
+          p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ID)"
+          test "$(jq -r .name <<<"$p")" = "$NAME"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$p")" = false

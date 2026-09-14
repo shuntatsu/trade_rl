@@ -192,7 +192,9 @@ class SignedTakerFlowCalibrationResult:
         _require_int(self.positive_slope_count, field="positive_slope_count")
         observed_positive = sum(item.positive_slope for item in self.symbol_results)
         if self.positive_slope_count != observed_positive:
-            raise ValueError("canonical positive_slope_count does not match symbol results")
+            raise ValueError(
+                "canonical positive_slope_count does not match symbol results"
+            )
         if self.status not in {
             protocol.valid_status,
             protocol.reject_status,
@@ -210,7 +212,9 @@ class SignedTakerFlowCalibrationResult:
                 else protocol.reject_status
             )
             if self.status != expected_status:
-                raise ValueError("canonical calibration decision does not match beta signs")
+                raise ValueError(
+                    "canonical calibration decision does not match beta signs"
+                )
 
         fixed_authority = {
             "protocol_seal_run_id": _PROTOCOL_SEAL_RUN_ID,
@@ -334,7 +338,15 @@ def _validate_dataset(
     ):
         if array.shape != expected_shape:
             raise ValueError(f"Dataset {field_name} shape is invalid")
-    return feature_index, timestamps, features, available, opens, active, tradable & information
+    return (
+        feature_index,
+        timestamps,
+        features,
+        available,
+        opens,
+        active,
+        tradable & information,
+    )
 
 
 def calibrate_signed_taker_flow(
@@ -348,7 +360,9 @@ def calibrate_signed_taker_flow(
 
     canonical = canonical_signed_taker_flow_protocol()
     if protocol != canonical or protocol.digest != canonical.digest:
-        raise ValueError("protocol differs from the sealed signed taker-flow preregistration")
+        raise ValueError(
+            "protocol differs from the sealed signed taker-flow preregistration"
+        )
     if calibration_head is not None:
         _require_hex(calibration_head, length=40, field="calibration_head")
     if source_manifest_digest is not None:
@@ -406,8 +420,14 @@ def calibrate_signed_taker_flow(
             signal = float(features[t, symbol_index, feature_index])
             if not math.isfinite(signal):
                 raise ValueError("available signed taker-flow feature must be finite")
-            if not protocol.feature_lower_bound <= signal <= protocol.feature_upper_bound:
-                raise ValueError("available signed taker-flow feature violates [-1, 1] bound")
+            if (
+                not protocol.feature_lower_bound
+                <= signal
+                <= protocol.feature_upper_bound
+            ):
+                raise ValueError(
+                    "available signed taker-flow feature violates [-1, 1] bound"
+                )
             start_open = float(open_price[t + execution_offset, symbol_index])
             end_open = float(open_price[endpoint, symbol_index])
             if (
@@ -493,7 +513,9 @@ def _symbol_result_from_payload(raw: object) -> SignedTakerFlowSymbolCalibration
         "positive_slope",
     }
     if set(raw) != expected:
-        raise ValueError("signed taker-flow symbol result has unknown or missing fields")
+        raise ValueError(
+            "signed taker-flow symbol result has unknown or missing fields"
+        )
     return SignedTakerFlowSymbolCalibration(
         symbol=_require_string(raw["symbol"], field="symbol"),
         eligible_observations=_require_int(
@@ -549,7 +571,9 @@ def load_signed_taker_flow_calibration_result(
         "content_digest",
     }
     if set(raw) != expected:
-        raise ValueError("signed taker-flow calibration result has unknown or missing fields")
+        raise ValueError(
+            "signed taker-flow calibration result has unknown or missing fields"
+        )
 
     protocol = canonical_signed_taker_flow_protocol()
     if raw["fit_start"] != _datetime_text(protocol.fit_start):
@@ -589,7 +613,9 @@ def load_signed_taker_flow_calibration_result(
 
     result = SignedTakerFlowCalibrationResult(
         schema_version=_require_string(raw["schema_version"], field="schema_version"),
-        protocol_digest=_require_string(raw["protocol_digest"], field="protocol_digest"),
+        protocol_digest=_require_string(
+            raw["protocol_digest"], field="protocol_digest"
+        ),
         protocol_seal_run_id=_require_int(
             raw["protocol_seal_run_id"], field="protocol_seal_run_id"
         ),
@@ -645,7 +671,9 @@ def load_signed_taker_flow_calibration_result(
             raw["live_trading_authorized"], field="live_trading_authorized"
         ),
     )
-    expected_digest = _require_hex(raw["content_digest"], length=64, field="content_digest")
+    expected_digest = _require_hex(
+        raw["content_digest"], length=64, field="content_digest"
+    )
     if result.digest != expected_digest:
         raise ValueError("signed taker-flow calibration content digest mismatch")
     return result

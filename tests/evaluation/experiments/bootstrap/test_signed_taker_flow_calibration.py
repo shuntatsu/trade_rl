@@ -78,7 +78,21 @@ def _dataset(
 def _replace_array(
     dataset: MarketDataset, field: str, value: np.ndarray
 ) -> MarketDataset:
-    return replace(dataset, **{field: value})
+    changes: dict[str, object] = {field: value}
+    if field == "feature_available":
+        staleness = np.asarray(dataset.feature_staleness).copy()
+        staleness[~np.asarray(value, dtype=np.bool_)] = 1.0
+        changes["feature_staleness"] = staleness
+    elif field == "asset_active":
+        active = np.asarray(value, dtype=np.bool_)
+        changes["symbol_active"] = active
+        tradable = np.asarray(dataset.tradable).copy()
+        tradable[~active] = False
+        changes["tradable"] = tradable
+        information = np.asarray(dataset.information_available).copy()
+        information[~active] = False
+        changes["information_available"] = information
+    return replace(dataset, **changes)
 
 
 def _corrupt_array(

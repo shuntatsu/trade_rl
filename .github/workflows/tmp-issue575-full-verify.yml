@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: 1b6c48e66a66a664b5ea9a25c8c57d74beac38cf
+  TARGET_SHA: daf064e336efb3b212c01ed15c949318b5a08744
 
 jobs:
   core:
@@ -98,7 +98,7 @@ jobs:
     name: Human Guide exact target
     runs-on: ubuntu-latest
     env:
-      GUIDE_SOURCE_REV: 1b6c48e66a66a664b5ea9a25c8c57d74beac38cf
+      GUIDE_SOURCE_REV: daf064e336efb3b212c01ed15c949318b5a08744
     steps:
       - name: Checkout exact calibration head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

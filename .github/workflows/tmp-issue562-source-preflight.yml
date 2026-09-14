@@ -1,0 +1,220 @@
+name: Temporary Issue 562 full training-source preflight
+
+on:
+  push:
+    branches:
+      - verify/issue562-source-preflight
+    paths:
+      - .github/workflows/tmp-issue562-source-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout calibration authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 817e3c96d702ffca3be74309bd68b31ef02643c5
+          persist-credentials: false
+      - name: Assert exact authority
+        run: test "$(git rev-parse HEAD)" = "817e3c96d702ffca3be74309bd68b31ef02643c5"
+      - name: Validate exact full training source roster without feature/target computation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue562-preflight
+          mkdir -p /tmp/issue562-preflight
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import calendar
+          import csv
+          import hashlib
+          import io
+          import json
+          import math
+          import subprocess
+          import time
+          import zipfile
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+          MONTHS = ("2020-12",) + tuple(
+              f"{year}-{month:02d}"
+              for year in (2021, 2022)
+              for month in range(1, 13)
+          )
+          ROOT = "https://data.binance.vision/data/futures/um/monthly/klines"
+          EXPECTED_HEADER = (
+              "open_time", "open", "high", "low", "close", "volume",
+              "close_time", "quote_volume", "count", "taker_buy_volume",
+              "taker_buy_quote_volume", "ignore",
+          )
+          AUTHORITY = {
+              "issue": 556,
+              "publisher_run": 34840494198,
+              "publisher_artifact": 10345533785,
+              "publisher_api_digest": "689188893dec90b41819972e1cb151920ab198bf6bf27b1abeae2ab18e2fac0f",
+              "publisher_content_digest": "e3b627cc8efa63623135512d344a883c1b1be8a0e1bc169c24605ec63abaa693",
+              "fresh_run": 34840645375,
+              "fresh_artifact": 10346140972,
+              "fresh_api_digest": "16f91dcaab5f1914d19ee93934643cf27ad3ab94e1787cb04123b8dc3ad68a60",
+              "status": "PASS",
+          }
+
+          def fetch(url: str, target: Path) -> None:
+              for attempt in range(5):
+                  proc = subprocess.run(
+                      [
+                          "curl", "--fail", "--silent", "--show-error", "--location",
+                          "--connect-timeout", "30", "--max-time", "180",
+                          "--output", str(target), url,
+                      ],
+                      check=False,
+                  )
+                  if proc.returncode == 0 and target.exists() and target.stat().st_size > 0:
+                      return
+                  if attempt < 4:
+                      time.sleep(2 + 2 * attempt)
+              raise RuntimeError(f"download failed after retries: {url}")
+
+          def iso(ms: int) -> str:
+              return datetime.fromtimestamp(ms / 1000.0, tz=UTC).isoformat().replace("+00:00", "Z")
+
+          entries: list[dict[str, object]] = []
+          raw_dir = Path("/tmp/issue562-preflight/raw")
+          raw_dir.mkdir(parents=True, exist_ok=True)
+          for symbol in SYMBOLS:
+              for month in MONTHS:
+                  filename = f"{symbol}-1h-{month}.zip"
+                  url = f"{ROOT}/{symbol}/1h/{filename}"
+                  archive_path = raw_dir / filename
+                  checksum_path = raw_dir / f"{filename}.CHECKSUM"
+                  fetch(url, archive_path)
+                  fetch(url + ".CHECKSUM", checksum_path)
+                  payload = archive_path.read_bytes()
+                  raw_sha = hashlib.sha256(payload).hexdigest()
+                  checksum_text = checksum_path.read_text(encoding="utf-8").strip()
+                  fields = checksum_text.split()
+                  if not fields:
+                      raise RuntimeError(f"empty checksum: {url}")
+                  expected_sha = fields[0].lower()
+                  if expected_sha != raw_sha:
+                      raise RuntimeError(f"checksum mismatch: {url}")
+
+                  with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                      members = [item for item in archive.infolist() if not item.is_dir()]
+                      if len(members) != 1 or not members[0].filename.lower().endswith(".csv"):
+                          raise RuntimeError(f"archive member contract failed: {url}")
+                      with archive.open(members[0], "r") as raw:
+                          rows = list(csv.reader(io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")))
+                  if not rows:
+                      raise RuntimeError(f"empty csv: {url}")
+                  first = rows[0]
+                  try:
+                      int(first[0])
+                      header_present = False
+                  except (ValueError, IndexError):
+                      header_present = True
+                  if header_present and tuple(first) != EXPECTED_HEADER:
+                      raise RuntimeError(f"header mismatch: {url}")
+                  data = rows[1:] if header_present else rows
+                  year, month_number = map(int, month.split("-"))
+                  expected_rows = calendar.monthrange(year, month_number)[1] * 24
+                  if len(data) != expected_rows:
+                      raise RuntimeError(
+                          f"monthly row count mismatch: {url}: {len(data)} != {expected_rows}"
+                      )
+                  open_times: list[int] = []
+                  for row in data:
+                      if len(row) != 12:
+                          raise RuntimeError(f"field count mismatch: {url}: {len(row)}")
+                      open_ms = int(row[0])
+                      open_times.append(open_ms)
+                      quote = float(row[7])
+                      taker = float(row[10])
+                      if not math.isfinite(quote) or not math.isfinite(taker):
+                          raise RuntimeError(f"non-finite quote field: {url}")
+                      if quote < 0.0 or taker < 0.0 or taker > quote:
+                          raise RuntimeError(f"taker/quote structural bound failed: {url}")
+                  first_expected = int(datetime(year, month_number, 1, tzinfo=UTC).timestamp() * 1000)
+                  if month_number == 12:
+                      next_month = datetime(year + 1, 1, 1, tzinfo=UTC)
+                  else:
+                      next_month = datetime(year, month_number + 1, 1, tzinfo=UTC)
+                  last_expected = int(next_month.timestamp() * 1000) - 3_600_000
+                  if open_times[0] != first_expected or open_times[-1] != last_expected:
+                      raise RuntimeError(f"month boundary mismatch: {url}")
+                  if any(b - a != 3_600_000 for a, b in zip(open_times, open_times[1:])):
+                      raise RuntimeError(f"non-hourly spacing: {url}")
+                  entries.append(
+                      {
+                          "symbol": symbol,
+                          "month": month,
+                          "url": url,
+                          "checksum_url": url + ".CHECKSUM",
+                          "raw_sha256": raw_sha,
+                          "raw_size_bytes": len(payload),
+                          "checksum_sha256": expected_sha,
+                          "checksum_verified": True,
+                          "csv_member": members[0].filename,
+                          "header_present": header_present,
+                          "row_count": len(data),
+                          "first_open_time": iso(open_times[0]),
+                          "last_open_time": iso(open_times[-1]),
+                          "field_count": 12,
+                          "structural_bounds_valid": True,
+                      }
+                  )
+
+          if len(entries) != 125:
+              raise RuntimeError(f"planned source roster mismatch: {len(entries)}")
+          manifest_without_digest = {
+              "schema_version": "issue562_training_source_preflight_v1",
+              "issue_number": 562,
+              "calibration_head": "817e3c96d702ffca3be74309bd68b31ef02643c5",
+              "source_feature_head": "adf835cf45936dbc40bf8d4f74879825ae211ef9",
+              "protocol_digest": "5fa9be305c948c4724e106ebd4f4090d2fc977da05d0884b7d4aa9a03df58407",
+              "source_authority": AUTHORITY,
+              "symbols": list(SYMBOLS),
+              "months": list(MONTHS),
+              "planned_archives": 125,
+              "archive_root": ROOT,
+              "interval": "1h",
+              "analysis_contract_active_floor": "2020-12-01T00:00:00Z",
+              "source_open_start_inclusive": "2020-12-31T01:00:00Z",
+              "source_open_end_exclusive": "2023-01-01T00:00:00Z",
+              "fit_start": "2021-01-01T01:00:00Z",
+              "fit_cutoff": "2023-01-01T00:00:00Z",
+              "feature_or_target_values_computed": False,
+              "return_or_pnl_computed": False,
+              "entries": entries,
+          }
+          canonical = json.dumps(
+              manifest_without_digest, sort_keys=True, separators=(",", ":"), allow_nan=False
+          ).encode("utf-8")
+          manifest = dict(manifest_without_digest)
+          manifest["content_digest"] = hashlib.sha256(canonical).hexdigest()
+          Path("/tmp/issue562-preflight/source-preflight.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+              encoding="utf-8",
+          )
+          print("SOURCE_PREFLIGHT_PASS=true")
+          print("PLANNED_ARCHIVES=125")
+          print(f"SOURCE_PREFLIGHT_CONTENT_DIGEST={manifest['content_digest']}")
+          print("FEATURE_OR_TARGET_VALUES_COMPUTED=false")
+          print("RETURN_OR_PNL_COMPUTED=false")
+          PY
+      - name: Upload source preflight manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-source-preflight-${{ github.run_id }}
+          path: /tmp/issue562-preflight/source-preflight.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

@@ -102,7 +102,9 @@ class MeanReversionEconomicGateCalibration:
     def __post_init__(self) -> None:
         if tuple(item.symbol for item in self.symbol_results) != self.symbols:
             raise ValueError("symbol calibration roster does not match symbols")
-        if self.negative_slope_count < 0 or self.negative_slope_count > len(self.symbols):
+        if self.negative_slope_count < 0 or self.negative_slope_count > len(
+            self.symbols
+        ):
             raise ValueError("negative_slope_count is invalid")
         if self.beta_gate is not None and (
             not math.isfinite(self.beta_gate) or self.beta_gate >= 0.0
@@ -163,7 +165,9 @@ def calibrate_mean_reversion_economic_gate(
     if protocol != canonical or protocol.digest != canonical.digest:
         raise ValueError("protocol differs from the sealed preregistration")
     if dataset.dataset_id != protocol.successor_dataset_id:
-        raise ValueError("dataset_id does not match the preregistered successor Dataset")
+        raise ValueError(
+            "dataset_id does not match the preregistered successor Dataset"
+        )
     if tuple(dataset.symbols) != protocol.symbols:
         raise ValueError("dataset symbol roster does not match the preregistration")
     if not 0 <= protocol.signal_index < len(dataset.feature_names):
@@ -191,7 +195,10 @@ def calibrate_mean_reversion_economic_gate(
     ):
         if array.shape != expected_shape:
             raise ValueError(f"Dataset {field_name} shape is invalid")
-    if features.shape[:2] != expected_shape or feature_available.shape != features.shape:
+    if (
+        features.shape[:2] != expected_shape
+        or feature_available.shape != features.shape
+    ):
         raise ValueError("Dataset feature shape is invalid")
 
     fit_start = _datetime64(protocol.fit_start)
@@ -224,11 +231,15 @@ def calibrate_mean_reversion_economic_gate(
             if not active[t, symbol_index] or not tradable[t, symbol_index]:
                 continue
             window = slice(t + label_start_offset, t + label_stop_offset + 1)
-            if not np.all(active[window, symbol_index] & tradable[window, symbol_index]):
+            if not np.all(
+                active[window, symbol_index] & tradable[window, symbol_index]
+            ):
                 continue
 
             signal = float(features[t, symbol_index, signal_index])
-            start_open = float(open_price[t + protocol.label_execution_offset_bars, symbol_index])
+            start_open = float(
+                open_price[t + protocol.label_execution_offset_bars, symbol_index]
+            )
             end_open = float(open_price[label_end, symbol_index])
             if (
                 not math.isfinite(signal)
@@ -313,7 +324,9 @@ def calibrate_mean_reversion_economic_gate(
         betas = sorted(item.beta for item in symbol_results if item.beta is not None)
         beta_gate = betas[protocol.beta_gate_order_statistic - 1]
         if beta_gate >= 0.0:
-            raise ValueError("preregistered beta order statistic is not strictly negative")
+            raise ValueError(
+                "preregistered beta order statistic is not strictly negative"
+            )
         status = _VALID_STATUS
 
     return MeanReversionEconomicGateCalibration(

@@ -1,4 +1,4 @@
-name: Temporary Issue 562 full training-source preflight
+name: Temporary Issue 562 full training-source preflight v2
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - name: Assert exact authority
         run: test "$(git rev-parse HEAD)" = "817e3c96d702ffca3be74309bd68b31ef02643c5"
-      - name: Validate exact full training source roster without feature/target computation
+      - name: Validate full source roster and record official missing hours
         shell: bash
         run: |
           set -euo pipefail
@@ -124,17 +124,27 @@ jobs:
                   if header_present and tuple(first) != EXPECTED_HEADER:
                       raise RuntimeError(f"header mismatch: {url}")
                   data = rows[1:] if header_present else rows
+                  if not data:
+                      raise RuntimeError(f"no data rows: {url}")
+
                   year, month_number = map(int, month.split("-"))
+                  first_expected = int(datetime(year, month_number, 1, tzinfo=UTC).timestamp() * 1000)
+                  if month_number == 12:
+                      next_month = datetime(year + 1, 1, 1, tzinfo=UTC)
+                  else:
+                      next_month = datetime(year, month_number + 1, 1, tzinfo=UTC)
+                  next_month_ms = int(next_month.timestamp() * 1000)
                   expected_rows = calendar.monthrange(year, month_number)[1] * 24
-                  if len(data) != expected_rows:
-                      raise RuntimeError(
-                          f"monthly row count mismatch: {url}: {len(data)} != {expected_rows}"
-                      )
+
                   open_times: list[int] = []
                   for row in data:
                       if len(row) != 12:
                           raise RuntimeError(f"field count mismatch: {url}: {len(row)}")
                       open_ms = int(row[0])
+                      if not first_expected <= open_ms < next_month_ms:
+                          raise RuntimeError(f"row outside monthly grid: {url}")
+                      if (open_ms - first_expected) % 3_600_000 != 0:
+                          raise RuntimeError(f"row off 1h grid: {url}")
                       open_times.append(open_ms)
                       quote = float(row[7])
                       taker = float(row[10])
@@ -142,16 +152,17 @@ jobs:
                           raise RuntimeError(f"non-finite quote field: {url}")
                       if quote < 0.0 or taker < 0.0 or taker > quote:
                           raise RuntimeError(f"taker/quote structural bound failed: {url}")
-                  first_expected = int(datetime(year, month_number, 1, tzinfo=UTC).timestamp() * 1000)
-                  if month_number == 12:
-                      next_month = datetime(year + 1, 1, 1, tzinfo=UTC)
-                  else:
-                      next_month = datetime(year, month_number + 1, 1, tzinfo=UTC)
-                  last_expected = int(next_month.timestamp() * 1000) - 3_600_000
-                  if open_times[0] != first_expected or open_times[-1] != last_expected:
-                      raise RuntimeError(f"month boundary mismatch: {url}")
-                  if any(b - a != 3_600_000 for a, b in zip(open_times, open_times[1:])):
-                      raise RuntimeError(f"non-hourly spacing: {url}")
+                  if any(b <= a for a, b in zip(open_times, open_times[1:])):
+                      raise RuntimeError(f"timestamps not strictly increasing: {url}")
+                  if len(set(open_times)) != len(open_times):
+                      raise RuntimeError(f"duplicate hourly timestamp: {url}")
+                  if len(open_times) > expected_rows:
+                      raise RuntimeError(f"more rows than monthly grid: {url}")
+                  missing_rows = expected_rows - len(open_times)
+                  if month == "2020-12" and missing_rows != 0:
+                      raise RuntimeError(
+                          f"warm-up month must prove active floor with complete grid: {url}"
+                      )
                   entries.append(
                       {
                           "symbol": symbol,
@@ -164,18 +175,29 @@ jobs:
                           "checksum_verified": True,
                           "csv_member": members[0].filename,
                           "header_present": header_present,
+                          "expected_grid_rows": expected_rows,
                           "row_count": len(data),
+                          "missing_grid_rows": missing_rows,
                           "first_open_time": iso(open_times[0]),
                           "last_open_time": iso(open_times[-1]),
                           "field_count": 12,
+                          "timestamps_on_monthly_1h_grid": True,
                           "structural_bounds_valid": True,
                       }
                   )
 
           if len(entries) != 125:
               raise RuntimeError(f"planned source roster mismatch: {len(entries)}")
+          missing_by_symbol = {
+              symbol: sum(
+                  int(item["missing_grid_rows"])
+                  for item in entries
+                  if item["symbol"] == symbol
+              )
+              for symbol in SYMBOLS
+          }
           manifest_without_digest = {
-              "schema_version": "issue562_training_source_preflight_v1",
+              "schema_version": "issue562_training_source_preflight_v2",
               "issue_number": 562,
               "calibration_head": "817e3c96d702ffca3be74309bd68b31ef02643c5",
               "source_feature_head": "adf835cf45936dbc40bf8d4f74879825ae211ef9",
@@ -191,6 +213,8 @@ jobs:
               "source_open_end_exclusive": "2023-01-01T00:00:00Z",
               "fit_start": "2021-01-01T01:00:00Z",
               "fit_cutoff": "2023-01-01T00:00:00Z",
+              "missing_grid_rows_by_symbol": missing_by_symbol,
+              "missing_rows_are_preserved_as_row_present_false": True,
               "feature_or_target_values_computed": False,
               "return_or_pnl_computed": False,
               "entries": entries,
@@ -207,6 +231,7 @@ jobs:
           print("SOURCE_PREFLIGHT_PASS=true")
           print("PLANNED_ARCHIVES=125")
           print(f"SOURCE_PREFLIGHT_CONTENT_DIGEST={manifest['content_digest']}")
+          print("MISSING_GRID_ROWS_BY_SYMBOL=" + json.dumps(missing_by_symbol, sort_keys=True))
           print("FEATURE_OR_TARGET_VALUES_COMPUTED=false")
           print("RETURN_OR_PNL_COMPUTED=false")
           PY

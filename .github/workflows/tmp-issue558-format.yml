@@ -1,0 +1,45 @@
+name: Temporary Issue 558 format
+
+on:
+  push:
+    branches:
+      - verify/issue558-format
+    paths:
+      - .github/workflows/tmp-issue558-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue558-taker-flow-prereg
+          persist-credentials: true
+      - name: Bind expected head
+        run: test "$(git rev-parse HEAD)" = "b98e4caa0d0b66ef23167b9a0fa270e091800b4a"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install dev tools
+        run: uv sync --extra dev
+      - name: Format only
+        run: uv run ruff format tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+      - name: Require no semantic/test-content edit beyond formatter
+        run: |
+          set -euo pipefail
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          git diff --cached --quiet && exit 1
+          git commit -m "style: format signed taker-flow prereg test"
+          git push origin HEAD:research/issue558-taker-flow-prereg

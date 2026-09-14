@@ -43,13 +43,27 @@ _ARCHIVE_URL_TEMPLATE = (
 )
 _BUYER_TAKER_WHEN_BUYER_IS_MAKER = False
 _SELLER_TAKER_WHEN_BUYER_IS_MAKER = True
+_EVENT_TIME_FIELD = "transact_time"
 _TRADE_NOTIONAL_FORMULA = "price_times_quantity"
+_FINITE_POSITIVE_TRADE_INPUTS_REQUIRED = True
+_POSITIVE_TOTAL_TAKER_NOTIONAL_REQUIRED = True
+_EVENT_TIMESTAMP_BEFORE_EVALUATION_REQUIRED = True
+_ARCHIVE_PUBLICATION_TIME_AS_FEATURE_ALLOWED = False
 _PREDICTOR_FORMULA = "buy_minus_sell_over_buy_plus_sell"
 _PREDICTOR_HOUR_ALIGNMENT = "completed_utc_hour"
 _PREDICTOR_AVAILABLE_AT = "end_of_completed_utc_hour"
+_PREDICTOR_TRANSFORM = "identity"
+_WINSORIZATION_ALLOWED = False
+_FITTED_NORMALIZATION_ALLOWED = False
+_VOLUME_THRESHOLD_ALLOWED = False
+_PREDICTOR_CLIPPING_RULE = "mathematical_bounds_only"
 _EXECUTION_ALIGNMENT = "next_bar_open_t_plus_1"
 _LABEL_FORMULA = "log_open_t_plus_2_over_open_t_plus_1"
 _LABEL_HORIZON_BARS = 1
+_LABEL_OPEN_FINITE_POSITIVE_REQUIRED = True
+_ACTIVE_TRADABLE_AT_DECISION_EXECUTION_REQUIRED = True
+_CONTIGUOUS_LABEL_INTERVAL_REQUIRED = True
+_LABEL_ENDPOINTS_BEFORE_EVALUATION_REQUIRED = True
 _SAME_HOUR_RETURN_ALLOWED = False
 _POST_2022_OBSERVATIONS_ALLOWED = False
 _FIT_RULE = "ordinary_least_squares_with_intercept"
@@ -73,6 +87,72 @@ _POSTHOC_SIGN_FLIP_ALLOWED = False
 _DISJOINT_VALIDATION_REQUIRED_AFTER_PASS = True
 _STRATEGY_PNL_ALLOWED = False
 _NUMERIC_CAPACITY_RESULT_ALLOWED = False
+
+_EXPECTED_FIELDS: dict[str, object] = {
+    "canonical_dataset_id": _CANONICAL_DATASET_ID,
+    "canonical_dataset_artifact_digest": _CANONICAL_DATASET_ARTIFACT_DIGEST,
+    "source_roster_protocol_digest": _SOURCE_ROSTER_PROTOCOL_DIGEST,
+    "source_roster_seal_artifact_id": _SOURCE_ROSTER_SEAL_ARTIFACT_ID,
+    "source_roster_seal_artifact_digest": _SOURCE_ROSTER_SEAL_ARTIFACT_DIGEST,
+    "provider_head_sha": _PROVIDER_HEAD_SHA,
+    "provider_parser_blob_sha": _PROVIDER_PARSER_BLOB_SHA,
+    "market": _MARKET,
+    "symbols": _SYMBOLS,
+    "discovery_start": _DISCOVERY_START,
+    "discovery_stop_exclusive": _DISCOVERY_STOP_EXCLUSIVE,
+    "evaluation_start": _EVALUATION_START,
+    "sample_month_days": _SAMPLE_MONTH_DAYS,
+    "checksum_required": _CHECKSUM_REQUIRED,
+    "checksum_suffix": _CHECKSUM_SUFFIX,
+    "archive_url_template": _ARCHIVE_URL_TEMPLATE,
+    "buyer_taker_when_buyer_is_maker": _BUYER_TAKER_WHEN_BUYER_IS_MAKER,
+    "seller_taker_when_buyer_is_maker": _SELLER_TAKER_WHEN_BUYER_IS_MAKER,
+    "event_time_field": _EVENT_TIME_FIELD,
+    "trade_notional_formula": _TRADE_NOTIONAL_FORMULA,
+    "finite_positive_trade_inputs_required": _FINITE_POSITIVE_TRADE_INPUTS_REQUIRED,
+    "positive_total_taker_notional_required": _POSITIVE_TOTAL_TAKER_NOTIONAL_REQUIRED,
+    "event_timestamp_before_evaluation_required": _EVENT_TIMESTAMP_BEFORE_EVALUATION_REQUIRED,
+    "archive_publication_time_as_feature_allowed": _ARCHIVE_PUBLICATION_TIME_AS_FEATURE_ALLOWED,
+    "predictor_formula": _PREDICTOR_FORMULA,
+    "predictor_hour_alignment": _PREDICTOR_HOUR_ALIGNMENT,
+    "predictor_available_at": _PREDICTOR_AVAILABLE_AT,
+    "predictor_transform": _PREDICTOR_TRANSFORM,
+    "winsorization_allowed": _WINSORIZATION_ALLOWED,
+    "fitted_normalization_allowed": _FITTED_NORMALIZATION_ALLOWED,
+    "volume_threshold_allowed": _VOLUME_THRESHOLD_ALLOWED,
+    "predictor_clipping_rule": _PREDICTOR_CLIPPING_RULE,
+    "execution_alignment": _EXECUTION_ALIGNMENT,
+    "label_formula": _LABEL_FORMULA,
+    "label_horizon_bars": _LABEL_HORIZON_BARS,
+    "label_open_finite_positive_required": _LABEL_OPEN_FINITE_POSITIVE_REQUIRED,
+    "active_tradable_at_decision_execution_required": _ACTIVE_TRADABLE_AT_DECISION_EXECUTION_REQUIRED,
+    "contiguous_label_interval_required": _CONTIGUOUS_LABEL_INTERVAL_REQUIRED,
+    "label_endpoints_before_evaluation_required": _LABEL_ENDPOINTS_BEFORE_EVALUATION_REQUIRED,
+    "same_hour_return_allowed": _SAME_HOUR_RETURN_ALLOWED,
+    "post_2022_observations_allowed": _POST_2022_OBSERVATIONS_ALLOWED,
+    "fit_rule": _FIT_RULE,
+    "reduction_rule": _REDUCTION_RULE,
+    "report_pearson_correlation": _REPORT_PEARSON_CORRELATION,
+    "formal_decision_metric": _FORMAL_DECISION_METRIC,
+    "strict_positive_beta": _STRICT_POSITIVE_BETA,
+    "calendar_year_splits": _CALENDAR_YEAR_SPLITS,
+    "min_valid_days_per_symbol": _MIN_VALID_DAYS_PER_SYMBOL,
+    "min_valid_days_per_year": _MIN_VALID_DAYS_PER_YEAR,
+    "min_valid_observations_per_symbol": _MIN_VALID_OBSERVATIONS_PER_SYMBOL,
+    "min_valid_observations_per_year": _MIN_VALID_OBSERVATIONS_PER_YEAR,
+    "min_positive_full_sample_symbols": _MIN_POSITIVE_FULL_SAMPLE_SYMBOLS,
+    "min_positive_year_symbols": _MIN_POSITIVE_YEAR_SYMBOLS,
+    "pass_status": _PASS_STATUS,
+    "no_signal_status": _NO_SIGNAL_STATUS,
+    "invalid_status": _INVALID_STATUS,
+    "replacement_dates_allowed": _REPLACEMENT_DATES_ALLOWED,
+    "alternate_horizon_search_allowed": _ALTERNATE_HORIZON_SEARCH_ALLOWED,
+    "posthoc_sign_flip_allowed": _POSTHOC_SIGN_FLIP_ALLOWED,
+    "disjoint_validation_required_after_pass": _DISJOINT_VALIDATION_REQUIRED_AFTER_PASS,
+    "strategy_pnl_allowed": _STRATEGY_PNL_ALLOWED,
+    "numeric_capacity_result_allowed": _NUMERIC_CAPACITY_RESULT_ALLOWED,
+    "schema_version": _SCHEMA_VERSION,
+}
 
 
 def _iso_utc(value: datetime) -> str:
@@ -107,13 +187,27 @@ class AggTradesPredictiveFlowScreenProtocol:
     archive_url_template: str
     buyer_taker_when_buyer_is_maker: bool
     seller_taker_when_buyer_is_maker: bool
+    event_time_field: str
     trade_notional_formula: str
+    finite_positive_trade_inputs_required: bool
+    positive_total_taker_notional_required: bool
+    event_timestamp_before_evaluation_required: bool
+    archive_publication_time_as_feature_allowed: bool
     predictor_formula: str
     predictor_hour_alignment: str
     predictor_available_at: str
+    predictor_transform: str
+    winsorization_allowed: bool
+    fitted_normalization_allowed: bool
+    volume_threshold_allowed: bool
+    predictor_clipping_rule: str
     execution_alignment: str
     label_formula: str
     label_horizon_bars: int
+    label_open_finite_positive_required: bool
+    active_tradable_at_decision_execution_required: bool
+    contiguous_label_interval_required: bool
+    label_endpoints_before_evaluation_required: bool
     same_hour_return_allowed: bool
     post_2022_observations_allowed: bool
     fit_rule: str
@@ -140,149 +234,20 @@ class AggTradesPredictiveFlowScreenProtocol:
     schema_version: str = _SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        bool_fields = (
-            self.checksum_required,
-            self.buyer_taker_when_buyer_is_maker,
-            self.seller_taker_when_buyer_is_maker,
-            self.same_hour_return_allowed,
-            self.post_2022_observations_allowed,
-            self.report_pearson_correlation,
-            self.strict_positive_beta,
-            self.replacement_dates_allowed,
-            self.alternate_horizon_search_allowed,
-            self.posthoc_sign_flip_allowed,
-            self.disjoint_validation_required_after_pass,
-            self.strategy_pnl_allowed,
-            self.numeric_capacity_result_allowed,
-        )
-        if any(type(value) is not bool for value in bool_fields):
-            raise ValueError("predictive-flow boolean fields must be booleans")
-        int_fields = (
-            self.source_roster_seal_artifact_id,
-            self.label_horizon_bars,
-            self.min_valid_days_per_symbol,
-            self.min_valid_days_per_year,
-            self.min_valid_observations_per_symbol,
-            self.min_valid_observations_per_year,
-            self.min_positive_full_sample_symbols,
-            self.min_positive_year_symbols,
-        )
-        if any(type(value) is not int for value in int_fields):
-            raise ValueError("predictive-flow integer fields must be integers")
-        for value, field in (
-            (self.discovery_start, "discovery_start"),
-            (self.discovery_stop_exclusive, "discovery_stop_exclusive"),
-            (self.evaluation_start, "evaluation_start"),
-        ):
-            if value.tzinfo is None or value.utcoffset() is None:
-                raise ValueError(f"{field} must be timezone-aware")
-
-        actual = (
-            self.canonical_dataset_id,
-            self.canonical_dataset_artifact_digest,
-            self.source_roster_protocol_digest,
-            self.source_roster_seal_artifact_id,
-            self.source_roster_seal_artifact_digest,
-            self.provider_head_sha,
-            self.provider_parser_blob_sha,
-            self.market,
-            self.symbols,
-            self.discovery_start.astimezone(UTC),
-            self.discovery_stop_exclusive.astimezone(UTC),
-            self.evaluation_start.astimezone(UTC),
-            self.sample_month_days,
-            self.checksum_required,
-            self.checksum_suffix,
-            self.archive_url_template,
-            self.buyer_taker_when_buyer_is_maker,
-            self.seller_taker_when_buyer_is_maker,
-            self.trade_notional_formula,
-            self.predictor_formula,
-            self.predictor_hour_alignment,
-            self.predictor_available_at,
-            self.execution_alignment,
-            self.label_formula,
-            self.label_horizon_bars,
-            self.same_hour_return_allowed,
-            self.post_2022_observations_allowed,
-            self.fit_rule,
-            self.reduction_rule,
-            self.report_pearson_correlation,
-            self.formal_decision_metric,
-            self.strict_positive_beta,
-            self.calendar_year_splits,
-            self.min_valid_days_per_symbol,
-            self.min_valid_days_per_year,
-            self.min_valid_observations_per_symbol,
-            self.min_valid_observations_per_year,
-            self.min_positive_full_sample_symbols,
-            self.min_positive_year_symbols,
-            self.pass_status,
-            self.no_signal_status,
-            self.invalid_status,
-            self.replacement_dates_allowed,
-            self.alternate_horizon_search_allowed,
-            self.posthoc_sign_flip_allowed,
-            self.disjoint_validation_required_after_pass,
-            self.strategy_pnl_allowed,
-            self.numeric_capacity_result_allowed,
-            self.schema_version,
-        )
-        preregistered = (
-            _CANONICAL_DATASET_ID,
-            _CANONICAL_DATASET_ARTIFACT_DIGEST,
-            _SOURCE_ROSTER_PROTOCOL_DIGEST,
-            _SOURCE_ROSTER_SEAL_ARTIFACT_ID,
-            _SOURCE_ROSTER_SEAL_ARTIFACT_DIGEST,
-            _PROVIDER_HEAD_SHA,
-            _PROVIDER_PARSER_BLOB_SHA,
-            _MARKET,
-            _SYMBOLS,
-            _DISCOVERY_START,
-            _DISCOVERY_STOP_EXCLUSIVE,
-            _EVALUATION_START,
-            _SAMPLE_MONTH_DAYS,
-            _CHECKSUM_REQUIRED,
-            _CHECKSUM_SUFFIX,
-            _ARCHIVE_URL_TEMPLATE,
-            _BUYER_TAKER_WHEN_BUYER_IS_MAKER,
-            _SELLER_TAKER_WHEN_BUYER_IS_MAKER,
-            _TRADE_NOTIONAL_FORMULA,
-            _PREDICTOR_FORMULA,
-            _PREDICTOR_HOUR_ALIGNMENT,
-            _PREDICTOR_AVAILABLE_AT,
-            _EXECUTION_ALIGNMENT,
-            _LABEL_FORMULA,
-            _LABEL_HORIZON_BARS,
-            _SAME_HOUR_RETURN_ALLOWED,
-            _POST_2022_OBSERVATIONS_ALLOWED,
-            _FIT_RULE,
-            _REDUCTION_RULE,
-            _REPORT_PEARSON_CORRELATION,
-            _FORMAL_DECISION_METRIC,
-            _STRICT_POSITIVE_BETA,
-            _CALENDAR_YEAR_SPLITS,
-            _MIN_VALID_DAYS_PER_SYMBOL,
-            _MIN_VALID_DAYS_PER_YEAR,
-            _MIN_VALID_OBSERVATIONS_PER_SYMBOL,
-            _MIN_VALID_OBSERVATIONS_PER_YEAR,
-            _MIN_POSITIVE_FULL_SAMPLE_SYMBOLS,
-            _MIN_POSITIVE_YEAR_SYMBOLS,
-            _PASS_STATUS,
-            _NO_SIGNAL_STATUS,
-            _INVALID_STATUS,
-            _REPLACEMENT_DATES_ALLOWED,
-            _ALTERNATE_HORIZON_SEARCH_ALLOWED,
-            _POSTHOC_SIGN_FLIP_ALLOWED,
-            _DISJOINT_VALIDATION_REQUIRED_AFTER_PASS,
-            _STRATEGY_PNL_ALLOWED,
-            _NUMERIC_CAPACITY_RESULT_ALLOWED,
-            _SCHEMA_VERSION,
-        )
-        if actual != preregistered:
-            raise ValueError(
-                "fields must match the preregistered predictive-flow contract"
-            )
+        for field_name, expected in _EXPECTED_FIELDS.items():
+            actual = getattr(self, field_name)
+            if isinstance(expected, datetime):
+                if not isinstance(actual, datetime):
+                    raise ValueError(
+                        "fields must match the preregistered predictive-flow contract"
+                    )
+                if actual.tzinfo is None or actual.utcoffset() is None:
+                    raise ValueError(f"{field_name} must be timezone-aware")
+                actual = actual.astimezone(UTC)
+            if actual != expected:
+                raise ValueError(
+                    "fields must match the preregistered predictive-flow contract"
+                )
 
     @property
     def planned_days(self) -> tuple[datetime, ...]:
@@ -326,13 +291,27 @@ class AggTradesPredictiveFlowScreenProtocol:
             "archive_url_template": self.archive_url_template,
             "buyer_taker_when_buyer_is_maker": self.buyer_taker_when_buyer_is_maker,
             "seller_taker_when_buyer_is_maker": self.seller_taker_when_buyer_is_maker,
+            "event_time_field": self.event_time_field,
             "trade_notional_formula": self.trade_notional_formula,
+            "finite_positive_trade_inputs_required": self.finite_positive_trade_inputs_required,
+            "positive_total_taker_notional_required": self.positive_total_taker_notional_required,
+            "event_timestamp_before_evaluation_required": self.event_timestamp_before_evaluation_required,
+            "archive_publication_time_as_feature_allowed": self.archive_publication_time_as_feature_allowed,
             "predictor_formula": self.predictor_formula,
             "predictor_hour_alignment": self.predictor_hour_alignment,
             "predictor_available_at": self.predictor_available_at,
+            "predictor_transform": self.predictor_transform,
+            "winsorization_allowed": self.winsorization_allowed,
+            "fitted_normalization_allowed": self.fitted_normalization_allowed,
+            "volume_threshold_allowed": self.volume_threshold_allowed,
+            "predictor_clipping_rule": self.predictor_clipping_rule,
             "execution_alignment": self.execution_alignment,
             "label_formula": self.label_formula,
             "label_horizon_bars": self.label_horizon_bars,
+            "label_open_finite_positive_required": self.label_open_finite_positive_required,
+            "active_tradable_at_decision_execution_required": self.active_tradable_at_decision_execution_required,
+            "contiguous_label_interval_required": self.contiguous_label_interval_required,
+            "label_endpoints_before_evaluation_required": self.label_endpoints_before_evaluation_required,
             "same_hour_return_allowed": self.same_hour_return_allowed,
             "post_2022_observations_allowed": self.post_2022_observations_allowed,
             "fit_rule": self.fit_rule,
@@ -353,9 +332,7 @@ class AggTradesPredictiveFlowScreenProtocol:
             "replacement_dates_allowed": self.replacement_dates_allowed,
             "alternate_horizon_search_allowed": self.alternate_horizon_search_allowed,
             "posthoc_sign_flip_allowed": self.posthoc_sign_flip_allowed,
-            "disjoint_validation_required_after_pass": (
-                self.disjoint_validation_required_after_pass
-            ),
+            "disjoint_validation_required_after_pass": self.disjoint_validation_required_after_pass,
             "strategy_pnl_allowed": self.strategy_pnl_allowed,
             "numeric_capacity_result_allowed": self.numeric_capacity_result_allowed,
         }
@@ -398,13 +375,27 @@ def canonical_m2_aggtrades_predictive_flow_screen_protocol() -> (
         archive_url_template=roster.archive_url_template,
         buyer_taker_when_buyer_is_maker=roster.buyer_taker_when_buyer_is_maker,
         seller_taker_when_buyer_is_maker=roster.seller_taker_when_buyer_is_maker,
+        event_time_field=_EVENT_TIME_FIELD,
         trade_notional_formula=roster.trade_notional_formula,
+        finite_positive_trade_inputs_required=_FINITE_POSITIVE_TRADE_INPUTS_REQUIRED,
+        positive_total_taker_notional_required=_POSITIVE_TOTAL_TAKER_NOTIONAL_REQUIRED,
+        event_timestamp_before_evaluation_required=_EVENT_TIMESTAMP_BEFORE_EVALUATION_REQUIRED,
+        archive_publication_time_as_feature_allowed=_ARCHIVE_PUBLICATION_TIME_AS_FEATURE_ALLOWED,
         predictor_formula=_PREDICTOR_FORMULA,
         predictor_hour_alignment=_PREDICTOR_HOUR_ALIGNMENT,
         predictor_available_at=_PREDICTOR_AVAILABLE_AT,
+        predictor_transform=_PREDICTOR_TRANSFORM,
+        winsorization_allowed=_WINSORIZATION_ALLOWED,
+        fitted_normalization_allowed=_FITTED_NORMALIZATION_ALLOWED,
+        volume_threshold_allowed=_VOLUME_THRESHOLD_ALLOWED,
+        predictor_clipping_rule=_PREDICTOR_CLIPPING_RULE,
         execution_alignment=_EXECUTION_ALIGNMENT,
         label_formula=_LABEL_FORMULA,
         label_horizon_bars=_LABEL_HORIZON_BARS,
+        label_open_finite_positive_required=_LABEL_OPEN_FINITE_POSITIVE_REQUIRED,
+        active_tradable_at_decision_execution_required=_ACTIVE_TRADABLE_AT_DECISION_EXECUTION_REQUIRED,
+        contiguous_label_interval_required=_CONTIGUOUS_LABEL_INTERVAL_REQUIRED,
+        label_endpoints_before_evaluation_required=_LABEL_ENDPOINTS_BEFORE_EVALUATION_REQUIRED,
         same_hour_return_allowed=_SAME_HOUR_RETURN_ALLOWED,
         post_2022_observations_allowed=_POST_2022_OBSERVATIONS_ALLOWED,
         fit_rule=_FIT_RULE,
@@ -425,27 +416,21 @@ def canonical_m2_aggtrades_predictive_flow_screen_protocol() -> (
         replacement_dates_allowed=_REPLACEMENT_DATES_ALLOWED,
         alternate_horizon_search_allowed=_ALTERNATE_HORIZON_SEARCH_ALLOWED,
         posthoc_sign_flip_allowed=_POSTHOC_SIGN_FLIP_ALLOWED,
-        disjoint_validation_required_after_pass=(
-            _DISJOINT_VALIDATION_REQUIRED_AFTER_PASS
-        ),
+        disjoint_validation_required_after_pass=_DISJOINT_VALIDATION_REQUIRED_AFTER_PASS,
         strategy_pnl_allowed=_STRATEGY_PNL_ALLOWED,
         numeric_capacity_result_allowed=_NUMERIC_CAPACITY_RESULT_ALLOWED,
     )
     if protocol.planned_days != roster.planned_days:
-        raise RuntimeError(
-            "predictive-flow planned days drifted from sealed source roster"
-        )
+        raise RuntimeError("predictive-flow planned days drifted from sealed source roster")
     if protocol.planned_urls != roster.planned_urls:
-        raise RuntimeError(
-            "predictive-flow planned URLs drifted from sealed source roster"
-        )
+        raise RuntimeError("predictive-flow planned URLs drifted from sealed source roster")
     return protocol
 
 
 def load_aggtrades_predictive_flow_screen_protocol(
     path: str | Path,
 ) -> AggTradesPredictiveFlowScreenProtocol:
-    """Load only the byte-semantically sealed canonical protocol payload."""
+    """Load only the sealed canonical protocol payload."""
 
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):

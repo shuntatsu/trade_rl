@@ -15,7 +15,9 @@ from trade_rl.evaluation.runs.config import (
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 
-def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
+def execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
+    """Resolve the shared execution-cost config for a registered overlay."""
+
     if execution_overlay == LEGACY_DATASET_EXECUTION_OVERLAY:
         return ExecutionCostConfig.zero()
     if execution_overlay == CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
@@ -24,6 +26,11 @@ def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
             processing_bar_volume_capacity=False,
         )
     raise ValueError(f"unsupported execution_overlay: {execution_overlay}")
+
+
+# Backward-compatible private name for any internal callers pinned to the prior
+# helper spelling. New code should import the public facade export.
+_execution_cost_for_overlay = execution_cost_for_overlay
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +57,7 @@ def execute_candidate_run(
         stop_index=spec.evaluation_stop_index,
         gross_budget=spec.config.gross_budget,
         initial_capital=spec.config.initial_capital,
-        execution_cost=_execution_cost_for_overlay(spec.execution_overlay),
+        execution_cost=execution_cost_for_overlay(spec.execution_overlay),
         risk=None,
     )
     return CandidateRunResult(
@@ -60,4 +67,8 @@ def execute_candidate_run(
     )
 
 
-__all__ = ["CandidateRunResult", "execute_candidate_run"]
+__all__ = [
+    "CandidateRunResult",
+    "execute_candidate_run",
+    "execution_cost_for_overlay",
+]

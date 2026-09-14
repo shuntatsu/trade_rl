@@ -1,4 +1,4 @@
-name: Temporary Issue 560 final exact-head verification v4
+name: Temporary Issue 560 final exact-head verification v5
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: 1679a89262e62bb7454ce0168773d1f3e2c982ec
+  TARGET_SHA: adf835cf45936dbc40bf8d4f74879825ae211ef9
 
 jobs:
   core:
@@ -21,7 +21,7 @@ jobs:
       - name: Checkout exact target head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1679a89262e62bb7454ce0168773d1f3e2c982ec
+          ref: adf835cf45936dbc40bf8d4f74879825ae211ef9
           persist-credentials: false
       - name: Verify exact target head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -93,12 +93,12 @@ jobs:
     name: Human Guide
     runs-on: ubuntu-latest
     env:
-      GUIDE_SOURCE_REV: 1679a89262e62bb7454ce0168773d1f3e2c982ec
+      GUIDE_SOURCE_REV: adf835cf45936dbc40bf8d4f74879825ae211ef9
     steps:
       - name: Checkout exact target head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1679a89262e62bb7454ce0168773d1f3e2c982ec
+          ref: adf835cf45936dbc40bf8d4f74879825ae211ef9
           persist-credentials: false
       - name: Verify exact target head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"

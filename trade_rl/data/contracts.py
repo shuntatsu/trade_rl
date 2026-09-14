@@ -390,6 +390,16 @@ class MarketBuildConfig:
         names = tuple(spec.name for spec in self.features)
         if len(set(names)) != len(names):
             raise ValueError("feature names must be unique")
+        if (
+            any(
+                FeatureKind(spec.kind) is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
+                for spec in self.features
+            )
+            and self.base_timeframe != "1h"
+        ):
+            raise ValueError(
+                "signed taker quote flow requires the 1h base decision clock"
+            )
         if any(spec.timeframe == self.base_timeframe for spec in self.features):
             raise ValueError(
                 "base timeframe features must omit timeframe instead of repeating it"

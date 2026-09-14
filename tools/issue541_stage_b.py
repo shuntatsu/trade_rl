@@ -1,6 +1,6 @@
 """Execution-only audit helpers for Issue #541 Stage B.
 
-This module does not implement trading logic.  It observes the canonical
+This module does not implement trading logic. It observes the canonical
 ``MarketExecutor.execute_interval`` boundary during the one-shot successor
 baseline run and fails closed if the sealed causal-capacity contract is not
 being respected.
@@ -144,7 +144,7 @@ class StageBCapacityAudit:
 
 @contextmanager
 def audited_market_executor(audit: StageBCapacityAudit) -> Iterator[None]:
-    """Audit every canonical interval while preserving executor behavior exactly."""
+    """Audit every canonical interval without changing executor semantics."""
 
     if not isinstance(audit, StageBCapacityAudit):
         raise TypeError("audit must be a StageBCapacityAudit")

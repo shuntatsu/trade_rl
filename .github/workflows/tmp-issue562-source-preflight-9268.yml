@@ -1,0 +1,73 @@
+name: Temporary Issue 562 latest-authority source preflight
+
+on:
+  push:
+    branches:
+      - verify/issue562-source-preflight-9268
+    paths:
+      - .github/workflows/tmp-issue562-source-preflight-9268.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout preflight definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue562-source-preflight-9268
+          persist-credentials: false
+      - name: Preserve exact v2 validation script and rebind latest authority metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue562-source-preflight.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = lines.index('      - name: Validate full source roster and record official missing hours')
+          end = lines.index('      - name: Upload source preflight manifest', start + 1)
+          run_index = next(i for i in range(start, end) if lines[i].strip() == 'run: |')
+          script = []
+          for line in lines[run_index + 1:end]:
+              if line.startswith('          '):
+                  script.append(line[10:])
+              elif not line.strip():
+                  script.append('')
+              else:
+                  raise SystemExit(f'unexpected workflow indentation: {line!r}')
+          text = '\n'.join(script) + '\n'
+          replacements = {
+              '817e3c96d702ffca3be74309bd68b31ef02643c5': '9268e31d5ec261d6463bb4e9611804e4c7184def',
+              'adf835cf45936dbc40bf8d4f74879825ae211ef9': '9092c8360d6625c97700de5342ba0e0cbec1d1a0',
+              'issue562_training_source_preflight_v2': 'issue562_training_source_preflight_v4',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one occurrence of {old}, found {count}')
+              text = text.replace(old, new, 1)
+          Path('/tmp/issue562-preflight-latest.sh').write_text(text, encoding='utf-8')
+          PY
+      - name: Checkout exact latest calibration authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin 9268e31d5ec261d6463bb4e9611804e4c7184def
+          git checkout --detach 9268e31d5ec261d6463bb4e9611804e4c7184def
+          test "$(git rev-parse HEAD)" = "9268e31d5ec261d6463bb4e9611804e4c7184def"
+      - name: Execute latest-authority source preflight
+        shell: bash
+        run: bash /tmp/issue562-preflight-latest.sh
+      - name: Upload latest-authority source preflight
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-source-preflight-9268-${{ github.run_id }}
+          path: /tmp/issue562-preflight/source-preflight.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

@@ -1,4 +1,4 @@
-name: Temporary Issue 559 causal-hardening RED
+name: Temporary Issue 559 causal-hardening GREEN
 
 on:
   push:
@@ -11,15 +11,15 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  targeted-green:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 7ec352b38476c126d1642168f1a16d2e13bf5778
+      TARGET_SHA: 98b1d967692bc4a00f44b3723c1c2728395baed1
     steps:
-      - name: Checkout exact hardening RED head
+      - name: Checkout exact hardened head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 7ec352b38476c126d1642168f1a16d2e13bf5778
+          ref: 98b1d967692bc4a00f44b3723c1c2728395baed1
           persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -30,11 +30,11 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Static checks
+      - name: Static and targeted GREEN
         run: |
+          set -euo pipefail
           uv run ruff check trade_rl tests tools
           uv run ruff format --check trade_rl tests tools
           uv run mypy trade_rl
           uv run mypy tools/agent_repo tests/architecture/distribution.py
-      - name: Expected causal-contract RED
-        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py

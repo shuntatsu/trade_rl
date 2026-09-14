@@ -1,0 +1,60 @@
+name: Temporary Issue 545 apply alignment contract
+
+on:
+  push:
+    branches:
+      - verify/issue545-alignment-red
+    paths:
+      - .github/workflows/tmp-issue545-apply-alignment.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue545-economic-action-prereg
+      - name: Add only preregistered alignment fields and strict bool validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    "label_formula": "log(open[t+25] / open[t+1])",\n    "minimum_eligible_observations_per_symbol": 8760,\n'''
+          new = '''    "label_formula": "log(open[t+25] / open[t+1])",\n    "feature_availability_decision_offset_bars": 0,\n    "cost_execution_offset_bars": 1,\n    "label_endpoint_offset_bars": 25,\n    "require_asset_active_at_decision": True,\n    "require_tradable_at_decision": True,\n    "require_asset_active_through_label_window": True,\n    "require_tradable_through_label_window": True,\n    "label_window_start_offset_bars": 1,\n    "label_window_stop_offset_bars_inclusive": 25,\n    "require_label_end_strictly_before_fit_cutoff": True,\n    "cost_arrays_read_from_execution_row": True,\n    "minimum_eligible_observations_per_symbol": 8760,\n'''
+          if text.count(old) != 1:
+              raise SystemExit('canonical label block drifted')
+          text = text.replace(old, new)
+
+          old = '''    label_formula: str\n    minimum_eligible_observations_per_symbol: int\n'''
+          new = '''    label_formula: str\n    feature_availability_decision_offset_bars: int\n    cost_execution_offset_bars: int\n    label_endpoint_offset_bars: int\n    require_asset_active_at_decision: bool\n    require_tradable_at_decision: bool\n    require_asset_active_through_label_window: bool\n    require_tradable_through_label_window: bool\n    label_window_start_offset_bars: int\n    label_window_stop_offset_bars_inclusive: int\n    require_label_end_strictly_before_fit_cutoff: bool\n    cost_arrays_read_from_execution_row: bool\n    minimum_eligible_observations_per_symbol: int\n'''
+          if text.count(old) != 1:
+              raise SystemExit('dataclass label block drifted')
+          text = text.replace(old, new)
+
+          old = '''            "label_execution_offset_bars",\n            "label_horizon_bars",\n            "minimum_eligible_observations_per_symbol",\n'''
+          new = '''            "label_execution_offset_bars",\n            "label_horizon_bars",\n            "feature_availability_decision_offset_bars",\n            "cost_execution_offset_bars",\n            "label_endpoint_offset_bars",\n            "label_window_start_offset_bars",\n            "label_window_stop_offset_bars_inclusive",\n            "minimum_eligible_observations_per_symbol",\n'''
+          if text.count(old) != 1:
+              raise SystemExit('integer validation block drifted')
+          text = text.replace(old, new)
+
+          marker = '''        _require_hex(self.diagnosis_head_sha, field="diagnosis_head_sha", length=40)\n'''
+          bool_check = '''        for field_name in (\n            "no_calibration_fallback",\n            "require_asset_active_at_decision",\n            "require_tradable_at_decision",\n            "require_asset_active_through_label_window",\n            "require_tradable_through_label_window",\n            "require_label_end_strictly_before_fit_cutoff",\n            "cost_arrays_read_from_execution_row",\n            "hard_risk_overrides_gate",\n            "thresholds_unchanged",\n            "impact_slippage_invented_by_gate",\n            "promote_requires_positive_median_excess",\n            "promote_requires_no_new_termination",\n            "reject_on_nonpositive_median_excess",\n            "absolute_positive_symbol_count_is_decision_input",\n            "development_data_already_used",\n            "production_eligible",\n            "final_test_authorized",\n            "shared_cash_profitability_established",\n            "live_trading_authorized",\n            "evaluation_pnl_inspected",\n            "calibration_executed",\n            "evaluation_execution_authorized",\n        ):\n            if type(getattr(self, field_name)) is not bool:\n                raise ValueError(f"{field_name} must be a boolean")\n'''
+          if text.count(marker) != 1:
+              raise SystemExit('hex validation marker drifted')
+          text = text.replace(marker, bool_check + marker)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py
+          test "$(git diff --cached --name-only)" = "trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py"
+          git commit -m 'research: freeze calibration alignment semantics'
+          git push origin HEAD:research/issue545-economic-action-prereg

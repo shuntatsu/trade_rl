@@ -1,0 +1,71 @@
+name: Temporary Issue 562 final-authority source preflight
+
+on:
+  push:
+    branches:
+      - verify/issue562-source-preflight
+    paths:
+      - .github/workflows/tmp-issue562-source-preflight-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout preflight definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue562-source-preflight
+          persist-credentials: false
+      - name: Preserve exact v2 source-validation script and rebind metadata only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue562-source-preflight.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = lines.index('      - name: Validate full source roster and record official missing hours')
+          end = lines.index('      - name: Upload source preflight manifest', start + 1)
+          run_index = next(i for i in range(start, end) if lines[i].strip() == 'run: |')
+          script = []
+          for line in lines[run_index + 1:end]:
+              if line.startswith('          '):
+                  script.append(line[10:])
+              elif not line.strip():
+                  script.append('')
+              else:
+                  raise SystemExit(f'unexpected workflow indentation: {line!r}')
+          text = '\n'.join(script) + '\n'
+          old = '817e3c96d702ffca3be74309bd68b31ef02643c5'
+          new = 'dd3ecb617ecd2476e20e9215eeb422d2cdc95750'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one calibration-head binding in preflight script')
+          text = text.replace(old, new)
+          if text.count('issue562_training_source_preflight_v2') != 1:
+              raise SystemExit('expected exactly one v2 preflight schema marker')
+          text = text.replace(
+              'issue562_training_source_preflight_v2',
+              'issue562_training_source_preflight_v3',
+              1,
+          )
+          Path('/tmp/issue562-preflight-final.sh').write_text(text, encoding='utf-8')
+          PY
+      - name: Checkout exact final calibration authority
+        run: |
+          set -euo pipefail
+          git fetch origin dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+          git checkout --detach dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+          test "$(git rev-parse HEAD)" = "dd3ecb617ecd2476e20e9215eeb422d2cdc95750"
+      - name: Execute final-authority source preflight
+        run: bash /tmp/issue562-preflight-final.sh
+      - name: Upload final-authority source preflight
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-source-preflight-final-${{ github.run_id }}
+          path: /tmp/issue562-preflight/source-preflight.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

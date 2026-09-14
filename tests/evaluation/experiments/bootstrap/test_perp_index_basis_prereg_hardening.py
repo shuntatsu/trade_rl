@@ -9,15 +9,11 @@ from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_prereg import (
 )
 
 
-def test_protocol_freezes_exact_official_index_preflight_roster_and_checksum() -> (
-    None
-):
+def test_protocol_freezes_exact_official_index_preflight_roster_and_checksum() -> None:
     protocol = canonical_perp_index_basis_protocol()
 
     assert protocol.full_preflight_months == tuple(
-        f"{year}-{month:02d}"
-        for year in (2021, 2022)
-        for month in range(1, 13)
+        f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
     )
     assert protocol.full_preflight_archive_root == (
         "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"

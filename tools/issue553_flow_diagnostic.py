@@ -153,7 +153,9 @@ def align_next_executable_hour_returns(
         copy=False,
     )
     size = times.size
-    if size <= 0 or any(array.size != size for array in (opens, active_mask, tradable_mask)):
+    if size <= 0 or any(
+        array.size != size for array in (opens, active_mask, tradable_mask)
+    ):
         raise ValueError("market arrays must be non-empty and equal length")
     if size > 1 and np.any(times[1:] <= times[:-1]):
         raise ValueError("timestamps_ns must be strictly increasing")

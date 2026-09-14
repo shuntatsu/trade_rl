@@ -50,7 +50,7 @@ def test_protocol_freezes_source_feature_and_training_clock() -> None:
         "(2*fsum(taker_buy_quote_volume[t-23:t+1])"
         "-fsum(quote_volume[t-23:t+1]))/fsum(quote_volume[t-23:t+1])"
     )
-    assert protocol.feature_minimum_quote_volume > 0.0
+    assert protocol.feature_quote_denominator_must_be_positive is True
     assert protocol.feature_lower_bound == -1.0
     assert protocol.feature_upper_bound == 1.0
 
@@ -193,7 +193,7 @@ def test_loader_rejects_nonfinite_and_naive_time(tmp_path) -> None:
     path = tmp_path / "signed-taker-flow-prereg.json"
 
     broken = protocol.to_payload()
-    broken["feature_minimum_quote_volume"] = float("nan")
+    broken["feature_lower_bound"] = float("nan")
     path.write_text(json.dumps(broken, allow_nan=True), encoding="utf-8")
     with pytest.raises(ValueError, match="finite"):
         load_signed_taker_flow_protocol(path)

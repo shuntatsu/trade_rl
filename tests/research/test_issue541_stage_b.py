@@ -5,13 +5,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.simulation.execution import MarketExecutor
 from tools.issue541_stage_b import (
     StageBCapacityAudit,
     StageBCapacityAuditError,
     audited_market_executor,
     stage_b_suite_decision,
 )
+from trade_rl.simulation.execution import MarketExecutor
 
 DATASET_ID = "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")

@@ -1,0 +1,74 @@
+name: Temporary Issue 575 artifact semantic fix
+
+on:
+  push:
+    branches:
+      - automation/issue575-artifact-semantic-fix
+    paths:
+      - .github/workflows/tmp-issue575-artifact-semantic-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue575-basis-calibration
+  TARGET_SHA: 87f188b4f6b3b519e8f5e4d5ea720d81f9790479
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact semantic RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target and load fix helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" automation/issue575-artifact-semantic-fix --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git show origin/automation/issue575-artifact-semantic-fix:tools/tmp_issue575_apply_artifact_semantic_fix.py > /tmp/apply.py
+      - name: Apply minimal semantic integrity fix
+        run: python3 /tmp/apply.py
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py
+      - name: Focused calibration GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+      - name: Guard and publish only Green production change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: enforce basis calibration artifact semantics"
+          git push origin HEAD:"$TARGET_BRANCH"

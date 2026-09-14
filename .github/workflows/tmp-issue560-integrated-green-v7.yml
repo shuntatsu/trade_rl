@@ -1,0 +1,143 @@
+name: Temporary Issue 560 integrated GREEN v7
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-integrated-green-v7.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrated-green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 6155f71a9ca07647af2c22cc2886bcd923850cd9
+    steps:
+      - name: Checkout verification helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue560-red-31de975
+      - name: Extract integrated patch script preserving concurrent oracle
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue560-integrated-green.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = lines.index('      - name: Apply integrated source and feature implementation')
+          end = lines.index('      - name: Set up uv', start + 1)
+          run_index = next(i for i in range(start, end) if lines[i].strip() == 'run: |')
+          script: list[str] = []
+          for line in lines[run_index + 1 : end]:
+              if line.startswith('          '):
+                  script.append(line[10:])
+              elif not line.strip():
+                  script.append('')
+              else:
+                  raise SystemExit(f'unexpected workflow indentation: {line!r}')
+          text = '\n'.join(script) + '\n'
+          helper_start = text.index('def replace_once(path: str, old: str, new: str) -> None:')
+          helper_end = text.index('\n\nreplace_once(', helper_start)
+          helper = '''def replace_once(path: str, old: str, new: str) -> None:\n    target = Path(path)\n    text = target.read_text(encoding="utf-8")\n    old_count = text.count(old)\n    new_count = text.count(new)\n    if old_count == 1:\n        target.write_text(text.replace(old, new), encoding="utf-8")\n        return\n    if old_count == 0 and new_count == 1:\n        return\n    if (\n        path == "tests/data/test_signed_taker_flow_feature.py"\n        and old_count == 0\n        and new_count == 0\n        and "    row_present[0] = False\\n    active[2] = False\\n    tradable[5] = False\\n" in text\n    ):\n        return\n    raise SystemExit(\n        f"patch site ambiguous: {path}: old={old_count} new={new_count}: {old[:120]!r}"\n    )\n'''
+          text = text[:helper_start] + helper + text[helper_end:]
+          Path('/tmp/apply_issue560.sh').write_text(text, encoding='utf-8')
+          PY
+      - name: Checkout exact latest implementation head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply missing implementation and storage oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/apply_issue560.sh
+          python - <<'PY'
+          from pathlib import Path
+
+          core = Path('trade_rl/data/features/core.py')
+          text = core.read_text(encoding='utf-8')
+          old = '        if spec.timeframe != "1h":\n'
+          new = '        if spec.timeframe not in (None, "1h"):\n'
+          if text.count(old) == 1:
+              text = text.replace(old, new)
+          elif text.count(new) != 1:
+              raise SystemExit('signed-flow timeframe guard is ambiguous')
+          core.write_text(text, encoding='utf-8')
+
+          test = Path('tests/data/test_signed_taker_flow_identity_compat.py')
+          text = test.read_text(encoding='utf-8')
+          old = '''                kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,\n                lookback=24,\n                timeframe="1h",\n            ),\n'''
+          new = '''                kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,\n                lookback=24,\n            ),\n'''
+          if text.count(old) == 1:
+              text = text.replace(old, new)
+          elif text.count(new) != 1:
+              raise SystemExit('builder feature spec is ambiguous')
+          old_assert = '    assert enriched.features[23, 0, 0] == 0.2\n'
+          new_assert = '    assert enriched.features[23, 0, 0] == np.float32(0.2)\n'
+          if text.count(old_assert) == 1:
+              text = text.replace(old_assert, new_assert)
+          elif text.count(new_assert) != 1:
+              raise SystemExit('builder storage oracle is ambiguous')
+          test.write_text(text, encoding='utf-8')
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed files
+        run: |
+          uv run ruff format \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Static and integrated targeted GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py
+      - name: Commit only if branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/issue560-signed-taker-flow
+          remote="$(git rev-parse FETCH_HEAD)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "feat: implement sealed signed taker-flow feature path"
+          git push origin HEAD:feat/issue560-signed-taker-flow

@@ -1,0 +1,48 @@
+name: Temporary Issue 575 semantic artifact GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue575-semantic-green-6d7139
+    paths:
+      - .github/workflows/tmp-issue575-semantic-green-6d7139.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 6d7139eb65ea3db95c6dc93e2b3123a65fb092db
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 6d7139eb65ea3db95c6dc93e2b3123a65fb092db
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/perp_index_basis_calibration.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_calibration_artifact_semantics.py

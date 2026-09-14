@@ -1,0 +1,558 @@
+name: Issue 541 Stage B one-shot v1
+
+on:
+  push:
+    branches:
+      - execute/issue541-stage-b
+    paths:
+      - .github/workflows/issue541-stage-b-formal-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  MAIN_SHA: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+  MAIN_CI_RUN_ID: "34811335706"
+  HELPER_BLOB: c9ba4b66ebab15b9d7a2fdc47d904279b184b736
+  TEST_BLOB: ceb8d2ec9953ca217dfd14165dc5f07065d33360
+  TDD_RUN_ID: "34834016832"
+  PROTOCOL_DIGEST: 11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8
+  STAGE_A_RUN_ID: "34822673531"
+  STAGE_A_NAME: issue541-stage-a-fresh-v7-34822673531
+  STAGE_A_ID: "10342318209"
+  STAGE_A_DIGEST: sha256:c8e4f39d10cbbfc47e8a0b44f466e055ec4a78e9001b331d270b3723a376252e
+  SOURCE_PREREG_RUN_ID: "34702660287"
+  SOURCE_PREREG_NAME: canonical-m2-portable-prereg-v1-34702660287
+  SOURCE_PREREG_ID: "10300479733"
+  SOURCE_PREREG_DIGEST: sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4
+  SUCCESSOR_RUN_ID: "34803217815"
+  SUCCESSOR_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SUCCESSOR_ID: "10331899302"
+  SUCCESSOR_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  SUCCESSOR_VERIFY_RUN_ID: "34803432434"
+  SUCCESSOR_VERIFY_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  SUCCESSOR_VERIFY_ID: "10332575500"
+  SUCCESSOR_VERIFY_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+  PREREG_V3_RUN_ID: "34804388022"
+  PREREG_V3_NAME: issue541-capacity-robustness-prereg-v3-34804388022
+  PREREG_V3_ID: "10332098428"
+  PREREG_V3_DIGEST: sha256:69f3c2b30bb85591483e8a3a77e69a489affdaafa5d57a6be96dcbb24edf348e
+  PREREG_V3_FRESH_NAME: issue541-capacity-robustness-prereg-fresh-v3-34804388022
+  PREREG_V3_FRESH_ID: "10332916765"
+  PREREG_V3_FRESH_DIGEST: sha256:7675c0dc02a58f74c1c84080dd86eb74b4b3d118662c0099675d40025ce3ca6f
+  SUCCESSOR_DATASET_ID: 6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518
+  SUCCESSOR_DATASET_ARTIFACT_DIGEST: af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7
+  SUCCESSOR_STUDY_DIGEST: bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820
+  CAUSAL_OVERLAY: zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity
+
+jobs:
+  stage_b:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      raw_name: ${{ steps.raw_meta.outputs.name }}
+      raw_id: ${{ steps.raw_upload.outputs.artifact-id }}
+      raw_digest: ${{ steps.raw_upload.outputs.artifact-digest }}
+      pre_name: ${{ steps.pre_meta.outputs.name }}
+      pre_id: ${{ steps.pre_upload.outputs.artifact-id }}
+      pre_digest: ${{ steps.pre_upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: One-shot guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=execute/issue541-stage-b&event=push&per_page=100")"
+          ids="$(jq -c '[.workflow_runs[] | select(.path==".github/workflows/issue541-stage-b-formal-v1.yml") | .id]' <<<"$runs")"
+          test "$(jq 'length' <<<"$ids")" = "1"
+          test "$(jq -r '.[0]' <<<"$ids")" = "$GITHUB_RUN_ID"
+      - name: Bind integrated production and Stage B oracle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$MAIN_SHA"
+          git diff --exit-code "$MAIN_SHA" -- trade_rl pyproject.toml uv.lock
+          test "$(git hash-object tools/issue541_stage_b.py)" = "$HELPER_BLOB"
+          test "$(git hash-object tests/research/test_issue541_stage_b.py)" = "$TEST_BLOB"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/main --jq .commit.sha)" = "$MAIN_SHA"
+          ci="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MAIN_CI_RUN_ID")"
+          test "$(jq -r .head_sha <<<"$ci")" = "$MAIN_SHA"
+          test "$(jq -r .conclusion <<<"$ci")" = "success"
+          tdd="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TDD_RUN_ID")"
+          test "$(jq -r .conclusion <<<"$tdd")" = "success"
+      - name: API-bind every immutable authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local p
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$run_id"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          verify "$STAGE_A_ID" "$STAGE_A_NAME" "$STAGE_A_DIGEST" "$STAGE_A_RUN_ID"
+          verify "$SOURCE_PREREG_ID" "$SOURCE_PREREG_NAME" "$SOURCE_PREREG_DIGEST" "$SOURCE_PREREG_RUN_ID"
+          verify "$SUCCESSOR_ID" "$SUCCESSOR_NAME" "$SUCCESSOR_DIGEST" "$SUCCESSOR_RUN_ID"
+          verify "$SUCCESSOR_VERIFY_ID" "$SUCCESSOR_VERIFY_NAME" "$SUCCESSOR_VERIFY_DIGEST" "$SUCCESSOR_VERIFY_RUN_ID"
+          verify "$PREREG_V3_ID" "$PREREG_V3_NAME" "$PREREG_V3_DIGEST" "$PREREG_V3_RUN_ID"
+          verify "$PREREG_V3_FRESH_ID" "$PREREG_V3_FRESH_NAME" "$PREREG_V3_FRESH_DIGEST" "$PREREG_V3_RUN_ID"
+      - name: Download Stage A fresh authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.STAGE_A_NAME }}
+          path: /tmp/stage-a
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.STAGE_A_RUN_ID }}
+      - name: Download plan-only source preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_PREREG_NAME }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_PREREG_RUN_ID }}
+      - name: Download sealed successor bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SUCCESSOR_RUN_ID }}
+      - name: Download successor fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_VERIFY_NAME }}
+          path: /tmp/successor-verify
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SUCCESSOR_VERIFY_RUN_ID }}
+      - name: Validate result-blind Stage B boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          a=json.loads(next(Path('/tmp/stage-a').glob('*.json')).read_text())
+          required={
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'stage_a_execution_count':1,
+              'stage_a_executed':True,
+              'stage_a_passed':True,
+              'fresh_runner_reverified_published_artifact':True,
+              'stage_b_execution_authorized':True,
+              'successor_pnl_inspected':False,
+          }
+          for key,value in required.items():
+              if a.get(key)!=value: raise RuntimeError(f'Stage A authorization drift: {key}')
+          index=json.loads(Path('/tmp/successor/successor-index.json').read_text())
+          for key,value in {
+              'dataset_id':os.environ['SUCCESSOR_DATASET_ID'],
+              'dataset_artifact_digest':os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST'],
+              'study_digest':os.environ['SUCCESSOR_STUDY_DIGEST'],
+              'execution_overlay':os.environ['CAUSAL_OVERLAY'],
+              'baseline_present':False,
+              'experiment_count':0,
+              'pnl_executed':False,
+              'returns_inspected':False,
+              'final_test_authorized':False,
+              'production_authorized':False,
+          }.items():
+              if index.get(key)!=value: raise RuntimeError(f'successor index drift: {key}')
+          if Path('/tmp/successor/study/baseline').exists(): raise RuntimeError('successor is not plan-only')
+          verified=json.loads(next(Path('/tmp/successor-verify').glob('*.json')).read_text())
+          if verified.get('status') not in ('PASS','VERIFIED'):
+              raise RuntimeError('successor fresh verification status is not successful')
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install frozen research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Reprove Stage B audit oracle
+        run: |
+          uv run ruff check tests/research/test_issue541_stage_b.py tools/issue541_stage_b.py
+          uv run ruff format --check tests/research/test_issue541_stage_b.py tools/issue541_stage_b.py
+          uv run pytest -q tests/research/test_issue541_stage_b.py
+      - name: Verify successor Dataset caps and create current-implementation bridge Study
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/replay
+          mkdir -p /tmp/replay
+          cp -a /tmp/successor/dataset /tmp/replay/dataset
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments import create_study, inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.config import load_canonical_m2_bootstrap_config
+          from trade_rl.evaluation.runs import CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
+
+          caps=np.asarray([0.0021629560553901974,0.002044685341258238,0.002184898995567895,0.0020480213652913385,0.002346308308284808],dtype=np.float64)
+          dataset=load_market_dataset_artifact('/tmp/replay/dataset')
+          artifact=inspect_published_market_dataset_artifact('/tmp/replay/dataset')
+          if dataset.dataset_id != os.environ['SUCCESSOR_DATASET_ID']: raise RuntimeError('Dataset ID drift')
+          if artifact.artifact_digest != os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST']: raise RuntimeError('Dataset artifact digest drift')
+          expected=np.broadcast_to(caps,(dataset.n_bars,dataset.n_symbols))
+          if not np.array_equal(dataset.resolved_array('max_participation_rate'),expected): raise RuntimeError('sealed capacity array drift')
+
+          sealed=inspect_study('/tmp/successor/study')
+          if sealed.plan.digest != os.environ['SUCCESSOR_STUDY_DIGEST']: raise RuntimeError('sealed Study digest drift')
+          config=load_canonical_m2_bootstrap_config('/tmp/source/bootstrap.json')
+          created=create_study(
+              '/tmp/replay/study',dataset_root='/tmp/replay/dataset',
+              research_question=sealed.plan.research_question,
+              baseline_config=config.baseline,
+              ppo_seeds=sealed.plan.ppo_seeds,
+              allowed_factors=sealed.plan.allowed_factors,
+              max_experiments=sealed.plan.max_experiments,
+              n_bootstrap=sealed.plan.n_bootstrap,
+              bootstrap_seed=sealed.plan.bootstrap_seed,
+              execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+          old=json.loads(Path('/tmp/successor/study/plan.json').read_text()); new=json.loads(Path('/tmp/replay/study/plan.json').read_text())
+          old_impl=old.pop('implementation_digest'); new_impl=new.pop('implementation_digest')
+          if old != new: raise RuntimeError('bridge Study differs beyond implementation provenance')
+          if old_impl == new_impl: raise RuntimeError('bridge Study did not bind current implementation')
+          if created.baseline is not None or created.experiment_sequences or created.frozen: raise RuntimeError('bridge Study is not plan-only')
+          PY
+      - name: Execute successor baseline exactly once with full capacity audit
+        id: execute
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments import inspect_study, run_baseline
+          from tools.issue541_stage_b import StageBCapacityAudit, audited_market_executor, stage_b_suite_decision
+          caps=(0.0021629560553901974,0.002044685341258238,0.002184898995567895,0.0020480213652913385,0.002346308308284808)
+          audit=StageBCapacityAudit(dataset_id=os.environ['SUCCESSOR_DATASET_ID'],symbols=('BTCUSDT','ETHUSDT','BNBUSDT','XRPUSDT','ADAUSDT'),capacity_caps=caps)
+          before=inspect_study('/tmp/replay/study')
+          if before.baseline is not None: raise RuntimeError('Stage B baseline already exists')
+          with audited_market_executor(audit):
+              after=run_baseline('/tmp/replay/study',dataset_root='/tmp/replay/dataset')
+          if after.baseline is None or after.experiment_sequences or after.frozen: raise RuntimeError('Stage B left baseline-only boundary')
+          audit_payload=audit.to_payload()
+          Path('/tmp/stage-b-capacity-audit.json').write_text(json.dumps(audit_payload,sort_keys=True,indent=2)+'\n')
+          meta={
+              'schema_version':'issue541_stage_b_raw_v1',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'dataset_id':os.environ['SUCCESSOR_DATASET_ID'],
+              'study_bridge_digest':after.plan.digest,
+              'stage_b_execution_count':1,
+              'stage_b_executed':True,
+              'diagnostic_only':True,
+              'formal_suite_decision':stage_b_suite_decision(source_profitable_core_strategies=()),
+              'source_profitable_core_strategies':[],
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          Path('/tmp/stage-b-meta.json').write_text(json.dumps(meta,sort_keys=True,indent=2)+'\n')
+          PY
+      - name: Package immutable raw Stage B evidence before interpretation
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/published/study
+          cp /tmp/replay/study/plan.json /tmp/published/study/plan.json
+          cp -a /tmp/replay/study/baseline /tmp/published/study/baseline
+          cp /tmp/stage-b-capacity-audit.json /tmp/published/stage-b-capacity-audit.json
+          cp /tmp/stage-b-meta.json /tmp/published/stage-b-meta.json
+      - id: raw_meta
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: echo "name=issue541-stage-b-raw-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: raw_upload
+        if: ${{ steps.execute.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.raw_meta.outputs.name }}
+          path: /tmp/published
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Pre-upload independent evidence verification
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, math
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.evaluation.experiments import inspect_study
+          from tools.issue541_stage_b import stage_b_suite_decision
+
+          root=Path('/tmp/replay/study'); snap=inspect_study(root)
+          if snap.baseline is None or snap.experiment_sequences or snap.frozen: raise RuntimeError('Stage B Study state drift')
+          audit=json.loads(Path('/tmp/stage-b-capacity-audit.json').read_text())
+          for key,value in {'status':'PASS','dataset_id':'6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518','capacity_violation_count':0,'processing_bar_capacity_violation_count':0,'runtime_overlay_violation_count':0,'previous_completed_bar_capacity':True,'runtime_participation_overlay_absent':True}.items():
+              if audit.get(key)!=value: raise RuntimeError(f'capacity audit drift: {key}')
+          if int(audit.get('execution_intervals_checked',0)) <= 0: raise RuntimeError('capacity audit observed no intervals')
+
+          evidence=root/'baseline/evidence'; manifest=json.loads((evidence/'manifest.json').read_text()); seeds=manifest['ppo_seeds']
+          deterministic_ref={}; checked=0; strategy_returns={}
+          for seed in seeds:
+              run=evidence/'runs'/f'seed-{seed}'
+              summary=json.loads((run/'summary.json').read_text())
+              with np.load(run/'returns.npz',allow_pickle=False) as arrays:
+                  current={}
+                  for symbol in summary['by_symbol']:
+                      for strategy in symbol['strategies']:
+                          key=strategy['return_key']; values=np.asarray(arrays[key],dtype=np.float64)
+                          recomputed=float(np.prod(1.0+values,dtype=np.float64)-1.0)
+                          persisted=float(strategy['metrics']['total_return'])
+                          if not math.isclose(recomputed,persisted,rel_tol=1e-12,abs_tol=1e-12): raise RuntimeError(f'total return mismatch: seed={seed} {symbol["symbol"]} {strategy["name"]}')
+                          checked += 1
+                          if strategy['name']!='ppo': current[(symbol['symbol'],strategy['name'])]=values.tobytes()
+                          strategy_returns.setdefault(strategy['name'],{}).setdefault(symbol['symbol'],[]).append(persisted)
+                  if not deterministic_ref: deterministic_ref=current
+                  elif current!=deterministic_ref: raise RuntimeError('deterministic raw-return seed invariance failed')
+          payload={
+              'schema_version':'issue541_stage_b_preverification_v1',
+              'status':'PASS',
+              'raw_return_arrays_recomputed':checked,
+              'deterministic_seed_invariance':True,
+              'capacity_audit':audit,
+              'formal_suite_decision':stage_b_suite_decision(source_profitable_core_strategies=()),
+              'source_profitable_core_strategies':[],
+              'strategy_total_returns':strategy_returns,
+              'diagnostic_only':True,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          Path('/tmp/preverify.json').write_text(json.dumps(payload,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+      - name: Bind preverification to published raw artifact
+        if: ${{ steps.execute.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_ID: ${{ steps.raw_upload.outputs.artifact-id }}
+          RAW_DIGEST: ${{ steps.raw_upload.outputs.artifact-digest }}
+          RAW_NAME: ${{ steps.raw_meta.outputs.name }}
+        run: |
+          set -euo pipefail
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RAW_ID")"
+          test "$(jq -r .name <<<"$p")" = "$RAW_NAME"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$RAW_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=json.loads(Path('/tmp/preverify.json').read_text())
+          p['raw_artifact_id']=int(os.environ['RAW_ID'])
+          p['raw_artifact_digest']='sha256:'+os.environ['RAW_DIGEST']
+          Path('/tmp/preverify.json').write_text(json.dumps(p,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+      - id: pre_meta
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: echo "name=issue541-stage-b-preverify-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: pre_upload
+        if: ${{ steps.execute.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.pre_meta.outputs.name }}
+          path: /tmp/preverify.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Preserve execution failure without rerun
+        if: ${{ failure() && steps.execute.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-stage-b-execution-failure-${{ github.run_id }}
+          path: /tmp/replay/study
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 90
+      - name: Preserve completed evidence if publication failed
+        if: ${{ failure() && steps.execute.outcome == 'success' && steps.raw_upload.outcome != 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-stage-b-recovery-${{ github.run_id }}
+          path: |
+            /tmp/replay/study
+            /tmp/stage-b-capacity-audit.json
+            /tmp/stage-b-meta.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_reverify:
+    needs: stage_b
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: API-bind Stage B raw and preverification artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_ID: ${{ needs.stage_b.outputs.raw_id }}
+          RAW_NAME: ${{ needs.stage_b.outputs.raw_name }}
+          RAW_DIGEST: ${{ needs.stage_b.outputs.raw_digest }}
+          PRE_ID: ${{ needs.stage_b.outputs.pre_id }}
+          PRE_NAME: ${{ needs.stage_b.outputs.pre_name }}
+          PRE_DIGEST: ${{ needs.stage_b.outputs.pre_digest }}
+        run: |
+          set -euo pipefail
+          verify() { p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$1")"; test "$(jq -r .name <<<"$p")" = "$2"; test "$(jq -r .digest <<<"$p")" = "sha256:$3"; test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"; test "$(jq -r .expired <<<"$p")" = false; }
+          verify "$RAW_ID" "$RAW_NAME" "$RAW_DIGEST"
+          verify "$PRE_ID" "$PRE_NAME" "$PRE_DIGEST"
+      - name: Download exact published Stage B raw evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.stage_b.outputs.raw_name }}
+          path: /tmp/raw
+      - name: Download preverification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.stage_b.outputs.pre_name }}
+          path: /tmp/pre
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Fresh independent raw-return, accounting, and capacity verification
+        env:
+          RAW_ID: ${{ needs.stage_b.outputs.raw_id }}
+          RAW_DIGEST: ${{ needs.stage_b.outputs.raw_digest }}
+          PRE_ID: ${{ needs.stage_b.outputs.pre_id }}
+          PRE_DIGEST: ${{ needs.stage_b.outputs.pre_digest }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.evaluation.experiments import inspect_study
+          from tools.issue541_stage_b import stage_b_suite_decision
+          root=Path('/tmp/raw/study'); snap=inspect_study(root)
+          if snap.baseline is None or snap.experiment_sequences or snap.frozen: raise RuntimeError('fresh Stage B Study state drift')
+          meta=json.loads(Path('/tmp/raw/stage-b-meta.json').read_text())
+          for key,value in {'stage_b_execution_count':1,'stage_b_executed':True,'diagnostic_only':True,'formal_suite_decision':'NO_PROFITABLE_CORE_BASELINE','production_eligible':False,'final_test_authorized':False,'shared_cash_profitability_established':False,'live_trading_authorized':False}.items():
+              if meta.get(key)!=value: raise RuntimeError(f'fresh meta drift: {key}')
+          audit=json.loads(Path('/tmp/raw/stage-b-capacity-audit.json').read_text())
+          for key,value in {'status':'PASS','dataset_id':os.environ['SUCCESSOR_DATASET_ID'],'capacity_violation_count':0,'processing_bar_capacity_violation_count':0,'runtime_overlay_violation_count':0,'previous_completed_bar_capacity':True,'runtime_participation_overlay_absent':True}.items():
+              if audit.get(key)!=value: raise RuntimeError(f'fresh capacity audit drift: {key}')
+          if int(audit.get('execution_intervals_checked',0)) <= 0: raise RuntimeError('fresh capacity audit empty')
+          expected_caps=[0.0021629560553901974,0.002044685341258238,0.002184898995567895,0.0020480213652913385,0.002346308308284808]
+          if audit.get('capacity_caps')!=expected_caps: raise RuntimeError('fresh sealed caps drift')
+          for used,cap in zip(audit.get('max_participation_by_symbol',[]),expected_caps,strict=True):
+              if float(used) > cap + max(1e-12,abs(cap)*1e-12): raise RuntimeError('fresh observed participation exceeds cap')
+
+          evidence=root/'baseline/evidence'; manifest=json.loads((evidence/'manifest.json').read_text()); seeds=manifest['ppo_seeds']
+          deterministic_ref={}; checked=0; strategy_returns={}
+          for seed in seeds:
+              run=evidence/'runs'/f'seed-{seed}'
+              summary=json.loads((run/'summary.json').read_text())
+              with np.load(run/'returns.npz',allow_pickle=False) as arrays:
+                  current={}
+                  for symbol in summary['by_symbol']:
+                      for strategy in symbol['strategies']:
+                          key=strategy['return_key']; values=np.asarray(arrays[key],dtype=np.float64)
+                          recomputed=float(np.prod(1.0+values,dtype=np.float64)-1.0)
+                          persisted=float(strategy['metrics']['total_return'])
+                          if not math.isclose(recomputed,persisted,rel_tol=1e-12,abs_tol=1e-12): raise RuntimeError('fresh total return mismatch')
+                          if strategy['name']=='cash':
+                              if persisted!=0.0 or float(strategy['metrics']['total_cost'])!=0.0: raise RuntimeError('cash semantics drift')
+                          checked += 1
+                          if strategy['name']!='ppo': current[(symbol['symbol'],strategy['name'])]=values.tobytes()
+                          strategy_returns.setdefault(strategy['name'],{}).setdefault(symbol['symbol'],[]).append(persisted)
+                  if not deterministic_ref: deterministic_ref=current
+                  elif current!=deterministic_ref: raise RuntimeError('fresh deterministic seed invariance failed')
+          pre=json.loads(next(Path('/tmp/pre').glob('*.json')).read_text())
+          if pre.get('status')!='PASS' or pre.get('raw_return_arrays_recomputed')!=checked or pre.get('capacity_audit')!=audit or pre.get('strategy_total_returns')!=strategy_returns: raise RuntimeError('fresh preverification mismatch')
+          payload={
+              'schema_version':'issue541_stage_b_fresh_verification_v1',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'raw_artifact_id':int(os.environ['RAW_ID']),
+              'raw_artifact_digest':'sha256:'+os.environ['RAW_DIGEST'],
+              'preverify_artifact_id':int(os.environ['PRE_ID']),
+              'preverify_artifact_digest':'sha256:'+os.environ['PRE_DIGEST'],
+              'stage_b_execution_count':1,
+              'stage_b_executed':True,
+              'stage_b_verified':True,
+              'fresh_runner_reverified_published_artifact':True,
+              'capacity_audit':audit,
+              'raw_return_arrays_recomputed':checked,
+              'deterministic_seed_invariance':True,
+              'strategy_total_returns':strategy_returns,
+              'formal_suite_decision':stage_b_suite_decision(source_profitable_core_strategies=()),
+              'source_profitable_core_strategies':[],
+              'diagnostic_only':True,
+              'successor_pnl_inspected':True,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+              'interpretation_authorized':True,
+          }
+          Path('/tmp/fresh.json').write_text(json.dumps(payload,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+      - id: meta
+        run: echo "name=issue541-stage-b-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    needs: [stage_b, fresh_reverify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Final API audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_ID: ${{ needs.stage_b.outputs.raw_id }}
+          RAW_NAME: ${{ needs.stage_b.outputs.raw_name }}
+          RAW_DIGEST: ${{ needs.stage_b.outputs.raw_digest }}
+          PRE_ID: ${{ needs.stage_b.outputs.pre_id }}
+          PRE_NAME: ${{ needs.stage_b.outputs.pre_name }}
+          PRE_DIGEST: ${{ needs.stage_b.outputs.pre_digest }}
+          FRESH_ID: ${{ needs.fresh_reverify.outputs.id }}
+          FRESH_NAME: ${{ needs.fresh_reverify.outputs.name }}
+          FRESH_DIGEST: ${{ needs.fresh_reverify.outputs.digest }}
+        run: |
+          set -euo pipefail
+          verify() { p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$1")"; test "$(jq -r .name <<<"$p")" = "$2"; test "$(jq -r .digest <<<"$p")" = "sha256:$3"; test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"; test "$(jq -r .expired <<<"$p")" = false; }
+          verify "$RAW_ID" "$RAW_NAME" "$RAW_DIGEST"
+          verify "$PRE_ID" "$PRE_NAME" "$PRE_DIGEST"
+          verify "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST"

@@ -1,4 +1,4 @@
-name: Temporary Issue 559 repair contract errors and verify
+name: Temporary Issue 559 causal-hardening RED
 
 on:
   push:
@@ -8,40 +8,21 @@ on:
       - .github/workflows/tmp-issue559-red.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix-and-targeted:
+  red:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 6cd31f84498dd1e1720d39899927fefc3f3c860b
+      TARGET_SHA: 7ec352b38476c126d1642168f1a16d2e13bf5778
     steps:
-      - name: Checkout exact current PR head
+      - name: Checkout exact hardening RED head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 6cd31f84498dd1e1720d39899927fefc3f3c860b
+          ref: 7ec352b38476c126d1642168f1a16d2e13bf5778
+          persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-      - name: Apply minimal contract fixes
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py")
-          text = path.read_text(encoding="utf-8")
-          replacements = {
-              '    protocol = SignedTakerFlowProtocol(**payload)  # type: ignore[arg-type]\n':
-                  '    protocol = SignedTakerFlowProtocol(**payload)\n',
-              '                raise ValueError(f"{field_name} must be a boolean")\n':
-                  '                raise ValueError(f"preregistered field {field_name} must be a boolean")\n',
-          }
-          for old, new in replacements.items():
-              if text.count(old) != 1:
-                  raise SystemExit(f"expected repair site not found exactly once: {old!r}")
-              text = text.replace(old, new)
-          path.write_text(text, encoding="utf-8")
-          PY
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -49,21 +30,11 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Static and targeted GREEN
+      - name: Static checks
         run: |
-          set -euo pipefail
           uv run ruff check trade_rl tests tools
           uv run ruff format --check trade_rl tests tools
           uv run mypy trade_rl
           uv run mypy tools/agent_repo tests/architecture/distribution.py
-          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-      - name: Commit verified fixes
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py
-          test -n "$(git diff --cached --name-only)"
-          git commit -m "fix: enforce signed taker-flow contract errors"
-          git push origin HEAD:research/issue558-taker-flow-prereg
+      - name: Expected causal-contract RED
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py

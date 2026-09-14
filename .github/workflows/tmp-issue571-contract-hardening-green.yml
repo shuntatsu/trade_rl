@@ -21,179 +21,123 @@ jobs:
           fetch-depth: 0
       - name: Assert expected starting head
         run: test "$(git rev-parse HEAD)" = "b4cb6ac9f713021ffd141765812f12af31c2856e"
-      - name: Apply minimal contract hardening and RED oracle
+      - name: Import formal RED oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin d77d953eb95184c9a7cc0cacf638ed5fb23e4469
+          mkdir -p tests/evaluation/experiments/bootstrap
+          git show d77d953eb95184c9a7cc0cacf638ed5fb23e4469:tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py > tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+      - name: Apply minimal contract hardening
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          module = Path("trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py")
-          text = module.read_text(encoding="utf-8")
+          path = Path("trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py")
+          text = path.read_text(encoding="utf-8")
 
-          def replace_once(old: str, new: str) -> None:
-              global text
+          pairs = [
+              (
+                  '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n',
+                  '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n'
+                  '_FULL_PREFLIGHT_MONTHS = tuple(\n'
+                  '    f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)\n'
+                  ')\n',
+              ),
+              (
+                  '    "cross_sectional_normalization_allowed": False,\n'
+                  '    "symbol_specific_transform_allowed": False,\n',
+                  '    "cross_sectional_normalization_allowed": False,\n'
+                  '    "rank_transform_allowed": False,\n'
+                  '    "symbol_specific_transform_allowed": False,\n',
+              ),
+              (
+                  '    "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",\n'
+                  '    "require_calibration_numerator_finite": True,\n',
+                  '    "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",\n'
+                  '    "weighted_regression_allowed": False,\n'
+                  '    "robust_regression_fallback_allowed": False,\n'
+                  '    "require_calibration_numerator_finite": True,\n',
+              ),
+              (
+                  '    "full_preflight_required": True,\n'
+                  '    "full_preflight_start_month": "2021-01",\n',
+                  '    "full_preflight_required": True,\n'
+                  '    "index_source_market": "USD_M",\n'
+                  '    "perpetual_source_market": "USD_M",\n'
+                  '    "perpetual_source_family": "klines",\n'
+                  '    "full_preflight_months": _FULL_PREFLIGHT_MONTHS,\n'
+                  '    "full_preflight_archive_root": (\n'
+                  '        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"\n'
+                  '    ),\n'
+                  '    "full_preflight_archive_url_template": (\n'
+                  '        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines/"\n'
+                  '        "{symbol}/1h/{symbol}-1h-{month}.zip"\n'
+                  '    ),\n'
+                  '    "full_preflight_checksum_suffix": ".CHECKSUM",\n'
+                  '    "full_preflight_checksum_required": True,\n'
+                  '    "full_preflight_start_month": "2021-01",\n',
+              ),
+              (
+                  '    cross_sectional_normalization_allowed: bool\n'
+                  '    symbol_specific_transform_allowed: bool\n',
+                  '    cross_sectional_normalization_allowed: bool\n'
+                  '    rank_transform_allowed: bool\n'
+                  '    symbol_specific_transform_allowed: bool\n',
+              ),
+              (
+                  '    calibration_formula: str\n'
+                  '    require_calibration_numerator_finite: bool\n',
+                  '    calibration_formula: str\n'
+                  '    weighted_regression_allowed: bool\n'
+                  '    robust_regression_fallback_allowed: bool\n'
+                  '    require_calibration_numerator_finite: bool\n',
+              ),
+              (
+                  '    full_preflight_required: bool\n'
+                  '    full_preflight_start_month: str\n',
+                  '    full_preflight_required: bool\n'
+                  '    index_source_market: str\n'
+                  '    perpetual_source_market: str\n'
+                  '    perpetual_source_family: str\n'
+                  '    full_preflight_months: tuple[str, ...]\n'
+                  '    full_preflight_archive_root: str\n'
+                  '    full_preflight_archive_url_template: str\n'
+                  '    full_preflight_checksum_suffix: str\n'
+                  '    full_preflight_checksum_required: bool\n'
+                  '    full_preflight_start_month: str\n',
+              ),
+              (
+                  '            "cross_sectional_normalization_allowed",\n'
+                  '            "symbol_specific_transform_allowed",\n',
+                  '            "cross_sectional_normalization_allowed",\n'
+                  '            "rank_transform_allowed",\n'
+                  '            "symbol_specific_transform_allowed",\n',
+              ),
+              (
+                  '            "require_calibration_beta_finite",\n'
+                  '            "no_sign_flip_fallback",\n',
+                  '            "require_calibration_beta_finite",\n'
+                  '            "weighted_regression_allowed",\n'
+                  '            "robust_regression_fallback_allowed",\n'
+                  '            "no_sign_flip_fallback",\n',
+              ),
+              (
+                  '            "full_preflight_required",\n'
+                  '            "full_preflight_sparse_rows_remain_unavailable",\n',
+                  '            "full_preflight_required",\n'
+                  '            "full_preflight_checksum_required",\n'
+                  '            "full_preflight_sparse_rows_remain_unavailable",\n',
+              ),
+          ]
+          for old, new in pairs:
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"expected one anchor, got {count}: {old!r}")
+                  raise SystemExit(f"expected exactly one patch anchor, got {count}: {old!r}")
               text = text.replace(old, new, 1)
-
-          replace_once(
-              '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n',
-              '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n'
-              '_FULL_PREFLIGHT_MONTHS = tuple(\n'
-              '    f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)\n'
-              ')\n',
-          )
-          replace_once(
-              '    "cross_sectional_normalization_allowed": False,\n'
-              '    "symbol_specific_transform_allowed": False,\n',
-              '    "cross_sectional_normalization_allowed": False,\n'
-              '    "rank_transform_allowed": False,\n'
-              '    "symbol_specific_transform_allowed": False,\n',
-          )
-          replace_once(
-              '    "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",\n'
-              '    "require_calibration_numerator_finite": True,\n',
-              '    "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",\n'
-              '    "weighted_regression_allowed": False,\n'
-              '    "robust_regression_fallback_allowed": False,\n'
-              '    "require_calibration_numerator_finite": True,\n',
-          )
-          replace_once(
-              '    "full_preflight_required": True,\n'
-              '    "full_preflight_start_month": "2021-01",\n',
-              '    "full_preflight_required": True,\n'
-              '    "index_source_market": "USD_M",\n'
-              '    "perpetual_source_market": "USD_M",\n'
-              '    "perpetual_source_family": "klines",\n'
-              '    "full_preflight_months": _FULL_PREFLIGHT_MONTHS,\n'
-              '    "full_preflight_archive_root": (\n'
-              '        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"\n'
-              '    ),\n'
-              '    "full_preflight_archive_url_template": (\n'
-              '        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines/"\n'
-              '        "{symbol}/1h/{symbol}-1h-{month}.zip"\n'
-              '    ),\n'
-              '    "full_preflight_checksum_suffix": ".CHECKSUM",\n'
-              '    "full_preflight_checksum_required": True,\n'
-              '    "full_preflight_start_month": "2021-01",\n',
-          )
-          replace_once(
-              '    cross_sectional_normalization_allowed: bool\n'
-              '    symbol_specific_transform_allowed: bool\n',
-              '    cross_sectional_normalization_allowed: bool\n'
-              '    rank_transform_allowed: bool\n'
-              '    symbol_specific_transform_allowed: bool\n',
-          )
-          replace_once(
-              '    calibration_formula: str\n'
-              '    require_calibration_numerator_finite: bool\n',
-              '    calibration_formula: str\n'
-              '    weighted_regression_allowed: bool\n'
-              '    robust_regression_fallback_allowed: bool\n'
-              '    require_calibration_numerator_finite: bool\n',
-          )
-          replace_once(
-              '    full_preflight_required: bool\n'
-              '    full_preflight_start_month: str\n',
-              '    full_preflight_required: bool\n'
-              '    index_source_market: str\n'
-              '    perpetual_source_market: str\n'
-              '    perpetual_source_family: str\n'
-              '    full_preflight_months: tuple[str, ...]\n'
-              '    full_preflight_archive_root: str\n'
-              '    full_preflight_archive_url_template: str\n'
-              '    full_preflight_checksum_suffix: str\n'
-              '    full_preflight_checksum_required: bool\n'
-              '    full_preflight_start_month: str\n',
-          )
-          replace_once(
-              '            "cross_sectional_normalization_allowed",\n'
-              '            "symbol_specific_transform_allowed",\n',
-              '            "cross_sectional_normalization_allowed",\n'
-              '            "rank_transform_allowed",\n'
-              '            "symbol_specific_transform_allowed",\n',
-          )
-          replace_once(
-              '            "require_calibration_beta_finite",\n'
-              '            "no_sign_flip_fallback",\n',
-              '            "require_calibration_beta_finite",\n'
-              '            "weighted_regression_allowed",\n'
-              '            "robust_regression_fallback_allowed",\n'
-              '            "no_sign_flip_fallback",\n',
-          )
-          replace_once(
-              '            "full_preflight_required",\n'
-              '            "full_preflight_sparse_rows_remain_unavailable",\n',
-              '            "full_preflight_required",\n'
-              '            "full_preflight_checksum_required",\n'
-              '            "full_preflight_sparse_rows_remain_unavailable",\n',
-          )
-          module.write_text(text, encoding="utf-8")
-
-          hardening = Path(
-              "tests/evaluation/experiments/bootstrap/"
-              "test_perp_index_basis_prereg_hardening.py"
-          )
-          hardening.write_text(
-              '''from __future__ import annotations
-
-from dataclasses import replace
-
-import pytest
-
-from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_prereg import (
-    canonical_perp_index_basis_protocol,
-)
-
-
-def test_protocol_freezes_exact_official_index_preflight_roster_and_checksum() -> None:
-    protocol = canonical_perp_index_basis_protocol()
-
-    assert protocol.full_preflight_months == tuple(
-        f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
-    )
-    assert protocol.full_preflight_archive_root == (
-        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"
-    )
-    assert protocol.full_preflight_archive_url_template == (
-        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines/"
-        "{symbol}/1h/{symbol}-1h-{month}.zip"
-    )
-    assert protocol.full_preflight_checksum_suffix == ".CHECKSUM"
-    assert protocol.full_preflight_checksum_required is True
-    assert protocol.index_source_market == "USD_M"
-    assert protocol.perpetual_source_market == "USD_M"
-    assert protocol.perpetual_source_family == "klines"
-
-
-def test_protocol_forbids_unregistered_regression_and_rank_rescues() -> None:
-    protocol = canonical_perp_index_basis_protocol()
-
-    assert protocol.rank_transform_allowed is False
-    assert protocol.weighted_regression_allowed is False
-    assert protocol.robust_regression_fallback_allowed is False
-
-    mutations: tuple[dict[str, object], ...] = (
-        {"full_preflight_months": protocol.full_preflight_months[:-1]},
-        {"full_preflight_archive_root": "https://example.invalid"},
-        {"full_preflight_archive_url_template": "https://example.invalid/{symbol}.zip"},
-        {"full_preflight_checksum_suffix": ".sha256"},
-        {"full_preflight_checksum_required": False},
-        {"index_source_market": "COIN_M"},
-        {"perpetual_source_market": "COIN_M"},
-        {"perpetual_source_family": "markPriceKlines"},
-        {"rank_transform_allowed": True},
-        {"weighted_regression_allowed": True},
-        {"robust_regression_fallback_allowed": True},
-    )
-    for mutation in mutations:
-        with pytest.raises(ValueError, match="preregistered"):
-            replace(protocol, **mutation)
-''',
-              encoding="utf-8",
-          )
+          path.write_text(text, encoding="utf-8")
           PY
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -203,7 +147,7 @@ def test_protocol_forbids_unregistered_regression_and_rank_rescues() -> None:
         run: uv sync --extra dev
       - name: Format changed files
         run: |
-          uv run ruff format trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
       - name: Static and targeted GREEN
         run: |
           uv run ruff check trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
@@ -217,7 +161,8 @@ def test_protocol_forbids_unregistered_regression_and_rank_rescues() -> None:
           expected=b4cb6ac9f713021ffd141765812f12af31c2856e
           remote="$(git ls-remote origin refs/heads/research/issue571-basis-prereg | cut -f1)"
           test "$remote" = "$expected"
-          test -z "$(git status --porcelain | grep -v -E '^( M|M |\?\?) (trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py|tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py)$' || true)"
+          unexpected="$(git status --porcelain | grep -v -E '^( M|M |\?\?) (trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py|tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py)$' || true)"
+          test -z "$unexpected"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py

@@ -26,7 +26,9 @@ def test_frozen_source_drift_fails_before_dataset_or_training(
         "build_source_manifest",
         lambda _entries: {"content_digest": "a" * 64},
     )
-    monkeypatch.setattr(publisher, "manifest_bytes", lambda _manifest: b"changed-source")
+    monkeypatch.setattr(
+        publisher, "manifest_bytes", lambda _manifest: b"changed-source"
+    )
     build_dataset = Mock(side_effect=AssertionError("Dataset must not be built"))
     build_result = Mock(side_effect=AssertionError("training must not run"))
     monkeypatch.setattr(publisher, "build_dataset", build_dataset)

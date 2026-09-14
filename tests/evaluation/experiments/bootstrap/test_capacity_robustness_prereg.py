@@ -47,11 +47,11 @@ def test_capacity_robustness_protocol_freezes_pre_successor_authority() -> None:
     assert protocol.identity_layer_head_sha == (
         "15bf6546996dc969d4d6e946261d73e3d43336e6"
     )
-    assert protocol.identity_layer_ci_run_id == 34793853852
-    assert protocol.successor_bundle_run_id == 34793586474
-    assert protocol.successor_bundle_artifact_id == 10328956351
+    assert protocol.identity_layer_ci_run_id == 34793925990
+    assert protocol.successor_bundle_run_id == 34794384559
+    assert protocol.successor_bundle_artifact_id == 10329107309
     assert protocol.successor_bundle_artifact_digest == (
-        "98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756"
+        "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"
     )
     assert protocol.successor_dataset_id == (
         "6a9d6066fe8f92d46fe57a1d8172a60092568e625b2e843dc7a0c3930d79de86"
@@ -60,8 +60,25 @@ def test_capacity_robustness_protocol_freezes_pre_successor_authority() -> None:
         "9a3f01bc4608c256b5c448e5cee123c4653fe02060040dc7909b4eb1c6c3e30f"
     )
     assert protocol.successor_study_digest == (
-        "3794a3dabcceea7075774f12c1770730b7638d70dce1ac0569f8050bf5ee4548"
+        "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"
     )
+    assert protocol.successor_dataset_tree_digest == (
+        "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"
+    )
+    assert protocol.successor_study_tree_digest == (
+        "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"
+    )
+    assert protocol.successor_materialization_index_sha256 == (
+        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+    )
+    assert protocol.successor_runtime_environment_digest == (
+        "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"
+    )
+    assert protocol.successor_fresh_verification_artifact_id == 10329905111
+    assert protocol.successor_fresh_verification_artifact_digest == (
+        "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"
+    )
+    assert protocol.schema_version == "calibrated_capacity_robustness_prereg_v2"
     assert protocol.successor_execution_overlay == (
         "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
     )
@@ -178,7 +195,6 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"capacity_result_artifact_id": 1},
         {"capacity_verifier_artifact_digest": "0" * 64},
         {"successor_bundle_artifact_id": 1},
-        {"successor_identity_index_digest": "0" * 64},
         {"successor_execution_overlay": "zero_overlay_dataset_fields_authoritative"},
         {"source_profitable_core_strategies": ("lightgbm24",)},
         {"pre_successor_suite_status": "CAPACITY_ROBUST"},
@@ -187,6 +203,12 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"identity_layer_head_sha": "0" * 40},
         {"successor_dataset_id": "0" * 64},
         {"successor_study_digest": "0" * 64},
+        {"successor_dataset_tree_digest": "0" * 64},
+        {"successor_study_tree_digest": "0" * 64},
+        {"successor_materialization_index_sha256": "0" * 64},
+        {"successor_runtime_environment_digest": "0" * 64},
+        {"successor_fresh_verification_artifact_id": 1},
+        {"successor_fresh_verification_artifact_digest": "0" * 64},
         {"capacity_caps": (0.05,) * 5},
         {"core_strategies": ("lightgbm24",)},
         {"ppo_in_formal_decision": True},
@@ -230,6 +252,10 @@ def test_protocol_payload_is_strict_and_contains_no_successor_result(tmp_path) -
         "candidate_result",
     }
     assert forbidden.isdisjoint(payload)
+    assert "successor_identity_index_digest" not in payload
+    assert payload["successor_materialization_index_sha256"] == (
+        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+    )
 
     path = tmp_path / "capacity-robustness-prereg.json"
     path.write_text(
@@ -244,6 +270,12 @@ def test_protocol_payload_is_strict_and_contains_no_successor_result(tmp_path) -
     tampered = dict(payload)
     tampered["successor_total_returns"] = {"lightgbm24": [1.0] * 5}
     path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(ValueError, match="keys differ"):
+        load_capacity_robustness_protocol(path)
+
+    legacy = dict(payload)
+    legacy["successor_identity_index_digest"] = "0" * 64
+    path.write_text(json.dumps(legacy), encoding="utf-8")
     with pytest.raises(ValueError, match="keys differ"):
         load_capacity_robustness_protocol(path)
 

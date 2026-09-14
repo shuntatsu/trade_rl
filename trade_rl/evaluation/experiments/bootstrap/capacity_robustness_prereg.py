@@ -17,7 +17,7 @@ from trade_rl._validation import (
 )
 from trade_rl.artifacts.hashing import content_digest
 
-_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v1"
+_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v2"
 _SOURCE_BASELINE_ARTIFACT_ID = 10301701698
 _SOURCE_BASELINE_ARTIFACT_DIGEST = (
     "f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a"
@@ -71,11 +71,11 @@ _CAUSAL_CAPACITY_PR = 531
 _CAUSAL_CAPACITY_HEAD_SHA = "db8193c81dd0ca334a15ffc1895d75884238f8a9"
 _IDENTITY_LAYER_PR = 540
 _IDENTITY_LAYER_HEAD_SHA = "15bf6546996dc969d4d6e946261d73e3d43336e6"
-_IDENTITY_LAYER_CI_RUN_ID = 34793853852
-_SUCCESSOR_BUNDLE_RUN_ID = 34793586474
-_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10328956351
+_IDENTITY_LAYER_CI_RUN_ID = 34793925990
+_SUCCESSOR_BUNDLE_RUN_ID = 34794384559
+_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10329107309
 _SUCCESSOR_BUNDLE_ARTIFACT_DIGEST = (
-    "98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756"
+    "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"
 )
 _SUCCESSOR_DATASET_ID = (
     "6a9d6066fe8f92d46fe57a1d8172a60092568e625b2e843dc7a0c3930d79de86"
@@ -84,10 +84,23 @@ _SUCCESSOR_DATASET_ARTIFACT_DIGEST = (
     "9a3f01bc4608c256b5c448e5cee123c4653fe02060040dc7909b4eb1c6c3e30f"
 )
 _SUCCESSOR_STUDY_DIGEST = (
-    "3794a3dabcceea7075774f12c1770730b7638d70dce1ac0569f8050bf5ee4548"
+    "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"
 )
-_SUCCESSOR_IDENTITY_INDEX_DIGEST = (
-    "bdf43b326b3d7519684d662fcbf42e351034f8be4a1184e16afd317f32f686f9"
+_SUCCESSOR_DATASET_TREE_DIGEST = (
+    "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"
+)
+_SUCCESSOR_STUDY_TREE_DIGEST = (
+    "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"
+)
+_SUCCESSOR_MATERIALIZATION_INDEX_SHA256 = (
+    "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"
+)
+_SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST = (
+    "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"
+)
+_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID = 10329905111
+_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST = (
+    "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"
 )
 _SUCCESSOR_EXECUTION_OVERLAY = (
     "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
@@ -302,7 +315,12 @@ class CapacityRobustnessProtocol:
     successor_dataset_id: str
     successor_dataset_artifact_digest: str
     successor_study_digest: str
-    successor_identity_index_digest: str
+    successor_dataset_tree_digest: str
+    successor_study_tree_digest: str
+    successor_materialization_index_sha256: str
+    successor_runtime_environment_digest: str
+    successor_fresh_verification_artifact_id: int
+    successor_fresh_verification_artifact_digest: str
     successor_execution_overlay: str
     symbols: tuple[str, ...]
     capacity_caps: tuple[float, ...]
@@ -455,8 +473,28 @@ class CapacityRobustnessProtocol:
             field="successor_study_digest",
         )
         require_sha256(
-            self.successor_identity_index_digest,
-            field="successor_identity_index_digest",
+            self.successor_dataset_tree_digest,
+            field="successor_dataset_tree_digest",
+        )
+        require_sha256(
+            self.successor_study_tree_digest,
+            field="successor_study_tree_digest",
+        )
+        require_sha256(
+            self.successor_materialization_index_sha256,
+            field="successor_materialization_index_sha256",
+        )
+        require_sha256(
+            self.successor_runtime_environment_digest,
+            field="successor_runtime_environment_digest",
+        )
+        _positive_int(
+            self.successor_fresh_verification_artifact_id,
+            field="successor_fresh_verification_artifact_id",
+        )
+        require_sha256(
+            self.successor_fresh_verification_artifact_digest,
+            field="successor_fresh_verification_artifact_digest",
         )
         require_non_empty(
             self.successor_execution_overlay,
@@ -629,7 +667,12 @@ class CapacityRobustnessProtocol:
             "successor_dataset_id": self.successor_dataset_id,
             "successor_dataset_artifact_digest": self.successor_dataset_artifact_digest,
             "successor_study_digest": self.successor_study_digest,
-            "successor_identity_index_digest": self.successor_identity_index_digest,
+            "successor_dataset_tree_digest": self.successor_dataset_tree_digest,
+            "successor_study_tree_digest": self.successor_study_tree_digest,
+            "successor_materialization_index_sha256": self.successor_materialization_index_sha256,
+            "successor_runtime_environment_digest": self.successor_runtime_environment_digest,
+            "successor_fresh_verification_artifact_id": self.successor_fresh_verification_artifact_id,
+            "successor_fresh_verification_artifact_digest": self.successor_fresh_verification_artifact_digest,
             "successor_execution_overlay": self.successor_execution_overlay,
             "symbols": list(self.symbols),
             "capacity_caps": list(self.capacity_caps),
@@ -716,7 +759,12 @@ def _registered_payload() -> dict[str, object]:
         "successor_dataset_id": _SUCCESSOR_DATASET_ID,
         "successor_dataset_artifact_digest": _SUCCESSOR_DATASET_ARTIFACT_DIGEST,
         "successor_study_digest": _SUCCESSOR_STUDY_DIGEST,
-        "successor_identity_index_digest": _SUCCESSOR_IDENTITY_INDEX_DIGEST,
+        "successor_dataset_tree_digest": _SUCCESSOR_DATASET_TREE_DIGEST,
+        "successor_study_tree_digest": _SUCCESSOR_STUDY_TREE_DIGEST,
+        "successor_materialization_index_sha256": _SUCCESSOR_MATERIALIZATION_INDEX_SHA256,
+        "successor_runtime_environment_digest": _SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST,
+        "successor_fresh_verification_artifact_id": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID,
+        "successor_fresh_verification_artifact_digest": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST,
         "successor_execution_overlay": _SUCCESSOR_EXECUTION_OVERLAY,
         "symbols": list(_SYMBOLS),
         "capacity_caps": list(_CAPACITY_CAPS),
@@ -846,8 +894,22 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
             str, raw.get("successor_dataset_artifact_digest")
         ),
         successor_study_digest=cast(str, raw.get("successor_study_digest")),
-        successor_identity_index_digest=cast(
-            str, raw.get("successor_identity_index_digest")
+        successor_dataset_tree_digest=cast(
+            str, raw.get("successor_dataset_tree_digest")
+        ),
+        successor_study_tree_digest=cast(str, raw.get("successor_study_tree_digest")),
+        successor_materialization_index_sha256=cast(
+            str, raw.get("successor_materialization_index_sha256")
+        ),
+        successor_runtime_environment_digest=cast(
+            str, raw.get("successor_runtime_environment_digest")
+        ),
+        successor_fresh_verification_artifact_id=_positive_int(
+            raw.get("successor_fresh_verification_artifact_id"),
+            field="successor_fresh_verification_artifact_id",
+        ),
+        successor_fresh_verification_artifact_digest=cast(
+            str, raw.get("successor_fresh_verification_artifact_digest")
         ),
         successor_execution_overlay=cast(str, raw.get("successor_execution_overlay")),
         symbols=_string_tuple(raw.get("symbols"), field="symbols"),

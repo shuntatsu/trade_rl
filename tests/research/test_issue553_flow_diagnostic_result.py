@@ -129,7 +129,9 @@ def test_replacement_day_is_invalid_coverage_not_a_new_roster() -> None:
 
     assert result.status == "INVALID_FLOW_DIAGNOSTIC_COVERAGE"
     assert result.coverage_valid is False
-    assert any("frozen first-of-month roster" in reason for reason in result.invalid_reasons)
+    assert any(
+        "frozen first-of-month roster" in reason for reason in result.invalid_reasons
+    )
 
 
 def test_zero_variance_symbol_is_invalid_coverage() -> None:

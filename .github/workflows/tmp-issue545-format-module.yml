@@ -1,0 +1,36 @@
+name: Temporary Issue 545 format module
+
+on:
+  push:
+    branches:
+      - verify/issue545-prereg-green
+    paths:
+      - .github/workflows/tmp-issue545-format-module.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue545-economic-action-prereg
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff format trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py
+      - name: Commit formatter-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only)" = "trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py
+          git commit -m 'style: format issue545 prereg contract'
+          git push origin HEAD:research/issue545-economic-action-prereg

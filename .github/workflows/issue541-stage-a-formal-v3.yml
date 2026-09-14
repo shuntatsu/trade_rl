@@ -1,0 +1,445 @@
+name: Issue 541 Stage A formal bridge v3
+
+on:
+  push:
+    branches:
+      - execute/issue541-stage-a-v2
+    paths:
+      - .github/workflows/issue541-stage-a-formal-v3.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  MAIN_SHA: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+  HELPER_BLOB: 1a1a22c2c77bf9638425a8e5a5996b759de326f5
+  TEST_BLOB: ad8a3061df4e3435b87a6055f6f15ae3384181fe
+  PRIOR_ABORTED_RUNS: "34812777802 34814424331"
+  AUTH_RUN_ID: "34812530949"
+  AUTH_NAME: issue541-post-integration-fresh-authorization-34812530949
+  AUTH_ID: "10334389658"
+  AUTH_DIGEST: sha256:618a457aaca208d8d09e806143bc3016db8a01053afa52780edb0a15c9cd31ca
+  SOURCE_RUN_ID: "34700123151"
+  SOURCE_NAME: canonical-m2-portable-baseline-v1-34700123151
+  SOURCE_ID: "10301701698"
+  SOURCE_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  SOURCE_FINGERPRINT: 526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29
+  SOURCE_DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  SOURCE_DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+  PROTOCOL_DIGEST: 11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8
+
+jobs:
+  execute_and_preverify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      evidence_name: ${{ steps.evidence_name.outputs.value }}
+      evidence_id: ${{ steps.evidence_upload.outputs.artifact-id }}
+      evidence_digest: ${{ steps.evidence_upload.outputs.artifact-digest }}
+      preverify_name: ${{ steps.preverify_name.outputs.value }}
+      preverify_id: ${{ steps.preverify_upload.outputs.artifact-id }}
+      preverify_digest: ${{ steps.preverify_upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: execute/issue541-stage-a-v2
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove every prior formal run aborted before execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          for run_id in $PRIOR_ABORTED_RUNS; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .conclusion <<<"$run")" = failure
+            jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100)"
+            RUN_JOBS="$jobs" python3 - <<'PY'
+          import json, os
+          payload=json.loads(os.environ['RUN_JOBS'])
+          matches=[
+              step for job in payload['jobs'] for step in (job.get('steps') or [])
+              if step.get('name') == 'Execute frozen source baseline exactly once under integrated implementation'
+          ]
+          if len(matches) != 1 or matches[0].get('conclusion') != 'skipped':
+              raise SystemExit(f'prior run may have executed Stage A: {matches!r}')
+          PY
+            artifacts="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100)"
+            test "$(jq -r .total_count <<<"$artifacts")" = "0"
+          done
+
+      - name: Bind integrated production and verifier bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$MAIN_SHA"
+          git diff --quiet "$MAIN_SHA" -- trade_rl
+          test "$(git hash-object tools/issue541_stage_a.py)" = "$HELPER_BLOB"
+          test "$(git hash-object tests/research/test_issue541_stage_a.py)" = "$TEST_BLOB"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/main --jq .commit.sha)" = "$MAIN_SHA"
+
+      - name: API-bind authorization and source baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify() {
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$1)"
+            test "$(jq -r .name <<<"$payload")" = "$2"
+            test "$(jq -r .digest <<<"$payload")" = "$3"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$4"
+            test "$(jq -r .expired <<<"$payload")" = false
+          }
+          verify "$AUTH_ID" "$AUTH_NAME" "$AUTH_DIGEST" "$AUTH_RUN_ID"
+          verify "$SOURCE_ID" "$SOURCE_NAME" "$SOURCE_DIGEST" "$SOURCE_RUN_ID"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.AUTH_NAME }}
+          path: /tmp/auth
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTH_RUN_ID }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_NAME }}
+          path: /tmp/original
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Validate frozen authorization and source without reading returns
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          auth_files=list(Path('/tmp/auth').glob('*.json'))
+          if len(auth_files)!=1:
+              raise RuntimeError('unexpected authorization layout')
+          a=json.loads(auth_files[0].read_text())
+          expected={
+              'schema_version':'issue541_post_integration_fresh_authorization_v1',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'integration_gate_satisfied':True,
+              'execution_authorized':True,
+              'stage_a_authorized':True,
+              'stage_b_authorized':False,
+              'stage_a_executed':False,
+              'stage_b_executed':False,
+              'successor_pnl_inspected':False,
+              'stage_a_execution_authorized':True,
+          }
+          for key,value in expected.items():
+              if a.get(key)!=value:
+                  raise RuntimeError(f'authorization mismatch: {key}')
+          manifest=json.loads(Path('/tmp/original/study/baseline/evidence/manifest.json').read_text())
+          plan=json.loads(Path('/tmp/original/study/plan.json').read_text())
+          assert manifest['fingerprint']==os.environ['SOURCE_FINGERPRINT']
+          assert tuple(manifest['ppo_seeds'])==(0,1,2,3,4)
+          assert plan['dataset_id']==os.environ['SOURCE_DATASET_ID']
+          assert plan['dataset_artifact_digest']==os.environ['SOURCE_DATASET_ARTIFACT_DIGEST']
+          assert tuple(plan['ppo_seeds'])==(0,1,2,3,4)
+          PY
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install frozen research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify green Stage A oracle before execution
+        run: |
+          uv run ruff check tools/issue541_stage_a.py tests/research/test_issue541_stage_a.py
+          uv run ruff format --check tools/issue541_stage_a.py tests/research/test_issue541_stage_a.py
+          uv run pytest -q tests/research/test_issue541_stage_a.py
+
+      - name: Prepare result-blind legacy replay workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/replay /tmp/stage-a-published
+          cp -a /tmp/original /tmp/replay
+          rm -rf /tmp/replay/study/baseline
+          mkdir -p /tmp/stage-a-published
+          uv run python - <<'PY'
+          from trade_rl.evaluation.experiments import inspect_study
+          study=inspect_study('/tmp/replay/study')
+          if study.baseline is not None or study.experiment_sequences or study.frozen:
+              raise RuntimeError('replay workspace is not plan-only')
+          PY
+
+      - name: Execute frozen source baseline exactly once under integrated implementation
+        id: execute
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments import inspect_study, run_baseline
+          if inspect_study('/tmp/replay/study').baseline is not None:
+              raise RuntimeError('Stage A baseline already exists')
+          result=run_baseline('/tmp/replay/study', dataset_root='/tmp/replay/dataset')
+          if result.baseline is None:
+              raise RuntimeError('Stage A did not produce baseline')
+          meta={
+              'schema_version':'issue541_stage_a_raw_evidence_v1',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'source_baseline_artifact_id':int(os.environ['SOURCE_ID']),
+              'source_baseline_artifact_digest':os.environ['SOURCE_DIGEST'],
+              'prior_aborted_run_ids':[34812777802,34814424331],
+              'prior_stage_a_execution_count':0,
+              'stage_a_execution_count':1,
+              'stage_a_execution_completed':True,
+              'primary_verifier_passed':False,
+              'fresh_verifier_passed':False,
+              'stage_b_execution_authorized':False,
+              'successor_pnl_inspected':False,
+          }
+          Path('/tmp/stage-a-meta.json').write_text(json.dumps(meta,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+
+      - name: Package raw evidence before interpretation
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: |
+          mkdir -p /tmp/stage-a-published/study
+          cp /tmp/replay/study/plan.json /tmp/stage-a-published/study/plan.json
+          cp -a /tmp/replay/study/baseline /tmp/stage-a-published/study/baseline
+          cp /tmp/stage-a-meta.json /tmp/stage-a-published/stage-a-meta.json
+
+      - id: evidence_name
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: echo "value=issue541-stage-a-raw-evidence-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - id: evidence_upload
+        if: ${{ steps.execute.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.evidence_name.outputs.value }}
+          path: /tmp/stage-a-published
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+      - name: Primary bridge verification only after raw publication
+        if: ${{ steps.execute.outcome == 'success' }}
+        env:
+          RAW_ID: ${{ steps.evidence_upload.outputs.artifact-id }}
+          RAW_DIGEST_RAW: ${{ steps.evidence_upload.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python tools/issue541_stage_a.py --original /tmp/original --replay /tmp/replay --output /tmp/stage-a-primary.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          report=json.loads(Path('/tmp/stage-a-primary.json').read_text())
+          if report.get('status')!='PASS':
+              raise RuntimeError('primary Stage A verifier failed')
+          raw=os.environ['RAW_DIGEST_RAW']
+          digest=raw if raw.startswith('sha256:') else 'sha256:'+raw
+          binding={
+              'schema_version':'issue541_stage_a_preverify_v3',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'source_baseline_artifact_id':int(os.environ['SOURCE_ID']),
+              'source_baseline_artifact_digest':os.environ['SOURCE_DIGEST'],
+              'stage_a_raw_artifact_id':int(os.environ['RAW_ID']),
+              'stage_a_raw_artifact_digest':digest,
+              'primary_verification':report,
+              'prior_stage_a_execution_count':0,
+              'stage_a_execution_count':1,
+              'primary_verifier_passed':True,
+              'fresh_verifier_passed':False,
+              'stage_b_execution_authorized':False,
+              'successor_pnl_inspected':False,
+          }
+          Path('/tmp/stage-a-preverify.json').write_text(json.dumps(binding,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+
+      - id: preverify_name
+        if: ${{ steps.execute.outcome == 'success' }}
+        run: echo "value=issue541-stage-a-preverify-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - id: preverify_upload
+        if: ${{ steps.execute.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.preverify_name.outputs.value }}
+          path: /tmp/stage-a-preverify.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+      - name: Preserve any post-execution failure without rerunning
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-stage-a-v3-failure-${{ github.run_id }}
+          path: |
+            /tmp/replay/study
+            /tmp/stage-a-meta.json
+            /tmp/stage-a-published
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 90
+
+  fresh_reverify:
+    needs: execute_and_preverify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      final_name: ${{ steps.final_name.outputs.value }}
+      final_id: ${{ steps.final_upload.outputs.artifact-id }}
+      final_digest: ${{ steps.final_upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: execute/issue541-stage-a-v2
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind fresh verifier bytes
+        run: |
+          git fetch --no-tags origin "$MAIN_SHA"
+          git diff --quiet "$MAIN_SHA" -- trade_rl
+          test "$(git hash-object tools/issue541_stage_a.py)" = "$HELPER_BLOB"
+          test "$(git hash-object tests/research/test_issue541_stage_a.py)" = "$TEST_BLOB"
+
+      - name: API-bind immutable published Stage A artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_ID: ${{ needs.execute_and_preverify.outputs.evidence_id }}
+          RAW_DIGEST_RAW: ${{ needs.execute_and_preverify.outputs.evidence_digest }}
+          RAW_NAME: ${{ needs.execute_and_preverify.outputs.evidence_name }}
+          PRE_ID: ${{ needs.execute_and_preverify.outputs.preverify_id }}
+          PRE_DIGEST_RAW: ${{ needs.execute_and_preverify.outputs.preverify_digest }}
+          PRE_NAME: ${{ needs.execute_and_preverify.outputs.preverify_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify() {
+            id="$1"; name="$2"; raw="$3"
+            digest="$raw"; [[ "$digest" == sha256:* ]] || digest="sha256:$digest"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .digest <<<"$payload")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+          }
+          verify "$RAW_ID" "$RAW_NAME" "$RAW_DIGEST_RAW"
+          verify "$PRE_ID" "$PRE_NAME" "$PRE_DIGEST_RAW"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.execute_and_preverify.outputs.evidence_name }}
+          path: /tmp/replay
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.execute_and_preverify.outputs.preverify_name }}
+          path: /tmp/preverify
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_NAME }}
+          path: /tmp/original
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Fresh independent exact Stage A verification
+        env:
+          RAW_ID: ${{ needs.execute_and_preverify.outputs.evidence_id }}
+          RAW_DIGEST_RAW: ${{ needs.execute_and_preverify.outputs.evidence_digest }}
+          PRE_ID: ${{ needs.execute_and_preverify.outputs.preverify_id }}
+          PRE_DIGEST_RAW: ${{ needs.execute_and_preverify.outputs.preverify_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python tools/issue541_stage_a.py --original /tmp/original --replay /tmp/replay --output /tmp/fresh-report.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          fresh=json.loads(Path('/tmp/fresh-report.json').read_text())
+          files=list(Path('/tmp/preverify').glob('*.json'))
+          if len(files)!=1:
+              raise RuntimeError('unexpected preverify layout')
+          pre=json.loads(files[0].read_text())
+          if fresh != pre.get('primary_verification'):
+              raise RuntimeError('fresh report differs from primary report')
+          if fresh.get('status')!='PASS':
+              raise RuntimeError('fresh verifier did not PASS')
+          def norm(value: str) -> str:
+              return value if value.startswith('sha256:') else 'sha256:'+value
+          result={
+              'schema_version':'issue541_stage_a_fresh_verification_v3',
+              'main_sha':os.environ['MAIN_SHA'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'source_baseline_artifact_id':int(os.environ['SOURCE_ID']),
+              'source_baseline_artifact_digest':os.environ['SOURCE_DIGEST'],
+              'stage_a_raw_artifact_id':int(os.environ['RAW_ID']),
+              'stage_a_raw_artifact_digest':norm(os.environ['RAW_DIGEST_RAW']),
+              'stage_a_preverify_artifact_id':int(os.environ['PRE_ID']),
+              'stage_a_preverify_artifact_digest':norm(os.environ['PRE_DIGEST_RAW']),
+              'verification':fresh,
+              'prior_stage_a_execution_count':0,
+              'stage_a_execution_count':1,
+              'stage_a_executed':True,
+              'stage_a_passed':True,
+              'primary_verifier_passed':True,
+              'fresh_verifier_passed':True,
+              'stage_b_execution_authorized':True,
+              'successor_pnl_inspected':False,
+          }
+          Path('/tmp/stage-a-fresh-verification.json').write_text(json.dumps(result,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+
+      - id: final_name
+        run: echo "value=issue541-stage-a-fresh-verification-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - id: final_upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.final_name.outputs.value }}
+          path: /tmp/stage-a-fresh-verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+      - name: Final API audit of Stage B authorization artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ steps.final_upload.outputs.artifact-id }}
+          DIGEST_RAW: ${{ steps.final_upload.outputs.artifact-digest }}
+          NAME: ${{ steps.final_name.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="$DIGEST_RAW"; [[ "$digest" == sha256:* ]] || digest="sha256:$digest"
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ID)"
+          test "$(jq -r .name <<<"$payload")" = "$NAME"
+          test "$(jq -r .digest <<<"$payload")" = "$digest"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false

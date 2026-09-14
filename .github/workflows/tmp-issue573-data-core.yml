@@ -34,6 +34,20 @@ jobs:
           git show origin/automation/issue573-data-core:tools/tmp_issue573_apply_data_core.py > /tmp/apply.py
       - name: Apply data-core implementation
         run: python3 /tmp/apply.py
+      - name: Correct test reference to existing public staleness field
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("tests/data/test_perp_index_basis_feature.py")
+          text = path.read_text(encoding="utf-8")
+          old = "dataset.feature_age_hours[10, 0, 0]"
+          new = "dataset.feature_staleness_hours[10, 0, 0]"
+          if text.count(old) != 1:
+              raise SystemExit("expected exactly one test field-name correction")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:

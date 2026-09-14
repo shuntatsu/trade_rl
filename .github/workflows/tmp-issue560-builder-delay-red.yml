@@ -1,0 +1,84 @@
+name: Temporary Issue 560 builder delayed-availability RED
+
+on:
+  push:
+    branches:
+      - verify/issue560-builder-delay-red-1679
+    paths:
+      - .github/workflows/tmp-issue560-builder-delay-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 1679a89262e62bb7454ce0168773d1f3e2c982ec
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Add adversarial builder oracle only in runner
+        run: |
+          cat >> tests/data/test_signed_taker_flow_identity_compat.py <<'PY'
+
+          def test_builder_signed_flow_respects_delayed_row_at_each_decision_time() -> None:
+              n = 30
+              timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+                  n
+              ) * np.timedelta64(1, "h")
+              close = 100.0 + np.arange(n, dtype=np.float64)
+              available_at = timestamps.copy()
+              available_at[5] = timestamps[24]
+              raw = RawMarketSeries(
+                  timestamps=timestamps,
+                  available_at=available_at,
+                  open=np.concatenate((close[:1], close[:-1])),
+                  high=close + 1.0,
+                  low=close - 1.0,
+                  close=close,
+                  volume=np.full(n, 10.0, dtype=np.float64),
+                  taker_buy_quote_volume=np.full(n, 6.0, dtype=np.float64),
+                  funding_rate=np.zeros(n, dtype=np.float64),
+                  tradable=np.ones(n, dtype=np.bool_),
+              )
+              dataset = _signed_flow_builder().build(
+                  InMemoryMarketDataSource({"BTCUSDT": raw}),
+                  (
+                      InstrumentContract(
+                          symbol="BTCUSDT",
+                          volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+                      ),
+                  ),
+              )
+
+              assert not dataset.feature_available[23, 0, 0]
+              assert dataset.feature_available[24, 0, 0]
+              assert dataset.features[24, 0, 0] == np.float32(0.2)
+          PY
+          uv run ruff format tests/data/test_signed_taker_flow_identity_compat.py
+          uv run ruff check tests/data/test_signed_taker_flow_identity_compat.py
+          uv run pytest --collect-only -q tests/data/test_signed_taker_flow_identity_compat.py
+      - name: Require delayed-availability RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/data/test_signed_taker_flow_identity_compat.py -k delayed_row_at_each_decision_time > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "assert dataset.feature_available\[24, 0, 0\]" /tmp/red.log

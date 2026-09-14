@@ -39,6 +39,8 @@ jobs:
       - name: Format and validate test only
         run: |
           uv run ruff format tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          uv run ruff check --fix tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
           uv run ruff check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
           uv run pytest --collect-only -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
       - name: Recheck and publish test-only formatting

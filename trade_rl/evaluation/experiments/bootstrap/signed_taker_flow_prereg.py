@@ -45,6 +45,16 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "feature_quote_denominator_must_be_positive": True,
     "feature_lower_bound": -1.0,
     "feature_upper_bound": 1.0,
+    "feature_transform": "identity",
+    "winsorization_allowed": False,
+    "fitted_normalization_allowed": False,
+    "clipping_allowed": False,
+    "log_transform_allowed": False,
+    "ema_allowed": False,
+    "alternate_lookback_allowed": False,
+    "symbol_specific_normalization_allowed": False,
+    "missing_value_imputation_allowed": False,
+    "feature_threshold_allowed": False,
     "fit_start": datetime(2021, 1, 1, 1, tzinfo=UTC),
     "fit_cutoff": datetime(2023, 1, 1, tzinfo=UTC),
     "label_execution_offset_bars": 1,
@@ -57,14 +67,19 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "require_all_feature_rows_present": True,
     "require_all_feature_rows_information_available": True,
     "require_all_feature_rows_active": True,
+    "require_all_feature_rows_tradable": True,
     "require_quote_volume_finite_nonnegative": True,
     "require_taker_volume_finite_nonnegative": True,
     "require_taker_not_above_quote": True,
     "zero_quote_denominator_action": "UNAVAILABLE",
     "future_feature_rows_forbidden": True,
     "require_label_end_strictly_before_fit_cutoff": True,
+    "require_execution_and_label_rows_present": True,
+    "require_execution_and_label_rows_contiguous": True,
+    "require_execution_and_label_rows_information_available": True,
     "require_execution_and_label_rows_tradable": True,
     "require_execution_and_label_rows_active": True,
+    "require_label_open_finite_positive": True,
     "calibration_method": "per_symbol_no_intercept_fixed_order_fsum",
     "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",
     "expected_effect_direction": "CONTINUATION",
@@ -163,6 +178,16 @@ class SignedTakerFlowProtocol:
     feature_quote_denominator_must_be_positive: bool
     feature_lower_bound: float
     feature_upper_bound: float
+    feature_transform: str
+    winsorization_allowed: bool
+    fitted_normalization_allowed: bool
+    clipping_allowed: bool
+    log_transform_allowed: bool
+    ema_allowed: bool
+    alternate_lookback_allowed: bool
+    symbol_specific_normalization_allowed: bool
+    missing_value_imputation_allowed: bool
+    feature_threshold_allowed: bool
     fit_start: datetime
     fit_cutoff: datetime
     label_execution_offset_bars: int
@@ -175,14 +200,19 @@ class SignedTakerFlowProtocol:
     require_all_feature_rows_present: bool
     require_all_feature_rows_information_available: bool
     require_all_feature_rows_active: bool
+    require_all_feature_rows_tradable: bool
     require_quote_volume_finite_nonnegative: bool
     require_taker_volume_finite_nonnegative: bool
     require_taker_not_above_quote: bool
     zero_quote_denominator_action: str
     future_feature_rows_forbidden: bool
     require_label_end_strictly_before_fit_cutoff: bool
+    require_execution_and_label_rows_present: bool
+    require_execution_and_label_rows_contiguous: bool
+    require_execution_and_label_rows_information_available: bool
     require_execution_and_label_rows_tradable: bool
     require_execution_and_label_rows_active: bool
+    require_label_open_finite_positive: bool
     calibration_method: str
     calibration_formula: str
     expected_effect_direction: str
@@ -251,16 +281,30 @@ class SignedTakerFlowProtocol:
 
         bool_fields = (
             "feature_quote_denominator_must_be_positive",
+            "winsorization_allowed",
+            "fitted_normalization_allowed",
+            "clipping_allowed",
+            "log_transform_allowed",
+            "ema_allowed",
+            "alternate_lookback_allowed",
+            "symbol_specific_normalization_allowed",
+            "missing_value_imputation_allowed",
+            "feature_threshold_allowed",
             "require_all_feature_rows_present",
             "require_all_feature_rows_information_available",
             "require_all_feature_rows_active",
+            "require_all_feature_rows_tradable",
             "require_quote_volume_finite_nonnegative",
             "require_taker_volume_finite_nonnegative",
             "require_taker_not_above_quote",
             "future_feature_rows_forbidden",
             "require_label_end_strictly_before_fit_cutoff",
+            "require_execution_and_label_rows_present",
+            "require_execution_and_label_rows_contiguous",
+            "require_execution_and_label_rows_information_available",
             "require_execution_and_label_rows_tradable",
             "require_execution_and_label_rows_active",
+            "require_label_open_finite_positive",
             "no_sign_flip_fallback",
             "no_magnitude_threshold_after_results",
             "calibration_slope_used_as_strategy_coefficient",

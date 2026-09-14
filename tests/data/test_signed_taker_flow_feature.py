@@ -12,7 +12,9 @@ from trade_rl.data.source import RawMarketSeries
 
 def _raw(*, taker: np.ndarray | None) -> RawMarketSeries:
     n = 30
-    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
     close = 100.0 + np.arange(n, dtype=np.float64)
     return RawMarketSeries(
         timestamps=timestamps,

@@ -1,0 +1,299 @@
+name: Temporary Issue 571 full index source preflight
+
+on:
+  push:
+    branches:
+      - verify/issue571-full-index-preflight
+    paths:
+      - .github/workflows/tmp-issue571-full-index-preflight.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PREREG_PR_HEAD: b4cb6ac9f713021ffd141765812f12af31c2856e
+  PREREG_PROTOCOL_DIGEST: dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013
+  PREREG_PROTOCOL_SHA256: dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013
+  PREREG_SEAL_RUN_ID: "34866000147"
+  PREREG_SEAL_ARTIFACT_ID: "10357270841"
+  PREREG_SEAL_ARTIFACT_NAME: issue571-perp-index-basis-prereg-seal-v1-34866000147
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:0a8bd8c1fcc4838ec0773b81a723062ebe438ac182ad3ac8dcb7e8da1428cea3
+  PREREG_FRESH_ARTIFACT_ID: "10357655222"
+  PREREG_FRESH_ARTIFACT_NAME: issue571-perp-index-basis-prereg-fresh-v1-34866000147
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:fdf3d453cc484d35b2c2193d843e5fb051289792ae9e832fc052e17f9e6e1358
+
+jobs:
+  publisher:
+    name: Full structural publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      report_sha256: ${{ steps.fingerprint.outputs.report_sha256 }}
+      content_digest: ${{ steps.fingerprint.outputs.content_digest }}
+    steps:
+      - name: Checkout exact preflight workflow head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact workflow head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: API-bind sealed preregistration artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$1)"
+            test "$(jq -r .digest <<<"$payload")" = "$2"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+          }
+          verify_artifact "$PREREG_SEAL_ARTIFACT_ID" "$PREREG_SEAL_ARTIFACT_DIGEST"
+          verify_artifact "$PREREG_FRESH_ARTIFACT_ID" "$PREREG_FRESH_ARTIFACT_DIGEST"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_SEAL_ARTIFACT_NAME }}
+          path: /tmp/prereg-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_SEAL_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_FRESH_ARTIFACT_NAME }}
+          path: /tmp/prereg-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_SEAL_RUN_ID }}
+      - name: Verify sealed structural authorization only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          protocol_bytes = Path('/tmp/prereg-seal/protocol.json').read_bytes()
+          if hashlib.sha256(protocol_bytes).hexdigest() != os.environ['PREREG_PROTOCOL_SHA256']:
+              raise RuntimeError('preregistered protocol bytes differ')
+          protocol = json.loads(protocol_bytes)
+          if protocol.get('issue_number') != 571:
+              raise RuntimeError('issue authority differs')
+          if protocol.get('full_preflight_required') is not True:
+              raise RuntimeError('full preflight is not authorized')
+          if protocol.get('full_preflight_start_month') != '2021-01':
+              raise RuntimeError('preflight start differs')
+          if protocol.get('full_preflight_end_month') != '2022-12':
+              raise RuntimeError('preflight end differs')
+          if protocol.get('full_preflight_expected_archives') != 120:
+              raise RuntimeError('archive count differs')
+          if protocol.get('full_preflight_source_family') != 'indexPriceKlines':
+              raise RuntimeError('source family differs')
+          if protocol.get('full_preflight_interval') != '1h':
+              raise RuntimeError('interval differs')
+          if protocol.get('full_preflight_sparse_rows_remain_unavailable') is not True:
+              raise RuntimeError('sparse policy differs')
+          if protocol.get('full_preflight_replacement_source_allowed') is not False:
+              raise RuntimeError('replacement source boundary differs')
+          for key in (
+              'training_relation_executed',
+              'evaluation_pnl_inspected',
+              'evaluation_execution_authorized',
+              'final_test_authorized',
+              'shared_cash_profitability_established',
+              'production_eligible',
+              'live_trading_authorized',
+          ):
+              if protocol.get(key) is not False:
+                  raise RuntimeError(f'protocol result boundary violated: {key}')
+
+          seal = json.loads(Path('/tmp/prereg-seal/seal-index.json').read_bytes())
+          if seal.get('pr_head') != os.environ['PREREG_PR_HEAD']:
+              raise RuntimeError('prereg head differs')
+          if seal.get('protocol_digest') != os.environ['PREREG_PROTOCOL_DIGEST']:
+              raise RuntimeError('prereg digest differs')
+          fresh = json.loads(Path('/tmp/prereg-fresh/fresh-verification.json').read_bytes())
+          if fresh.get('fresh_reconstruction_passed') is not True:
+              raise RuntimeError('prereg fresh reconstruction did not pass')
+          if fresh.get('protocol_digest') != os.environ['PREREG_PROTOCOL_DIGEST']:
+              raise RuntimeError('fresh protocol digest differs')
+          PY
+      - name: Run exact 120-archive structural-only preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/tmp_issue571_full_index_preflight.py \
+            /tmp/issue571/publisher/full-index-preflight.json \
+            "$GITHUB_SHA"
+      - name: Fingerprint canonical report
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          report=/tmp/issue571/publisher/full-index-preflight.json
+          report_sha256="$(sha256sum "$report" | awk '{print $1}')"
+          content_digest="$(python3 - "$report" <<'PY'
+          import json, sys
+          from pathlib import Path
+          raw=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print(raw['content_digest'])
+          PY
+          )"
+          echo "report_sha256=$report_sha256" >> "$GITHUB_OUTPUT"
+          echo "content_digest=$content_digest" >> "$GITHUB_OUTPUT"
+          printf 'report sha256=%s content_digest=%s\n' "$report_sha256" "$content_digest"
+      - id: meta
+        run: echo "name=issue571-full-index-preflight-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable publisher report
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/issue571/publisher/full-index-preflight.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verify:
+    name: Fresh 120-archive reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preflight workflow head on fresh runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact workflow head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: API-bind sealed preregistration artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in \
+            "$PREREG_SEAL_ARTIFACT_ID:$PREREG_SEAL_ARTIFACT_DIGEST" \
+            "$PREREG_FRESH_ARTIFACT_ID:$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            id="${pair%%:*}"
+            expected="${pair#*:}"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .digest <<<"$payload")" = "$expected"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+          done
+      - name: Independently re-fetch exact 120 archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/tmp_issue571_full_index_preflight.py \
+            /tmp/issue571/fresh/full-index-preflight.json \
+            "$GITHUB_SHA"
+      - name: Require byte-identical independent reconstruction
+        shell: bash
+        env:
+          EXPECTED_REPORT_SHA256: ${{ needs.publisher.outputs.report_sha256 }}
+          EXPECTED_CONTENT_DIGEST: ${{ needs.publisher.outputs.content_digest }}
+        run: |
+          set -euo pipefail
+          report=/tmp/issue571/fresh/full-index-preflight.json
+          actual_sha256="$(sha256sum "$report" | awk '{print $1}')"
+          actual_content_digest="$(python3 - "$report" <<'PY'
+          import json, sys
+          from pathlib import Path
+          raw=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print(raw['content_digest'])
+          PY
+          )"
+          test "$actual_sha256" = "$EXPECTED_REPORT_SHA256"
+          test "$actual_content_digest" = "$EXPECTED_CONTENT_DIGEST"
+          printf 'fresh byte-identical reconstruction: OK sha256=%s content_digest=%s\n' \
+            "$actual_sha256" "$actual_content_digest"
+      - id: meta
+        run: echo "name=issue571-full-index-preflight-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstructed report
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/issue571/fresh/full-index-preflight.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final structural audit
+    needs: [publisher, fresh_verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both published preflight artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          FRESH_ID: ${{ needs.fresh_verify.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh_verify.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in "$PUB_ID:$PUB_NAME" "$FRESH_ID:$FRESH_NAME"; do
+            id="${pair%%:*}"
+            name="${pair#*:}"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh_verify.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Final result-blind structural audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/full-index-preflight.json /tmp/fresh/full-index-preflight.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/publisher/full-index-preflight.json').read_bytes())
+          if report.get('planned_archives') != 120:
+              raise RuntimeError('planned archive count differs')
+          if report.get('prereg_protocol_digest') != 'dc729ea3d6221cd7306dfdccab71f0f50a221efbb45ce312e123c07840465013':
+              raise RuntimeError('protocol binding differs')
+          if report.get('sparse_rows_remain_unavailable') is not True:
+              raise RuntimeError('sparse policy differs')
+          if report.get('replacement_source_used') is not False:
+              raise RuntimeError('replacement source was used')
+          for key in (
+              'economic_values_inspected',
+              'basis_or_return_computed',
+              'target_relation_computed',
+              'evaluation_pnl_inspected',
+              'production_authorized',
+          ):
+              if report.get(key) is not False:
+                  raise RuntimeError(f'result-blind boundary violated: {key}')
+          print('Issue 571 full index preflight audit: PASS status=' + str(report.get('status')))
+          PY

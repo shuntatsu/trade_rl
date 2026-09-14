@@ -280,7 +280,7 @@ class SignedTakerFlowProtocol:
         )
         for field_name in bool_fields:
             if type(getattr(self, field_name)) is not bool:
-                raise ValueError(f"{field_name} must be a boolean")
+                raise ValueError(f"preregistered field {field_name} must be a boolean")
 
         if self.symbols != _SYMBOLS:
             raise ValueError("preregistered symbol roster is invalid")
@@ -344,7 +344,7 @@ def load_signed_taker_flow_protocol(path: str | Path) -> SignedTakerFlowProtocol
         raise ValueError("symbols must be a list of strings")
     payload["symbols"] = tuple(symbols)
 
-    protocol = SignedTakerFlowProtocol(**payload)  # type: ignore[arg-type]
+    protocol = SignedTakerFlowProtocol(**payload)
     canonical = canonical_signed_taker_flow_protocol()
     if protocol != canonical or protocol.digest != canonical.digest:
         raise ValueError("loaded preregistration differs from canonical protocol")

@@ -1,0 +1,41 @@
+name: Temporary Issue 558 formal RED
+
+on:
+  push:
+    branches:
+      - verify/issue558-red
+    paths:
+      - .github/workflows/tmp-issue558-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 8dab31c69fb7013db60c4a4fd73099a4f032fe3f
+    steps:
+      - name: Checkout exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind expected head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Targeted prereg tests — expected RED
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py

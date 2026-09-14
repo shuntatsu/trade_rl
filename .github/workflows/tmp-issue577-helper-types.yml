@@ -119,6 +119,7 @@ jobs:
         run: |
           set -euo pipefail
           files="tools/tmp_issue577_basis_common.py tools/tmp_issue577_basis_publisher.py tools/tmp_issue577_basis_verifier.py tests/evaluation/experiments/bootstrap/test_issue577_basis_publisher_helper.py"
+          uv run ruff check --fix $files
           uv run ruff format $files
           uv run ruff check $files
           uv run ruff format --check $files

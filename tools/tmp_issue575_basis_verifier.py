@@ -93,6 +93,12 @@ def _canonical_digest(payload: dict[str, object]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"{field} must be a non-negative integer")
+    return value
+
+
 def _normalize_epoch_ms(value: object) -> int:
     numeric = int(str(value))
     while abs(numeric) >= 10_000_000_000_000:
@@ -344,7 +350,9 @@ def _fresh_perp(
             raise RuntimeError("published perp entry key malformed")
         by_key[(symbol, month)] = raw
     fresh_entries: list[dict[str, object]] = []
-    rows = {symbol: [] for symbol in SYMBOLS}
+    rows: dict[str, list[tuple[int, float, float, float, float, float]]] = {
+        symbol: [] for symbol in SYMBOLS
+    }
     for symbol in SYMBOLS:
         for month in MONTHS:
             expected_url = f"{PERP_ROOT}/{symbol}/1h/{symbol}-1h-{month}.zip"
@@ -403,7 +411,7 @@ def _fresh_index(
         parsed: list[tuple[int, float]] = []
         for row in raw_rows:
             open_ms = _normalize_epoch_ms(row[0])
-            close = float(row[4])
+            close = float(str(row[4]))
             if not math.isfinite(close) or close <= 0.0:
                 raise RuntimeError("fresh index close invalid")
             parsed.append((open_ms, close))
@@ -416,7 +424,7 @@ def _fresh_index(
 def _missing_by_symbol(entries: list[dict[str, object]]) -> dict[str, int]:
     return {
         symbol: sum(
-            int(item["missing_grid_rows"])
+            _nonnegative_int(item["missing_grid_rows"], field="perp missing_grid_rows")
             for item in entries
             if item["symbol"] == symbol
         )

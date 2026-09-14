@@ -93,6 +93,12 @@ def _canonical_digest(payload: dict[str, object]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"{field} must be a non-negative integer")
+    return value
+
+
 def _normalize_epoch_ms(value: object) -> int:
     numeric = int(str(value))
     while abs(numeric) >= 10_000_000_000_000:
@@ -198,9 +204,9 @@ def _load_preflight(
         "replacement_source_used": False,
         "sparse_rows_remain_unavailable": True,
     }
-    for key, expected in required.items():
-        if payload.get(key) != expected:
-            raise RuntimeError(f"index preflight field mismatch: {key}")
+    for field_name, expected in required.items():
+        if payload.get(field_name) != expected:
+            raise RuntimeError(f"index preflight field mismatch: {field_name}")
     if (
         tuple(payload.get("symbols", ())) != SYMBOLS
         or tuple(payload.get("months", ())) != MONTHS
@@ -219,8 +225,8 @@ def _load_preflight(
         month = raw_entry.get("month")
         if not isinstance(symbol, str) or not isinstance(month, str):
             raise RuntimeError("index preflight entry key is malformed")
-        key = (symbol, month)
-        if key in result:
+        entry_key = (symbol, month)
+        if entry_key in result:
             raise RuntimeError("index preflight contains duplicate entry")
         expected_url = f"{INDEX_ROOT}/{symbol}/1h/{symbol}-1h-{month}.zip"
         if raw_entry.get("url") != expected_url:
@@ -243,8 +249,8 @@ def _load_preflight(
             or raw_sha != checksum_sha
         ):
             raise RuntimeError(f"index SHA authority malformed: {symbol}:{month}")
-        result[key] = dict(raw_entry)
-        observed_order.append(key)
+        result[entry_key] = dict(raw_entry)
+        observed_order.append(entry_key)
     if observed_order != expected_order:
         raise RuntimeError("index preflight entry order differs from frozen plan")
     return payload, result
@@ -432,7 +438,7 @@ def _download_index(
             close_ms = _normalize_epoch_ms(row[6])
             if close_ms != open_ms + INTERVAL_MS - 1:
                 raise RuntimeError("index runtime close-time contract changed")
-            close = float(row[4])
+            close = float(str(row[4]))
             if not math.isfinite(close) or close <= 0.0:
                 raise RuntimeError("index runtime close is invalid")
             parsed.append((open_ms, close))
@@ -447,7 +453,7 @@ def _download_index(
 def _missing_by_symbol(entries: list[dict[str, object]]) -> dict[str, int]:
     return {
         symbol: sum(
-            int(entry["missing_grid_rows"])
+            _nonnegative_int(entry["missing_grid_rows"], field="perp missing_grid_rows")
             for entry in entries
             if entry["symbol"] == symbol
         )

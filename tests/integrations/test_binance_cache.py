@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.integrations.binance import plan_vision_book_depth_urls
 from trade_rl.integrations.binance.cache import (
     plan_binance_vision_cache,
     require_complete_binance_vision_cache,
     sync_binance_vision_cache,
+    sync_binance_vision_urls,
+    validate_cached_vision_payload,
     vision_cache_path,
 )
 
@@ -104,6 +107,34 @@ def test_sync_downloads_only_missing_archives(tmp_path: Path) -> None:
     assert report.downloaded_count == 1
     assert report.missing_urls == ()
     assert report.empty_urls == ()
+
+
+def test_book_depth_urls_reuse_raw_cache_evidence_without_reinterpretation(
+    tmp_path: Path,
+) -> None:
+    urls = plan_vision_book_depth_urls(
+        "usds-m",
+        "BTCUSDT",
+        _utc(2025, 5, 19),
+        _utc(2025, 5, 20),
+    )
+    assert len(urls) == 1
+    transport = _FakeTransport(tmp_path)
+
+    report = sync_binance_vision_urls(urls, transport=transport)
+
+    assert report.complete is True
+    assert report.cached_count == 0
+    assert report.downloaded_count == 1
+    assert transport.calls == list(urls)
+    url = urls[0]
+    cache_path = vision_cache_path(tmp_path, url)
+    payload = validate_cached_vision_payload(url, cache_path)
+    assert payload == f"payload:{url}".encode()
+    evidence = json.loads(cache_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert evidence["url"] == url
+    assert evidence["size_bytes"] == len(payload)
+    assert evidence["sha256"] == hashlib.sha256(payload).hexdigest()
 
 
 def test_sync_redownloads_archive_without_content_evidence(tmp_path: Path) -> None:

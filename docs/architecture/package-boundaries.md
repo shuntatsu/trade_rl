@@ -35,6 +35,7 @@ trade_rl/
 │       ├── transport.py
 │       ├── cache.py
 │       ├── vision.py
+│       ├── book_depth.py
 │       ├── metadata.py
 │       └── dataset.py
 ├── risk/
@@ -87,6 +88,16 @@ trade_rl/
 ```
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
+
+## Provider evidence boundary
+
+`integrations/binance/book_depth.py` は、Binance Vision USD-M daily `bookDepth` archiveのprovider-specific historical evidenceだけを所有する。`timestamp,percentage,depth,notional` を厳密にdecodeし、maintained percentage bands、snapshot completeness、累積depth/notional、implied average price、timestamp orderingをfail-closedに検証する。top-of-book quote、bid/ask spread、market impact、slippage、`MarketDataset`、`ExecutionEconomicsProfile`、execution/accounting、P&Lのauthorityにはしない。
+
+raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquired_at` が取得証拠のauthorityであり、`BinanceBookDepthSeries` はその再現可能なderivativeである。rowの`timestamp`と現行`available_at`はarchive内に記録されたmarket-observation timestampを表し、archive自体がその時刻にpublicだったことを意味しない。providerが保証していない固定sampling cadenceやpublication lagは捏造しない。実archiveでもsnapshot間隔は一定ではないため、30秒固定などの補間前提を置かない。
+
+別sourceの価格を使ってbookDepth品質を検査する場合は、reference valueの`available_at`が対象liquidity snapshotの`available_at`以下であることを必須にする。未来available referenceによる品質判定を許さない。historical archiveの異常値はraw evidenceを修復・丸めして隠さず、構造検証と明示的なcausal reference-alignment検証を分けてfail closedに扱う。
+
+このevidenceをbar-level participation、spread、impact、slippageへ変換する規則は別の研究変更である。導入する場合は結果を見る前にpreregisterし、execution-economics identityを変えた新しいDataset / Studyを構築する。既存canonical Studyやfrozen Experiment evidenceを書き換えない。
 
 ## Ownership
 

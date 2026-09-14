@@ -20,7 +20,7 @@ jobs:
           ref: research/issue558-taker-flow-prereg
           persist-credentials: true
       - name: Bind expected head
-        run: test "$(git rev-parse HEAD)" = "b98e4caa0d0b66ef23167b9a0fa270e091800b4a"
+        run: test "$(git rev-parse HEAD)" = "8969242c32df94ee544171e49adcb30fabd099ef"
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -28,18 +28,27 @@ jobs:
       - name: Install dev tools
         run: uv sync --extra dev
       - name: Format only
-        run: uv run ruff format tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-      - name: Require no semantic/test-content edit beyond formatter
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+      - name: Require formatted/lint-clean files
         run: |
           set -euo pipefail
-          uv run ruff check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
       - name: Commit and push
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
           git diff --cached --quiet && exit 1
-          git commit -m "style: format signed taker-flow prereg test"
+          git commit -m "style: format signed taker-flow prereg contract"
           git push origin HEAD:research/issue558-taker-flow-prereg

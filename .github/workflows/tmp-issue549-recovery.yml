@@ -1,0 +1,349 @@
+name: Temporary Issue 549 sealed recovery
+
+on:
+  push:
+    branches: [verify/issue549-recovery]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  publisher:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TARGET_SHA: 7b352d53b037507e0f3546925bf0a8ab47275780
+      PR_NUMBER: 550
+      FAILED_FORMAL_RUN_ID: 34834637341
+      LAYOUT_PROBE_RUN_ID: 34835209088
+      RECOVERY_RULE_COMMENT_ID: 5662856776
+      IMPL_SEAL_RUN_ID: 34834105053
+      IMPL_SEAL_ARTIFACT_ID: 10342893071
+      IMPL_SEAL_ARTIFACT_NAME: issue549-evaluation-implementation-seal-34834105053
+      IMPL_SEAL_API_DIGEST: sha256:4be47d05c88489f7513288ddc843d4ec96306ba594d256f64a839d018548259d
+      IMPL_SEAL_DIGEST: 0e05028aa7ee42a08f076caf6ddd4894c901089422a465e2ee2dd4744eaec23d
+      IMPL_SPEC_DIGEST: 3610b45ebd79e5ea6fec2b729ea3f372673eb6ebde856b633f0ec8909b994e5d
+      SOURCE_RUN_ID: 34803217815
+      SOURCE_ARTIFACT_ID: 10331899302
+      SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+      SOURCE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify result-blind recovery authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_JSON="$pr" python3 - <<'PY'
+          import json, os
+          pr=json.loads(os.environ['PR_JSON'])
+          assert pr['head']['sha']==os.environ['TARGET_SHA']
+          assert pr['base']['ref']=='research/issue547-economic-gate-calibration'
+          assert pr['base']['sha']=='393952c927d46c8a7135f4a6311ce611f508f85e'
+          assert pr['state']=='open'
+          PY
+
+          failed="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_FORMAL_RUN_ID}")"
+          FAILED_JSON="$failed" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['FAILED_JSON'])
+          assert x['id']==int(os.environ['FAILED_FORMAL_RUN_ID'])
+          assert x['status']=='completed' and x['conclusion']=='failure'
+          PY
+          failed_artifacts="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_FORMAL_RUN_ID}/artifacts?per_page=100")"
+          ARTS="$failed_artifacts" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['ARTS'])
+          assert x['total_count']==0
+          assert x['artifacts']==[]
+          PY
+
+          layout="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${LAYOUT_PROBE_RUN_ID}")"
+          LAYOUT_JSON="$layout" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['LAYOUT_JSON'])
+          assert x['id']==int(os.environ['LAYOUT_PROBE_RUN_ID'])
+          assert x['status']=='completed' and x['conclusion']=='success'
+          PY
+
+          for pair in "$IMPL_SEAL_ARTIFACT_ID $IMPL_SEAL_API_DIGEST $IMPL_SEAL_RUN_ID $IMPL_SEAL_ARTIFACT_NAME" "$SOURCE_ARTIFACT_ID $SOURCE_API_DIGEST $SOURCE_RUN_ID $SOURCE_ARTIFACT_NAME"; do
+            set -- $pair
+            artifact_id=$1; expected_digest=$2; expected_run=$3; expected_name=$4
+            meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}")"
+            META="$meta" ARTIFACT_ID="$artifact_id" EXPECTED_DIGEST="$expected_digest" EXPECTED_RUN="$expected_run" EXPECTED_NAME="$expected_name" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['META'])
+          assert x['id']==int(os.environ['ARTIFACT_ID'])
+          assert x['digest']==os.environ['EXPECTED_DIGEST']
+          assert x['workflow_run']['id']==int(os.environ['EXPECTED_RUN'])
+          assert x['name']==os.environ['EXPECTED_NAME']
+          assert x['expired'] is False
+          PY
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.IMPL_SEAL_ARTIFACT_NAME }}
+          path: /tmp/impl-seal
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_SEAL_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Reconstruct sealed evaluation exactly once for evidence recovery
+        run: |
+          mkdir -p /tmp/issue549-recovery
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_evaluation import (
+              canonical_mean_reversion_economic_gate_evaluation_spec,
+              evaluate_mean_reversion_economic_gate,
+          )
+
+          seal=json.loads(Path('/tmp/impl-seal/implementation-seal.json').read_text(encoding='utf-8'))
+          seal_digest=seal.pop('seal_digest')
+          assert seal_digest==os.environ['IMPL_SEAL_DIGEST']
+          assert content_digest(seal)==seal_digest
+          assert seal['pr_head_sha']==os.environ['TARGET_SHA']
+          assert seal['evaluation_spec_digest']==os.environ['IMPL_SPEC_DIGEST']
+
+          dataset_root=Path('/tmp/successor/dataset')
+          artifact=inspect_published_market_dataset_artifact(dataset_root)
+          dataset=load_market_dataset_artifact(dataset_root)
+          spec=canonical_mean_reversion_economic_gate_evaluation_spec()
+          assert spec.digest==os.environ['IMPL_SPEC_DIGEST']
+          assert dataset.dataset_id==spec.dataset_id
+          assert artifact.artifact_digest==spec.dataset_artifact_digest
+          plan=json.loads(Path('/tmp/successor/study/plan.json').read_text(encoding='utf-8'))
+          assert content_digest(plan)==spec.study_digest
+          assert sorted(entry.name for entry in Path('/tmp/successor/study').iterdir())==['plan.json']
+          baseline=plan['baseline_config']
+          assert baseline['signal_index']==spec.signal_index
+          assert baseline['rule_entry_threshold']==spec.rule_entry_threshold
+          assert baseline['rule_exit_threshold']==spec.rule_exit_threshold
+          assert baseline['evaluation_start']==spec.evaluation_start
+          assert baseline['evaluation_stop_exclusive']==spec.evaluation_stop_exclusive
+          assert baseline['gross_budget']==spec.gross_budget
+          assert baseline['initial_capital']==spec.initial_capital
+          assert baseline['execution_overlay']==spec.execution_overlay
+
+          result=evaluate_mean_reversion_economic_gate(dataset,spec)
+          payload={
+              'schema_version':'issue549_sealed_evaluation_recovery_v1',
+              'issue_number':549,
+              'pr_number':550,
+              'pr_head_sha':os.environ['TARGET_SHA'],
+              'recovery_rule_comment_id':int(os.environ['RECOVERY_RULE_COMMENT_ID']),
+              'failed_formal_run_id':int(os.environ['FAILED_FORMAL_RUN_ID']),
+              'failed_formal_run_artifact_count':0,
+              'formal_candidate_execution_count':1,
+              'recovery_reconstruction_count':1,
+              'first_result_observed_before_recovery':False,
+              'baseline_authority':'pairwise_ungated_mean_reversion_same_successor_replay_contract',
+              'implementation_seal_run_id':int(os.environ['IMPL_SEAL_RUN_ID']),
+              'implementation_seal_artifact_id':int(os.environ['IMPL_SEAL_ARTIFACT_ID']),
+              'implementation_seal_api_digest':os.environ['IMPL_SEAL_API_DIGEST'],
+              'implementation_seal_digest':os.environ['IMPL_SEAL_DIGEST'],
+              'successor_run_id':int(os.environ['SOURCE_RUN_ID']),
+              'successor_artifact_id':int(os.environ['SOURCE_ARTIFACT_ID']),
+              'successor_artifact_api_digest':os.environ['SOURCE_API_DIGEST'],
+              'dataset_id':dataset.dataset_id,
+              'dataset_artifact_digest':artifact.artifact_digest,
+              'study_digest':spec.study_digest,
+              'evaluation_spec_digest':spec.digest,
+              'evaluation_result_digest':result.digest,
+              'evaluation_result':result.to_payload(),
+              'independent_verification_required':True,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          payload['artifact_content_digest']=content_digest(payload)
+          Path('/tmp/issue549-recovery/evaluation.json').write_text(
+              json.dumps(payload,sort_keys=True,indent=2,allow_nan=False)+'\n',encoding='utf-8'
+          )
+          print(json.dumps({
+              'evaluation_result_digest':result.digest,
+              'artifact_content_digest':payload['artifact_content_digest'],
+              'result_persisted_before_interpretation':True,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue549-sealed-evaluation-recovery-${{ github.run_id }}
+          path: /tmp/issue549-recovery/evaluation.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verifier:
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TARGET_SHA: 7b352d53b037507e0f3546925bf0a8ab47275780
+      FAILED_FORMAL_RUN_ID: 34834637341
+      RECOVERY_RULE_COMMENT_ID: 5662856776
+      IMPL_SEAL_RUN_ID: 34834105053
+      IMPL_SEAL_ARTIFACT_ID: 10342893071
+      IMPL_SEAL_ARTIFACT_NAME: issue549-evaluation-implementation-seal-34834105053
+      IMPL_SEAL_API_DIGEST: sha256:4be47d05c88489f7513288ddc843d4ec96306ba594d256f64a839d018548259d
+      IMPL_SEAL_DIGEST: 0e05028aa7ee42a08f076caf6ddd4894c901089422a465e2ee2dd4744eaec23d
+      IMPL_SPEC_DIGEST: 3610b45ebd79e5ea6fec2b729ea3f372673eb6ebde856b633f0ec8909b994e5d
+      SOURCE_RUN_ID: 34803217815
+      SOURCE_ARTIFACT_ID: 10331899302
+      SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+      SOURCE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.IMPL_SEAL_ARTIFACT_NAME }}
+          path: /tmp/impl-seal
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_SEAL_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue549-sealed-evaluation-recovery-${{ github.run_id }}
+          path: /tmp/publisher-result
+      - name: Independently reconstruct and require canonical byte equality
+        run: |
+          mkdir -p /tmp/issue549-verification
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_evaluation import (
+              canonical_mean_reversion_economic_gate_evaluation_spec,
+              evaluate_mean_reversion_economic_gate,
+          )
+
+          seal=json.loads(Path('/tmp/impl-seal/implementation-seal.json').read_text(encoding='utf-8'))
+          seal_digest=seal.pop('seal_digest')
+          assert seal_digest==os.environ['IMPL_SEAL_DIGEST']
+          assert content_digest(seal)==seal_digest
+          assert seal['pr_head_sha']==os.environ['TARGET_SHA']
+
+          dataset_root=Path('/tmp/successor/dataset')
+          artifact=inspect_published_market_dataset_artifact(dataset_root)
+          dataset=load_market_dataset_artifact(dataset_root)
+          spec=canonical_mean_reversion_economic_gate_evaluation_spec()
+          assert spec.digest==os.environ['IMPL_SPEC_DIGEST']
+          assert dataset.dataset_id==spec.dataset_id
+          assert artifact.artifact_digest==spec.dataset_artifact_digest
+          plan=json.loads(Path('/tmp/successor/study/plan.json').read_text(encoding='utf-8'))
+          assert content_digest(plan)==spec.study_digest
+          assert sorted(entry.name for entry in Path('/tmp/successor/study').iterdir())==['plan.json']
+
+          result=evaluate_mean_reversion_economic_gate(dataset,spec)
+          payload={
+              'schema_version':'issue549_sealed_evaluation_recovery_v1',
+              'issue_number':549,
+              'pr_number':550,
+              'pr_head_sha':os.environ['TARGET_SHA'],
+              'recovery_rule_comment_id':int(os.environ['RECOVERY_RULE_COMMENT_ID']),
+              'failed_formal_run_id':int(os.environ['FAILED_FORMAL_RUN_ID']),
+              'failed_formal_run_artifact_count':0,
+              'formal_candidate_execution_count':1,
+              'recovery_reconstruction_count':1,
+              'first_result_observed_before_recovery':False,
+              'baseline_authority':'pairwise_ungated_mean_reversion_same_successor_replay_contract',
+              'implementation_seal_run_id':int(os.environ['IMPL_SEAL_RUN_ID']),
+              'implementation_seal_artifact_id':int(os.environ['IMPL_SEAL_ARTIFACT_ID']),
+              'implementation_seal_api_digest':os.environ['IMPL_SEAL_API_DIGEST'],
+              'implementation_seal_digest':os.environ['IMPL_SEAL_DIGEST'],
+              'successor_run_id':int(os.environ['SOURCE_RUN_ID']),
+              'successor_artifact_id':int(os.environ['SOURCE_ARTIFACT_ID']),
+              'successor_artifact_api_digest':os.environ['SOURCE_API_DIGEST'],
+              'dataset_id':dataset.dataset_id,
+              'dataset_artifact_digest':artifact.artifact_digest,
+              'study_digest':spec.study_digest,
+              'evaluation_spec_digest':spec.digest,
+              'evaluation_result_digest':result.digest,
+              'evaluation_result':result.to_payload(),
+              'independent_verification_required':True,
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          payload['artifact_content_digest']=content_digest(payload)
+          rebuilt=(json.dumps(payload,sort_keys=True,indent=2,allow_nan=False)+'\n').encode()
+          published=Path('/tmp/publisher-result/evaluation.json').read_bytes()
+          assert rebuilt==published
+          report={
+              'schema_version':'issue549_evaluation_recovery_fresh_verification_v1',
+              'pr_head_sha':os.environ['TARGET_SHA'],
+              'evaluation_result_digest':result.digest,
+              'publisher_artifact_content_digest':payload['artifact_content_digest'],
+              'fresh_reconstruction_byte_equal':True,
+              'baseline_authority':payload['baseline_authority'],
+              'formal_candidate_execution_count':1,
+              'recovery_reconstruction_count':1,
+              'research_status':result.research_status,
+              'positive_effect_symbols':result.positive_effect_symbols,
+              'median_excess_total_return':result.median_excess_total_return,
+              'cost_reduction_symbols':result.cost_reduction_symbols,
+              'turnover_reduction_symbols':result.turnover_reduction_symbols,
+              'drawdown_nonworse_symbols':result.drawdown_nonworse_symbols,
+              'new_termination_symbols':result.new_termination_symbols,
+              'candidate_positive_total_return_symbols':result.candidate_positive_total_return_symbols,
+              'by_symbol':[item.to_payload() for item in result.by_symbol],
+              'production_eligible':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'live_trading_authorized':False,
+          }
+          report['verification_digest']=content_digest(report)
+          Path('/tmp/issue549-verification/verification.json').write_text(
+              json.dumps(report,sort_keys=True,indent=2,allow_nan=False)+'\n',encoding='utf-8'
+          )
+          print(json.dumps(report,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue549-evaluation-recovery-verification-${{ github.run_id }}
+          path: /tmp/issue549-verification/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

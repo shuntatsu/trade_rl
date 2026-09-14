@@ -1,0 +1,209 @@
+name: Temporary Issue 560 GREEN implementation
+
+on:
+  push:
+    branches:
+      - automation/issue560-green-5fb1
+    paths:
+      - .github/workflows/tmp-issue560-green-impl.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue560-signed-taker-flow
+  TARGET_SHA: 5fb1b43dccd251115a4cc92b8ed2382cce1ed75a
+
+jobs:
+  implement_and_verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch against concurrent movement
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Apply minimal sealed source/feature implementation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one replacement, found {count}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # contracts.py: one frozen FeatureKind and fail-closed semantic constraints.
+          replace_once(
+              "trade_rl/data/contracts.py",
+              '    VOLUME_ZSCORE = "volume_zscore"\n    FUNDING_BPS = "funding_bps"\n',
+              '    VOLUME_ZSCORE = "volume_zscore"\n    SIGNED_TAKER_QUOTE_FLOW = "signed_taker_quote_flow"\n    FUNDING_BPS = "funding_bps"\n',
+          )
+          replace_once(
+              "trade_rl/data/contracts.py",
+              '        if (\n            not math.isfinite(self.max_staleness_hours)\n            or self.max_staleness_hours <= 0.0\n        ):\n            raise ValueError("max_staleness_hours must be finite and positive")\n',
+              '        if (\n            not math.isfinite(self.max_staleness_hours)\n            or self.max_staleness_hours <= 0.0\n        ):\n            raise ValueError("max_staleness_hours must be finite and positive")\n        kind = FeatureKind(self.kind)\n        if kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:\n            if self.lookback != 24:\n                raise ValueError("signed taker quote flow requires exactly 24 bars")\n            if self.normalization is not NormalizationMode.NONE:\n                raise ValueError("signed taker quote flow requires normalization=none")\n            if self.timeframe not in {None, "1h"}:\n                raise ValueError("signed taker quote flow is defined only on the 1h clock")\n',
+          )
+
+          # core.py: fixed-order fsum calculation; old feature paths stay unchanged.
+          helper = '''\n\ndef _signed_taker_quote_flow(\n    quote_volume: np.ndarray,\n    taker_buy_quote_volume: np.ndarray,\n    usable: np.ndarray,\n    lookback: int,\n) -> tuple[np.ndarray, np.ndarray, np.ndarray]:\n    values = np.zeros(len(quote_volume), dtype=np.float64)\n    valid = np.zeros(len(quote_volume), dtype=np.bool_)\n    source_start = np.full(len(quote_volume), -1, dtype=np.int64)\n    for index in range(len(quote_volume)):\n        start = index - lookback + 1\n        if not _window_is_valid(usable, start, index + 1):\n            continue\n        try:\n            quote_total = math.fsum(\n                float(item) for item in quote_volume[start : index + 1]\n            )\n            taker_total = math.fsum(\n                float(item) for item in taker_buy_quote_volume[start : index + 1]\n            )\n        except OverflowError as error:\n            raise ValueError("signed taker quote-flow accumulation must remain finite") from error\n        if not math.isfinite(quote_total) or not math.isfinite(taker_total):\n            raise ValueError("signed taker quote-flow accumulation must remain finite")\n        if quote_total <= 0.0:\n            continue\n        value = (2.0 * taker_total - quote_total) / quote_total\n        if not math.isfinite(value) or not -1.0 <= value <= 1.0:\n            raise ValueError("signed taker quote-flow value violates [-1, 1] invariant")\n        values[index] = value\n        valid[index] = True\n        source_start[index] = start\n    return values, valid, source_start\n'''
+          replace_once(
+              "trade_rl/data/features/core.py",
+              "\n\ndef calculate_feature_events(\n",
+              helper + "\n\ndef calculate_feature_events(\n",
+          )
+          replace_once(
+              "trade_rl/data/features/core.py",
+              '    row_present: np.ndarray,\n    active: np.ndarray,\n) -> tuple[np.ndarray, np.ndarray, np.ndarray]:\n',
+              '    row_present: np.ndarray,\n    active: np.ndarray,\n    taker_buy_quote_volume: np.ndarray | None = None,\n    tradable: np.ndarray | None = None,\n) -> tuple[np.ndarray, np.ndarray, np.ndarray]:\n',
+          )
+          replace_once(
+              "trade_rl/data/features/core.py",
+              '    kind = FeatureKind(spec.kind)\n\n    if kind is FeatureKind.FUNDING_BPS:\n',
+              '''    kind = FeatureKind(spec.kind)\n\n    if kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:\n        if taker_buy_quote_volume is None or tradable is None:\n            return values, valid, source_start\n        quote = np.asarray(volume, dtype=np.float64)\n        taker = np.asarray(taker_buy_quote_volume, dtype=np.float64)\n        tradable_mask = np.asarray(tradable, dtype=np.bool_)\n        if taker.shape != (n_bars,) or tradable_mask.shape != (n_bars,):\n            raise ValueError(\n                "signed taker quote-flow inputs must match feature input shape"\n            )\n        if not np.isfinite(quote).all() or np.any(quote < 0.0):\n            raise ValueError("signed taker quote flow requires finite non-negative quote volume")\n        if not np.isfinite(taker).all() or np.any(taker < 0.0):\n            raise ValueError("signed taker quote flow requires finite non-negative taker volume")\n        if np.any(taker > quote):\n            raise ValueError("signed taker buy quote volume must not exceed quote volume")\n        return _signed_taker_quote_flow(\n            quote, taker, usable & tradable_mask, spec.lookback\n        )\n\n    if kind is FeatureKind.FUNDING_BPS:\n''',
+          )
+
+          # multitimeframe.py: pass optional source field and enforce native 1h clock.
+          replace_once(
+              "trade_rl/data/features/multitimeframe.py",
+              'from trade_rl.data.contracts import FeatureSpec, InstrumentContract, timeframe_hours\n',
+              'from trade_rl.data.contracts import (\n    FeatureKind,\n    FeatureSpec,\n    InstrumentContract,\n    timeframe_hours,\n)\n',
+          )
+          replace_once(
+              "trade_rl/data/features/multitimeframe.py",
+              '    _validate_regular_native_series(raw, timeframe)\n    event_values, event_valid, event_available_at = _native_events(spec, raw, contract)\n',
+              '    _validate_regular_native_series(raw, timeframe)\n    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW and timeframe != "1h":\n        raise ValueError("signed taker quote flow is defined only on the 1h clock")\n    event_values, event_valid, event_available_at = _native_events(spec, raw, contract)\n',
+          )
+          replace_once(
+              "trade_rl/data/features/multitimeframe.py",
+              '        row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),\n        active=active,\n    )\n',
+              '        row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),\n        active=active,\n        taker_buy_quote_volume=raw.taker_buy_quote_volume,\n        tradable=raw.tradable,\n    )\n',
+          )
+
+          # builder.py: carry the optional source array only for the new feature path.
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              'from trade_rl.data.contracts import (\n    InstrumentContract,\n',
+              'from trade_rl.data.contracts import (\n    FeatureKind,\n    InstrumentContract,\n',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '    for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):\n        result[field_name][indices] = getattr(raw, field_name)\n',
+              '    for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):\n        result[field_name][indices] = getattr(raw, field_name)\n    if raw.taker_buy_quote_volume is not None:\n        taker = np.zeros(n_bars, dtype=np.float64)\n        taker[indices] = raw.taker_buy_quote_volume\n        result["taker_buy_quote_volume"] = taker\n',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '        volume = np.zeros_like(open_price)\n        funding_rate = np.zeros_like(open_price)\n',
+              '        volume = np.zeros_like(open_price)\n        taker_buy_quote_volume = np.zeros_like(open_price)\n        has_taker_buy_quote_volume = np.zeros(n_symbols, dtype=np.bool_)\n        funding_rate = np.zeros_like(open_price)\n',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '            volume[:, symbol_index] = aligned["volume"]\n            funding_rate[:, symbol_index] = aligned["funding_rate"]\n',
+              '            volume[:, symbol_index] = aligned["volume"]\n            aligned_taker = aligned.get("taker_buy_quote_volume")\n            if aligned_taker is not None:\n                taker_buy_quote_volume[:, symbol_index] = aligned_taker\n                has_taker_buy_quote_volume[symbol_index] = True\n            funding_rate[:, symbol_index] = aligned["funding_rate"]\n',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '                native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)\n                if native_timeframe == self.config.base_timeframe:\n',
+              '                native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)\n                if (\n                    spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW\n                    and native_timeframe != "1h"\n                ):\n                    raise ValueError(\n                        "signed taker quote flow is defined only on the 1h clock"\n                    )\n                if native_timeframe == self.config.base_timeframe:\n',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '                        row_present=causal_row_present[:, symbol_index],\n                        active=symbol_active[:, symbol_index],\n                    )\n',
+              '                        row_present=causal_row_present[:, symbol_index],\n                        active=symbol_active[:, symbol_index],\n                        taker_buy_quote_volume=(\n                            taker_buy_quote_volume[:, symbol_index]\n                            if has_taker_buy_quote_volume[symbol_index]\n                            else None\n                        ),\n                        tradable=tradable[:, symbol_index],\n                    )\n',
+          )
+
+          # Binance parser: preserve standard field 10, allow wholly legacy short rows,
+          # and reject mixed layout rather than silently inventing data.
+          replace_once(
+              "trade_rl/integrations/binance/dataset.py",
+              '    parsed: list[tuple[int, float, float, float, float, float]] = []\n    for row in rows:\n        if len(row) < 8:\n            raise ValueError("Binance kline row must contain at least eight fields")\n',
+              '    parsed: list[tuple[int, float, float, float, float, float, float | None]] = []\n    taker_layout: bool | None = None\n    for row in rows:\n        if len(row) < 8:\n            raise ValueError("Binance kline row must contain at least eight fields")\n        row_has_taker = len(row) > 10\n        if taker_layout is None:\n            taker_layout = row_has_taker\n        elif taker_layout != row_has_taker:\n            raise ValueError("Binance kline taker field layout is mixed")\n',
+          )
+          replace_once(
+              "trade_rl/integrations/binance/dataset.py",
+              '        quote_volume = _finite_float(row[7], field="quote volume")\n        parsed.append((close_ms, open_price, high, low, close, quote_volume))\n',
+              '        quote_volume = _finite_float(row[7], field="quote volume")\n        taker_buy_quote_volume = (\n            _finite_float(row[10], field="taker buy quote volume")\n            if row_has_taker\n            else None\n        )\n        parsed.append(\n            (\n                close_ms,\n                open_price,\n                high,\n                low,\n                close,\n                quote_volume,\n                taker_buy_quote_volume,\n            )\n        )\n',
+          )
+          replace_once(
+              "trade_rl/integrations/binance/dataset.py",
+              '        np.asarray([item[5] for item in parsed], dtype=np.float64),\n    )\n',
+              '        np.asarray([item[5] for item in parsed], dtype=np.float64),\n        (\n            np.asarray([float(item[6]) for item in parsed], dtype=np.float64)\n            if taker_layout\n            else None\n        ),\n    )\n',
+          )
+          replace_once(
+              "trade_rl/integrations/binance/dataset.py",
+              '        timestamps, open_price, high, low, close, volume = _parse_kline_rows(\n',
+              '        (\n            timestamps,\n            open_price,\n            high,\n            low,\n            close,\n            volume,\n            taker_buy_quote_volume,\n        ) = _parse_kline_rows(\n',
+          )
+          replace_once(
+              "trade_rl/integrations/binance/dataset.py",
+              '            volume=volume,\n            funding_rate=funding,\n',
+              '            volume=volume,\n            taker_buy_quote_volume=taker_buy_quote_volume,\n            funding_rate=funding,\n',
+          )
+          PY
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format touched files
+        run: |
+          uv run ruff format \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Targeted static checks
+        run: |
+          uv run ruff check \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+          uv run mypy \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py
+      - name: Targeted GREEN tests
+        run: |
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_features.py \
+            tests/data/test_multitimeframe.py \
+            tests/integrations/test_binance.py
+      - name: Recheck target branch and publish implementation commit
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl tests/data/test_signed_taker_flow_feature.py tests/data/test_signed_taker_flow_identity_compat.py tests/integrations/test_binance_signed_taker_flow_source.py
+          git commit -m "feat: implement sealed signed taker-flow feature path"
+          git push origin HEAD:"$TARGET_BRANCH"

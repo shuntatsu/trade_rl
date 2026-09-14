@@ -1,0 +1,61 @@
+name: Temporary Issue 549 Evaluation Mypy Fix
+
+on:
+  push:
+    branches:
+      - tmp/issue549-evaluation-mypy-fix
+    paths:
+      - .github/workflows/tmp-issue549-evaluation-mypy-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue549-evaluation-mypy-fix
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Apply exact API/type repair
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py')
+          text=path.read_text()
+          text=text.replace(
+              'from trade_rl.simulation.execution import ExecutionCostConfig\n',
+              'from trade_rl.simulation.execution import ExecutionCostConfig\nfrom trade_rl.strategies.interface import SingleSymbolStrategy\n',
+              1,
+          )
+          text=text.replace('    strategies = {\n', '    strategies: dict[str, SingleSymbolStrategy] = {\n', 1)
+          text=text.replace(
+              '                baseline_return_sha256=_return_sha256(baseline.returns.values),\n                candidate_return_sha256=_return_sha256(candidate.returns.values),\n',
+              '                baseline_return_sha256=_return_sha256(\n                    symbol_result.results["baseline"].returns.values\n                ),\n                candidate_return_sha256=_return_sha256(\n                    symbol_result.results["candidate"].returns.values\n                ),\n',
+              1,
+          )
+          path.write_text(text)
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q tests/strategies/test_mean_reversion_economic_gate.py tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py
+          changed="$(git diff --name-only)"
+          test "$changed" = "trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py"
+      - name: Commit green repair only
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py
+          git diff --cached --quiet && exit 1
+          git commit -m 'fix: bind Issue 549 evaluation to replay results'
+          git push origin HEAD:tmp/issue549-evaluation-mypy-fix

@@ -1,4 +1,4 @@
-name: Temporary Issue 559 targeted GREEN
+name: Temporary Issue 559 current-head targeted verification
 
 on:
   push:
@@ -8,18 +8,19 @@ on:
       - .github/workflows/tmp-issue559-red.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  targeted-green:
+  targeted-current-head:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 9e3fda6b92f3cd7f0fcd682510cfbf4c36a354a3
+      TARGET_SHA: 6cd31f84498dd1e1720d39899927fefc3f3c860b
     steps:
-      - name: Checkout exact implementation head
+      - name: Checkout exact current PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9e3fda6b92f3cd7f0fcd682510cfbf4c36a354a3
+          ref: 6cd31f84498dd1e1720d39899927fefc3f3c860b
+          persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Set up uv
@@ -29,12 +30,7 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Format changed files
-        run: |
-          uv run ruff format \
-            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
-            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-      - name: Static and targeted GREEN
+      - name: Static and targeted verification
         run: |
           set -euo pipefail
           uv run ruff check trade_rl tests tools
@@ -42,18 +38,3 @@ jobs:
           uv run mypy trade_rl
           uv run mypy tools/agent_repo tests/architecture/distribution.py
           uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-      - name: Commit formatter output only after GREEN
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py \
-            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-          if git diff --cached --quiet; then
-            echo "already formatted"
-            exit 0
-          fi
-          git commit -m "style: format signed taker-flow preregistration"
-          git push origin HEAD:research/issue558-taker-flow-prereg

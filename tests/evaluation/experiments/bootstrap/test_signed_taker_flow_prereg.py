@@ -88,6 +88,8 @@ def test_protocol_freezes_causality_and_continuation_gate() -> None:
 
     assert protocol.calibration_method == "per_symbol_no_intercept_fixed_order_fsum"
     assert protocol.calibration_formula == "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)"
+    assert protocol.require_calibration_denominator_finite_positive is True
+    assert protocol.require_calibration_beta_finite is True
     assert protocol.expected_effect_direction == "CONTINUATION"
     assert protocol.required_positive_symbol_slopes == 4
     assert protocol.valid_status == "VALID_FLOW_HYPOTHESIS"
@@ -168,6 +170,8 @@ def test_protocol_rejects_semantic_drift_and_bool_integer_alias() -> None:
         {"require_label_open_finite_positive": False},
         {"minimum_eligible_observations_per_symbol": 100},
         {"calibration_method": "pooled_ols"},
+        {"require_calibration_denominator_finite_positive": False},
+        {"require_calibration_beta_finite": False},
         {"expected_effect_direction": "REVERSAL"},
         {"required_positive_symbol_slopes": 3},
         {"no_sign_flip_fallback": False},

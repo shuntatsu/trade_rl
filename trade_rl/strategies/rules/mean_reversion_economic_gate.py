@@ -36,9 +36,7 @@ class MeanReversionEconomicGateConfig:
             not math.isfinite(self.one_way_explicit_cost)
             or self.one_way_explicit_cost < 0.0
         ):
-            raise ValueError(
-                "one_way_explicit_cost must be finite and non-negative"
-            )
+            raise ValueError("one_way_explicit_cost must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)

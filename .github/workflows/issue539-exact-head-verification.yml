@@ -1,0 +1,513 @@
+name: Issue 539 exact-head verification
+
+on:
+  push:
+    branches:
+      - verify/issue539-exact-15bf6546
+    paths:
+      - .github/workflows/issue539-exact-head-verification.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 15bf6546996dc969d4d6e946261d73e3d43336e6
+  BASE_SHA: db8193c81dd0ca334a15ffc1895d75884238f8a9
+  SOURCE_RUN_ID: "34702660287"
+  SOURCE_ARTIFACT: canonical-m2-portable-prereg-v1-34702660287
+  SOURCE_ARTIFACT_ID: "10300479733"
+  SOURCE_ARTIFACT_API_DIGEST: sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4
+  SOURCE_DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  SOURCE_DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+  SOURCE_STUDY_DIGEST: 3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79
+  CALIBRATION_RUN_ID: "34766830666"
+  CALIBRATION_ARTIFACT: issue537-aggtrades-flow-calibration-34766830666
+  CALIBRATION_ARTIFACT_ID: "10320428830"
+  CALIBRATION_ARTIFACT_API_DIGEST: sha256:810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35
+  CALIBRATION_RESULT_DIGEST: a5490f9209b16a8ba94f11506b83aa45ce44c7d61d13234480e2362f6df89809
+  CALIBRATION_JSON_SHA256: 397004e6a1a9c3b30b32212066ac41366f7af74edc0ae23372f847e50c6c5a4e
+  CALIBRATION_VERIFY_RUN_ID: "34767391268"
+  CALIBRATION_VERIFY_ARTIFACT: issue537-independent-reconstruction-10320428830-v2
+  CALIBRATION_VERIFY_ARTIFACT_ID: "10320394746"
+  CALIBRATION_VERIFY_ARTIFACT_API_DIGEST: sha256:31702e68dddd9b4844eee6dc3b5b47ab4aa824d50200509a7bcdbf009c652bd1
+
+jobs:
+  core:
+    name: Exact Lean Core
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact durable PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Prove exact head and durable diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
+          test -n "$changed"
+          if grep -E '^\.github/workflows/' <<<"$changed"; then
+            echo "durable PR diff contains workflow helper" >&2
+            exit 1
+          fi
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+
+  guide:
+    name: Exact Human Guide
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: ${{ env.TARGET_SHA }}
+    steps:
+      - name: Checkout exact durable PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Prove exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+
+  materialize-a:
+    name: Independent materialization A
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      dataset_id: ${{ steps.rebuild.outputs.dataset_id }}
+      dataset_artifact_digest: ${{ steps.rebuild.outputs.dataset_artifact_digest }}
+      dataset_tree_digest: ${{ steps.rebuild.outputs.dataset_tree_digest }}
+      study_digest: ${{ steps.rebuild.outputs.study_digest }}
+      study_tree_digest: ${{ steps.rebuild.outputs.study_tree_digest }}
+    steps:
+      - name: Checkout exact durable PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Prove exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Verify source and calibration artifact API authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local payload
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT" "$SOURCE_ARTIFACT_API_DIGEST" "$SOURCE_RUN_ID"
+          verify_artifact "$CALIBRATION_ARTIFACT_ID" "$CALIBRATION_ARTIFACT" "$CALIBRATION_ARTIFACT_API_DIGEST" "$CALIBRATION_RUN_ID"
+          verify_artifact "$CALIBRATION_VERIFY_ARTIFACT_ID" "$CALIBRATION_VERIFY_ARTIFACT" "$CALIBRATION_VERIFY_ARTIFACT_API_DIGEST" "$CALIBRATION_VERIFY_RUN_ID"
+      - name: Download exact source preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: /tmp/issue539-source-a
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Download sealed calibration result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_ARTIFACT }}
+          path: /tmp/issue539-calibration-a
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_RUN_ID }}
+      - name: Download independent calibration reconstruction
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_VERIFY_ARTIFACT }}
+          path: /tmp/issue539-calibration-verify-a
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_VERIFY_RUN_ID }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Materialize successor identities without PnL
+        id: rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact, publish_market_dataset_artifact
+          from trade_rl.evaluation.experiments import create_study, inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.capacity_materialization import build_aggtrades_calibrated_capacity_dataset, canonical_aggtrades_capacity_authority
+          from trade_rl.evaluation.experiments.bootstrap.config import load_canonical_m2_bootstrap_config
+          from trade_rl.evaluation.runs import CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
+
+          source = Path('/tmp/issue539-source-a')
+          calibration = Path('/tmp/issue539-calibration-a/result.json')
+          calibration_verify = Path('/tmp/issue539-calibration-verify-a/verified.json')
+          result_bytes = calibration.read_bytes()
+          verify_bytes = calibration_verify.read_bytes()
+          if result_bytes != verify_bytes:
+              raise RuntimeError('independent calibration reconstruction differs from published bytes')
+          if hashlib.sha256(result_bytes).hexdigest() != os.environ['CALIBRATION_JSON_SHA256']:
+              raise RuntimeError('calibration canonical JSON SHA drift')
+          result = json.loads(result_bytes)
+          digest = result.get('result_digest')
+          if digest != os.environ['CALIBRATION_RESULT_DIGEST']:
+              raise RuntimeError('calibration result digest drift')
+          payload = dict(result)
+          del payload['result_digest']
+          if content_digest(payload) != digest:
+              raise RuntimeError('calibration content digest mismatch')
+
+          source_dataset_root = source / 'dataset'
+          source_study_root = source / 'study'
+          source_dataset = load_market_dataset_artifact(source_dataset_root)
+          source_artifact = inspect_published_market_dataset_artifact(source_dataset_root)
+          source_snapshot = inspect_study(source_study_root)
+          if source_dataset.dataset_id != os.environ['SOURCE_DATASET_ID']:
+              raise RuntimeError('source Dataset ID drift')
+          if source_artifact.artifact_digest != os.environ['SOURCE_DATASET_ARTIFACT_DIGEST']:
+              raise RuntimeError('source Dataset artifact digest drift')
+          if source_snapshot.plan.digest != os.environ['SOURCE_STUDY_DIGEST']:
+              raise RuntimeError('source Study digest drift')
+
+          authority = canonical_aggtrades_capacity_authority()
+          successor = build_aggtrades_calibrated_capacity_dataset(
+              source_dataset,
+              source_artifact_schema=source_artifact.schema_version,
+              source_artifact_digest=source_artifact.artifact_digest,
+              authority=authority,
+          )
+          expected_caps = np.broadcast_to(np.asarray(authority.symbol_caps, dtype=np.float64), (successor.n_bars, successor.n_symbols))
+          if not np.array_equal(successor.resolved_array('max_participation_rate'), expected_caps):
+              raise RuntimeError('successor caps differ from sealed authority')
+          for name, old in source_dataset.identity_arrays().items():
+              new = successor.identity_arrays()[name]
+              if name == 'max_participation_rate':
+                  continue
+              if old.dtype != new.dtype or old.shape != new.shape or old.tobytes() != new.tobytes():
+                  raise RuntimeError(f'non-cap identity array changed: {name}')
+
+          output = Path('/tmp/issue539-rebuild-a')
+          dataset_root = output / 'dataset'
+          study_root = output / 'study'
+          published = publish_market_dataset_artifact(dataset_root, successor)
+          reloaded = load_market_dataset_artifact(dataset_root)
+          if reloaded.dataset_id != successor.dataset_id:
+              raise RuntimeError('successor Dataset round-trip changed ID')
+          config = load_canonical_m2_bootstrap_config(source / 'bootstrap.json')
+          created = create_study(
+              study_root,
+              dataset_root=dataset_root,
+              research_question=source_snapshot.plan.research_question,
+              baseline_config=config.baseline,
+              ppo_seeds=source_snapshot.plan.ppo_seeds,
+              allowed_factors=source_snapshot.plan.allowed_factors,
+              max_experiments=source_snapshot.plan.max_experiments,
+              n_bootstrap=source_snapshot.plan.n_bootstrap,
+              bootstrap_seed=source_snapshot.plan.bootstrap_seed,
+              execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+          )
+          snapshot = inspect_study(study_root)
+          if created.plan.digest != snapshot.plan.digest:
+              raise RuntimeError('successor Study reconstruction mismatch')
+          if snapshot.baseline is not None or snapshot.experiment_sequences or snapshot.terminal_sequences or snapshot.frozen:
+              raise RuntimeError('successor Study must remain plan-only/baseline-free/experiment-free')
+          if snapshot.plan.dataset_id != successor.dataset_id or snapshot.plan.dataset_artifact_digest != published.artifact_digest:
+              raise RuntimeError('successor Study Dataset binding drift')
+          if snapshot.plan.baseline_config.execution_overlay != CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
+              raise RuntimeError('successor Study did not freeze causal overlay')
+          if successor.dataset_id == source_dataset.dataset_id or published.artifact_digest == source_artifact.artifact_digest or snapshot.plan.digest == source_snapshot.plan.digest:
+              raise RuntimeError('successor identity failed to change')
+
+          def tree_digest(root: Path) -> str:
+              h = hashlib.sha256()
+              files = [p for p in sorted(root.rglob('*')) if p.is_file() and p.name != '.mutation.lock']
+              if not files:
+                  raise RuntimeError(f'empty tree: {root}')
+              for path in files:
+                  rel = path.relative_to(root).as_posix().encode()
+                  data_hash = hashlib.sha256(path.read_bytes()).digest()
+                  h.update(len(rel).to_bytes(8, 'big'))
+                  h.update(rel)
+                  h.update(data_hash)
+              return h.hexdigest()
+
+          report = {
+              'schema_version': 'issue539_exact_head_reconstruction_v1',
+              'target_sha': os.environ['TARGET_SHA'],
+              'dataset_id': successor.dataset_id,
+              'dataset_artifact_digest': published.artifact_digest,
+              'dataset_tree_digest': tree_digest(dataset_root),
+              'study_digest': snapshot.plan.digest,
+              'study_tree_digest': tree_digest(study_root),
+              'baseline_present': False,
+              'experiment_count': 0,
+              'pnl_executed': False,
+          }
+          Path('/tmp/issue539-reconstruction-a.json').write_text(json.dumps(report, sort_keys=True, indent=2) + '\n')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as handle:
+              for key in ('dataset_id','dataset_artifact_digest','dataset_tree_digest','study_digest','study_tree_digest'):
+                  handle.write(f'{key}={report[key]}\n')
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - name: Upload reconstruction A evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue539-reconstruction-a-${{ github.run_id }}
+          path: /tmp/issue539-reconstruction-a.json
+          if-no-files-found: error
+          retention-days: 90
+
+  materialize-b:
+    name: Independent materialization B
+    needs: materialize-a
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact durable PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Prove exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Verify source and calibration artifact API authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local payload
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT" "$SOURCE_ARTIFACT_API_DIGEST" "$SOURCE_RUN_ID"
+          verify_artifact "$CALIBRATION_ARTIFACT_ID" "$CALIBRATION_ARTIFACT" "$CALIBRATION_ARTIFACT_API_DIGEST" "$CALIBRATION_RUN_ID"
+          verify_artifact "$CALIBRATION_VERIFY_ARTIFACT_ID" "$CALIBRATION_VERIFY_ARTIFACT" "$CALIBRATION_VERIFY_ARTIFACT_API_DIGEST" "$CALIBRATION_VERIFY_RUN_ID"
+      - name: Download exact source preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: /tmp/issue539-source-b
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Download sealed calibration result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_ARTIFACT }}
+          path: /tmp/issue539-calibration-b
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_RUN_ID }}
+      - name: Download independent calibration reconstruction
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_VERIFY_ARTIFACT }}
+          path: /tmp/issue539-calibration-verify-b
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_VERIFY_RUN_ID }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Independently rebuild and compare A
+        shell: bash
+        env:
+          EXPECTED_DATASET_ID: ${{ needs.materialize-a.outputs.dataset_id }}
+          EXPECTED_DATASET_ARTIFACT_DIGEST: ${{ needs.materialize-a.outputs.dataset_artifact_digest }}
+          EXPECTED_DATASET_TREE_DIGEST: ${{ needs.materialize-a.outputs.dataset_tree_digest }}
+          EXPECTED_STUDY_DIGEST: ${{ needs.materialize-a.outputs.study_digest }}
+          EXPECTED_STUDY_TREE_DIGEST: ${{ needs.materialize-a.outputs.study_tree_digest }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact, publish_market_dataset_artifact
+          from trade_rl.evaluation.experiments import create_study, inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.capacity_materialization import build_aggtrades_calibrated_capacity_dataset, canonical_aggtrades_capacity_authority
+          from trade_rl.evaluation.experiments.bootstrap.config import load_canonical_m2_bootstrap_config
+          from trade_rl.evaluation.runs import CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
+
+          source = Path('/tmp/issue539-source-b')
+          result_bytes = Path('/tmp/issue539-calibration-b/result.json').read_bytes()
+          verify_bytes = Path('/tmp/issue539-calibration-verify-b/verified.json').read_bytes()
+          if result_bytes != verify_bytes:
+              raise RuntimeError('independent calibration reconstruction differs from published bytes')
+          if hashlib.sha256(result_bytes).hexdigest() != os.environ['CALIBRATION_JSON_SHA256']:
+              raise RuntimeError('calibration JSON SHA drift')
+          result = json.loads(result_bytes)
+          payload = dict(result)
+          digest = payload.pop('result_digest')
+          if digest != os.environ['CALIBRATION_RESULT_DIGEST'] or content_digest(payload) != digest:
+              raise RuntimeError('calibration result digest mismatch')
+
+          source_dataset_root = source / 'dataset'
+          source_dataset = load_market_dataset_artifact(source_dataset_root)
+          source_artifact = inspect_published_market_dataset_artifact(source_dataset_root)
+          source_snapshot = inspect_study(source / 'study')
+          authority = canonical_aggtrades_capacity_authority()
+          successor = build_aggtrades_calibrated_capacity_dataset(source_dataset, source_artifact_schema=source_artifact.schema_version, source_artifact_digest=source_artifact.artifact_digest, authority=authority)
+          expected_caps = np.broadcast_to(np.asarray(authority.symbol_caps, dtype=np.float64), (successor.n_bars, successor.n_symbols))
+          if not np.array_equal(successor.resolved_array('max_participation_rate'), expected_caps):
+              raise RuntimeError('successor caps differ')
+          output = Path('/tmp/issue539-rebuild-b')
+          dataset_root = output / 'dataset'
+          study_root = output / 'study'
+          published = publish_market_dataset_artifact(dataset_root, successor)
+          config = load_canonical_m2_bootstrap_config(source / 'bootstrap.json')
+          created = create_study(study_root, dataset_root=dataset_root, research_question=source_snapshot.plan.research_question, baseline_config=config.baseline, ppo_seeds=source_snapshot.plan.ppo_seeds, allowed_factors=source_snapshot.plan.allowed_factors, max_experiments=source_snapshot.plan.max_experiments, n_bootstrap=source_snapshot.plan.n_bootstrap, bootstrap_seed=source_snapshot.plan.bootstrap_seed, execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY)
+          snapshot = inspect_study(study_root)
+          if created.plan.digest != snapshot.plan.digest or snapshot.baseline is not None or snapshot.experiment_sequences or snapshot.terminal_sequences or snapshot.frozen:
+              raise RuntimeError('successor Study is not a deterministic plan-only identity')
+
+          def tree_digest(root: Path) -> str:
+              h = hashlib.sha256()
+              files = [p for p in sorted(root.rglob('*')) if p.is_file() and p.name != '.mutation.lock']
+              for path in files:
+                  rel = path.relative_to(root).as_posix().encode()
+                  h.update(len(rel).to_bytes(8, 'big'))
+                  h.update(rel)
+                  h.update(hashlib.sha256(path.read_bytes()).digest())
+              return h.hexdigest()
+
+          observed = {
+              'dataset_id': successor.dataset_id,
+              'dataset_artifact_digest': published.artifact_digest,
+              'dataset_tree_digest': tree_digest(dataset_root),
+              'study_digest': snapshot.plan.digest,
+              'study_tree_digest': tree_digest(study_root),
+          }
+          expected = {key.removeprefix('EXPECTED_').lower(): value for key, value in os.environ.items() if key in {'EXPECTED_DATASET_ID','EXPECTED_DATASET_ARTIFACT_DIGEST','EXPECTED_DATASET_TREE_DIGEST','EXPECTED_STUDY_DIGEST','EXPECTED_STUDY_TREE_DIGEST'}}
+          if observed != expected:
+              raise RuntimeError(f'independent reconstruction differs: observed={observed!r} expected={expected!r}')
+          report = {'schema_version':'issue539_exact_head_reconstruction_match_v1','target_sha':os.environ['TARGET_SHA'],**observed,'independent_match':True,'baseline_present':False,'experiment_count':0,'pnl_executed':False}
+          Path('/tmp/issue539-reconstruction-b.json').write_text(json.dumps(report, sort_keys=True, indent=2) + '\n')
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - name: Upload reconstruction B evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue539-reconstruction-b-${{ github.run_id }}
+          path: /tmp/issue539-reconstruction-b.json
+          if-no-files-found: error
+          retention-days: 90

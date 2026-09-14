@@ -1,0 +1,71 @@
+name: Temporary Issue 560 adversarial GREEN v2
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-adversarial-green-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 0186a3a18ff14a5529de1f8869b1e45f461c036b
+    steps:
+      - name: Checkout verification helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue560-red-31de975
+      - name: Preserve transformer
+        run: cp tools/tmp_issue560_adversarial_green.py /tmp/issue560_green.py
+      - name: Checkout exact implementation head
+        run: |
+          git fetch origin "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply sealed fixes
+        run: python /tmp/issue560_green.py
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed files
+        run: |
+          uv run ruff format \
+            trade_rl/data/contracts.py \
+            trade_rl/data/build/builder.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+      - name: Targeted and static GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py
+      - name: Commit only if branch has not moved
+        run: |
+          set -euo pipefail
+          git fetch origin feat/issue560-signed-taker-flow
+          test "$(git rev-parse FETCH_HEAD)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/contracts.py \
+            trade_rl/data/build/builder.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "fix: enforce exact signed taker-flow availability"
+          git push origin HEAD:feat/issue560-signed-taker-flow

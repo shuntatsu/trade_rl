@@ -26,6 +26,8 @@ jobs:
           version: "0.10.0"
           python-version: "3.12"
       - run: uv sync --extra dev
-      - run: uv run ruff check tests/research/test_issue553_flow_diagnostic.py
-      - run: uv run ruff format --check tests/research/test_issue553_flow_diagnostic.py
-      - run: uv run pytest -q tests/research/test_issue553_flow_diagnostic.py
+      - run: |
+          uv run ruff check tools/issue553_flow_diagnostic.py tests/research/test_issue553_flow_diagnostic.py
+          uv run ruff format --check tools/issue553_flow_diagnostic.py tests/research/test_issue553_flow_diagnostic.py
+          uv run mypy tools/issue553_flow_diagnostic.py
+          uv run pytest -q tests/research/test_issue553_flow_diagnostic.py

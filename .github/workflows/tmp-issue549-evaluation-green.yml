@@ -1,0 +1,33 @@
+name: Temporary Issue 549 evaluation GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue549-evaluation-green-59f8
+    paths:
+      - .github/workflows/tmp-issue549-evaluation-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 59f84456ab40c8c58f29220ac0bc5f97d58e2fef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests/strategies/test_mean_reversion_economic_gate.py tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py

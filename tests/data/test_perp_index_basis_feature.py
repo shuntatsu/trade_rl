@@ -37,7 +37,9 @@ def _trade_series(
     closes = np.full(n, close, dtype=np.float64)
     available_at = timestamps.copy()
     if unavailable_at is not None:
-        available_at[unavailable_at] = timestamps[unavailable_at] + np.timedelta64(1, "h")
+        available_at[unavailable_at] = timestamps[unavailable_at] + np.timedelta64(
+            1, "h"
+        )
     return RawMarketSeries(
         timestamps=timestamps,
         available_at=available_at,
@@ -209,7 +211,9 @@ def test_future_index_mutation_cannot_change_prior_basis_prefix() -> None:
     )
 
 
-def test_missing_index_source_capability_is_rejected_only_when_basis_requested() -> None:
+def test_missing_index_source_capability_is_rejected_only_when_basis_requested() -> (
+    None
+):
     plain = InMemoryMarketDataSource({"BTCUSDT": _trade_series()})
 
     with pytest.raises(ValueError, match="index.*source|capability|basis"):
@@ -233,9 +237,7 @@ def test_index_capability_is_identity_inert_when_basis_feature_is_omitted() -> N
     trade = _trade_series()
     legacy_config = MarketBuildConfig(
         base_timeframe="1h",
-        features=(
-            FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN, lookback=1),
-        ),
+        features=(FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN, lookback=1),),
     )
     plain = MarketDatasetBuilder(legacy_config).build(
         InMemoryMarketDataSource({"BTCUSDT": trade}),
@@ -256,7 +258,9 @@ def test_index_capability_is_identity_inert_when_basis_feature_is_omitted() -> N
         )
 
 
-def test_basis_source_provenance_changes_identity_but_not_accounting_index_price() -> None:
+def test_basis_source_provenance_changes_identity_but_not_accounting_index_price() -> (
+    None
+):
     trade = _trade_series()
     first = MarketDatasetBuilder(_basis_config()).build(
         _IndexCapableSource(trade, _index_series(), provenance_digest="c" * 64),
@@ -273,7 +277,9 @@ def test_basis_source_provenance_changes_identity_but_not_accounting_index_price
     np.testing.assert_array_equal(second.index_price, second.close)
 
 
-def test_index_raw_contract_rejects_nonpositive_duplicate_and_early_availability() -> None:
+def test_index_raw_contract_rejects_nonpositive_duplicate_and_early_availability() -> (
+    None
+):
     timestamps = _timestamps(3)
     with pytest.raises(ValueError, match="positive|finite"):
         RawIndexPriceSeries(

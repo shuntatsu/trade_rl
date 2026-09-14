@@ -254,7 +254,9 @@ class _IndexFixtureTransport:
         )
         self.calls: list[dict[str, object]] = []
 
-    def load_index_price_klines(self, **kwargs: object) -> tuple[list[list[Any]], tuple[str, ...]]:
+    def load_index_price_klines(
+        self, **kwargs: object
+    ) -> tuple[list[list[Any]], tuple[str, ...]]:
         self.calls.append(dict(kwargs))
         return (
             [

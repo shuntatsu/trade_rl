@@ -36,74 +36,63 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: str, old: str, new: str) -> None:
-              p = Path(path)
-              text = p.read_text()
-              if text.count(old) != 1:
-                  raise RuntimeError(f"{path}: expected exactly one patch site")
-              p.write_text(text.replace(old, new, 1))
+          builder = Path("trade_rl/data/build/builder.py")
+          text = builder.read_text()
+          old = "                        row_present=causal_row_present[:, symbol_index],\n                        active=symbol_active[:, symbol_index],\n"
+          new = "                        row_present=(\n                            row_present[:, symbol_index]\n                            if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW\n                            else causal_row_present[:, symbol_index]\n                        ),\n                        active=symbol_active[:, symbol_index],\n"
+          if text.count(old) != 1:
+              raise RuntimeError("builder row_present patch site is not unique")
+          text = text.replace(old, new, 1)
 
-          replace_once(
-              "trade_rl/data/build/builder.py",
-              '''                        row_present=causal_row_present[:, symbol_index],
-                        active=symbol_active[:, symbol_index],
-''',
-              '''                        row_present=(
-                            row_present[:, symbol_index]
-                            if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
-                            else causal_row_present[:, symbol_index]
-                        ),
-                        active=symbol_active[:, symbol_index],
-''',
-          )
-          replace_once(
-              "trade_rl/data/build/builder.py",
-              '''                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
-                        values = event_values
-                        available = event_valid
-                        age_hours = np.full(
-                            n_bars, spec.max_staleness_hours, dtype=np.float64
-                        )
-                        staleness = np.ones(n_bars, dtype=np.float64)
-                        age_hours[event_valid] = 0.0
-                        staleness[event_valid] = 0.0
-''',
-              '''                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
-                        decision_information_valid = np.zeros(n_bars, dtype=np.bool_)
-                        for event_index in np.flatnonzero(event_valid):
-                            start = int(event_index) - spec.lookback + 1
-                            if start < 0:
-                                continue
-                            decision_information_valid[event_index] = bool(
-                                np.all(
-                                    available_at[
-                                        start : int(event_index) + 1,
-                                        symbol_index,
-                                    ]
-                                    <= timestamps[event_index]
-                                )
-                            )
-                        event_valid = event_valid & decision_information_valid
-                        event_values = event_values.copy()
-                        event_values[~event_valid] = 0.0
-                        values = event_values
-                        available = event_valid
-                        age_hours = np.full(
-                            n_bars, spec.max_staleness_hours, dtype=np.float64
-                        )
-                        staleness = np.ones(n_bars, dtype=np.float64)
-                        age_hours[event_valid] = 0.0
-                        staleness[event_valid] = 0.0
-''',
-          )
+          old = "                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:\n                        values = event_values\n                        available = event_valid\n                        age_hours = np.full(\n                            n_bars, spec.max_staleness_hours, dtype=np.float64\n                        )\n                        staleness = np.ones(n_bars, dtype=np.float64)\n                        age_hours[event_valid] = 0.0\n                        staleness[event_valid] = 0.0\n"
+          new = "                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:\n                        decision_information_valid = np.zeros(n_bars, dtype=np.bool_)\n                        for event_index in np.flatnonzero(event_valid):\n                            start = int(event_index) - spec.lookback + 1\n                            if start < 0:\n                                continue\n                            decision_information_valid[event_index] = bool(\n                                np.all(\n                                    available_at[\n                                        start : int(event_index) + 1,\n                                        symbol_index,\n                                    ]\n                                    <= timestamps[event_index]\n                                )\n                            )\n                        event_valid = event_valid & decision_information_valid\n                        event_values = event_values.copy()\n                        event_values[~event_valid] = 0.0\n                        values = event_values\n                        available = event_valid\n                        age_hours = np.full(\n                            n_bars, spec.max_staleness_hours, dtype=np.float64\n                        )\n                        staleness = np.ones(n_bars, dtype=np.float64)\n                        age_hours[event_valid] = 0.0\n                        staleness[event_valid] = 0.0\n"
+          if text.count(old) != 1:
+              raise RuntimeError("builder signed-flow availability patch site is not unique")
+          builder.write_text(text.replace(old, new, 1))
 
           test_path = Path("tests/data/test_signed_taker_flow_identity_compat.py")
           text = test_path.read_text()
           marker = "def test_builder_signed_flow_respects_delayed_row_at_each_decision_time"
           if marker in text:
               raise RuntimeError("delayed builder test already exists")
-          text += '''\n\ndef test_builder_signed_flow_respects_delayed_row_at_each_decision_time() -> None:\n    n = 30\n    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(\n        n\n    ) * np.timedelta64(1, "h")\n    close = 100.0 + np.arange(n, dtype=np.float64)\n    available_at = timestamps.copy()\n    available_at[5] = timestamps[24]\n    raw = RawMarketSeries(\n        timestamps=timestamps,\n        available_at=available_at,\n        open=np.concatenate((close[:1], close[:-1])),\n        high=close + 1.0,\n        low=close - 1.0,\n        close=close,\n        volume=np.full(n, 10.0, dtype=np.float64),\n        taker_buy_quote_volume=np.full(n, 6.0, dtype=np.float64),\n        funding_rate=np.zeros(n, dtype=np.float64),\n        tradable=np.ones(n, dtype=np.bool_),\n    )\n    dataset = _signed_flow_builder().build(\n        InMemoryMarketDataSource({"BTCUSDT": raw}),\n        (\n            InstrumentContract(\n                symbol="BTCUSDT",\n                volume_unit=VolumeUnit.QUOTE_NOTIONAL,\n            ),\n        ),\n    )\n\n    assert not dataset.feature_available[23, 0, 0]\n    assert dataset.features[23, 0, 0] == 0.0\n    assert dataset.feature_available[24, 0, 0]\n    assert dataset.features[24, 0, 0] == np.float32(0.2)\n'''
-          test_path.write_text(text)
+          addition = '''
+
+          def test_builder_signed_flow_respects_delayed_row_at_each_decision_time() -> None:
+              n = 30
+              timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+                  n
+              ) * np.timedelta64(1, "h")
+              close = 100.0 + np.arange(n, dtype=np.float64)
+              available_at = timestamps.copy()
+              available_at[5] = timestamps[24]
+              raw = RawMarketSeries(
+                  timestamps=timestamps,
+                  available_at=available_at,
+                  open=np.concatenate((close[:1], close[:-1])),
+                  high=close + 1.0,
+                  low=close - 1.0,
+                  close=close,
+                  volume=np.full(n, 10.0, dtype=np.float64),
+                  taker_buy_quote_volume=np.full(n, 6.0, dtype=np.float64),
+                  funding_rate=np.zeros(n, dtype=np.float64),
+                  tradable=np.ones(n, dtype=np.bool_),
+              )
+              dataset = _signed_flow_builder().build(
+                  InMemoryMarketDataSource({"BTCUSDT": raw}),
+                  (
+                      InstrumentContract(
+                          symbol="BTCUSDT",
+                          volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+                      ),
+                  ),
+              )
+
+              assert not dataset.feature_available[23, 0, 0]
+              assert dataset.features[23, 0, 0] == 0.0
+              assert dataset.feature_available[24, 0, 0]
+              assert dataset.features[24, 0, 0] == np.float32(0.2)
+          '''
+          test_path.write_text(text + addition)
           PY
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4

@@ -10,6 +10,7 @@ from trade_rl.data.contracts import (
     FeatureKind,
     FeatureSpec,
     InstrumentContract,
+    VolumeUnit,
     timeframe_hours,
 )
 from trade_rl.data.features import calculate_feature_events
@@ -84,8 +85,13 @@ def align_native_feature(
     """Calculate on the native clock and causally align to the base clock."""
 
     _validate_regular_native_series(raw, timeframe)
-    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW and timeframe != "1h":
-        raise ValueError("signed taker quote flow is defined only on the 1h clock")
+    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+        if timeframe != "1h":
+            raise ValueError("signed taker quote flow is defined only on the 1h clock")
+        if VolumeUnit(contract.volume_unit) is not VolumeUnit.QUOTE_NOTIONAL:
+            raise ValueError(
+                "signed taker quote flow requires quote-notional volume semantics"
+            )
     event_values, event_valid, event_available_at = _native_events(spec, raw, contract)
     values = np.zeros(len(base_timestamps), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)

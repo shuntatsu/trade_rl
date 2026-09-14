@@ -59,6 +59,17 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "label_execution_offset_bars": 1,
     "label_horizon_bars": 24,
     "label_formula": "log(open[t+25] / open[t+1])",
+    "feature_availability_decision_offset_bars": 0,
+    "cost_execution_offset_bars": 1,
+    "label_endpoint_offset_bars": 25,
+    "require_asset_active_at_decision": True,
+    "require_tradable_at_decision": True,
+    "require_asset_active_through_label_window": True,
+    "require_tradable_through_label_window": True,
+    "label_window_start_offset_bars": 1,
+    "label_window_stop_offset_bars_inclusive": 25,
+    "require_label_end_strictly_before_fit_cutoff": True,
+    "cost_arrays_read_from_execution_row": True,
     "minimum_eligible_observations_per_symbol": 8760,
     "rule_entry_threshold": 0.01,
     "rule_exit_threshold": 0.0025,
@@ -188,6 +199,17 @@ class MeanReversionEconomicGateProtocol:
     label_execution_offset_bars: int
     label_horizon_bars: int
     label_formula: str
+    feature_availability_decision_offset_bars: int
+    cost_execution_offset_bars: int
+    label_endpoint_offset_bars: int
+    require_asset_active_at_decision: bool
+    require_tradable_at_decision: bool
+    require_asset_active_through_label_window: bool
+    require_tradable_through_label_window: bool
+    label_window_start_offset_bars: int
+    label_window_stop_offset_bars_inclusive: int
+    require_label_end_strictly_before_fit_cutoff: bool
+    cost_arrays_read_from_execution_row: bool
     minimum_eligible_observations_per_symbol: int
     rule_entry_threshold: float
     rule_exit_threshold: float
@@ -282,6 +304,11 @@ class MeanReversionEconomicGateProtocol:
             "signal_index",
             "label_execution_offset_bars",
             "label_horizon_bars",
+            "feature_availability_decision_offset_bars",
+            "cost_execution_offset_bars",
+            "label_endpoint_offset_bars",
+            "label_window_start_offset_bars",
+            "label_window_stop_offset_bars_inclusive",
             "minimum_eligible_observations_per_symbol",
             "required_negative_symbol_slopes",
             "beta_gate_order_statistic",
@@ -297,6 +324,32 @@ class MeanReversionEconomicGateProtocol:
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{field_name} must be a non-negative integer")
+        for field_name in (
+            "no_calibration_fallback",
+            "require_asset_active_at_decision",
+            "require_tradable_at_decision",
+            "require_asset_active_through_label_window",
+            "require_tradable_through_label_window",
+            "require_label_end_strictly_before_fit_cutoff",
+            "cost_arrays_read_from_execution_row",
+            "hard_risk_overrides_gate",
+            "thresholds_unchanged",
+            "impact_slippage_invented_by_gate",
+            "promote_requires_positive_median_excess",
+            "promote_requires_no_new_termination",
+            "reject_on_nonpositive_median_excess",
+            "absolute_positive_symbol_count_is_decision_input",
+            "development_data_already_used",
+            "production_eligible",
+            "final_test_authorized",
+            "shared_cash_profitability_established",
+            "live_trading_authorized",
+            "evaluation_pnl_inspected",
+            "calibration_executed",
+            "evaluation_execution_authorized",
+        ):
+            if type(getattr(self, field_name)) is not bool:
+                raise ValueError(f"{field_name} must be a boolean")
         _require_hex(self.diagnosis_head_sha, field="diagnosis_head_sha", length=40)
         for field_name in (
             "diagnosis_report_digest",

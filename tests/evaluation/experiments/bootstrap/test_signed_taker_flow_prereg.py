@@ -151,7 +151,9 @@ def test_protocol_rejects_semantic_drift_and_bool_integer_alias() -> None:
             replace(protocol, **mutation)
 
 
-def test_payload_is_strict_and_contains_no_training_or_evaluation_result(tmp_path) -> None:
+def test_payload_is_strict_and_contains_no_training_or_evaluation_result(
+    tmp_path,
+) -> None:
     protocol = canonical_signed_taker_flow_protocol()
     payload = protocol.to_payload()
 

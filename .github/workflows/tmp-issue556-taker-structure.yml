@@ -1,0 +1,104 @@
+name: Temporary Issue 556 taker-field structural probe
+
+on:
+  push:
+    branches:
+      - verify/issue556-taker-structure
+    paths:
+      - .github/workflows/tmp-issue556-taker-structure.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Probe exact standard-kline taker fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue556/raw /tmp/issue556/out
+          python3 - <<'PY'
+          from __future__ import annotations
+          import calendar, csv, hashlib, io, json, math, subprocess, zipfile
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          SYMBOLS=("BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT")
+          MONTHS=("2021-01","2021-07","2022-01","2022-07")
+          ROOT="https://data.binance.vision/data/futures/um/monthly/klines"
+          EXPECTED=("open_time","open","high","low","close","volume","close_time","quote_volume","count","taker_buy_volume","taker_buy_quote_volume","ignore")
+          def curl(url,target):
+              return subprocess.run(["curl","--fail","--silent","--show-error","--location","--retry","2","--output",str(target),url],check=False).returncode==0
+          def iso(ms): return datetime.fromtimestamp(ms/1000.0,tz=timezone.utc).isoformat()
+          entries=[]; missing=[]; failures=[]; headers=set(); available=0; valid=0
+          for symbol in SYMBOLS:
+              for month in MONTHS:
+                  name=f"{symbol}-1h-{month}.zip"; url=f"{ROOT}/{symbol}/1h/{name}"
+                  target=Path('/tmp/issue556/raw')/name; check=target.with_suffix(target.suffix+'.CHECKSUM')
+                  e={"symbol":symbol,"month":month,"url":url}
+                  if not curl(url,target):
+                      e.update({"available":False,"reason":"http_unavailable"}); missing.append(f"{symbol}:{month}"); entries.append(e); continue
+                  available+=1; payload=target.read_bytes(); sha=hashlib.sha256(payload).hexdigest(); e.update({"available":True,"raw_size":len(payload),"raw_sha256":sha})
+                  ca=curl(url+'.CHECKSUM',check); e['checksum_available']=ca
+                  if ca:
+                      expected=check.read_text(encoding='utf-8').strip().split()[0]; e['checksum_verified']=expected==sha
+                      if expected!=sha: failures.append(f"{symbol}:{month}:checksum_mismatch")
+                  else: e['checksum_verified']=None
+                  try:
+                      with zipfile.ZipFile(io.BytesIO(payload)) as z:
+                          members=[x for x in z.infolist() if not x.is_dir()]
+                          if len(members)!=1 or not members[0].filename.lower().endswith('.csv'): raise ValueError('archive_member_contract')
+                          with z.open(members[0],'r') as raw:
+                              rows=list(csv.reader(io.TextIOWrapper(raw,encoding='utf-8-sig',newline='')))
+                      if not rows: raise ValueError('empty_csv')
+                      first=rows[0]
+                      try: int(first[0]); header_present=False
+                      except (ValueError,IndexError): header_present=True
+                      header=tuple(first) if header_present else (); data=rows[1:] if header_present else rows
+                      if header_present:
+                          headers.add(header)
+                          if header!=EXPECTED: raise ValueError(f'header_mismatch:{header!r}')
+                      if not data: raise ValueError('no_data_rows')
+                      open_times=[]; violations=0
+                      for row in data:
+                          if len(row)!=12: raise ValueError(f'field_count:{len(row)}')
+                          open_ms=int(row[0]); open_times.append(open_ms)
+                          quote=float(row[7]); taker=float(row[10])
+                          if not math.isfinite(quote) or not math.isfinite(taker): raise ValueError('nonfinite_quote_volume')
+                          if quote<0.0 or taker<0.0 or taker>quote: violations+=1
+                      if violations: raise ValueError(f'taker_quote_bound_violations:{violations}')
+                      if any(b<=a for a,b in zip(open_times,open_times[1:])): raise ValueError('open_times_not_strict')
+                      spacings=sorted(set(b-a for a,b in zip(open_times,open_times[1:])))
+                      if spacings!=[3_600_000]: raise ValueError(f'unexpected_spacing_ms:{spacings}')
+                      year,mon=map(int,month.split('-')); expected_rows=calendar.monthrange(year,mon)[1]*24
+                      first_expected=int(datetime(year,mon,1,tzinfo=timezone.utc).timestamp()*1000)
+                      next_dt=datetime(year+1,1,1,tzinfo=timezone.utc) if mon==12 else datetime(year,mon+1,1,tzinfo=timezone.utc)
+                      last_expected=int(next_dt.timestamp()*1000)-3_600_000
+                      if len(data)!=expected_rows or open_times[0]!=first_expected or open_times[-1]!=last_expected: raise ValueError(f'incomplete_month:rows={len(data)} expected={expected_rows}')
+                      e.update({"csv_member":members[0].filename,"header_present":header_present,"header":list(header),"field_count":12,"row_count":len(data),"first_open_time":iso(open_times[0]),"last_open_time":iso(open_times[-1]),"spacing_ms":spacings,"taker_quote_bound_violations":0,"structurally_valid":True}); valid+=1
+                  except Exception as exc:
+                      e['structurally_valid']=False; e['reason']=f"{type(exc).__name__}:{exc}"; failures.append(f"{symbol}:{month}:{type(exc).__name__}:{exc}")
+                  entries.append(e)
+          status='PASS' if available==20 and valid==20 and not failures and len(headers)<=1 else ('PARTIAL_SOURCE' if valid>0 and len(headers)<=1 else 'INCOMPATIBLE_SOURCE')
+          report={"schema_version":"issue556_taker_quote_structural_probe_v1","issue_number":556,"symbols":list(SYMBOLS),"months":list(MONTHS),"planned_archives":20,"available_archives":available,"valid_archives":valid,"distinct_headers":[list(x) for x in sorted(headers)],"missing_archives":missing,"structural_failures":failures,"status":status,"economic_values_inspected":False,"return_or_pnl_computed":False,"target_relation_computed":False,"entries":entries}
+          canonical=json.dumps(report,sort_keys=True,separators=(',',':'),allow_nan=False).encode(); report['content_digest']=hashlib.sha256(canonical).hexdigest()
+          Path('/tmp/issue556/out/structural-report.json').write_text(json.dumps(report,indent=2,sort_keys=True,allow_nan=False)+'\n',encoding='utf-8')
+          print(json.dumps({"status":status,"available_archives":available,"valid_archives":valid,"missing_archives":missing,"structural_failures":failures,"content_digest":report['content_digest'],"entries":[{"symbol":x['symbol'],"month":x['month'],"available":x['available'],"row_count":x.get('row_count'),"checksum_verified":x.get('checksum_verified'),"taker_quote_bound_violations":x.get('taker_quote_bound_violations')} for x in entries]},sort_keys=True))
+          if status=='INCOMPATIBLE_SOURCE': raise SystemExit(2)
+          PY
+      - name: Upload structural report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue556-taker-structural-${{ github.run_id }}
+          path: /tmp/issue556/out/structural-report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

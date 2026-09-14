@@ -1,0 +1,114 @@
+name: Temporary Issue 562 artifact authority RED
+
+on:
+  push:
+    branches:
+      - automation/issue562-artifact-red
+    paths:
+      - .github/workflows/tmp-issue562-artifact-authority-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 817e3c96d702ffca3be74309bd68b31ef02643c5
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact calibration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Add artifact-authority RED tests only in runner
+        run: |
+          cat > /tmp/test_issue562_artifact_authority_red.py <<'PY'
+          import json
+          from pathlib import Path
+
+          import pytest
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_calibration import (
+              SignedTakerFlowCalibrationResult,
+              SignedTakerFlowSymbolCalibration,
+              load_signed_taker_flow_calibration_result,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import (
+              canonical_signed_taker_flow_protocol,
+          )
+
+
+          def _result(*, bound: bool) -> SignedTakerFlowCalibrationResult:
+              protocol = canonical_signed_taker_flow_protocol()
+              symbol_results = tuple(
+                  SignedTakerFlowSymbolCalibration(
+                      symbol=symbol,
+                      eligible_observations=8_760,
+                      numerator=1.0,
+                      denominator=1.0,
+                      beta=1.0,
+                      positive_slope=True,
+                  )
+                  for symbol in protocol.symbols
+              )
+              return SignedTakerFlowCalibrationResult(
+                  protocol_digest=protocol.digest,
+                  dataset_id="1" * 64,
+                  symbols=protocol.symbols,
+                  symbol_results=symbol_results,
+                  positive_slope_count=len(protocol.symbols),
+                  status=protocol.valid_status,
+                  failures=(),
+                  calibration_head=("2" * 40 if bound else None),
+                  source_manifest_digest=("3" * 64 if bound else None),
+              )
+
+
+          def test_publication_requires_calibration_and_source_authority() -> None:
+              with pytest.raises(ValueError, match="calibration_head|source_manifest|authority"):
+                  _result(bound=False).to_artifact_payload()
+
+
+          def test_loader_rejects_unbound_authority_even_with_valid_content_digest(
+              tmp_path: Path,
+          ) -> None:
+              result = _result(bound=False)
+              payload = {**result.to_payload(), "content_digest": result.digest}
+              path = tmp_path / "unbound.json"
+              path.write_bytes(canonical_json_bytes(payload))
+              with pytest.raises(ValueError, match="calibration_head|source_manifest|authority"):
+                  load_signed_taker_flow_calibration_result(path)
+
+
+          def test_loader_rejects_noncanonical_json_bytes(tmp_path: Path) -> None:
+              result = _result(bound=True)
+              payload = result.to_artifact_payload()
+              path = tmp_path / "pretty.json"
+              path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+              with pytest.raises(ValueError, match="canonical|bytes"):
+                  load_signed_taker_flow_calibration_result(path)
+          PY
+      - name: Require all three intended RED failures
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -vv /tmp/test_issue562_artifact_authority_red.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          test "$(grep -c 'DID NOT RAISE' /tmp/red.log)" -eq 3
+          grep -q 'test_publication_requires_calibration_and_source_authority' /tmp/red.log
+          grep -q 'test_loader_rejects_unbound_authority_even_with_valid_content_digest' /tmp/red.log
+          grep -q 'test_loader_rejects_noncanonical_json_bytes' /tmp/red.log

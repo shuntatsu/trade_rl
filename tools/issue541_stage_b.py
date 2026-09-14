@@ -9,10 +9,14 @@ being respected.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
+
+from trade_rl.simulation.execution import MarketExecutor
 
 _TOLERANCE = 1e-12
 
@@ -138,6 +142,36 @@ class StageBCapacityAudit:
         }
 
 
+@contextmanager
+def audited_market_executor(audit: StageBCapacityAudit) -> Iterator[None]:
+    """Audit every canonical interval while preserving executor behavior exactly."""
+
+    if not isinstance(audit, StageBCapacityAudit):
+        raise TypeError("audit must be a StageBCapacityAudit")
+
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def audited_execute_interval(
+        executor: MarketExecutor,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        result = original_execute_interval(executor, *args, **kwargs)
+        audit.record_interval(
+            dataset_id=executor.dataset.dataset_id,
+            processing_bar_volume_capacity=executor.cost.processing_bar_volume_capacity,
+            runtime_max_participation_rate=executor.cost.max_participation_rate,
+            participation_by_symbol=result.participation_by_symbol,
+        )
+        return result
+
+    MarketExecutor.execute_interval = audited_execute_interval  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        MarketExecutor.execute_interval = original_execute_interval  # type: ignore[method-assign]
+
+
 def stage_b_suite_decision(
     *,
     source_profitable_core_strategies: Iterable[str],
@@ -159,5 +193,6 @@ def stage_b_suite_decision(
 __all__ = [
     "StageBCapacityAudit",
     "StageBCapacityAuditError",
+    "audited_market_executor",
     "stage_b_suite_decision",
 ]

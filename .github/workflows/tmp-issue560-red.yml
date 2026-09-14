@@ -1,4 +1,4 @@
-name: Temporary Issue 560 format RED tests
+name: Temporary Issue 560 semantic RED
 
 on:
   push:
@@ -8,18 +8,19 @@ on:
       - .github/workflows/tmp-issue560-red.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  format-tests:
+  red:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 31de975a316c5a659a31274812cc8f1b36ca236e
+      TARGET_SHA: 1e9c7d0659a775693547682d434a35cdfac47571
     steps:
-      - name: Checkout exact test-only head
+      - name: Checkout exact formatted test-only head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 31de975a316c5a659a31274812cc8f1b36ca236e
+          ref: 1e9c7d0659a775693547682d434a35cdfac47571
+          persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Set up uv
@@ -29,26 +30,17 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Format RED tests only
+      - name: Static checks
         run: |
-          uv run ruff format \
-            tests/data/test_signed_taker_flow_feature.py \
-            tests/integrations/test_binance_signed_taker_flow_source.py
+          set -euo pipefail
           uv run ruff check \
             tests/data/test_signed_taker_flow_feature.py \
             tests/integrations/test_binance_signed_taker_flow_source.py
           uv run ruff format --check \
             tests/data/test_signed_taker_flow_feature.py \
             tests/integrations/test_binance_signed_taker_flow_source.py
-      - name: Commit formatter output
-        shell: bash
+      - name: Expected semantic RED
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
+          uv run pytest -q \
             tests/data/test_signed_taker_flow_feature.py \
             tests/integrations/test_binance_signed_taker_flow_source.py
-          git diff --cached --quiet && { echo "already formatted"; exit 0; }
-          git commit -m "style: format issue560 RED tests"
-          git push origin HEAD:feat/issue560-signed-taker-flow

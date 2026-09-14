@@ -25,15 +25,9 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Show formatter diff
-        shell: bash
+      - name: Format and lint test
         run: |
-          set -euo pipefail
-          path=tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
-          uv run ruff format "$path"
-          git diff -- "$path"
-          test -z "$(git status --porcelain -- "$path")"
-      - name: Lint test
-        run: uv run ruff check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
       - name: Semantic RED
         run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py

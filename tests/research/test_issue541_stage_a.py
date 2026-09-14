@@ -35,7 +35,9 @@ def _write_fixture(root: Path, *, implementation: str, fingerprint: str) -> None
             "fingerprint": fingerprint,
             "ppo_seeds": [0, 1],
             "research_context_digest": "c" * 64,
-            "semantic_config": {"execution_overlay": "zero_overlay_dataset_fields_authoritative"},
+            "semantic_config": {
+                "execution_overlay": "zero_overlay_dataset_fields_authoritative"
+            },
             "semantic_config_digest": "d" * 64,
             "run_digests": [
                 {"ppo_seed": 0, "artifact_digest": "0" * 64},
@@ -91,7 +93,9 @@ def _write_fixture(root: Path, *, implementation: str, fingerprint: str) -> None
                     "artifact_digest": "b" * 64,
                 },
                 "candidate_config": {"ppo_seed": seed},
-                "evaluation": {"execution_overlay": "zero_overlay_dataset_fields_authoritative"},
+                "evaluation": {
+                    "execution_overlay": "zero_overlay_dataset_fields_authoritative"
+                },
                 "ppo_observation": {"schema_version": "ppo_observation_v2"},
                 "symbols": ["BTCUSDT"],
                 "by_symbol": [
@@ -100,7 +104,9 @@ def _write_fixture(root: Path, *, implementation: str, fingerprint: str) -> None
             },
         )
         arrays = {
-            f"symbol_0_strategy_{i}": np.asarray([0.0, i / 1000.0, 0.0], dtype=np.float64)
+            f"symbol_0_strategy_{i}": np.asarray(
+                [0.0, i / 1000.0, 0.0], dtype=np.float64
+            )
             for i in range(len(STRATEGIES))
         }
         np.savez(run / "returns.npz", **arrays)
@@ -168,7 +174,9 @@ def test_bridge_rejects_economic_summary_drift(tmp_path: Path) -> None:
     replay = tmp_path / "replay"
     _write_fixture(original, implementation="1" * 64, fingerprint="2" * 64)
     _write_fixture(replay, implementation="3" * 64, fingerprint="4" * 64)
-    path = replay / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "summary.json"
+    path = (
+        replay / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "summary.json"
+    )
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["by_symbol"][0]["strategies"][3]["metrics"]["total_return"] = 0.1
     _write_json(path, payload)
@@ -177,12 +185,22 @@ def test_bridge_rejects_economic_summary_drift(tmp_path: Path) -> None:
         verify_stage_a_bridge(original, replay)
 
 
-def test_bridge_rejects_runtime_drift_and_invalid_cost_semantics(tmp_path: Path) -> None:
+def test_bridge_rejects_runtime_drift_and_invalid_cost_semantics(
+    tmp_path: Path,
+) -> None:
     original = tmp_path / "original"
     replay = tmp_path / "replay"
     _write_fixture(original, implementation="1" * 64, fingerprint="2" * 64)
     _write_fixture(replay, implementation="3" * 64, fingerprint="4" * 64)
-    provenance = replay / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "provenance.json"
+    provenance = (
+        replay
+        / "study"
+        / "baseline"
+        / "evidence"
+        / "runs"
+        / "seed-0"
+        / "provenance.json"
+    )
     payload = json.loads(provenance.read_text(encoding="utf-8"))
     payload["runtime_environment_digest"] = "8" * 64
     _write_json(provenance, payload)
@@ -191,11 +209,21 @@ def test_bridge_rejects_runtime_drift_and_invalid_cost_semantics(tmp_path: Path)
         verify_stage_a_bridge(original, replay)
 
     _write_fixture(replay, implementation="3" * 64, fingerprint="4" * 64)
-    summary = replay / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "summary.json"
+    summary = (
+        replay / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "summary.json"
+    )
     payload = json.loads(summary.read_text(encoding="utf-8"))
     payload["by_symbol"][0]["strategies"][3]["metrics"]["total_cost"] = 0.0
     payload["by_symbol"][0]["strategies"][3]["diagnostics"]["total_cost"] = 0.0
-    original_summary = original / "study" / "baseline" / "evidence" / "runs" / "seed-0" / "summary.json"
+    original_summary = (
+        original
+        / "study"
+        / "baseline"
+        / "evidence"
+        / "runs"
+        / "seed-0"
+        / "summary.json"
+    )
     original_payload = json.loads(original_summary.read_text(encoding="utf-8"))
     original_payload["by_symbol"][0]["strategies"][3]["metrics"]["total_cost"] = 0.0
     original_payload["by_symbol"][0]["strategies"][3]["diagnostics"]["total_cost"] = 0.0

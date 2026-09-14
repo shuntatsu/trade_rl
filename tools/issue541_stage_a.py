@@ -56,7 +56,11 @@ def _verify_cash_and_costs(summary: dict[str, Any]) -> None:
             name = strategy.get("name")
             metrics = strategy.get("metrics")
             diagnostics = strategy.get("diagnostics")
-            if not isinstance(name, str) or not isinstance(metrics, dict) or not isinstance(diagnostics, dict):
+            if (
+                not isinstance(name, str)
+                or not isinstance(metrics, dict)
+                or not isinstance(diagnostics, dict)
+            ):
                 raise StageABridgeError("summary strategy payload is invalid")
             if name == "cash":
                 zeros = (
@@ -73,17 +77,32 @@ def _verify_cash_and_costs(summary: dict[str, Any]) -> None:
                 )
                 if any(value != 0 for value in zeros):
                     raise StageABridgeError("cash zero semantics differ")
-                initial = summary.get("evaluation", {}).get("initial_capital") if isinstance(summary.get("evaluation"), dict) else None
-                if initial is not None and strategy.get("final_portfolio_value") != initial:
+                initial = (
+                    summary.get("evaluation", {}).get("initial_capital")
+                    if isinstance(summary.get("evaluation"), dict)
+                    else None
+                )
+                if (
+                    initial is not None
+                    and strategy.get("final_portfolio_value") != initial
+                ):
                     raise StageABridgeError("cash final portfolio value differs")
             else:
-                if metrics.get("n_trades", 0) <= 0 or diagnostics.get("n_trades", 0) <= 0:
+                if (
+                    metrics.get("n_trades", 0) <= 0
+                    or diagnostics.get("n_trades", 0) <= 0
+                ):
                     raise StageABridgeError(f"{name} has no trading activity")
-                if metrics.get("total_cost", 0.0) <= 0.0 or diagnostics.get("total_cost", 0.0) <= 0.0:
+                if (
+                    metrics.get("total_cost", 0.0) <= 0.0
+                    or diagnostics.get("total_cost", 0.0) <= 0.0
+                ):
                     raise StageABridgeError(f"{name} lacks positive trading cost")
 
 
-def _strategy_payloads(summary: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+def _strategy_payloads(
+    summary: dict[str, Any],
+) -> dict[tuple[str, str], dict[str, Any]]:
     result: dict[tuple[str, str], dict[str, Any]] = {}
     by_symbol = summary.get("by_symbol")
     if not isinstance(by_symbol, list):
@@ -95,13 +114,17 @@ def _strategy_payloads(summary: dict[str, Any]) -> dict[tuple[str, str], dict[st
         if not isinstance(strategies, list):
             raise StageABridgeError("summary strategies are invalid")
         for strategy in strategies:
-            if not isinstance(strategy, dict) or not isinstance(strategy.get("name"), str):
+            if not isinstance(strategy, dict) or not isinstance(
+                strategy.get("name"), str
+            ):
                 raise StageABridgeError("summary strategy is invalid")
             result[(symbol["symbol"], strategy["name"])] = strategy
     return result
 
 
-def verify_stage_a_bridge(original_root: str | Path, replay_root: str | Path) -> dict[str, object]:
+def verify_stage_a_bridge(
+    original_root: str | Path, replay_root: str | Path
+) -> dict[str, object]:
     """Verify that integrated-code legacy replay is economically identical to source."""
 
     original = Path(original_root)
@@ -123,9 +146,17 @@ def verify_stage_a_bridge(original_root: str | Path, replay_root: str | Path) ->
         "semantic_config",
         "semantic_config_digest",
     ):
-        _require_equal(f"evidence manifest {key}", original_manifest.get(key), replay_manifest.get(key))
+        _require_equal(
+            f"evidence manifest {key}",
+            original_manifest.get(key),
+            replay_manifest.get(key),
+        )
     seeds = original_manifest.get("ppo_seeds")
-    if not isinstance(seeds, list) or not seeds or any(isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds):
+    if (
+        not isinstance(seeds, list)
+        or not seeds
+        or any(isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds)
+    ):
         raise StageABridgeError("frozen PPO seed roster is invalid")
 
     raw_arrays_checked = 0
@@ -145,11 +176,14 @@ def verify_stage_a_bridge(original_root: str | Path, replay_root: str | Path) ->
         _verify_cash_and_costs(replay_summary)
         summaries_checked += 1
 
-        with np.load(original_run / "returns.npz", allow_pickle=False) as left, np.load(
-            replay_run / "returns.npz", allow_pickle=False
-        ) as right:
+        with (
+            np.load(original_run / "returns.npz", allow_pickle=False) as left,
+            np.load(replay_run / "returns.npz", allow_pickle=False) as right,
+        ):
             if left.files != right.files:
-                raise StageABridgeError(f"raw return key roster differs for seed {seed}")
+                raise StageABridgeError(
+                    f"raw return key roster differs for seed {seed}"
+                )
             for key in left.files:
                 left_array = left[key]
                 right_array = right[key]
@@ -158,33 +192,47 @@ def verify_stage_a_bridge(original_root: str | Path, replay_root: str | Path) ->
                     or left_array.shape != right_array.shape
                     or left_array.tobytes() != right_array.tobytes()
                 ):
-                    raise StageABridgeError(f"raw return array differs for seed {seed}: {key}")
+                    raise StageABridgeError(
+                        f"raw return array differs for seed {seed}: {key}"
+                    )
                 raw_arrays_checked += 1
 
         original_provenance = _read_json(original_run / "provenance.json")
         replay_provenance = _read_json(replay_run / "provenance.json")
-        if _provenance_without_implementation(original_provenance) != _provenance_without_implementation(replay_provenance):
-            if original_provenance.get("runtime_environment_digest") != replay_provenance.get("runtime_environment_digest"):
+        if _provenance_without_implementation(
+            original_provenance
+        ) != _provenance_without_implementation(replay_provenance):
+            if original_provenance.get(
+                "runtime_environment_digest"
+            ) != replay_provenance.get("runtime_environment_digest"):
                 raise StageABridgeError(f"runtime environment differs for seed {seed}")
             raise StageABridgeError(f"unexplained provenance drift for seed {seed}")
         old_impl = original_provenance.get("implementation_digest")
         new_impl = replay_provenance.get("implementation_digest")
         runtime = replay_provenance.get("runtime_environment_digest")
-        if not isinstance(old_impl, str) or not isinstance(new_impl, str) or not isinstance(runtime, str):
+        if (
+            not isinstance(old_impl, str)
+            or not isinstance(new_impl, str)
+            or not isinstance(runtime, str)
+        ):
             raise StageABridgeError("provenance digest fields are invalid")
         original_implementations.add(old_impl)
         replay_implementations.add(new_impl)
         runtime_digests.add(runtime)
 
         payloads = _strategy_payloads(replay_summary)
-        deterministic = {key: value for key, value in payloads.items() if key[1] != "ppo"}
+        deterministic = {
+            key: value for key, value in payloads.items() if key[1] != "ppo"
+        }
         if deterministic_reference is None:
             deterministic_reference = deterministic
         elif deterministic != deterministic_reference:
             raise StageABridgeError("deterministic strategy seed invariance failed")
 
     if len(original_implementations) != 1 or len(replay_implementations) != 1:
-        raise StageABridgeError("implementation provenance is inconsistent across seeds")
+        raise StageABridgeError(
+            "implementation provenance is inconsistent across seeds"
+        )
     if len(runtime_digests) != 1:
         raise StageABridgeError("runtime environment is inconsistent across seeds")
 

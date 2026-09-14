@@ -11,8 +11,12 @@ from tools.tmp_issue577_basis_common import (
     PROTOCOL_DIGEST,
     SOURCE_IMPLEMENTATION_HEAD,
     authority_summary,
+    build_dataset,
+    build_result,
+    build_source_manifest,
+    download_all_sources,
+    load_index_preflight,
     manifest_bytes,
-    reconstruct_from_raw,
     result_bytes,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
@@ -28,14 +32,35 @@ def execute(
     *,
     output_dir: Path,
     preflight_path: Path,
+    expected_source_manifest: Path,
     workflow_run_id: int,
 ) -> None:
     if output_dir.exists():
         raise RuntimeError("publisher output directory already exists")
-    manifest, dataset, result = reconstruct_from_raw(preflight_path)
+
+    # Freeze and compare all raw-source identities before constructing any Dataset or
+    # computing the real training relation. A changed historical archive fails here.
+    preflight = load_index_preflight(preflight_path)
+    entries, contract_by_symbol, index_by_symbol = download_all_sources(preflight)
+    manifest = build_source_manifest(entries)
     source_bytes = manifest_bytes(manifest)
-    published_result_bytes = result_bytes(result)
+    frozen_source_bytes = expected_source_manifest.read_bytes()
+    if source_bytes != frozen_source_bytes:
+        raise RuntimeError(
+            "combined raw source manifest differs from frozen pre-training authority"
+        )
+    frozen_source_sha = hashlib.sha256(frozen_source_bytes).hexdigest()
     manifest_digest = str(manifest["content_digest"])
+
+    # This is the first point at which the real basis Dataset / training relation may
+    # be constructed. The raw source bytes have already passed the frozen gate above.
+    dataset = build_dataset(
+        contract_by_symbol,
+        index_by_symbol,
+        source_manifest_digest=manifest_digest,
+    )
+    result = build_result(dataset, source_manifest_digest=manifest_digest)
+    published_result_bytes = result_bytes(result)
     if result.dataset_id != dataset.dataset_id:
         raise RuntimeError("result Dataset ID differs from reconstructed Dataset")
     if result.source_manifest_digest != manifest_digest:
@@ -52,6 +77,8 @@ def execute(
             "dataset_id": dataset.dataset_id,
             "source_manifest_digest": manifest_digest,
             "source_manifest_json_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "frozen_source_manifest_json_sha256": frozen_source_sha,
+            "source_manifest_matches_frozen_authority": True,
             "result_content_digest": result.digest,
             "result_json_sha256": hashlib.sha256(published_result_bytes).hexdigest(),
             "training_relation_executed": True,
@@ -81,6 +108,7 @@ def execute(
     # Deliberately do not print status, beta, numerator, denominator or feature values.
     print("PUBLISHER_RESULT_CREATED=true")
     print("PUBLISHER_INTERPRETATION_DEFERRED=true")
+    print("SOURCE_MANIFEST_MATCHES_FROZEN_AUTHORITY=true")
     print(f"DATASET_ID={dataset.dataset_id}")
     print(f"SOURCE_MANIFEST_DIGEST={manifest_digest}")
     print(f"RESULT_CONTENT_DIGEST={result.digest}")
@@ -92,6 +120,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--preflight-path", type=Path, required=True)
+    parser.add_argument("--expected-source-manifest", type=Path, required=True)
     parser.add_argument(
         "--workflow-run-id",
         type=int,
@@ -103,6 +132,7 @@ def main() -> None:
     execute(
         output_dir=args.output_dir,
         preflight_path=args.preflight_path,
+        expected_source_manifest=args.expected_source_manifest,
         workflow_run_id=args.workflow_run_id,
     )
 

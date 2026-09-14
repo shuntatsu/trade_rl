@@ -1,0 +1,104 @@
+name: Temporary Issue 562 helper type repair
+
+on:
+  push:
+    branches:
+      - verify/issue562-publisher-verifier-static
+    paths:
+      - .github/workflows/tmp-issue562-helper-type-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: d7c6ee64bc3a8534d2197dfb4678341520c23141
+    steps:
+      - name: Checkout exact staged helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d7c6ee64bc3a8534d2197dfb4678341520c23141
+      - name: Assert exact staged head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply strict type-boundary repairs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          for file_name, builder_name in (
+              ("tools/tmp_issue562_signed_flow_publisher.py", "_build_dataset"),
+              ("tools/tmp_issue562_signed_flow_verifier.py", "_rebuild_dataset"),
+          ):
+              path = Path(file_name)
+              text = path.read_text(encoding="utf-8")
+              old_import = "from trade_rl.data.build import MarketDatasetBuilder\n"
+              new_import = (
+                  "from trade_rl.data.build import MarketDatasetBuilder\n"
+                  "from trade_rl.data.market import MarketDataset\n"
+              )
+              if text.count(old_import) != 1:
+                  raise SystemExit(f"MarketDatasetBuilder import site ambiguous: {file_name}")
+              text = text.replace(old_import, new_import)
+
+              marker = "\ndef _month_bounds(" if builder_name == "_build_dataset" else "\ndef _load_json("
+              helper = '''\ndef _missing_grid_rows(value: object) -> int:\n    if isinstance(value, bool) or not isinstance(value, int) or value < 0:\n        raise RuntimeError("missing_grid_rows must be a non-negative integer")\n    return value\n\n'''
+              if text.count(marker) != 1:
+                  raise SystemExit(f"helper insertion marker ambiguous: {file_name}")
+              text = text.replace(marker, helper + marker, 1)
+
+              old_value = 'int(item["missing_grid_rows"])'
+              if text.count(old_value) != 1:
+                  raise SystemExit(f"missing_grid_rows conversion site ambiguous: {file_name}")
+              text = text.replace(
+                  old_value,
+                  '_missing_grid_rows(item["missing_grid_rows"])',
+                  1,
+              )
+
+              signature = f"def {builder_name}("
+              start = text.find(signature)
+              if start < 0:
+                  raise SystemExit(f"builder function missing: {file_name}")
+              body_start = text.find("):\n", start)
+              if body_start < 0:
+                  raise SystemExit(f"builder signature terminator missing: {file_name}")
+              text = text[:body_start] + ") -> MarketDataset:\n" + text[body_start + 3 :]
+              path.write_text(text, encoding="utf-8")
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Validate repaired helpers
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run ruff check \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run mypy \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run python -m py_compile \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+      - name: Commit only if run branch has not moved
+        run: |
+          set -euo pipefail
+          git fetch origin run/issue562-signed-flow-training
+          test "$(git rev-parse FETCH_HEAD)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "fix: type Issue 562 publisher verifier boundaries"
+          git push origin HEAD:run/issue562-signed-flow-training

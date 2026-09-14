@@ -1,0 +1,75 @@
+name: Temporary Issue 541 inspect successor index authority
+
+on:
+  push:
+    branches:
+      - verify/issue539-exact-15bf6546
+    paths:
+      - .github/workflows/tmp-issue541-inspect-successor-index.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  OLD_RUN: "34793586474"
+  OLD_NAME: issue539-calibrated-causal-identities-34793586474
+  OLD_ID: "10328956351"
+  OLD_DIGEST: sha256:98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756
+  NEW_RUN: "34794384559"
+  NEW_NAME: issue539-calibrated-causal-successor-v1-34794384559
+  NEW_ID: "10329107309"
+  NEW_DIGEST: sha256:6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for tuple in "$OLD_ID|$OLD_NAME|$OLD_DIGEST|$OLD_RUN" "$NEW_ID|$NEW_NAME|$NEW_DIGEST|$NEW_RUN"; do
+            IFS='|' read -r id name digest run_id <<<"$tuple"
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$p")" = "$name"
+            test "$(jq -r '.digest' <<<"$p")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$p")" = "$run_id"
+          done
+      - name: Download old bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.OLD_NAME }}
+          path: /tmp/old
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.OLD_RUN }}
+      - name: Download corrected bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.NEW_NAME }}
+          path: /tmp/new
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.NEW_RUN }}
+      - name: Print index file authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          for label,root in [('OLD',Path('/tmp/old')),('NEW',Path('/tmp/new'))]:
+              matches=sorted(p for p in root.rglob('*index*.json') if p.is_file())
+              print(label+'_INDEX_FILES='+json.dumps([str(p.relative_to(root)) for p in matches]))
+              for p in matches:
+                  raw=p.read_bytes(); obj=json.loads(raw)
+                  print(label+'_PATH='+str(p.relative_to(root)))
+                  print(label+'_FILE_SHA256='+hashlib.sha256(raw).hexdigest())
+                  print(label+'_KEYS='+json.dumps(sorted(obj)))
+                  for key in ('digest','identity_index_digest','schema_version','successor','implementation_head','runtime_environment_digest'):
+                      if key in obj:
+                          print(label+'_'+key.upper()+'='+json.dumps(obj[key],sort_keys=True))
+          PY

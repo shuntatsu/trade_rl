@@ -1,4 +1,4 @@
-name: Temporary Issue 562 publisher/verifier static validation v3
+name: Temporary Issue 562 publisher/verifier static validation v4
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
       - name: Checkout exact staged helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: d7c6ee64bc3a8534d2197dfb4678341520c23141
+          ref: 6a3c498e03656db579e610cd1e617840ec9c1773
           persist-credentials: false
       - name: Assert exact staged head
-        run: test "$(git rev-parse HEAD)" = "d7c6ee64bc3a8534d2197dfb4678341520c23141"
+        run: test "$(git rev-parse HEAD)" = "6a3c498e03656db579e610cd1e617840ec9c1773"
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -120,7 +120,6 @@ jobs:
           }
           pub_manifest = publisher._source_manifest([published_entry], **preflight_args)
           ver_manifest = verifier._manifest_from_fresh_entries([verified_entry], **preflight_args)
-          # Single-entry manifests intentionally have different planned roster content only if helpers drift.
           assert pub_manifest == ver_manifest
 
           print("HELPER_AUTHORITY_AND_PARSER_PARITY=true")

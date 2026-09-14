@@ -1,0 +1,103 @@
+name: Temporary Issue 541 correct successor authority v3
+
+on:
+  push:
+    branches:
+      - research/issue541-capacity-robustness-prereg
+    paths:
+      - .github/workflows/tmp-issue541-correct-authority-v3.yml
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_CODE_BLOB: b93244ae8876d76e58282cecfc8b6838d2db70fb
+  EXPECTED_TEST_BLOB: 98f481ce1b48cbfcfe8ef5559962ed4aa4cc3191
+
+jobs:
+  correct-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current preregistration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue541-capacity-robustness-prereg
+          fetch-depth: 1
+      - name: Refuse concurrent contract drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py)" = "$EXPECTED_CODE_BLOB"
+          test "$(git hash-object tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py)" = "$EXPECTED_TEST_BLOB"
+      - name: Apply exact authority/schema correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          code_path = Path('trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py')
+          text = code_path.read_text()
+          replacements = {
+              '_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v1"': '_SCHEMA_VERSION = "calibrated_capacity_robustness_prereg_v2"',
+              '_IDENTITY_LAYER_CI_RUN_ID = 34793853852': '_IDENTITY_LAYER_CI_RUN_ID = 34793925990',
+              '_SUCCESSOR_BUNDLE_RUN_ID = 34793586474': '_SUCCESSOR_BUNDLE_RUN_ID = 34794384559',
+              '_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10328956351': '_SUCCESSOR_BUNDLE_ARTIFACT_ID = 10329107309',
+              '    "98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756"\n)': '    "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"\n)',
+              '    "3794a3dabcceea7075774f12c1770730b7638d70dce1ac0569f8050bf5ee4548"\n)': '    "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"\n)',
+              '_SUCCESSOR_IDENTITY_INDEX_DIGEST = (\n    "bdf43b326b3d7519684d662fcbf42e351034f8be4a1184e16afd317f32f686f9"\n)': '_SUCCESSOR_DATASET_TREE_DIGEST = (\n    "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"\n)\n_SUCCESSOR_STUDY_TREE_DIGEST = (\n    "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"\n)\n_SUCCESSOR_MATERIALIZATION_INDEX_SHA256 = (\n    "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"\n)\n_SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST = (\n    "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"\n)\n_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID = 10329905111\n_SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST = (\n    "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"\n)',
+              '    successor_study_digest: str\n    successor_identity_index_digest: str\n    successor_execution_overlay: str': '    successor_study_digest: str\n    successor_dataset_tree_digest: str\n    successor_study_tree_digest: str\n    successor_materialization_index_sha256: str\n    successor_runtime_environment_digest: str\n    successor_fresh_verification_artifact_id: int\n    successor_fresh_verification_artifact_digest: str\n    successor_execution_overlay: str',
+              '        require_sha256(\n            self.successor_identity_index_digest,\n            field="successor_identity_index_digest",\n        )\n        require_non_empty(': '        require_sha256(\n            self.successor_dataset_tree_digest,\n            field="successor_dataset_tree_digest",\n        )\n        require_sha256(\n            self.successor_study_tree_digest,\n            field="successor_study_tree_digest",\n        )\n        require_sha256(\n            self.successor_materialization_index_sha256,\n            field="successor_materialization_index_sha256",\n        )\n        require_sha256(\n            self.successor_runtime_environment_digest,\n            field="successor_runtime_environment_digest",\n        )\n        _positive_int(\n            self.successor_fresh_verification_artifact_id,\n            field="successor_fresh_verification_artifact_id",\n        )\n        require_sha256(\n            self.successor_fresh_verification_artifact_digest,\n            field="successor_fresh_verification_artifact_digest",\n        )\n        require_non_empty(',
+              '            "successor_study_digest": self.successor_study_digest,\n            "successor_identity_index_digest": self.successor_identity_index_digest,\n            "successor_execution_overlay": self.successor_execution_overlay,': '            "successor_study_digest": self.successor_study_digest,\n            "successor_dataset_tree_digest": self.successor_dataset_tree_digest,\n            "successor_study_tree_digest": self.successor_study_tree_digest,\n            "successor_materialization_index_sha256": self.successor_materialization_index_sha256,\n            "successor_runtime_environment_digest": self.successor_runtime_environment_digest,\n            "successor_fresh_verification_artifact_id": self.successor_fresh_verification_artifact_id,\n            "successor_fresh_verification_artifact_digest": self.successor_fresh_verification_artifact_digest,\n            "successor_execution_overlay": self.successor_execution_overlay,',
+              '        "successor_study_digest": _SUCCESSOR_STUDY_DIGEST,\n        "successor_identity_index_digest": _SUCCESSOR_IDENTITY_INDEX_DIGEST,\n        "successor_execution_overlay": _SUCCESSOR_EXECUTION_OVERLAY,': '        "successor_study_digest": _SUCCESSOR_STUDY_DIGEST,\n        "successor_dataset_tree_digest": _SUCCESSOR_DATASET_TREE_DIGEST,\n        "successor_study_tree_digest": _SUCCESSOR_STUDY_TREE_DIGEST,\n        "successor_materialization_index_sha256": _SUCCESSOR_MATERIALIZATION_INDEX_SHA256,\n        "successor_runtime_environment_digest": _SUCCESSOR_RUNTIME_ENVIRONMENT_DIGEST,\n        "successor_fresh_verification_artifact_id": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_ID,\n        "successor_fresh_verification_artifact_digest": _SUCCESSOR_FRESH_VERIFICATION_ARTIFACT_DIGEST,\n        "successor_execution_overlay": _SUCCESSOR_EXECUTION_OVERLAY,',
+              '        successor_study_digest=cast(str, raw.get("successor_study_digest")),\n        successor_identity_index_digest=cast(\n            str, raw.get("successor_identity_index_digest")\n        ),\n        successor_execution_overlay=cast(str, raw.get("successor_execution_overlay")),': '        successor_study_digest=cast(str, raw.get("successor_study_digest")),\n        successor_dataset_tree_digest=cast(str, raw.get("successor_dataset_tree_digest")),\n        successor_study_tree_digest=cast(str, raw.get("successor_study_tree_digest")),\n        successor_materialization_index_sha256=cast(\n            str, raw.get("successor_materialization_index_sha256")\n        ),\n        successor_runtime_environment_digest=cast(\n            str, raw.get("successor_runtime_environment_digest")\n        ),\n        successor_fresh_verification_artifact_id=_positive_int(\n            raw.get("successor_fresh_verification_artifact_id"),\n            field="successor_fresh_verification_artifact_id",\n        ),\n        successor_fresh_verification_artifact_digest=cast(\n            str, raw.get("successor_fresh_verification_artifact_digest")\n        ),\n        successor_execution_overlay=cast(str, raw.get("successor_execution_overlay")),',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one production match, got {count}: {old[:80]!r}')
+              text = text.replace(old, new)
+          code_path.write_text(text)
+
+          test_path = Path('tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py')
+          text = test_path.read_text()
+          replacements = {
+              '    assert protocol.identity_layer_ci_run_id == 34793853852\n    assert protocol.successor_bundle_run_id == 34793586474\n    assert protocol.successor_bundle_artifact_id == 10328956351': '    assert protocol.identity_layer_ci_run_id == 34793925990\n    assert protocol.successor_bundle_run_id == 34794384559\n    assert protocol.successor_bundle_artifact_id == 10329107309',
+              '        "98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756"\n    )': '        "6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d"\n    )',
+              '        "3794a3dabcceea7075774f12c1770730b7638d70dce1ac0569f8050bf5ee4548"\n    )\n    assert protocol.successor_execution_overlay == (': '        "baaf25c93f37e409220d4413ddd9216c2afbf29ba1ce344310d43d7efa74e7eb"\n    )\n    assert protocol.successor_dataset_tree_digest == (\n        "3bd6964426f983c8726a26dd1298df785726c9b66771e445253b38a8bb3dc9af"\n    )\n    assert protocol.successor_study_tree_digest == (\n        "a579b72e93d39b59fe1e232fd658bbc016fdecf4b5da6c683080ed2b5ea49bcc"\n    )\n    assert protocol.successor_materialization_index_sha256 == (\n        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"\n    )\n    assert protocol.successor_runtime_environment_digest == (\n        "6dbc9cffd844837e17741ae30681f09a6d84b0a49dec011a4fc328f97ade1d85"\n    )\n    assert protocol.successor_fresh_verification_artifact_id == 10329905111\n    assert protocol.successor_fresh_verification_artifact_digest == (\n        "9769715e5d776d01791c6a7b2acbdfd4a52c97030ddb57875f448f0705b36f0f"\n    )\n    assert protocol.schema_version == "calibrated_capacity_robustness_prereg_v2"\n    assert protocol.successor_execution_overlay == (',
+              '        {"successor_study_digest": "0" * 64},': '        {"successor_study_digest": "0" * 64},\n        {"successor_dataset_tree_digest": "0" * 64},\n        {"successor_study_tree_digest": "0" * 64},\n        {"successor_materialization_index_sha256": "0" * 64},\n        {"successor_runtime_environment_digest": "0" * 64},\n        {"successor_fresh_verification_artifact_id": 1},\n        {"successor_fresh_verification_artifact_digest": "0" * 64},',
+              '    assert forbidden.isdisjoint(payload)\n': '    assert forbidden.isdisjoint(payload)\n    assert "successor_identity_index_digest" not in payload\n    assert payload["successor_materialization_index_sha256"] == (\n        "8fae0e0e9ae0fdcc706d63b5159d825b052592b427d483fa8cf423c8dd880efc"\n    )\n',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one test match, got {count}: {old[:80]!r}')
+              text = text.replace(old, new)
+          test_path.write_text(text)
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install test environment
+        run: uv sync --extra dev
+      - name: Verify corrected preregistration contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py
+      - name: Commit corrected authority only after Green
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/capacity_robustness_prereg.py tests/evaluation/experiments/bootstrap/test_capacity_robustness_prereg.py
+          git diff --cached --check
+          git commit -m 'research: bind corrected capacity successor authority'
+          git push origin HEAD:research/issue541-capacity-robustness-prereg

@@ -87,7 +87,9 @@ def test_capacity_audit_rejects_any_fill_participation_above_sealed_cap() -> Non
     audit = _audit()
     bad = np.zeros(5, dtype=np.float64)
     bad[1] = CAPS[1] + 1e-8
-    with pytest.raises(StageBCapacityAuditError, match="participation exceeds sealed cap"):
+    with pytest.raises(
+        StageBCapacityAuditError, match="participation exceeds sealed cap"
+    ):
         audit.record_interval(
             dataset_id=DATASET_ID,
             processing_bar_volume_capacity=False,

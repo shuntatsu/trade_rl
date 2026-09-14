@@ -44,7 +44,11 @@ class StageBCapacityAudit:
 
         symbols = tuple(self.symbols)
         caps = tuple(float(value) for value in self.capacity_caps)
-        if not symbols or len(symbols) != len(set(symbols)) or any(not item for item in symbols):
+        if (
+            not symbols
+            or len(symbols) != len(set(symbols))
+            or any(not item for item in symbols)
+        ):
             raise ValueError("symbols must be unique non-empty strings")
         if len(caps) != len(symbols):
             raise ValueError("capacity_caps must align with symbols")
@@ -66,7 +70,9 @@ class StageBCapacityAudit:
         """Validate and record one canonical execution interval."""
 
         if dataset_id != self.dataset_id:
-            raise StageBCapacityAuditError("Dataset identity differs from sealed authority")
+            raise StageBCapacityAuditError(
+                "Dataset identity differs from sealed authority"
+            )
         if processing_bar_volume_capacity:
             self.processing_bar_capacity_violation_count += 1
             raise StageBCapacityAuditError(
@@ -81,7 +87,9 @@ class StageBCapacityAudit:
                 "runtime participation overlay differs from zero-overlay authority"
             )
 
-        participation = np.asarray(participation_by_symbol, dtype=np.float64).reshape(-1)
+        participation = np.asarray(participation_by_symbol, dtype=np.float64).reshape(
+            -1
+        )
         if participation.shape != (len(self.symbols),):
             raise StageBCapacityAuditError(
                 "participation evidence does not match sealed symbol roster"
@@ -95,9 +103,7 @@ class StageBCapacityAudit:
         tolerance = np.maximum(_TOLERANCE, np.abs(caps) * 1e-12)
         if np.any(participation > caps + tolerance):
             self.capacity_violation_count += 1
-            raise StageBCapacityAuditError(
-                "execution participation exceeds sealed cap"
-            )
+            raise StageBCapacityAuditError("execution participation exceeds sealed cap")
 
         self.execution_intervals_checked += 1
         self._max_participation_by_symbol = np.maximum(
@@ -111,7 +117,9 @@ class StageBCapacityAudit:
 
     def to_payload(self) -> dict[str, object]:
         if self.execution_intervals_checked <= 0:
-            raise StageBCapacityAuditError("capacity audit observed no execution intervals")
+            raise StageBCapacityAuditError(
+                "capacity audit observed no execution intervals"
+            )
         return {
             "schema_version": "issue541_stage_b_capacity_audit_v1",
             "status": "PASS",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -35,6 +36,15 @@ def test_canonical_protocol_freezes_discovery_roster_and_causal_alignment() -> N
     assert protocol.label_formula == "log_open_t_plus_2_over_open_t_plus_1"
     assert protocol.regression_intercept is True
     assert protocol.slope_reduction == "chronological_math_fsum_centered_ols"
+    assert protocol.min_accepted_days_per_symbol == 20
+    assert protocol.min_accepted_days_per_year == 10
+    assert protocol.min_valid_observations == 480
+    assert protocol.min_valid_observations_per_year == 220
+    assert protocol.full_sample_positive_symbols_required == 4
+    assert protocol.year_positive_symbols_required == 3
+    assert protocol.replacement_dates_allowed is False
+    assert protocol.post_2022_data_allowed is False
+    assert protocol.strategy_or_pnl_input_allowed is False
 
 
 def test_protocol_binds_existing_provider_roster_and_ohlcv_authorities() -> None:
@@ -47,6 +57,12 @@ def test_protocol_binds_existing_provider_roster_and_ohlcv_authorities() -> None
     assert protocol.archive_roster_protocol_digest == (
         "5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071"
     )
+    assert protocol.archive_roster_seal_run_id == 34761985041
+    assert protocol.archive_roster_seal_artifact_id == 10319386570
+    assert protocol.archive_roster_seal_artifact_digest == (
+        "dbc6ef286abb9e4c8530089328fb64b2cfaa5e98715a82740439470a45942e57"
+    )
+    assert protocol.archive_roster_fresh_verifier_run_id == 34762075059
     assert protocol.archive_evidence_run_id == 34766830666
     assert protocol.archive_evidence_artifact_id == 10320428830
     assert protocol.archive_evidence_artifact_digest == (
@@ -58,6 +74,11 @@ def test_protocol_binds_existing_provider_roster_and_ohlcv_authorities() -> None
     )
     assert protocol.canonical_dataset_artifact_digest == (
         "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+    )
+    assert protocol.dataset_container_run_id == 34702660287
+    assert protocol.dataset_container_artifact_id == 10300479733
+    assert protocol.dataset_container_artifact_digest == (
+        "60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4"
     )
 
 
@@ -78,6 +99,12 @@ def test_flow_screen_decision_is_fixed_by_beta_sign_counts_only() -> None:
         )
         == "NO_STABLE_FLOW_SIGNAL"
     )
+    with pytest.raises(ValueError, match="finite"):
+        flow_screen_status(
+            full_sample_betas=(0.1, 0.2, 0.3, 0.4, math.nan),
+            year_2021_betas=(0.1, 0.2, 0.3, -0.1, -0.2),
+            year_2022_betas=(0.1, 0.2, 0.3, -0.1, -0.2),
+        )
 
 
 def test_protocol_rejects_result_dependent_mutations() -> None:
@@ -108,6 +135,8 @@ def test_strict_json_roundtrip_and_no_strategy_result_fields(tmp_path) -> None:
         "sharpe",
         "winner",
         "evaluation_result",
+        "q10",
+        "symbol_cap",
     }
     assert forbidden.isdisjoint(payload)
 

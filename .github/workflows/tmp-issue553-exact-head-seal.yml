@@ -1,4 +1,4 @@
-name: Temporary Issue 553 type-spoofing RED
+name: Temporary Issue 553 final format and targeted GREEN
 
 on:
   push:
@@ -8,19 +8,18 @@ on:
       - .github/workflows/tmp-issue553-exact-head-seal.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  format-and-targeted:
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 4a1f62ee4dfaef357739ba18efbe975eda31565c
+      TARGET_SHA: 1bf1b3486eb22559d9447046738cf518ba6ca06c
     steps:
-      - name: Checkout exact RED head
+      - name: Checkout exact fixed head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4a1f62ee4dfaef357739ba18efbe975eda31565c
-          persist-credentials: false
+          ref: 1bf1b3486eb22559d9447046738cf518ba6ca06c
       - name: Assert exact head
         shell: bash
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -31,5 +30,34 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Execute type-spoofing regression
-        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_aggtrades_predictive_flow_screen_protocol.py -k bool_int_equivalence_type_spoofing
+      - name: Format changed Python files
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_screen.py \
+            tests/evaluation/experiments/bootstrap/test_aggtrades_predictive_flow_screen_protocol.py
+      - name: Static and targeted GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_aggtrades_flow_capacity_protocol.py \
+            tests/evaluation/experiments/bootstrap/test_aggtrades_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_aggtrades_predictive_flow_screen_protocol.py
+      - name: Commit formatter output only after GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_screen.py \
+            tests/evaluation/experiments/bootstrap/test_aggtrades_predictive_flow_screen_protocol.py
+          if git diff --cached --quiet; then
+            echo "already formatted"
+            exit 0
+          fi
+          git commit -m "style: format predictive-flow type hardening"
+          git push origin HEAD:research/issue553-aggtrades-predictive-flow-prereg

@@ -1,0 +1,66 @@
+name: Issue 541 read final successor authority
+
+on:
+  push:
+    branches:
+      - verify/issue541-final-authority-read
+    paths:
+      - .github/workflows/issue541-read-final-authority.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BUNDLE_RUN_ID: "34803217815"
+  BUNDLE_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  BUNDLE_ID: "10331899302"
+  BUNDLE_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  FRESH_RUN_ID: "34803432434"
+  FRESH_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  FRESH_ID: "10332575500"
+  FRESH_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind final artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify "$BUNDLE_ID" "$BUNDLE_NAME" "$BUNDLE_DIGEST" "$BUNDLE_RUN_ID"
+          verify "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST" "$FRESH_RUN_ID"
+      - name: Download final bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.BUNDLE_NAME }}
+          path: /tmp/bundle
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BUNDLE_RUN_ID }}
+      - name: Download final fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FRESH_RUN_ID }}
+      - name: Print identity-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SUCCESSOR_INDEX_SHA256=$(sha256sum /tmp/bundle/successor-index.json | awk '{print $1}')"
+          jq -c '{schema_version,implementation_git_sha,source_run_id,source_artifact_id,source_artifact_api_digest,source_dataset_id,source_dataset_artifact_digest,source_study_digest,calibration_authority,dataset_id,dataset_artifact_digest,dataset_tree_digest,study_digest,study_tree_digest,implementation_digest,runtime_environment_digest,execution_overlay,baseline_present,experiment_count,study_frozen,pnl_executed,returns_inspected,final_test_authorized,production_authorized}' /tmp/bundle/successor-index.json
+          jq -c . /tmp/fresh/fresh-verification.json

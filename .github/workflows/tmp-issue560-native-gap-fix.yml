@@ -1,0 +1,71 @@
+name: Temporary Issue 560 Binance native-gap repair
+
+on:
+  push:
+    branches:
+      - automation/issue560-native-gap-fix
+    paths:
+      - .github/workflows/tmp-issue560-native-gap-fix.yml
+      - tools/tmp_issue560_native_gap_fix.py
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue560-signed-taker-flow
+  TARGET_SHA: adf835cf45936dbc40bf8d4f74879825ae211ef9
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact source authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Checkout repair helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue560-native-gap-fix
+          persist-credentials: false
+          path: .helper
+      - name: Guard target branch
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Apply sparse-native repair
+        run: python .helper/tools/tmp_issue560_native_gap_fix.py
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and targeted regressions
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/integrations/binance/dataset.py tests/integrations/test_binance.py
+          uv run ruff check trade_rl/integrations/binance/dataset.py tests/integrations/test_binance.py
+          uv run mypy trade_rl/integrations/binance/dataset.py
+          uv run pytest -q \
+            tests/integrations/test_binance.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/data/test_market_builder.py \
+            tests/data/test_information_availability.py
+      - name: Recheck target and publish only Green changes
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/binance/dataset.py tests/integrations/test_binance.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: preserve sparse Binance native bars"
+          git push origin HEAD:"$TARGET_BRANCH"

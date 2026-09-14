@@ -1,0 +1,35 @@
+name: Temporary Issue 539 Ruff preview
+
+on:
+  push:
+    branches:
+      - research/issue539-calibrated-causal-study
+    paths:
+      - .github/workflows/tmp-issue539-ruff-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Show exact Ruff-fixed facade
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix trade_rl/evaluation/runs/__init__.py
+          uv run ruff format trade_rl/evaluation/runs/__init__.py
+          uv run ruff check trade_rl/evaluation/runs/__init__.py
+          echo '--- FIXED_FACADE_BEGIN ---'
+          cat trade_rl/evaluation/runs/__init__.py
+          echo '--- FIXED_FACADE_END ---'

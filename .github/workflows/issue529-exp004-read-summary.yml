@@ -1,0 +1,75 @@
+name: Issue 529 Exp4 read verified summary
+
+on:
+  push:
+    branches:
+      - tmp/issue529-exp0004-execute
+    paths:
+      - .github/workflows/issue529-exp004-read-summary.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SOURCE_RUN_ID: "34766963843"
+  SOURCE_HEAD: 0615ecd7926d83c650d83dd2f0dd8a8975b53c48
+  RESULT_ARTIFACT_ID: "10323360074"
+  RESULT_ARTIFACT_DIGEST: sha256:5c52a3b677171b1dcc9202f6073ee9bd0217696fe86817be11d0f914a54215b2
+  FRESH_ARTIFACT: canonical-m2-portable-exp004-fresh-postverify-v2-34766963843
+  FRESH_ARTIFACT_ID: "10323163304"
+  FRESH_ARTIFACT_DIGEST: sha256:a9a2facfae6402e11f476cdde598a639a81206ed865da57abe547eaf8d1ad3c0
+
+jobs:
+  read-summary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify completed source run and exact artifact metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$SOURCE_HEAD"
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+          fresh="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$fresh")" = "$FRESH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$fresh")" = "$FRESH_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$fresh")" = "$SOURCE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$fresh")" = "false"
+
+      - name: Download exact fresh verification artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_ARTIFACT }}
+          path: /tmp/exp004-fresh-summary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Verify authorization and print interpretation summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .both_verifiers_passed == true and
+            .candidate_execution_count == 1 and
+            .candidate_rerun == false and
+            .candidate_reexecuted == false and
+            .fresh_runner_reverified_published_artifact == true and
+            .interpretation_authorized == true and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' /tmp/exp004-fresh-summary/fresh-postverify-index.json >/dev/null
+          echo '--- EXP004_INTERPRETATION_SUMMARY_BEGIN ---'
+          jq -S . /tmp/exp004-fresh-summary/interpretation-summary.json
+          echo '--- EXP004_INTERPRETATION_SUMMARY_END ---'

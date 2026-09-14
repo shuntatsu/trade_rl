@@ -1,0 +1,51 @@
+name: Temporary Issue 562 rebind source preflight authority
+
+on:
+  push:
+    branches:
+      - verify/issue562-source-preflight
+    paths:
+      - .github/workflows/tmp-issue562-preflight-rebind.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebind:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout preflight branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue562-source-preflight
+      - name: Rebind preflight to final calibration authority
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue562-source-preflight.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '817e3c96d702ffca3be74309bd68b31ef02643c5'
+          new = 'dd3ecb617ecd2476e20e9215eeb422d2cdc95750'
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'expected exactly 3 old authority references, found {count}')
+          text = text.replace(old, new)
+          text = text.replace(
+              'name: Temporary Issue 562 full training-source preflight v2',
+              'name: Temporary Issue 562 full training-source preflight v3',
+              1,
+          )
+          text = text.replace(
+              '"schema_version": "issue562_training_source_preflight_v2"',
+              '"schema_version": "issue562_training_source_preflight_v3"',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/tmp-issue562-source-preflight.yml
+          git commit -m "ci: bind source preflight to final calibration authority"
+          git push origin HEAD:verify/issue562-source-preflight

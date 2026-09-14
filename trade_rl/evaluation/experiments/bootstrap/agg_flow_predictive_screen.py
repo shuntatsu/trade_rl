@@ -280,7 +280,9 @@ class AggTradesPredictiveFlowScreenProtocol:
             _SCHEMA_VERSION,
         )
         if actual != preregistered:
-            raise ValueError("fields must match the preregistered predictive-flow contract")
+            raise ValueError(
+                "fields must match the preregistered predictive-flow contract"
+            )
 
     @property
     def planned_days(self) -> tuple[datetime, ...]:
@@ -368,8 +370,9 @@ class AggTradesPredictiveFlowScreenProtocol:
         return payload
 
 
-def canonical_m2_aggtrades_predictive_flow_screen_protocol(
-) -> AggTradesPredictiveFlowScreenProtocol:
+def canonical_m2_aggtrades_predictive_flow_screen_protocol() -> (
+    AggTradesPredictiveFlowScreenProtocol
+):
     """Return the single preregistered predictive-flow protocol."""
 
     roster = canonical_m2_aggtrades_flow_capacity_protocol()
@@ -429,9 +432,13 @@ def canonical_m2_aggtrades_predictive_flow_screen_protocol(
         numeric_capacity_result_allowed=_NUMERIC_CAPACITY_RESULT_ALLOWED,
     )
     if protocol.planned_days != roster.planned_days:
-        raise RuntimeError("predictive-flow planned days drifted from sealed source roster")
+        raise RuntimeError(
+            "predictive-flow planned days drifted from sealed source roster"
+        )
     if protocol.planned_urls != roster.planned_urls:
-        raise RuntimeError("predictive-flow planned URLs drifted from sealed source roster")
+        raise RuntimeError(
+            "predictive-flow planned URLs drifted from sealed source roster"
+        )
     return protocol
 
 

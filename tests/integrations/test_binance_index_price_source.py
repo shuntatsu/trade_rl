@@ -15,6 +15,8 @@ from trade_rl.integrations.binance import (
     BinancePublicTransport,
     BinanceTransportError,
     BinanceTransportMode,
+)
+from trade_rl.integrations.binance.vision import (
     vision_monthly_index_price_kline_url,
 )
 

@@ -293,9 +293,7 @@ def test_no_intercept_differs_from_centered_ols() -> None:
             continue
         xs.append(float(shifted.features[t, 0, 0]))
         ys.append(
-            math.log(
-                float(shifted.open[t + 25, 0]) / float(shifted.open[t + 1, 0])
-            )
+            math.log(float(shifted.open[t + 25, 0]) / float(shifted.open[t + 1, 0]))
         )
     expected = math.fsum(x * y for x, y in zip(xs, ys, strict=True)) / math.fsum(
         x * x for x in xs
@@ -324,7 +322,9 @@ def test_fixed_order_fsum_is_observable_against_vector_reduction() -> None:
     opens_one = np.exp(log_open)
     opens = np.tile(opens_one[:, None], (1, len(protocol.symbols)))
     features = np.ones_like(dataset.features, dtype=np.float32)
-    stressed = _corrupt_array(_corrupt_array(dataset, "open", opens), "features", features)
+    stressed = _corrupt_array(
+        _corrupt_array(dataset, "open", opens), "features", features
+    )
     result = module.calibrate_perp_index_basis(stressed, protocol)
     labels = [
         math.log(float(opens[t + 25, 0]) / float(opens[t + 1, 0]))
@@ -357,7 +357,9 @@ def test_dataset_roster_feature_and_clock_drift_are_rejected() -> None:
         )
 
 
-def test_result_artifact_is_strict_authority_bound_and_canonical(tmp_path: Path) -> None:
+def test_result_artifact_is_strict_authority_bound_and_canonical(
+    tmp_path: Path,
+) -> None:
     module = _api()
     protocol = canonical_perp_index_basis_protocol()
     result = module.calibrate_perp_index_basis(
@@ -383,7 +385,9 @@ def test_result_artifact_is_strict_authority_bound_and_canonical(tmp_path: Path)
     assert loaded.to_artifact_payload() == artifact
 
     unbound = module.calibrate_perp_index_basis(_dataset(), protocol)
-    with pytest.raises(ValueError, match="calibration_head|source_manifest|publication"):
+    with pytest.raises(
+        ValueError, match="calibration_head|source_manifest|publication"
+    ):
         unbound.to_artifact_payload()
 
     pretty = tmp_path / "pretty.json"

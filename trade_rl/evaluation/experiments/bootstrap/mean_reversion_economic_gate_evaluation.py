@@ -17,6 +17,7 @@ from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prer
     canonical_mean_reversion_economic_gate_protocol,
 )
 from trade_rl.evaluation.runs import execution_cost_for_overlay
+from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -523,7 +524,7 @@ def evaluate_mean_reversion_economic_gate(
         entry_threshold=spec.rule_entry_threshold,
         exit_threshold=spec.rule_exit_threshold,
     )
-    strategies = {
+    strategies: dict[str, SingleSymbolStrategy] = {
         "baseline": MeanReversionIntentStrategy(proposal),
         "candidate": MeanReversionEconomicGateStrategy(
             MeanReversionEconomicGateConfig(

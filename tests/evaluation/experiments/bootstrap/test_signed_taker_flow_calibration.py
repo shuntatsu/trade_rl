@@ -38,8 +38,7 @@ def _dataset(
         log_price = (
             5.0
             + 0.00001 * time
-            + 0.001
-            * np.sin(2.0 * math.pi * time / 168.0 + 0.37 * symbol_index)
+            + 0.001 * np.sin(2.0 * math.pi * time / 168.0 + 0.37 * symbol_index)
         )
         open_price[:, symbol_index] = np.exp(log_price)
 
@@ -76,11 +75,15 @@ def _dataset(
     )
 
 
-def _replace_array(dataset: MarketDataset, field: str, value: np.ndarray) -> MarketDataset:
+def _replace_array(
+    dataset: MarketDataset, field: str, value: np.ndarray
+) -> MarketDataset:
     return replace(dataset, **{field: value})
 
 
-def _corrupt_array(dataset: MarketDataset, field: str, value: np.ndarray) -> MarketDataset:
+def _corrupt_array(
+    dataset: MarketDataset, field: str, value: np.ndarray
+) -> MarketDataset:
     object.__setattr__(dataset, field, np.asarray(value))
     return dataset
 
@@ -240,14 +243,13 @@ def test_calibration_is_no_intercept_not_centered_ols() -> None:
         y = math.log(float(shifted.open[t + 25, 0]) / float(shifted.open[t + 1, 0]))
         x_values.append(x)
         y_values.append(y)
-    expected = math.fsum(x * y for x, y in zip(x_values, y_values, strict=True)) / math.fsum(
-        x * x for x in x_values
-    )
+    expected = math.fsum(
+        x * y for x, y in zip(x_values, y_values, strict=True)
+    ) / math.fsum(x * x for x in x_values)
     mean_x = math.fsum(x_values) / len(x_values)
     mean_y = math.fsum(y_values) / len(y_values)
     centered = math.fsum(
-        (x - mean_x) * (y - mean_y)
-        for x, y in zip(x_values, y_values, strict=True)
+        (x - mean_x) * (y - mean_y) for x, y in zip(x_values, y_values, strict=True)
     ) / math.fsum((x - mean_x) ** 2 for x in x_values)
 
     assert not math.isclose(expected, centered, rel_tol=1e-5, abs_tol=1e-8)
@@ -283,7 +285,9 @@ def test_fixed_order_fsum_is_observable_against_vector_reduction() -> None:
     assert result.symbol_results[0].numerator == expected
 
 
-def test_fit_cutoff_is_strict_and_post_2023_open_mutation_cannot_change_result() -> None:
+def test_fit_cutoff_is_strict_and_post_2023_open_mutation_cannot_change_result() -> (
+    None
+):
     module = _api()
     protocol = canonical_signed_taker_flow_protocol()
     dataset = _dataset(n_bars=17_600)
@@ -318,7 +322,9 @@ def test_nonpositive_label_open_is_ineligible_not_silently_logged() -> None:
     )
 
 
-def test_calibration_rejects_non_hourly_clock_roster_and_feature_identity_drift() -> None:
+def test_calibration_rejects_non_hourly_clock_roster_and_feature_identity_drift() -> (
+    None
+):
     module = _api()
     protocol = canonical_signed_taker_flow_protocol()
     dataset = _dataset()
@@ -349,7 +355,7 @@ def test_available_feature_outside_mathematical_bounds_fails_closed() -> None:
     dataset = _dataset()
     features = np.asarray(dataset.features).copy()
     features[100, 0, 0] = np.float32(1.01)
-    with pytest.raises(ValueError, match="bound|\[-1, 1\]|feature"):
+    with pytest.raises(ValueError, match=r"bound|\[-1, 1\]|feature"):
         module.calibrate_signed_taker_flow(
             _replace_array(dataset, "features", features), protocol
         )

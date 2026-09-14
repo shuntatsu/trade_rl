@@ -326,3 +326,41 @@ def test_binance_source_requires_vision_and_manifest_for_index_history() -> None
     )
     with pytest.raises(ValueError, match="manifest|sha|digest|index"):
         source.load_index_price("BTCUSDT", "1h")
+
+
+def test_transport_rejects_row_outside_archive_calendar_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url = vision_monthly_index_price_kline_url(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        interval="1h",
+        month="2022-01",
+    )
+    rows = [
+        _row(datetime(2022, 1, 31, 23, tzinfo=UTC), close=100.0),
+        _row(datetime(2022, 2, 1, 0, tzinfo=UTC), close=101.0),
+    ]
+    payload = _zip_bytes("BTCUSDT-1h-2022-01.csv", _csv_bytes(rows))
+    digest = hashlib.sha256(payload).hexdigest()
+    checksum = f"{digest}  BTCUSDT-1h-2022-01.zip\n".encode()
+    transport = BinancePublicTransport(max_attempts=1)
+
+    def request_bytes(request_url: str) -> bytes:
+        if request_url == url:
+            return payload
+        if request_url == url + ".CHECKSUM":
+            return checksum
+        raise AssertionError(request_url)
+
+    monkeypatch.setattr(transport, "_request_bytes", request_bytes)
+    with pytest.raises(BinanceTransportError, match="month|boundary|archive"):
+        transport.load_index_price_klines(
+            market=BinanceMarket.USDS_M,
+            symbol="BTCUSDT",
+            interval="1h",
+            start_ms=_ms(datetime(2022, 1, 1, tzinfo=UTC)),
+            end_ms=_ms(datetime(2022, 2, 1, tzinfo=UTC)),
+            mode=BinanceTransportMode.VISION,
+            expected_archive_sha256={url: digest},
+        )

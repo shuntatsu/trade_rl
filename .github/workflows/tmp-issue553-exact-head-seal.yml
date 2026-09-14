@@ -29,19 +29,10 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
           path = Path("trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_screen.py")
           text = path.read_text(encoding="utf-8")
-          old = '''            if isinstance(expected, datetime):
-                if actual.tzinfo is None or actual.utcoffset() is None:
-'''
-          new = '''            if isinstance(expected, datetime):
-                if not isinstance(actual, datetime):
-                    raise ValueError(
-                        "fields must match the preregistered predictive-flow contract"
-                    )
-                if actual.tzinfo is None or actual.utcoffset() is None:
-'''
+          old = "            if isinstance(expected, datetime):\n                if actual.tzinfo is None or actual.utcoffset() is None:\n"
+          new = "            if isinstance(expected, datetime):\n                if not isinstance(actual, datetime):\n                    raise ValueError(\n                        \"fields must match the preregistered predictive-flow contract\"\n                    )\n                if actual.tzinfo is None or actual.utcoffset() is None:\n"
           if text.count(old) != 1:
               raise SystemExit("expected datetime narrowing site not found exactly once")
           path.write_text(text.replace(old, new), encoding="utf-8")

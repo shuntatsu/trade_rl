@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -33,7 +34,7 @@ from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import (
     canonical_signed_taker_flow_protocol,
 )
 
-CALIBRATION_HEAD = "817e3c96d702ffca3be74309bd68b31ef02643c5"
+CALIBRATION_HEAD = "dd3ecb617ecd2476e20e9215eeb422d2cdc95750"
 IMPLEMENTATION_HEAD = "adf835cf45936dbc40bf8d4f74879825ae211ef9"
 PROTOCOL_DIGEST = "5fa9be305c948c4724e106ebd4f4090d2fc977da05d0884b7d4aa9a03df58407"
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
@@ -478,7 +479,8 @@ def execute(
     output_dir.mkdir(parents=True, exist_ok=False)
     source_bytes = _write_json(output_dir / "source-manifest.json", manifest)
     result_payload = result.to_artifact_payload()
-    result_bytes = _write_json(output_dir / "result.json", result_payload)
+    result_bytes = canonical_json_bytes(result_payload)
+    (output_dir / "result.json").write_bytes(result_bytes)
     metadata_body: dict[str, object] = {
         "schema_version": "issue562_signed_flow_publisher_metadata_v1",
         "issue_number": 562,

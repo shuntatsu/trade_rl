@@ -380,7 +380,12 @@ def test_result_artifact_is_strict_content_addressed_and_forbids_evaluation_fiel
 ) -> None:
     module = _api()
     protocol = canonical_signed_taker_flow_protocol()
-    result = module.calibrate_signed_taker_flow(_dataset(), protocol)
+    result = module.calibrate_signed_taker_flow(
+        _dataset(),
+        protocol,
+        calibration_head="4" * 40,
+        source_manifest_digest="5" * 64,
+    )
     artifact = result.to_artifact_payload()
 
     assert artifact["protocol_digest"] == protocol.digest
@@ -414,4 +419,42 @@ def test_result_artifact_is_strict_content_addressed_and_forbids_evaluation_fiel
     tampered["positive_slope_count"] = 0
     path.write_text(json.dumps(tampered), encoding="utf-8")
     with pytest.raises(ValueError, match="digest|content|canonical"):
+        module.load_signed_taker_flow_calibration_result(path)
+
+
+def test_artifact_publication_requires_bound_authority_and_canonical_bytes(
+    tmp_path: Path,
+) -> None:
+    module = _api()
+    protocol = canonical_signed_taker_flow_protocol()
+    unbound = module.calibrate_signed_taker_flow(_dataset(), protocol)
+
+    with pytest.raises(
+        ValueError, match="calibration_head|source_manifest|publication"
+    ):
+        unbound.to_artifact_payload()
+
+    unbound_payload = {**unbound.to_payload(), "content_digest": unbound.digest}
+    path = tmp_path / "unbound.json"
+    path.write_text(
+        json.dumps(
+            unbound_payload,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="calibration_head|source_manifest"):
+        module.load_signed_taker_flow_calibration_result(path)
+
+    bound = module.calibrate_signed_taker_flow(
+        _dataset(),
+        protocol,
+        calibration_head="6" * 40,
+        source_manifest_digest="7" * 64,
+    )
+    artifact = bound.to_artifact_payload()
+    path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    with pytest.raises(ValueError, match="canonical|bytes"):
         module.load_signed_taker_flow_calibration_result(path)

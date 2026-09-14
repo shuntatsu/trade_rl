@@ -242,9 +242,8 @@ class SignedTakerFlowProtocol:
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{field_name} must be a non-negative integer")
-        if (
-            isinstance(self.feature_window_start_offset_bars, bool)
-            or not isinstance(self.feature_window_start_offset_bars, int)
+        if isinstance(self.feature_window_start_offset_bars, bool) or not isinstance(
+            self.feature_window_start_offset_bars, int
         ):
             raise ValueError("feature_window_start_offset_bars must be an integer")
         if not 1 <= self.required_positive_symbol_slopes <= len(self.symbols):
@@ -329,7 +328,9 @@ def load_signed_taker_flow_protocol(path: str | Path) -> SignedTakerFlowProtocol
 
     expected_keys = {item.name for item in fields(SignedTakerFlowProtocol)}
     if set(raw) != expected_keys:
-        raise ValueError("signed taker-flow preregistration keys differ from canonical schema")
+        raise ValueError(
+            "signed taker-flow preregistration keys differ from canonical schema"
+        )
 
     payload = dict(raw)
     payload["fit_start"] = _datetime_from_text(payload["fit_start"], field="fit_start")
@@ -337,7 +338,9 @@ def load_signed_taker_flow_protocol(path: str | Path) -> SignedTakerFlowProtocol
         payload["fit_cutoff"], field="fit_cutoff"
     )
     symbols = payload["symbols"]
-    if not isinstance(symbols, list) or any(not isinstance(item, str) for item in symbols):
+    if not isinstance(symbols, list) or any(
+        not isinstance(item, str) for item in symbols
+    ):
         raise ValueError("symbols must be a list of strings")
     payload["symbols"] = tuple(symbols)
 

@@ -1,0 +1,92 @@
+name: Temporary Issue 560 compatibility GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-final-targeted.yml
+
+permissions:
+  contents: write
+
+jobs:
+  targeted-green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Preserve positional API and add integration oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('trade_rl/data/source.py')
+          text = source.read_text(encoding='utf-8')
+          old = '''    funding_rate: np.ndarray\n    tradable: np.ndarray\n    taker_buy_quote_volume: np.ndarray | None = None\n    funding_available: np.ndarray | None = None\n    available_at: np.ndarray | None = None\n    funding_event_count: np.ndarray | None = None\n'''
+          new = '''    funding_rate: np.ndarray\n    tradable: np.ndarray\n    funding_available: np.ndarray | None = None\n    available_at: np.ndarray | None = None\n    funding_event_count: np.ndarray | None = None\n    taker_buy_quote_volume: np.ndarray | None = None\n'''
+          if text.count(old) != 1:
+              raise SystemExit('RawMarketSeries field-order patch site not found exactly once')
+          source.write_text(text.replace(old, new), encoding='utf-8')
+
+          test = Path('tests/data/test_signed_taker_flow_identity_compat.py')
+          text = test.read_text(encoding='utf-8')
+          if 'from dataclasses import fields\n' not in text:
+              text = text.replace(
+                  'from __future__ import annotations\n\n',
+                  'from __future__ import annotations\n\nfrom dataclasses import fields\n\n',
+                  1,
+              )
+          addition = '''\n\ndef test_raw_market_series_legacy_optional_field_order_is_preserved() -> None:\n    names = tuple(field.name for field in fields(RawMarketSeries))\n    assert names[:11] == (\n        "timestamps",\n        "open",\n        "high",\n        "low",\n        "close",\n        "volume",\n        "funding_rate",\n        "tradable",\n        "funding_available",\n        "available_at",\n        "funding_event_count",\n    )\n    assert names[11:] == ("taker_buy_quote_volume",)\n\n\ndef test_builder_materializes_signed_taker_flow_only_when_raw_field_exists() -> None:\n    config = MarketBuildConfig(\n        base_timeframe="1h",\n        features=(\n            FeatureSpec(\n                name="1h__signed_taker_quote_flow_24bar",\n                kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,\n                lookback=24,\n            ),\n        ),\n    )\n    builder = MarketDatasetBuilder(config)\n    instruments = (InstrumentContract(symbol="BTCUSDT"),)\n\n    enriched = builder.build(\n        InMemoryMarketDataSource(\n            {"BTCUSDT": _series(taker=np.full(30, 6.0, dtype=np.float64))}\n        ),\n        instruments,\n    )\n    missing = builder.build(\n        InMemoryMarketDataSource({"BTCUSDT": _series(taker=None)}),\n        instruments,\n    )\n\n    assert enriched.feature_available[23, 0, 0]\n    assert enriched.features[23, 0, 0] == np.float32(0.2)\n    assert not np.any(missing.feature_available[:, 0, 0])\n    assert not np.any(missing.features[:, 0, 0])\n'''
+          if 'test_builder_materializes_signed_taker_flow_only_when_raw_field_exists' not in text:
+              text += addition
+          test.write_text(text, encoding='utf-8')
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed files
+        run: |
+          uv run ruff format \
+            trade_rl/data/source.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+      - name: Static and targeted GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py
+      - name: Commit only if branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/issue560-signed-taker-flow
+          remote="$(git rev-parse FETCH_HEAD)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/source.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "fix: preserve signed taker-flow source compatibility"
+          git push origin HEAD:feat/issue560-signed-taker-flow

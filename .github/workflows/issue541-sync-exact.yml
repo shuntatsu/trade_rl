@@ -1,0 +1,210 @@
+name: Issue 541 synchronized exact verification
+
+on:
+  push:
+    branches:
+      - verify/issue541-sync-2e70-candidate
+    paths:
+      - .github/workflows/issue541-sync-exact.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 619593ffec2477c7d6b73298aefa6d3bfd12fce9
+  OLD_HEAD_SHA: 06f368d4d8d0aafac8b80c60309b1d24dc5e32e6
+  BASE_SHA: 2e70d509e120684014ce7e00f7381baf157f7511
+  EXPECTED_TREE_SHA: 107b2f65c2ddd8ec41a4fc91939fbc96eeda7b44
+  EXPECTED_PROTOCOL_DIGEST: 11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8
+  BASE_SYNC_VERIFY_RUN_ID: "34805607849"
+  SEAL_RUN_ID: "34804388022"
+  SEAL_ARTIFACT_ID: "10332098428"
+  SEAL_ARTIFACT_DIGEST: sha256:69f3c2b30bb85591483e8a3a77e69a489affdaafa5d57a6be96dcbb24edf348e
+  FRESH_ARTIFACT_ID: "10332916765"
+  FRESH_ARTIFACT_DIGEST: sha256:7675c0dc02a58f74c1c84080dd86eb74b4b3d118662c0099675d40025ce3ca6f
+
+jobs:
+  core:
+    name: Synchronized Exact Lean Core
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 619593ffec2477c7d6b73298aefa6d3bfd12fce9
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove history-only synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE_SHA"
+          test "$(git rev-parse "$OLD_HEAD_SHA^{tree}")" = "$EXPECTED_TREE_SHA"
+          git diff --quiet "$OLD_HEAD_SHA" "$TARGET_SHA"
+          test "$(git show -s --format=%P HEAD)" = "$OLD_HEAD_SHA $BASE_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  guide:
+    name: Synchronized Exact Human Guide
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: 619593ffec2477c7d6b73298aefa6d3bfd12fce9
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 619593ffec2477c7d6b73298aefa6d3bfd12fce9
+          persist-credentials: false
+      - name: Prove exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+
+  authority:
+    name: Verify synchronized sealed preregistration authority
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 619593ffec2477c7d6b73298aefa6d3bfd12fce9
+          persist-credentials: false
+      - name: API-bind base sync and immutable v3 seal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BASE_SYNC_VERIFY_RUN_ID")"
+          test "$(jq -r '.status' <<<"$base_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$base_run")" = "success"
+          verify() {
+            local id="$1" digest="$2" run_id="$3"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify "$SEAL_ARTIFACT_ID" "$SEAL_ARTIFACT_DIGEST" "$SEAL_RUN_ID"
+          verify "$FRESH_ARTIFACT_ID" "$FRESH_ARTIFACT_DIGEST" "$SEAL_RUN_ID"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Reconstruct unchanged v3 protocol without PnL
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+          p = canonical_capacity_robustness_protocol()
+          assert p.digest == os.environ['EXPECTED_PROTOCOL_DIGEST']
+          assert p.schema_version == 'calibrated_capacity_robustness_prereg_v3'
+          assert p.identity_layer_head_sha == '3e111a59153b7353e26080bd569b9775190577be'
+          assert p.successor_bundle_artifact_id == 10331899302
+          assert p.successor_fresh_verification_artifact_id == 10332575500
+          assert p.integration_gate_satisfied is False
+          assert p.execution_authorized is False
+          assert p.stage_a_executed is False
+          assert p.stage_b_executed is False
+          assert p.successor_pnl_inspected is False
+          print('PROTOCOL_DIGEST=' + p.digest)
+          print('PNL_EXECUTED=false')
+          PY

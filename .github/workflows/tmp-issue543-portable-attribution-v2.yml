@@ -1,0 +1,371 @@
+name: Temporary Issue 543 portable baseline attribution v2
+
+on:
+  push:
+    branches:
+      - verify/issue543-portable-attribution-v2
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: cd6301b084c549ebb9083f1099e72053b6a69bb1
+  SOURCE_RUN_ID: "34700123151"
+  SOURCE_ARTIFACT_ID: "10301701698"
+  SOURCE_ARTIFACT_NAME: canonical-m2-portable-baseline-v1-34700123151
+  SOURCE_ARTIFACT_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  SOURCE_EVIDENCE_FINGERPRINT: 526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29
+  SOURCE_DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  SOURCE_DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+  PUBLISHED_NAME: issue543-portable-loss-attribution-v2-${{ github.run_id }}
+
+jobs:
+  publish:
+    name: Publish portable read-only attribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact implementation head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: API-bind immutable baseline Artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          META="$meta" python3 - <<'PY'
+          import json
+          import os
+
+          x = json.loads(os.environ["META"])
+          assert x["id"] == int(os.environ["SOURCE_ARTIFACT_ID"])
+          assert x["name"] == os.environ["SOURCE_ARTIFACT_NAME"]
+          assert x["workflow_run"]["id"] == int(os.environ["SOURCE_RUN_ID"])
+          assert x["digest"] == os.environ["SOURCE_ARTIFACT_DIGEST"]
+          assert x["expired"] is False
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/issue543-portable-source
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Recompute portable attribution from persisted evidence only
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue543-portable-output
+          mkdir -p /tmp/issue543-portable-output
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.loss_attribution import analyze_deterministic_loss_attribution
+          from trade_rl.evaluation.runs import load_candidate_run_artifact
+
+          root = Path("/tmp/issue543-portable-source")
+          dataset = load_market_dataset_artifact(root / "dataset")
+          dataset_artifact = inspect_published_market_dataset_artifact(root / "dataset")
+          evidence = json.loads(
+              (root / "study/baseline/evidence/manifest.json").read_text(encoding="utf-8")
+          )
+          if dataset.dataset_id != os.environ["SOURCE_DATASET_ID"]:
+              raise SystemExit("source Dataset ID mismatch")
+          if dataset_artifact.artifact_digest != os.environ["SOURCE_DATASET_ARTIFACT_DIGEST"]:
+              raise SystemExit("source Dataset artifact digest mismatch")
+          if evidence.get("fingerprint") != os.environ["SOURCE_EVIDENCE_FINGERPRINT"]:
+              raise SystemExit("source EvidenceSet fingerprint mismatch")
+          seeds = tuple(evidence.get("ppo_seeds", ()))
+          if seeds != (0, 1, 2, 3, 4):
+              raise SystemExit(f"unexpected baseline seed roster: {seeds!r}")
+          runs = tuple(
+              load_candidate_run_artifact(root / f"study/baseline/evidence/runs/seed-{seed}")
+              for seed in seeds
+          )
+          strategies = (
+              "cash",
+              "constant_long",
+              "constant_short",
+              "trend",
+              "mean_reversion",
+              "ridge24",
+              "lightgbm24",
+          )
+          report = analyze_deterministic_loss_attribution(
+              runs,
+              dataset,
+              deterministic_strategies=strategies,
+          )
+          core = ("trend", "mean_reversion", "ridge24", "lightgbm24")
+          core_summary = {}
+          for strategy in core:
+              cells = [cell for cell in report.cells if cell.strategy == strategy]
+              if len(cells) != len(report.symbols):
+                  raise SystemExit(f"incomplete core attribution for {strategy}")
+              core_summary[strategy] = {
+                  "net_positive_symbols": sum(cell.net_pnl > 0.0 for cell in cells),
+                  "residual_positive_symbols": sum(cell.residual_pnl > 0.0 for cell in cells),
+                  "explicit_cost_flip_symbols": sum(
+                      cell.explicit_cost_flip_on_realized_path for cell in cells
+                  ),
+                  "positive_months_total": sum(cell.positive_months for cell in cells),
+                  "month_observations_total": sum(cell.month_count for cell in cells),
+              }
+          body = {
+              "schema_version": "portable_baseline_loss_attribution_v2",
+              "source_run_id": int(os.environ["SOURCE_RUN_ID"]),
+              "source_artifact_id": int(os.environ["SOURCE_ARTIFACT_ID"]),
+              "source_artifact_api_digest": os.environ["SOURCE_ARTIFACT_DIGEST"],
+              "source_evidence_fingerprint": os.environ["SOURCE_EVIDENCE_FINGERPRINT"],
+              "source_dataset_id": dataset.dataset_id,
+              "source_dataset_artifact_digest": dataset_artifact.artifact_digest,
+              "implementation_head": os.environ["TARGET_SHA"],
+              "implementation_tree": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD^{tree}"], text=True
+              ).strip(),
+              "strategy_execution_performed": False,
+              "successor_pnl_inspected": False,
+              "residual_semantics": "realized_path_balancing_term_not_zero_cost_backtest",
+              "report_digest": report.digest,
+              "report": report.to_payload(),
+              "core_summary": core_summary,
+          }
+          output = {**body, "diagnostic_digest": content_digest(body)}
+          Path("/tmp/issue543-portable-output/loss-attribution.json").write_bytes(
+              canonical_json_bytes(output)
+          )
+          print(json.dumps(core_summary, sort_keys=True))
+          print(f"REPORT_DIGEST={report.digest}")
+          print(f"DIAGNOSTIC_DIGEST={output['diagnostic_digest']}")
+          print("STRATEGY_EXECUTION_PERFORMED=false")
+          print("SUCCESSOR_PNL_INSPECTED=false")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PUBLISHED_NAME }}
+          path: /tmp/issue543-portable-output/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh exact portable reconstruction
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact implementation head independently
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: API-bind fixed publisher Artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100")"
+          META="$meta" python3 - <<'PY'
+          import json
+          import os
+
+          x = json.loads(os.environ["META"])
+          matches = [a for a in x["artifacts"] if a["name"] == os.environ["PUBLISHED_NAME"]]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one publisher artifact, got {len(matches)}")
+          artifact = matches[0]
+          if artifact["workflow_run"]["id"] != int(os.environ["GITHUB_RUN_ID"]):
+              raise SystemExit("publisher workflow run mismatch")
+          if artifact["expired"] is not False:
+              raise SystemExit("publisher artifact unexpectedly expired")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"PUBLISHED_ID={artifact['id']}\n")
+              handle.write(f"PUBLISHED_DIGEST={artifact['digest']}\n")
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PUBLISHED_NAME }}
+          path: /tmp/issue543-portable-published
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: API-bind immutable baseline independently
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          META="$meta" python3 - <<'PY'
+          import json
+          import os
+
+          x = json.loads(os.environ["META"])
+          assert x["id"] == int(os.environ["SOURCE_ARTIFACT_ID"])
+          assert x["name"] == os.environ["SOURCE_ARTIFACT_NAME"]
+          assert x["workflow_run"]["id"] == int(os.environ["SOURCE_RUN_ID"])
+          assert x["digest"] == os.environ["SOURCE_ARTIFACT_DIGEST"]
+          assert x["expired"] is False
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/issue543-portable-source-fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Reconstruct and compare exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue543-portable-verified
+          mkdir -p /tmp/issue543-portable-verified
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.loss_attribution import analyze_deterministic_loss_attribution
+          from trade_rl.evaluation.runs import load_candidate_run_artifact
+
+          published = json.loads(
+              Path("/tmp/issue543-portable-published/loss-attribution.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          published_body = dict(published)
+          claimed = published_body.pop("diagnostic_digest")
+          if content_digest(published_body) != claimed:
+              raise SystemExit("published diagnostic content digest mismatch")
+
+          root = Path("/tmp/issue543-portable-source-fresh")
+          dataset = load_market_dataset_artifact(root / "dataset")
+          dataset_artifact = inspect_published_market_dataset_artifact(root / "dataset")
+          evidence = json.loads(
+              (root / "study/baseline/evidence/manifest.json").read_text(encoding="utf-8")
+          )
+          if dataset.dataset_id != os.environ["SOURCE_DATASET_ID"]:
+              raise SystemExit("fresh Dataset ID mismatch")
+          if dataset_artifact.artifact_digest != os.environ["SOURCE_DATASET_ARTIFACT_DIGEST"]:
+              raise SystemExit("fresh Dataset artifact digest mismatch")
+          if evidence.get("fingerprint") != os.environ["SOURCE_EVIDENCE_FINGERPRINT"]:
+              raise SystemExit("fresh EvidenceSet fingerprint mismatch")
+          seeds = tuple(evidence.get("ppo_seeds", ()))
+          if seeds != (0, 1, 2, 3, 4):
+              raise SystemExit(f"fresh seed roster mismatch: {seeds!r}")
+          runs = tuple(
+              load_candidate_run_artifact(root / f"study/baseline/evidence/runs/seed-{seed}")
+              for seed in seeds
+          )
+          strategies = (
+              "cash",
+              "constant_long",
+              "constant_short",
+              "trend",
+              "mean_reversion",
+              "ridge24",
+              "lightgbm24",
+          )
+          report = analyze_deterministic_loss_attribution(
+              runs,
+              dataset,
+              deterministic_strategies=strategies,
+          )
+          if published.get("report") != report.to_payload():
+              raise SystemExit("fresh attribution payload differs from publisher artifact")
+          if published.get("report_digest") != report.digest:
+              raise SystemExit("fresh attribution report digest mismatch")
+
+          core = ("trend", "mean_reversion", "ridge24", "lightgbm24")
+          core_summary = {}
+          for strategy in core:
+              cells = [cell for cell in report.cells if cell.strategy == strategy]
+              core_summary[strategy] = {
+                  "net_positive_symbols": sum(cell.net_pnl > 0.0 for cell in cells),
+                  "residual_positive_symbols": sum(cell.residual_pnl > 0.0 for cell in cells),
+                  "explicit_cost_flip_symbols": sum(
+                      cell.explicit_cost_flip_on_realized_path for cell in cells
+                  ),
+                  "positive_months_total": sum(cell.positive_months for cell in cells),
+                  "month_observations_total": sum(cell.month_count for cell in cells),
+              }
+          if published.get("core_summary") != core_summary:
+              raise SystemExit("fresh core summary mismatch")
+          if published.get("source_dataset_id") != dataset.dataset_id:
+              raise SystemExit("published Dataset ID mismatch")
+          if published.get("source_dataset_artifact_digest") != dataset_artifact.artifact_digest:
+              raise SystemExit("published Dataset artifact digest mismatch")
+          if published.get("strategy_execution_performed") is not False:
+              raise SystemExit("diagnostic illegally records strategy execution")
+          if published.get("successor_pnl_inspected") is not False:
+              raise SystemExit("diagnostic crossed successor PnL boundary")
+
+          verification = {
+              "schema_version": "portable_baseline_loss_attribution_verify_v2",
+              "diagnostic_artifact_id": int(os.environ["PUBLISHED_ID"]),
+              "diagnostic_artifact_api_digest": os.environ["PUBLISHED_DIGEST"],
+              "diagnostic_digest": claimed,
+              "report_digest": report.digest,
+              "fresh_reconstruction_equal": True,
+              "strategy_execution_performed": False,
+              "successor_pnl_inspected": False,
+          }
+          Path("/tmp/issue543-portable-verified/verification.json").write_text(
+              json.dumps(verification, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(verification, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue543-portable-loss-attribution-verify-v2-${{ github.run_id }}
+          path: /tmp/issue543-portable-verified/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

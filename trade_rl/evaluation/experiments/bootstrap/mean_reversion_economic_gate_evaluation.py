@@ -11,10 +11,11 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
 from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prereg import (
     canonical_mean_reversion_economic_gate_protocol,
 )
+from trade_rl.evaluation.metrics import evaluate_performance
+from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.evaluation.runs.config import (
     CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
 )
@@ -355,58 +356,80 @@ def evaluate_mean_reversion_economic_gate(
         entry_threshold=spec.rule_entry_threshold,
         exit_threshold=spec.rule_exit_threshold,
     )
-    strategies = {
-        "baseline": MeanReversionIntentStrategy(proposal),
-        "candidate": MeanReversionEconomicGateStrategy(
-            MeanReversionEconomicGateConfig(
-                proposal=proposal,
-                beta_gate=spec.beta_gate,
-                one_way_explicit_cost=spec.one_way_explicit_cost,
-            )
-        ),
-    }
+    gate_config = MeanReversionEconomicGateConfig(
+        proposal=proposal,
+        beta_gate=spec.beta_gate,
+        one_way_explicit_cost=spec.one_way_explicit_cost,
+    )
     execution_cost = replace(
         ExecutionCostConfig.zero(),
         processing_bar_volume_capacity=False,
     )
-    comparison = compare_strategies_by_symbol(
-        dataset,
-        strategies,
-        start_index=start,
-        stop_index=stop,
-        gross_budget=spec.gross_budget,
-        initial_capital=spec.initial_capital,
-        execution_cost=execution_cost,
-        risk=None,
-    )
 
     results: list[MeanReversionEconomicGateSymbolResult] = []
-    for symbol_result in comparison.by_symbol:
-        entries = {entry.name: entry for entry in symbol_result.comparison.entries}
-        if set(entries) != {"baseline", "candidate"}:
-            raise RuntimeError("paired evaluation strategy roster drifted")
-        baseline = entries["baseline"]
-        candidate = entries["candidate"]
+    for symbol_index, symbol in enumerate(spec.symbols):
+        baseline_replay = run_single_symbol_replay(
+            dataset,
+            MeanReversionIntentStrategy(proposal),
+            symbol_index=symbol_index,
+            start_index=start,
+            stop_index=stop,
+            gross_budget=spec.gross_budget,
+            initial_capital=spec.initial_capital,
+            execution_cost=execution_cost,
+            risk=None,
+        )
+        candidate_replay = run_single_symbol_replay(
+            dataset,
+            MeanReversionEconomicGateStrategy(gate_config),
+            symbol_index=symbol_index,
+            start_index=start,
+            stop_index=stop,
+            gross_budget=spec.gross_budget,
+            initial_capital=spec.initial_capital,
+            execution_cost=execution_cost,
+            risk=None,
+        )
+        baseline_diagnostics = baseline_replay.diagnostics
+        candidate_diagnostics = candidate_replay.diagnostics
+        baseline = evaluate_performance(
+            baseline_replay.returns,
+            turnover_total=baseline_diagnostics.turnover_total,
+            total_cost=baseline_diagnostics.total_cost,
+            funding_pnl=baseline_diagnostics.funding_pnl,
+            borrow_cost=baseline_diagnostics.borrow_cost,
+            n_trades=baseline_diagnostics.n_trades,
+            rebalance_events=baseline_diagnostics.rebalance_events,
+            termination_count=len(baseline_diagnostics.termination_reasons),
+        )
+        candidate = evaluate_performance(
+            candidate_replay.returns,
+            turnover_total=candidate_diagnostics.turnover_total,
+            total_cost=candidate_diagnostics.total_cost,
+            funding_pnl=candidate_diagnostics.funding_pnl,
+            borrow_cost=candidate_diagnostics.borrow_cost,
+            n_trades=candidate_diagnostics.n_trades,
+            rebalance_events=candidate_diagnostics.rebalance_events,
+            termination_count=len(candidate_diagnostics.termination_reasons),
+        )
         results.append(
             MeanReversionEconomicGateSymbolResult(
-                symbol=symbol_result.symbol,
-                baseline_total_return=baseline.metrics.total_return,
-                candidate_total_return=candidate.metrics.total_return,
-                excess_total_return=(
-                    candidate.metrics.total_return - baseline.metrics.total_return
-                ),
-                baseline_total_cost=baseline.metrics.total_cost,
-                candidate_total_cost=candidate.metrics.total_cost,
-                baseline_turnover_total=baseline.metrics.turnover_total,
-                candidate_turnover_total=candidate.metrics.turnover_total,
-                baseline_max_drawdown=baseline.metrics.max_drawdown,
-                candidate_max_drawdown=candidate.metrics.max_drawdown,
-                baseline_termination_count=baseline.metrics.termination_count,
-                candidate_termination_count=candidate.metrics.termination_count,
-                baseline_n_periods=baseline.metrics.n_periods,
-                candidate_n_periods=candidate.metrics.n_periods,
-                baseline_return_sha256=_return_sha256(baseline.returns.values),
-                candidate_return_sha256=_return_sha256(candidate.returns.values),
+                symbol=symbol,
+                baseline_total_return=baseline.total_return,
+                candidate_total_return=candidate.total_return,
+                excess_total_return=candidate.total_return - baseline.total_return,
+                baseline_total_cost=baseline.total_cost,
+                candidate_total_cost=candidate.total_cost,
+                baseline_turnover_total=baseline.turnover_total,
+                candidate_turnover_total=candidate.turnover_total,
+                baseline_max_drawdown=baseline.max_drawdown,
+                candidate_max_drawdown=candidate.max_drawdown,
+                baseline_termination_count=baseline.termination_count,
+                candidate_termination_count=candidate.termination_count,
+                baseline_n_periods=baseline.n_periods,
+                candidate_n_periods=candidate.n_periods,
+                baseline_return_sha256=_return_sha256(baseline_replay.returns.values),
+                candidate_return_sha256=_return_sha256(candidate_replay.returns.values),
             )
         )
 

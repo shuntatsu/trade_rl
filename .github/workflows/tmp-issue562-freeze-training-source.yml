@@ -1,0 +1,186 @@
+name: Temporary Issue 562 freeze training source bundle
+
+on:
+  push:
+    branches:
+      - freeze/issue562-training-source-v1
+    paths:
+      - .github/workflows/tmp-issue562-freeze-training-source.yml
+      - tools/tmp_issue562_freeze_training_source.py
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  TARGET_SHA: dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+  SOURCE_IMPLEMENTATION_SHA: adf835cf45936dbc40bf8d4f74879825ae211ef9
+  PR_NUMBER: "568"
+  FULL_CI_RUN_ID: "34855652829"
+  SOURCE_AUTHORITY_ARTIFACT_ID: "10345533785"
+  SOURCE_AUTHORITY_API_DIGEST: sha256:689188893dec90b41819972e1cb151920ab198bf6bf27b1abeae2ab18e2fac0f
+  SOURCE_FRESH_ARTIFACT_ID: "10346140972"
+  SOURCE_FRESH_API_DIGEST: sha256:16f91dcaab5f1914d19ee93934643cf27ad3ab94e1787cb04123b8dc3ad68a60
+
+jobs:
+  freeze:
+    name: Freeze raw pre-2023 source bytes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact calibration authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Checkout source-freeze helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: freeze/issue562-training-source-v1
+          persist-credentials: false
+          path: .helper
+      - name: Verify exact authorities before source access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          pr="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_META="$pr" python3 -c 'import json,os; x=json.loads(os.environ["PR_META"]); assert x["head"]["sha"]==os.environ["TARGET_SHA"]; assert x["base"]["sha"]==os.environ["SOURCE_IMPLEMENTATION_SHA"]; assert x["merged"] is False'
+          run="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FULL_CI_RUN_ID}")"
+          RUN_META="$run" python3 -c 'import json,os; x=json.loads(os.environ["RUN_META"]); assert x["status"]=="completed"; assert x["conclusion"]=="success"'
+          for spec in \
+            "${SOURCE_AUTHORITY_ARTIFACT_ID}|${SOURCE_AUTHORITY_API_DIGEST}" \
+            "${SOURCE_FRESH_ARTIFACT_ID}|${SOURCE_FRESH_API_DIGEST}"; do
+            id="${spec%%|*}"; digest="${spec#*|}"
+            meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
+            META="$meta" EXPECTED_ID="$id" EXPECTED_DIGEST="$digest" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["EXPECTED_ID"]); assert x["digest"]==os.environ["EXPECTED_DIGEST"]; assert x["expired"] is False'
+          done
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Download validate and freeze exact raw archive roster
+        env:
+          OUTPUT_ROOT: /tmp/issue562-source
+        run: uv run python .helper/tools/tmp_issue562_freeze_training_source.py
+      - name: Ensure no target/evaluation outputs exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/issue562-source/source-manifest.json
+          test "$(find /tmp/issue562-source/raw -name '*.zip' | wc -l)" -eq 125
+          test "$(find /tmp/issue562-source/raw -name '*.CHECKSUM' | wc -l)" -eq 125
+          ! find /tmp/issue562-source -type f | grep -E 'calibration|result|pnl|return' >/dev/null
+      - name: Upload immutable source bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-signed-taker-training-source-v1-${{ github.run_id }}
+          path: /tmp/issue562-source/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh source reconstruction
+    needs: freeze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact calibration authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Checkout source-freeze helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: freeze/issue562-training-source-v1
+          persist-credentials: false
+          path: .helper
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Download publisher source bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue562-signed-taker-training-source-v1-${{ github.run_id }}
+          path: /tmp/issue562-published-source
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          digest-mismatch: error
+      - name: Fresh independent raw-source reconstruction
+        env:
+          OUTPUT_ROOT: /tmp/issue562-fresh-source
+        run: uv run python .helper/tools/tmp_issue562_freeze_training_source.py
+      - name: Require exact manifest and raw-byte equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/issue562-published-source/source-manifest.json /tmp/issue562-fresh-source/source-manifest.json
+          diff -qr /tmp/issue562-published-source/raw /tmp/issue562-fresh-source/raw
+      - name: Bind publisher artifact API digest and write verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHED_NAME: issue562-signed-taker-training-source-v1-${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue562-source-verification
+          artifacts="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?name=${PUBLISHED_NAME}")"
+          ARTIFACTS="$artifacts" uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          raw = json.loads(os.environ["ARTIFACTS"])
+          items = raw.get("artifacts", [])
+          if len(items) != 1:
+              raise SystemExit("publisher source artifact lookup is not unique")
+          artifact = items[0]
+          if artifact.get("expired") is not False:
+              raise SystemExit("publisher source artifact is expired")
+          manifest = json.loads(Path("/tmp/issue562-published-source/source-manifest.json").read_text(encoding="utf-8"))
+          claimed = manifest.pop("content_digest")
+          if content_digest(manifest) != claimed:
+              raise SystemExit("source manifest content digest mismatch")
+          body = {
+              "schema_version": "signed_taker_flow_training_source_verification_v1",
+              "issue_number": 562,
+              "calibration_head": os.environ["TARGET_SHA"],
+              "publisher_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "publisher_source_artifact_id": int(artifact["id"]),
+              "publisher_source_artifact_api_digest": artifact["digest"],
+              "source_manifest_digest": claimed,
+              "archive_count": 125,
+              "fresh_reconstruction_byte_equal": True,
+              "target_relation_computed": False,
+              "evaluation_pnl_inspected": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          output = {**body, "content_digest": content_digest(body)}
+          Path("/tmp/issue562-source-verification/verification.json").write_bytes(canonical_json_bytes(output))
+          print(json.dumps({"source_manifest_digest": claimed, "fresh_reconstruction_byte_equal": True, "archive_count": 125}, sort_keys=True))
+          PY
+      - name: Upload fresh source verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-signed-taker-training-source-verification-v1-${{ github.run_id }}
+          path: /tmp/issue562-source-verification/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

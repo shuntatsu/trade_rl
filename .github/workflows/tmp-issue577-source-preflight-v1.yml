@@ -1,0 +1,318 @@
+name: Temporary Issue 577 combined raw source preflight
+
+on:
+  push:
+    branches:
+      - verify/issue577-source-preflight-v1
+    paths:
+      - .github/workflows/tmp-issue577-source-preflight-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  HELPER_HEAD: d834ce19a76d173466109188643bb11625b37ec0
+  HELPER_VERIFY_RUN_ID: "34907775314"
+  INDEX_PREFLIGHT_RUN_ID: "34868358617"
+  INDEX_PREFLIGHT_ARTIFACT_ID: "10358261087"
+  INDEX_PREFLIGHT_ARTIFACT_NAME: issue571-full-index-preflight-v2-publisher-34868358617
+  INDEX_PREFLIGHT_ARTIFACT_DIGEST: sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6
+
+jobs:
+  publisher:
+    name: Combined source manifest publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      manifest_sha256: ${{ steps.run.outputs.manifest_sha256 }}
+      manifest_digest: ${{ steps.run.outputs.manifest_digest }}
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          persist-credentials: false
+      - name: Verify exact helper and Green helper gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+          helper_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$helper_run")" = success
+          helper_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="helper") | .conclusion' <<<"$helper_jobs")" = success
+      - name: API-bind frozen index preflight artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$INDEX_PREFLIGHT_ARTIFACT_ID)"
+          test "$(jq -r .digest <<<"$payload")" = "$INDEX_PREFLIGHT_ARTIFACT_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$INDEX_PREFLIGHT_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$INDEX_PREFLIGHT_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+      - name: Download frozen index preflight
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.INDEX_PREFLIGHT_ARTIFACT_NAME }}
+          path: /tmp/index-preflight
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INDEX_PREFLIGHT_RUN_ID }}
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Build structural-only combined manifest
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/source-preflight
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          from tools.tmp_issue577_basis_common import (
+              build_source_manifest,
+              download_all_sources,
+              load_index_preflight,
+              manifest_bytes,
+          )
+
+          preflight_path = Path('/tmp/index-preflight/full-index-preflight.json')
+          preflight = load_index_preflight(preflight_path)
+          entries, _contract, _index = download_all_sources(preflight)
+          manifest = build_source_manifest(entries)
+          raw = manifest_bytes(manifest)
+          Path('/tmp/source-preflight/source-manifest.json').write_bytes(raw)
+          sha = hashlib.sha256(raw).hexdigest()
+          digest = str(manifest['content_digest'])
+          if manifest.get('planned_archives') != 240:
+              raise RuntimeError('combined source archive count differs')
+          if manifest.get('replacement_source_used') is not False:
+              raise RuntimeError('replacement source was used')
+          if manifest.get('rest_or_auto_fallback_used') is not False:
+              raise RuntimeError('REST/AUTO fallback was used')
+          if manifest.get('evaluation_or_final_data_accessed') is not False:
+              raise RuntimeError('evaluation/final data boundary crossed')
+          if manifest.get('evaluation_pnl_computed') is not False:
+              raise RuntimeError('evaluation PnL boundary crossed')
+          entries = manifest.get('entries')
+          if not isinstance(entries, list) or len(entries) != 240:
+              raise RuntimeError('manifest entry roster differs')
+          if any(item.get('checksum_verified') is not True for item in entries):
+              raise RuntimeError('combined source checksum gate failed')
+          if any(item.get('structurally_valid') is not True for item in entries):
+              raise RuntimeError('combined source structure gate failed')
+          summary = {
+              'planned_archives': 240,
+              'contract_missing_grid_rows_by_symbol': manifest['missing_contract_grid_rows_by_symbol'],
+              'index_missing_grid_rows_by_symbol': manifest['missing_index_grid_rows_by_symbol'],
+              'manifest_sha256': sha,
+              'manifest_digest': digest,
+              'economic_values_logged': False,
+              'training_relation_computed': False,
+              'evaluation_pnl_computed': False,
+          }
+          print(json.dumps(summary, sort_keys=True))
+          Path('/tmp/manifest_sha').write_text(sha, encoding='ascii')
+          Path('/tmp/manifest_digest').write_text(digest, encoding='ascii')
+          PY
+          echo "manifest_sha256=$(cat /tmp/manifest_sha)" >> "$GITHUB_OUTPUT"
+          echo "manifest_digest=$(cat /tmp/manifest_digest)" >> "$GITHUB_OUTPUT"
+      - id: meta
+        run: echo "name=issue577-source-preflight-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload combined source manifest
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/source-preflight/source-manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verify:
+    name: Fresh combined source reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact helper head on fresh runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          persist-credentials: false
+      - name: Verify exact helper head
+        run: test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+      - name: API-bind publisher and index authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pub="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$PUB_ID)"
+          test "$(jq -r .name <<<"$pub")" = "$PUB_NAME"
+          test "$(jq -r .workflow_run.id <<<"$pub")" = "$GITHUB_RUN_ID"
+          api_digest="$(jq -r .digest <<<"$pub")"
+          case "$PUB_DIGEST" in
+            sha256:*) test "$api_digest" = "$PUB_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PUB_DIGEST" ;;
+          esac
+          idx="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$INDEX_PREFLIGHT_ARTIFACT_ID)"
+          test "$(jq -r .digest <<<"$idx")" = "$INDEX_PREFLIGHT_ARTIFACT_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$idx")" = "$INDEX_PREFLIGHT_RUN_ID"
+      - name: Download publisher manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - name: Download frozen index preflight
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.INDEX_PREFLIGHT_ARTIFACT_NAME }}
+          path: /tmp/index-preflight
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INDEX_PREFLIGHT_RUN_ID }}
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Independently rebuild and require byte equality
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.publisher.outputs.manifest_sha256 }}
+          EXPECTED_DIGEST: ${{ needs.publisher.outputs.manifest_digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          from tools.tmp_issue577_basis_common import (
+              build_source_manifest,
+              download_all_sources,
+              load_index_preflight,
+              manifest_bytes,
+          )
+
+          preflight = load_index_preflight(Path('/tmp/index-preflight/full-index-preflight.json'))
+          entries, _contract, _index = download_all_sources(preflight)
+          manifest = build_source_manifest(entries)
+          raw = manifest_bytes(manifest)
+          Path('/tmp/fresh/source-manifest.json').write_bytes(raw)
+          sha = hashlib.sha256(raw).hexdigest()
+          if sha != os.environ['EXPECTED_SHA']:
+              raise RuntimeError('fresh combined source SHA differs')
+          if str(manifest['content_digest']) != os.environ['EXPECTED_DIGEST']:
+              raise RuntimeError('fresh combined source content digest differs')
+          if raw != Path('/tmp/publisher/source-manifest.json').read_bytes():
+              raise RuntimeError('fresh combined source bytes differ')
+          print('FRESH_COMBINED_SOURCE_BYTE_EQUAL=true')
+          print('TRAINING_RELATION_COMPUTED=false')
+          print('ECONOMIC_VALUES_LOGGED=false')
+          PY
+      - id: meta
+        run: echo "name=issue577-source-preflight-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh source manifest
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/source-manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final combined source audit
+    needs: [publisher, fresh_verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both combined source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          FRESH_ID: ${{ needs.fresh_verify.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh_verify.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in "$PUB_ID:$PUB_NAME" "$FRESH_ID:$FRESH_NAME"; do
+            id="${pair%%:*}"
+            name="${pair#*:}"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh_verify.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Final structural audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/source-manifest.json /tmp/fresh/source-manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('/tmp/publisher/source-manifest.json').read_bytes())
+          if manifest.get('planned_archives') != 240:
+              raise RuntimeError('combined archive count differs')
+          entries = manifest.get('entries')
+          if not isinstance(entries, list) or len(entries) != 240:
+              raise RuntimeError('combined entry roster differs')
+          if any(item.get('checksum_verified') is not True for item in entries):
+              raise RuntimeError('checksum gate differs')
+          if any(item.get('structurally_valid') is not True for item in entries):
+              raise RuntimeError('structure gate differs')
+          for key in (
+              'replacement_source_used',
+              'rest_or_auto_fallback_used',
+              'economic_values_logged',
+              'evaluation_or_final_data_accessed',
+              'evaluation_pnl_computed',
+          ):
+              if manifest.get(key) is not False:
+                  raise RuntimeError(f'forbidden structural flag differs: {key}')
+          forbidden_keys = {'status', 'beta', 'numerator', 'denominator', 'training_result', 'pnl'}
+          if forbidden_keys.intersection(manifest):
+              raise RuntimeError('economic result fields leaked into source manifest')
+          print('ISSUE577_COMBINED_SOURCE_PREFLIGHT=PASS')
+          print('TRAINING_RELATION_COMPUTED=false')
+          print('EVALUATION_PNL_COMPUTED=false')
+          PY

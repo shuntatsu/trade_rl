@@ -248,7 +248,10 @@ def research_status_from_counts(
         drawdown_nonworse_symbols,
         new_termination_symbols,
     )
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counts):
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in counts
+    ):
         raise ValueError("research decision counts must be non-negative integers")
 
     promote = (
@@ -281,7 +284,9 @@ def _exact_index(dataset: MarketDataset, timestamp: str, *, field: str) -> int:
     return int(matches[0])
 
 
-def _validate_dataset(dataset: MarketDataset, spec: MeanReversionEconomicGateEvaluationSpec) -> tuple[int, int]:
+def _validate_dataset(
+    dataset: MarketDataset, spec: MeanReversionEconomicGateEvaluationSpec
+) -> tuple[int, int]:
     if dataset.dataset_id != spec.dataset_id:
         raise ValueError("dataset identity differs from frozen evaluation")
     if tuple(dataset.symbols) != spec.symbols:
@@ -307,7 +312,9 @@ def _validate_dataset(dataset: MarketDataset, spec: MeanReversionEconomicGateEva
         ("taker_fee_rate", spec.taker_fee_rate),
         ("spread_rate", spec.spread_rate),
     ):
-        values = np.asarray(dataset.resolved_array(field)[execution_slice], dtype=np.float64)
+        values = np.asarray(
+            dataset.resolved_array(field)[execution_slice], dtype=np.float64
+        )
         if values.shape != expected_shape or not np.all(values == expected):
             raise ValueError(f"evaluation cost drift: {field}")
 

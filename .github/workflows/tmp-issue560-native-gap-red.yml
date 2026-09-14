@@ -1,0 +1,112 @@
+name: Temporary Issue 560 Binance native-gap RED
+
+on:
+  push:
+    branches:
+      - verify/issue560-native-gap-red-adf835
+    paths:
+      - .github/workflows/tmp-issue560-native-gap-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: adf835cf45936dbc40bf8d4f74879825ae211ef9
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact source authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Add sparse-native oracle only in runner
+        run: |
+          cat > /tmp/test_issue560_native_gap_red.py <<'PY'
+          from datetime import UTC, datetime, timedelta
+          from typing import Any
+
+          import numpy as np
+
+          from trade_rl.integrations.binance import BinanceMarketDataSource
+
+
+          def _ms(value: datetime) -> int:
+              return int(value.timestamp() * 1000)
+
+
+          def _kline(open_time: datetime, close: float) -> list[Any]:
+              open_ms = _ms(open_time)
+              return [
+                  open_ms,
+                  str(close - 1.0),
+                  str(close + 1.0),
+                  str(close - 2.0),
+                  str(close),
+                  "12.0",
+                  open_ms + 3_599_999,
+                  "1000.0",
+                  10,
+                  "5.0",
+                  "600.0",
+                  "0",
+              ]
+
+
+          class SparseTransport:
+              def __init__(self) -> None:
+                  self.start = datetime(2022, 2, 1, tzinfo=UTC)
+
+              def load_klines(self, **_: object):
+                  return [
+                      _kline(self.start, 100.0),
+                      _kline(self.start + timedelta(hours=2), 102.0),
+                  ], "fixture:sparse-klines"
+
+              def load_funding_rates(self, **_: object):
+                  return [
+                      (_ms(self.start + timedelta(hours=1)), 0.0001),
+                      (_ms(self.start + timedelta(hours=3)), -0.0002),
+                  ], "fixture:funding"
+
+
+          def test_sparse_official_1h_rows_remain_sparse_for_regular_builder_fill() -> None:
+              start = datetime(2022, 2, 1, tzinfo=UTC)
+              source = BinanceMarketDataSource(
+                  market="usds-m",
+                  interval="1h",
+                  start_time=start,
+                  end_time=start + timedelta(hours=3),
+                  transport=SparseTransport(),
+              )
+              series = source.load("XRPUSDT")
+              np.testing.assert_array_equal(
+                  series.timestamps,
+                  np.array(
+                      ["2022-02-01T01:00:00", "2022-02-01T03:00:00"],
+                      dtype="datetime64[ns]",
+                  ),
+              )
+              np.testing.assert_allclose(series.funding_rate, [0.0001, -0.0002])
+          PY
+      - name: Require production native-gap RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q /tmp/test_issue560_native_gap_red.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q 'complete and exactly regular' /tmp/red.log
+          grep -q 'test_sparse_official_1h_rows_remain_sparse_for_regular_builder_fill' /tmp/red.log

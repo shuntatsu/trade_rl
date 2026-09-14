@@ -1,0 +1,335 @@
+name: Temporary Issue 547 sealed training calibration
+
+on:
+  push:
+    branches:
+      - verify/issue547-real-calibration
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  TARGET_SHA: 393952c927d46c8a7135f4a6311ce611f508f85e
+  PR_NUMBER: "548"
+  FULL_CI_RUN_ID: "34821774528"
+  PROTOCOL_DIGEST: c4d6b6f4627dcc58160454f706afc176a37c150e4b2ed731fca929450a76328f
+  PROTOCOL_SEAL_DIGEST: ce0e56e57366e12b7a0b89327083b4acf90d91f28254767fedd2c61142591dbd
+  PROTOCOL_SEAL_RUN_ID: "34820490097"
+  PROTOCOL_SEAL_ARTIFACT_ID: "10337873013"
+  PROTOCOL_SEAL_ARTIFACT_NAME: issue545-prereg-seal-v1-34820490097
+  PROTOCOL_SEAL_ARTIFACT_DIGEST: sha256:c92a9bf230a7a348d3461fa713809b2aa7487b2058f90cd520e405b6b4a64eed
+  PROTOCOL_VERIFY_ARTIFACT_ID: "10337773324"
+  PROTOCOL_VERIFY_ARTIFACT_DIGEST: sha256:d75273db9faad4b3c8dc87a5cf680cee4605de7f1d1f407d163da82e76cd30a7
+  SUCCESSOR_RUN_ID: "34803217815"
+  SUCCESSOR_ARTIFACT_ID: "10331899302"
+  SUCCESSOR_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SUCCESSOR_ARTIFACT_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  SUCCESSOR_DATASET_ID: 6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518
+  SUCCESSOR_DATASET_ARTIFACT_DIGEST: af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7
+
+jobs:
+  publish:
+    name: Publish sealed training-only calibration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Bind PR, exact-head CI, protocol seal, and Dataset bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_META="$pr" python3 -c 'import json,os; x=json.loads(os.environ["PR_META"]); assert x["head"]["sha"]==os.environ["TARGET_SHA"]; assert x["merged"] is False'
+          run="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FULL_CI_RUN_ID}")"
+          RUN_META="$run" python3 -c 'import json,os; x=json.loads(os.environ["RUN_META"]); assert x["status"]=="completed"; assert x["conclusion"]=="success"'
+          for spec in \
+            "${PROTOCOL_SEAL_ARTIFACT_ID}|${PROTOCOL_SEAL_ARTIFACT_DIGEST}" \
+            "${PROTOCOL_VERIFY_ARTIFACT_ID}|${PROTOCOL_VERIFY_ARTIFACT_DIGEST}" \
+            "${SUCCESSOR_ARTIFACT_ID}|${SUCCESSOR_ARTIFACT_DIGEST}"; do
+            id="${spec%%|*}"; digest="${spec#*|}"
+            meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
+            META="$meta" EXPECTED_ID="$id" EXPECTED_DIGEST="$digest" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["EXPECTED_ID"]); assert x["digest"]==os.environ["EXPECTED_DIGEST"]; assert x["expired"] is False'
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PROTOCOL_SEAL_ARTIFACT_NAME }}
+          path: /tmp/issue547-seal
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PROTOCOL_SEAL_RUN_ID }}
+          digest-mismatch: error
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_ARTIFACT_NAME }}
+          path: /tmp/issue547-successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SUCCESSOR_RUN_ID }}
+          digest-mismatch: error
+      - name: Execute training-only calibration from Dataset directory only
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue547-output
+          mkdir -p /tmp/issue547-output
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_calibration import calibrate_mean_reversion_economic_gate
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prereg import canonical_mean_reversion_economic_gate_protocol
+
+          seal_path = Path('/tmp/issue547-seal/prereg-seal.json')
+          seal = json.loads(seal_path.read_text(encoding='utf-8'))
+          seal_body = dict(seal)
+          seal_claim = seal_body.pop('seal_digest')
+          if content_digest(seal_body) != seal_claim or seal_claim != os.environ['PROTOCOL_SEAL_DIGEST']:
+              raise SystemExit('protocol seal content digest mismatch')
+          if seal.get('protocol_digest') != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('protocol digest mismatch in seal')
+          if any((seal.get('calibration_executed'), seal.get('evaluation_pnl_inspected'), seal.get('evaluation_execution_authorized'))):
+              raise SystemExit('protocol seal crossed execution boundary')
+
+          protocol = canonical_mean_reversion_economic_gate_protocol()
+          if protocol.digest != os.environ['PROTOCOL_DIGEST'] or protocol.to_payload() != seal.get('protocol'):
+              raise SystemExit('canonical protocol differs from sealed protocol')
+
+          dataset_root = Path('/tmp/issue547-successor/dataset')
+          dataset = load_market_dataset_artifact(dataset_root)
+          dataset_artifact = inspect_published_market_dataset_artifact(dataset_root)
+          if dataset.dataset_id != os.environ['SUCCESSOR_DATASET_ID']:
+              raise SystemExit('successor Dataset ID mismatch')
+          if dataset_artifact.artifact_digest != os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST']:
+              raise SystemExit('successor Dataset artifact digest mismatch')
+
+          result = calibrate_mean_reversion_economic_gate(dataset, protocol)
+          paths = (
+              Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_calibration.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py'),
+          )
+          file_sha256 = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+          body = {
+              'schema_version': 'mean_reversion_economic_gate_calibration_artifact_v1',
+              'issue_number': 547,
+              'pr_number': int(os.environ['PR_NUMBER']),
+              'implementation_head': os.environ['TARGET_SHA'],
+              'implementation_tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], text=True).strip(),
+              'exact_checkout_full_ci_run_id': int(os.environ['FULL_CI_RUN_ID']),
+              'protocol_digest': protocol.digest,
+              'protocol_seal_digest': os.environ['PROTOCOL_SEAL_DIGEST'],
+              'protocol_seal_artifact_id': int(os.environ['PROTOCOL_SEAL_ARTIFACT_ID']),
+              'protocol_seal_artifact_api_digest': os.environ['PROTOCOL_SEAL_ARTIFACT_DIGEST'],
+              'protocol_verification_artifact_id': int(os.environ['PROTOCOL_VERIFY_ARTIFACT_ID']),
+              'protocol_verification_artifact_api_digest': os.environ['PROTOCOL_VERIFY_ARTIFACT_DIGEST'],
+              'successor_bundle_artifact_id': int(os.environ['SUCCESSOR_ARTIFACT_ID']),
+              'successor_bundle_artifact_api_digest': os.environ['SUCCESSOR_ARTIFACT_DIGEST'],
+              'successor_dataset_id': dataset.dataset_id,
+              'successor_dataset_artifact_digest': dataset_artifact.artifact_digest,
+              'calibration_result_digest': result.digest,
+              'calibration_result': result.to_payload(),
+              'file_sha256': file_sha256,
+              'calibration_executed': True,
+              'evaluation_pnl_inspected': False,
+              'strategy_execution_performed': False,
+              'evaluation_execution_authorized': False,
+              'production_eligible': False,
+          }
+          output = {**body, 'artifact_digest': content_digest(body)}
+          Path('/tmp/issue547-output/calibration.json').write_bytes(canonical_json_bytes(output))
+          print('STATUS=' + result.status)
+          print('NEGATIVE_SLOPE_COUNT=' + str(result.negative_slope_count))
+          print('BETA_GATE=' + ('null' if result.beta_gate is None else repr(result.beta_gate)))
+          for item in result.symbol_results:
+              print(f"SYMBOL={item.symbol} COUNT={item.eligible_observations} BETA={item.beta!r}")
+          print('CALIBRATION_RESULT_DIGEST=' + result.digest)
+          print('ARTIFACT_DIGEST=' + output['artifact_digest'])
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('STRATEGY_EXECUTION_PERFORMED=false')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue547-economic-gate-calibration-v1-${{ github.run_id }}
+          path: /tmp/issue547-output/calibration.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh independent calibration reconstruction
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue547-economic-gate-calibration-v1-${{ github.run_id }}
+          path: /tmp/issue547-published
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          digest-mismatch: error
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PROTOCOL_SEAL_ARTIFACT_NAME }}
+          path: /tmp/issue547-seal-verify
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PROTOCOL_SEAL_RUN_ID }}
+          digest-mismatch: error
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SUCCESSOR_ARTIFACT_NAME }}
+          path: /tmp/issue547-successor-verify
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SUCCESSOR_RUN_ID }}
+          digest-mismatch: error
+      - name: Resolve publisher artifact and rebind immutable sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHED_NAME: issue547-economic-gate-calibration-v1-${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100")"
+          META="$meta" PUBLISHED_NAME="$PUBLISHED_NAME" python3 -c 'import json,os; xs=json.loads(os.environ["META"])["artifacts"]; m=[x for x in xs if x["name"]==os.environ["PUBLISHED_NAME"]]; assert len(m)==1; x=m[0]; assert x["expired"] is False; assert str(x["digest"]).startswith("sha256:"); print("PUBLISHED_ARTIFACT_ID="+str(x["id"])); print("PUBLISHED_ARTIFACT_API_DIGEST="+x["digest"])' >> "$GITHUB_ENV"
+          for spec in \
+            "${PROTOCOL_SEAL_ARTIFACT_ID}|${PROTOCOL_SEAL_ARTIFACT_DIGEST}" \
+            "${PROTOCOL_VERIFY_ARTIFACT_ID}|${PROTOCOL_VERIFY_ARTIFACT_DIGEST}" \
+            "${SUCCESSOR_ARTIFACT_ID}|${SUCCESSOR_ARTIFACT_DIGEST}"; do
+            id="${spec%%|*}"; digest="${spec#*|}"
+            src="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
+            META="$src" EXPECTED_ID="$id" EXPECTED_DIGEST="$digest" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["EXPECTED_ID"]); assert x["digest"]==os.environ["EXPECTED_DIGEST"]; assert x["expired"] is False'
+          done
+      - name: Recompute from Dataset only and require byte equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue547-verification
+          mkdir -p /tmp/issue547-verification
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_calibration import calibrate_mean_reversion_economic_gate
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prereg import canonical_mean_reversion_economic_gate_protocol
+
+          published_path = Path('/tmp/issue547-published/calibration.json')
+          published_bytes = published_path.read_bytes()
+          published = json.loads(published_bytes)
+          published_body = dict(published)
+          claimed_artifact_digest = published_body.pop('artifact_digest')
+          if content_digest(published_body) != claimed_artifact_digest:
+              raise SystemExit('publisher calibration content digest mismatch')
+
+          seal = json.loads(Path('/tmp/issue547-seal-verify/prereg-seal.json').read_text(encoding='utf-8'))
+          seal_body = dict(seal)
+          seal_claim = seal_body.pop('seal_digest')
+          if content_digest(seal_body) != seal_claim or seal_claim != os.environ['PROTOCOL_SEAL_DIGEST']:
+              raise SystemExit('fresh protocol seal mismatch')
+          protocol = canonical_mean_reversion_economic_gate_protocol()
+          if protocol.digest != os.environ['PROTOCOL_DIGEST'] or seal.get('protocol') != protocol.to_payload():
+              raise SystemExit('fresh canonical protocol mismatch')
+
+          dataset_root = Path('/tmp/issue547-successor-verify/dataset')
+          dataset = load_market_dataset_artifact(dataset_root)
+          dataset_artifact = inspect_published_market_dataset_artifact(dataset_root)
+          if dataset.dataset_id != os.environ['SUCCESSOR_DATASET_ID'] or dataset_artifact.artifact_digest != os.environ['SUCCESSOR_DATASET_ARTIFACT_DIGEST']:
+              raise SystemExit('fresh successor Dataset identity mismatch')
+
+          result = calibrate_mean_reversion_economic_gate(dataset, protocol)
+          paths = (
+              Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_calibration.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py'),
+          )
+          file_sha256 = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+          body = {
+              'schema_version': 'mean_reversion_economic_gate_calibration_artifact_v1',
+              'issue_number': 547,
+              'pr_number': int(os.environ['PR_NUMBER']),
+              'implementation_head': os.environ['TARGET_SHA'],
+              'implementation_tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], text=True).strip(),
+              'exact_checkout_full_ci_run_id': int(os.environ['FULL_CI_RUN_ID']),
+              'protocol_digest': protocol.digest,
+              'protocol_seal_digest': os.environ['PROTOCOL_SEAL_DIGEST'],
+              'protocol_seal_artifact_id': int(os.environ['PROTOCOL_SEAL_ARTIFACT_ID']),
+              'protocol_seal_artifact_api_digest': os.environ['PROTOCOL_SEAL_ARTIFACT_DIGEST'],
+              'protocol_verification_artifact_id': int(os.environ['PROTOCOL_VERIFY_ARTIFACT_ID']),
+              'protocol_verification_artifact_api_digest': os.environ['PROTOCOL_VERIFY_ARTIFACT_DIGEST'],
+              'successor_bundle_artifact_id': int(os.environ['SUCCESSOR_ARTIFACT_ID']),
+              'successor_bundle_artifact_api_digest': os.environ['SUCCESSOR_ARTIFACT_DIGEST'],
+              'successor_dataset_id': dataset.dataset_id,
+              'successor_dataset_artifact_digest': dataset_artifact.artifact_digest,
+              'calibration_result_digest': result.digest,
+              'calibration_result': result.to_payload(),
+              'file_sha256': file_sha256,
+              'calibration_executed': True,
+              'evaluation_pnl_inspected': False,
+              'strategy_execution_performed': False,
+              'evaluation_execution_authorized': False,
+              'production_eligible': False,
+          }
+          reconstructed = {**body, 'artifact_digest': content_digest(body)}
+          reconstructed_bytes = canonical_json_bytes(reconstructed)
+          if published_bytes != reconstructed_bytes:
+              raise SystemExit('fresh calibration bytes differ from publisher artifact')
+          verification = {
+              'schema_version': 'mean_reversion_economic_gate_calibration_verify_v1',
+              'calibration_artifact_id': int(os.environ['PUBLISHED_ARTIFACT_ID']),
+              'calibration_artifact_api_digest': os.environ['PUBLISHED_ARTIFACT_API_DIGEST'],
+              'calibration_artifact_digest': claimed_artifact_digest,
+              'calibration_result_digest': result.digest,
+              'status': result.status,
+              'negative_slope_count': result.negative_slope_count,
+              'beta_gate': result.beta_gate,
+              'fresh_reconstruction_byte_equal': True,
+              'evaluation_pnl_inspected': False,
+              'strategy_execution_performed': False,
+              'evaluation_execution_authorized': False,
+              'production_eligible': False,
+          }
+          Path('/tmp/issue547-verification/verification.json').write_bytes(canonical_json_bytes(verification))
+          print(json.dumps(verification, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue547-economic-gate-calibration-verification-v1-${{ github.run_id }}
+          path: /tmp/issue547-verification/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

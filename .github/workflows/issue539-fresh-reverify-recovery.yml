@@ -1,0 +1,325 @@
+name: Issue 539 fresh reverify recovery
+
+on:
+  push:
+    branches:
+      - verify/issue539-fresh-reverify-10331899302
+    paths:
+      - .github/workflows/issue539-fresh-reverify-recovery.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 3e111a59153b7353e26080bd569b9775190577be
+  BUNDLE_RUN_ID: "34803217815"
+  BUNDLE_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  BUNDLE_ID: "10331899302"
+  BUNDLE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  SOURCE_RUN_ID: "34702660287"
+  SOURCE_ARTIFACT: canonical-m2-portable-prereg-v1-34702660287
+  SOURCE_ARTIFACT_ID: "10300479733"
+  SOURCE_ARTIFACT_API_DIGEST: sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4
+  SOURCE_DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  SOURCE_DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+  SOURCE_STUDY_DIGEST: 3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79
+  CALIBRATION_RUN_ID: "34766830666"
+  CALIBRATION_ARTIFACT: issue537-aggtrades-flow-calibration-34766830666
+  CALIBRATION_ARTIFACT_ID: "10320428830"
+  CALIBRATION_ARTIFACT_API_DIGEST: sha256:810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35
+  CALIBRATION_RESULT_DIGEST: a5490f9209b16a8ba94f11506b83aa45ce44c7d61d13234480e2362f6df89809
+  CALIBRATION_JSON_SHA256: 397004e6a1a9c3b30b32212066ac41366f7af74edc0ae23372f847e50c6c5a4e
+  CALIBRATION_VERIFY_RUN_ID: "34767391268"
+  CALIBRATION_VERIFY_ARTIFACT: issue537-independent-reconstruction-10320428830-v2
+  CALIBRATION_VERIFY_ARTIFACT_ID: "10320394746"
+  CALIBRATION_VERIFY_ARTIFACT_API_DIGEST: sha256:31702e68dddd9b4844eee6dc3b5b47ab4aa824d50200509a7bcdbf009c652bd1
+  CAUSAL_OVERLAY: zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity
+
+jobs:
+  fresh_reverify:
+    name: Fresh independent reverify existing bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      verify_name: ${{ steps.meta.outputs.verify_name }}
+      verify_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      verify_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact durable PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3e111a59153b7353e26080bd569b9775190577be
+          persist-credentials: false
+      - name: Prove exact head and API-bind existing immutable bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$BUNDLE_ID")"
+          test "$(jq -r '.name' <<<"$payload")" = "$BUNDLE_NAME"
+          test "$(jq -r '.digest' <<<"$payload")" = "$BUNDLE_API_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$BUNDLE_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$payload")" = "1ff2cfbb072120785997d13c0deb99e0a8b2bfe8"
+          test "$(jq -r '.expired' <<<"$payload")" = "false"
+      - name: Download exact existing published bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.BUNDLE_NAME }}
+          path: /tmp/published
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BUNDLE_RUN_ID }}
+      - name: Verify immutable source authorities via API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local payload
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT" "$SOURCE_ARTIFACT_API_DIGEST" "$SOURCE_RUN_ID"
+          verify_artifact "$CALIBRATION_ARTIFACT_ID" "$CALIBRATION_ARTIFACT" "$CALIBRATION_ARTIFACT_API_DIGEST" "$CALIBRATION_RUN_ID"
+          verify_artifact "$CALIBRATION_VERIFY_ARTIFACT_ID" "$CALIBRATION_VERIFY_ARTIFACT" "$CALIBRATION_VERIFY_RUN_ID" "$CALIBRATION_VERIFY_RUN_ID"
+        continue-on-error: true
+      - name: Strictly re-verify source authorities after typo-safe API gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local payload
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT" "$SOURCE_ARTIFACT_API_DIGEST" "$SOURCE_RUN_ID"
+          verify_artifact "$CALIBRATION_ARTIFACT_ID" "$CALIBRATION_ARTIFACT" "$CALIBRATION_ARTIFACT_API_DIGEST" "$CALIBRATION_RUN_ID"
+          verify_artifact "$CALIBRATION_VERIFY_ARTIFACT_ID" "$CALIBRATION_VERIFY_ARTIFACT" "$CALIBRATION_VERIFY_ARTIFACT_API_DIGEST" "$CALIBRATION_VERIFY_RUN_ID"
+      - name: Re-download exact source preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Re-download sealed calibration result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_ARTIFACT }}
+          path: /tmp/calibration
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_RUN_ID }}
+      - name: Re-download independent calibration reconstruction
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.CALIBRATION_VERIFY_ARTIFACT }}
+          path: /tmp/calibration-verify
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CALIBRATION_VERIFY_RUN_ID }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Independently reconstruct and reverify existing published successor
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import numpy as np
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact, publish_market_dataset_artifact
+          from trade_rl.evaluation.experiments import create_study, inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.capacity_materialization import build_aggtrades_calibrated_capacity_dataset, canonical_aggtrades_capacity_authority
+          from trade_rl.evaluation.experiments.bootstrap.config import load_canonical_m2_bootstrap_config
+          from trade_rl.evaluation.runs import CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
+
+          published = Path('/tmp/published')
+          index = json.loads((published / 'successor-index.json').read_text(encoding='utf-8'))
+          if index['schema_version'] != 'issue539_calibrated_causal_successor_bundle_v3':
+              raise RuntimeError('published index schema drift')
+          if index['implementation_git_sha'] != os.environ['TARGET_SHA']:
+              raise RuntimeError('published implementation SHA drift')
+          if index['calibration_authority']['result_run_id'] != int(os.environ['CALIBRATION_RUN_ID']):
+              raise RuntimeError('published identity does not bind calibration publisher run')
+          if any(index[key] for key in ('baseline_present','pnl_executed','returns_inspected','final_test_authorized','production_authorized')):
+              raise RuntimeError('published bundle crossed PRE-PnL boundary')
+          if index['experiment_count'] != 0 or index['study_frozen']:
+              raise RuntimeError('published Study state is not plan-only')
+
+          published_dataset = load_market_dataset_artifact(published / 'dataset')
+          published_artifact = inspect_published_market_dataset_artifact(published / 'dataset')
+          published_study = inspect_study(published / 'study')
+          if published_dataset.dataset_id != index['dataset_id'] or published_artifact.artifact_digest != index['dataset_artifact_digest']:
+              raise RuntimeError('published Dataset index binding drift')
+          if published_study.plan.digest != index['study_digest']:
+              raise RuntimeError('published Study index binding drift')
+          if published_study.plan.dataset_id != published_dataset.dataset_id or published_study.plan.dataset_artifact_digest != published_artifact.artifact_digest:
+              raise RuntimeError('published Study/Dataset binding drift')
+          if published_study.plan.baseline_config.execution_overlay != os.environ['CAUSAL_OVERLAY']:
+              raise RuntimeError('published Study causal overlay drift')
+          if published_study.baseline is not None or published_study.experiment_sequences or published_study.terminal_sequences or published_study.frozen:
+              raise RuntimeError('published Study is not plan-only')
+
+          authority = canonical_aggtrades_capacity_authority()
+          if authority.to_payload() != index['calibration_authority']:
+              raise RuntimeError('published calibration authority differs from implementation authority')
+          caps = np.broadcast_to(np.asarray(authority.symbol_caps, dtype=np.float64), (published_dataset.n_bars, published_dataset.n_symbols))
+          if not np.array_equal(published_dataset.resolved_array('max_participation_rate'), caps):
+              raise RuntimeError('published caps differ from sealed authority')
+
+          result_bytes = Path('/tmp/calibration/result.json').read_bytes()
+          verifier_bytes = Path('/tmp/calibration-verify/verified.json').read_bytes()
+          if result_bytes != verifier_bytes:
+              raise RuntimeError('fresh calibration verifier bytes differ')
+          if hashlib.sha256(result_bytes).hexdigest() != os.environ['CALIBRATION_JSON_SHA256']:
+              raise RuntimeError('fresh calibration JSON SHA drift')
+          result = json.loads(result_bytes)
+          result_digest = result.get('result_digest')
+          content = dict(result)
+          del content['result_digest']
+          if result_digest != os.environ['CALIBRATION_RESULT_DIGEST'] or content_digest(content) != result_digest:
+              raise RuntimeError('fresh calibration content digest mismatch')
+
+          source = Path('/tmp/source')
+          source_dataset = load_market_dataset_artifact(source / 'dataset')
+          source_artifact = inspect_published_market_dataset_artifact(source / 'dataset')
+          source_study = inspect_study(source / 'study')
+          if source_dataset.dataset_id != os.environ['SOURCE_DATASET_ID'] or source_artifact.artifact_digest != os.environ['SOURCE_DATASET_ARTIFACT_DIGEST'] or source_study.plan.digest != os.environ['SOURCE_STUDY_DIGEST']:
+              raise RuntimeError('source authority drift')
+          rebuilt = build_aggtrades_calibrated_capacity_dataset(source_dataset, source_artifact_schema=source_artifact.schema_version, source_artifact_digest=source_artifact.artifact_digest, authority=authority)
+          rebuilt_root = Path('/tmp/rebuilt')
+          rebuilt_artifact = publish_market_dataset_artifact(rebuilt_root / 'dataset', rebuilt)
+          config = load_canonical_m2_bootstrap_config(source / 'bootstrap.json')
+          create_study(rebuilt_root / 'study', dataset_root=rebuilt_root / 'dataset', research_question=source_study.plan.research_question, baseline_config=config.baseline, ppo_seeds=source_study.plan.ppo_seeds, allowed_factors=source_study.plan.allowed_factors, max_experiments=source_study.plan.max_experiments, n_bootstrap=source_study.plan.n_bootstrap, bootstrap_seed=source_study.plan.bootstrap_seed, execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY)
+          rebuilt_study = inspect_study(rebuilt_root / 'study')
+
+          def tree_digest(path: Path) -> str:
+              h = hashlib.sha256()
+              files = [p for p in sorted(path.rglob('*')) if p.is_file() and p.name != '.mutation.lock']
+              if not files:
+                  raise RuntimeError(f'empty tree: {path}')
+              for item in files:
+                  rel = item.relative_to(path).as_posix().encode('utf-8')
+                  h.update(len(rel).to_bytes(8, 'big'))
+                  h.update(rel)
+                  h.update(hashlib.sha256(item.read_bytes()).digest())
+              return h.hexdigest()
+
+          rebuilt_values = {
+              'dataset_id': rebuilt.dataset_id,
+              'dataset_artifact_digest': rebuilt_artifact.artifact_digest,
+              'dataset_tree_digest': tree_digest(rebuilt_root / 'dataset'),
+              'study_digest': rebuilt_study.plan.digest,
+              'study_tree_digest': tree_digest(rebuilt_root / 'study'),
+          }
+          for key, value in rebuilt_values.items():
+              if index[key] != value:
+                  raise RuntimeError(f'fresh reconstruction mismatch for {key}: published={index[key]} rebuilt={value}')
+          if tree_digest(published / 'dataset') != index['dataset_tree_digest'] or tree_digest(published / 'study') != index['study_tree_digest']:
+              raise RuntimeError('published tree digest mismatch')
+
+          verification = {
+              'schema_version': 'issue539_calibrated_causal_successor_fresh_verification_v3',
+              'source_bundle_run_id': int(os.environ['BUNDLE_RUN_ID']),
+              'source_bundle_artifact_id': int(os.environ['BUNDLE_ID']),
+              'source_bundle_artifact_digest': os.environ['BUNDLE_API_DIGEST'],
+              'target_sha': os.environ['TARGET_SHA'],
+              **rebuilt_values,
+              'calibration_publisher_run_bound': True,
+              'fresh_runner_reconstructed_from_source': True,
+              'byte_level_tree_identity_verified': True,
+              'baseline_present': False,
+              'experiment_count': 0,
+              'pnl_executed': False,
+              'returns_inspected': False,
+              'final_test_authorized': False,
+              'production_authorized': False,
+              'pre_pnl_identity_authorized': True,
+          }
+          Path('/tmp/fresh-verification.json').write_text(json.dumps(verification, allow_nan=False, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print('ISSUE539_FRESH_VERIFY=' + json.dumps(verification, allow_nan=False, sort_keys=True))
+          PY
+      - name: Set verification name
+        id: meta
+        shell: bash
+        run: echo "verify_name=issue539-calibrated-causal-fresh-verify-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable fresh verification
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue539-calibrated-causal-fresh-verify-v3-${{ github.run_id }}
+          path: /tmp/fresh-verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Audit recovered fresh verification
+    needs: fresh_reverify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind fresh verification artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFY_ID: ${{ needs.fresh_reverify.outputs.verify_artifact_id }}
+          VERIFY_DIGEST_RAW: ${{ needs.fresh_reverify.outputs.verify_artifact_digest }}
+          VERIFY_NAME: ${{ needs.fresh_reverify.outputs.verify_name }}
+        run: |
+          set -euo pipefail
+          payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$VERIFY_ID")"
+          api_digest="$(jq -r '.digest' <<<"$payload")"
+          test "$(jq -r '.name' <<<"$payload")" = "$VERIFY_NAME"
+          test "$api_digest" = "sha256:$VERIFY_DIGEST_RAW"
+          test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$payload")" = "false"
+      - name: Download exact fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh_reverify.outputs.verify_name }}
+          path: /tmp/audit
+      - name: Audit PRE-PnL authorization boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .source_bundle_run_id == 34803217815 and
+            .source_bundle_artifact_id == 10331899302 and
+            .source_bundle_artifact_digest == "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce" and
+            .calibration_publisher_run_bound == true and
+            .fresh_runner_reconstructed_from_source == true and
+            .byte_level_tree_identity_verified == true and
+            .baseline_present == false and
+            .experiment_count == 0 and
+            .pnl_executed == false and
+            .returns_inspected == false and
+            .final_test_authorized == false and
+            .production_authorized == false and
+            .pre_pnl_identity_authorized == true
+          ' /tmp/audit/fresh-verification.json >/dev/null

@@ -1,0 +1,224 @@
+name: Temporary Issue 545 prereg seal
+
+on:
+  push:
+    branches:
+      - verify/issue545-prereg-seal
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  TARGET_SHA: cc4e65d988a1b337c204df208b0809b5a76c0ed9
+  PR_NUMBER: "546"
+  FULL_CI_RUN_ID: "34820247624"
+  DIAGNOSIS_VERIFY_ARTIFACT_ID: "10335845094"
+  DIAGNOSIS_VERIFY_ARTIFACT_DIGEST: sha256:e722c27e2b3903ae91ad81b1d244fdbb85e7deba093e0a0db0dcaf644a05d6e9
+  SUCCESSOR_ARTIFACT_ID: "10331899302"
+  SUCCESSOR_ARTIFACT_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+
+jobs:
+  publish:
+    name: Publish immutable prereg seal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Bind PR head, full verification, and immutable source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_META="$pr" python3 -c 'import json,os; x=json.loads(os.environ["PR_META"]); assert x["head"]["sha"]==os.environ["TARGET_SHA"]; assert x["merged"] is False'
+          run="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FULL_CI_RUN_ID}")"
+          RUN_META="$run" python3 -c 'import json,os; x=json.loads(os.environ["RUN_META"]); assert x["status"]=="completed"; assert x["conclusion"]=="success"'
+          for spec in "${DIAGNOSIS_VERIFY_ARTIFACT_ID}|${DIAGNOSIS_VERIFY_ARTIFACT_DIGEST}" "${SUCCESSOR_ARTIFACT_ID}|${SUCCESSOR_ARTIFACT_DIGEST}"; do
+            id="${spec%%|*}"; digest="${spec#*|}"
+            meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
+            META="$meta" EXPECTED_ID="$id" EXPECTED_DIGEST="$digest" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["EXPECTED_ID"]); assert x["digest"]==os.environ["EXPECTED_DIGEST"]; assert x["expired"] is False'
+          done
+      - name: Build canonical prereg seal without calibration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue545-seal
+          mkdir -p /tmp/issue545-seal
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prereg import canonical_mean_reversion_economic_gate_protocol
+
+          protocol = canonical_mean_reversion_economic_gate_protocol()
+          if protocol.evaluation_pnl_inspected or protocol.calibration_executed or protocol.evaluation_execution_authorized:
+              raise SystemExit('prereg seal crossed execution boundary')
+          paths = (
+              Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_prereg.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_prereg_alignment.py'),
+          )
+          file_sha256 = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+          body = {
+              'schema_version': 'mean_reversion_economic_gate_prereg_seal_v1',
+              'issue_number': 545,
+              'pr_number': int(os.environ['PR_NUMBER']),
+              'implementation_head': os.environ['TARGET_SHA'],
+              'implementation_tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], text=True).strip(),
+              'exact_checkout_full_ci_run_id': int(os.environ['FULL_CI_RUN_ID']),
+              'diagnosis_verification_artifact_id': int(os.environ['DIAGNOSIS_VERIFY_ARTIFACT_ID']),
+              'diagnosis_verification_artifact_api_digest': os.environ['DIAGNOSIS_VERIFY_ARTIFACT_DIGEST'],
+              'successor_bundle_artifact_id': int(os.environ['SUCCESSOR_ARTIFACT_ID']),
+              'successor_bundle_artifact_api_digest': os.environ['SUCCESSOR_ARTIFACT_DIGEST'],
+              'protocol_digest': protocol.digest,
+              'protocol': protocol.to_payload(),
+              'file_sha256': file_sha256,
+              'calibration_executed': False,
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+          }
+          output = {**body, 'seal_digest': content_digest(body)}
+          Path('/tmp/issue545-seal/prereg-seal.json').write_bytes(canonical_json_bytes(output))
+          print('PROTOCOL_DIGEST=' + protocol.digest)
+          print('SEAL_DIGEST=' + output['seal_digest'])
+          print('CALIBRATION_EXECUTED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('EVALUATION_EXECUTION_AUTHORIZED=false')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue545-prereg-seal-v1-${{ github.run_id }}
+          path: /tmp/issue545-seal/prereg-seal.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    name: Fresh independent prereg seal verification
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue545-prereg-seal-v1-${{ github.run_id }}
+          path: /tmp/issue545-seal-published
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          digest-mismatch: error
+      - name: Resolve published seal artifact through API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_NAME: issue545-prereg-seal-v1-${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100")"
+          META="$meta" SEAL_NAME="$SEAL_NAME" python3 -c 'import json,os; xs=json.loads(os.environ["META"])["artifacts"]; m=[x for x in xs if x["name"]==os.environ["SEAL_NAME"]]; assert len(m)==1; x=m[0]; assert x["expired"] is False; assert str(x["digest"]).startswith("sha256:"); print("SEAL_ARTIFACT_ID="+str(x["id"])); print("SEAL_ARTIFACT_API_DIGEST="+x["digest"])' >> "$GITHUB_ENV"
+      - name: Rebuild canonical protocol and rebind all authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_META="$pr" python3 -c 'import json,os; x=json.loads(os.environ["PR_META"]); assert x["head"]["sha"]==os.environ["TARGET_SHA"]; assert x["merged"] is False'
+          run="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${FULL_CI_RUN_ID}")"
+          RUN_META="$run" python3 -c 'import json,os; x=json.loads(os.environ["RUN_META"]); assert x["status"]=="completed"; assert x["conclusion"]=="success"'
+          for spec in "${DIAGNOSIS_VERIFY_ARTIFACT_ID}|${DIAGNOSIS_VERIFY_ARTIFACT_DIGEST}" "${SUCCESSOR_ARTIFACT_ID}|${SUCCESSOR_ARTIFACT_DIGEST}"; do
+            id="${spec%%|*}"; digest="${spec#*|}"
+            meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
+            META="$meta" EXPECTED_ID="$id" EXPECTED_DIGEST="$digest" python3 -c 'import json,os; x=json.loads(os.environ["META"]); assert x["id"]==int(os.environ["EXPECTED_ID"]); assert x["digest"]==os.environ["EXPECTED_DIGEST"]; assert x["expired"] is False'
+          done
+          mkdir -p /tmp/issue545-seal-verify
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_prereg import canonical_mean_reversion_economic_gate_protocol, load_mean_reversion_economic_gate_protocol
+
+          path = Path('/tmp/issue545-seal-published/prereg-seal.json')
+          published_bytes = path.read_bytes()
+          published = json.loads(published_bytes)
+          body = dict(published)
+          claimed = body.pop('seal_digest')
+          if content_digest(body) != claimed:
+              raise SystemExit('seal content digest mismatch')
+          protocol = canonical_mean_reversion_economic_gate_protocol()
+          if published['protocol_digest'] != protocol.digest or published['protocol'] != protocol.to_payload():
+              raise SystemExit('canonical protocol reconstruction mismatch')
+          protocol_path = Path('/tmp/issue545-seal-verify/protocol.json')
+          protocol_path.write_bytes(canonical_json_bytes(protocol.to_payload()))
+          if load_mean_reversion_economic_gate_protocol(protocol_path) != protocol:
+              raise SystemExit('strict protocol loader reconstruction mismatch')
+          paths = (
+              Path('trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_prereg.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_prereg.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_prereg_alignment.py'),
+          )
+          file_sha256 = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+          if published['file_sha256'] != file_sha256:
+              raise SystemExit('prereg source/test digest mismatch')
+          if published['implementation_head'] != os.environ['TARGET_SHA']:
+              raise SystemExit('seal head mismatch')
+          tree = subprocess.check_output(['git','rev-parse','HEAD^{tree}'], text=True).strip()
+          if published['implementation_tree'] != tree:
+              raise SystemExit('seal tree mismatch')
+          if any((published['calibration_executed'], published['evaluation_pnl_inspected'], published['evaluation_execution_authorized'])):
+              raise SystemExit('seal crossed research execution boundary')
+          verification = {
+              'schema_version': 'mean_reversion_economic_gate_prereg_seal_verify_v1',
+              'seal_artifact_id': int(os.environ['SEAL_ARTIFACT_ID']),
+              'seal_artifact_api_digest': os.environ['SEAL_ARTIFACT_API_DIGEST'],
+              'seal_digest': claimed,
+              'protocol_digest': protocol.digest,
+              'implementation_head': os.environ['TARGET_SHA'],
+              'implementation_tree': tree,
+              'fresh_reconstruction_equal': True,
+              'source_authorities_rebound': True,
+              'calibration_executed': False,
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+          }
+          Path('/tmp/issue545-seal-verify/verification.json').write_bytes(canonical_json_bytes(verification))
+          print(json.dumps(verification, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue545-prereg-seal-verification-v1-${{ github.run_id }}
+          path: /tmp/issue545-seal-verify/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

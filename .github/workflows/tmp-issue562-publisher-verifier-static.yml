@@ -1,0 +1,69 @@
+name: Temporary Issue 562 publisher/verifier static validation
+
+on:
+  push:
+    branches:
+      - verify/issue562-publisher-verifier-static
+    paths:
+      - .github/workflows/tmp-issue562-publisher-verifier-static.yml
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact staged helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 7f2a95e8663cfc046913934f975a1242ff156509
+          persist-credentials: false
+      - name: Assert exact staged head
+        run: test "$(git rev-parse HEAD)" = "7f2a95e8663cfc046913934f975a1242ff156509"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format-check helpers
+        run: |
+          uv run ruff format --check \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+      - name: Lint helpers
+        run: |
+          uv run ruff check \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+      - name: Compile helpers
+        run: |
+          uv run python -m py_compile \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+      - name: Authority/import smoke without real execution
+        run: |
+          uv run python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import canonical_signed_taker_flow_protocol
+
+          for name in (
+              "tmp_issue562_signed_flow_publisher.py",
+              "tmp_issue562_signed_flow_verifier.py",
+          ):
+              path = Path("tools") / name
+              spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)
+              if spec is None or spec.loader is None:
+                  raise RuntimeError(f"cannot load {path}")
+              module = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(module)
+              assert module.CALIBRATION_HEAD == "817e3c96d702ffca3be74309bd68b31ef02643c5"
+              assert module.IMPLEMENTATION_HEAD == "adf835cf45936dbc40bf8d4f74879825ae211ef9"
+              assert module.PROTOCOL_DIGEST == canonical_signed_taker_flow_protocol().digest
+              assert module.SYMBOLS == ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+          print("HELPER_IMPORT_AUTHORITY_SMOKE=true")
+          print("REAL_CALIBRATION_EXECUTED=false")
+          PY

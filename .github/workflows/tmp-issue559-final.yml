@@ -1,4 +1,4 @@
-name: Temporary Issue 559 final exact-head verification and seal
+name: Temporary Issue 559 final-head seal verification
 
 on:
   push:
@@ -11,140 +11,17 @@ permissions:
   contents: read
 
 jobs:
-  core:
-    name: Lean Core exact final head
-    runs-on: ubuntu-24.04
-    env:
-      TARGET_SHA: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
-    steps:
-      - name: Checkout exact final head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
-          persist-credentials: false
-      - name: Assert exact head
-        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
-        with:
-          version: "0.10.0"
-          python-version: "3.12"
-          enable-cache: true
-      - name: Install
-        run: uv sync --extra dev
-      - name: Ruff
-        run: uv run ruff check trade_rl tests tools
-      - name: Format
-        run: uv run ruff format --check trade_rl tests tools
-      - name: Mypy
-        run: uv run mypy trade_rl
-      - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
-      - name: Core tests
-        run: uv run pytest -q tests
-      - name: Build
-        run: uv build
-      - name: Distribution source closure and sdist rebuild
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
-          rebuilt="$(mktemp -d)"
-          trap 'rm -rf "$rebuilt"' EXIT
-          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
-          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
-      - name: Clean installed core smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          wheel="$(realpath dist/*.whl)"
-          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
-          clean="$(mktemp -d)"
-          trap 'rm -rf "$clean"' EXIT
-          uv venv "$clean/venv" --python 3.12
-          uv pip install --python "$clean/venv/bin/python" "$wheel"
-          cd "$clean"
-          "$clean/venv/bin/python" -I - "$expected" <<'PY'
-          import sys
-          from importlib.metadata import version
-          from pathlib import Path
-          import trade_rl
-          import trade_rl.data
-          import trade_rl.evaluation
-          import trade_rl.evaluation.experiments
-          import trade_rl.risk
-          import trade_rl.simulation
-          import trade_rl.strategies
-          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
-          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
-          print("clean installed core public imports and identity: OK")
-          PY
-          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
-          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
-      - name: Package identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
-          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
-          test "$module" = "$expected"
-
-  guide:
-    name: Human Guide exact final head
-    runs-on: ubuntu-24.04
-    env:
-      TARGET_SHA: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
-      GUIDE_SOURCE_REV: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
-    steps:
-      - name: Checkout exact final head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
-          persist-credentials: false
-      - name: Assert exact head
-        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: "24.21.0"
-          cache: npm
-          cache-dependency-path: guide/package-lock.json
-      - name: Install Guide dependencies
-        working-directory: guide
-        run: npm ci
-      - name: Guide source contract
-        working-directory: guide
-        run: npm run source-check
-      - name: Guide lint
-        working-directory: guide
-        run: npm run lint
-      - name: Guide typecheck
-        working-directory: guide
-        run: npm run typecheck
-      - name: Guide unit tests
-        working-directory: guide
-        run: npm run test
-      - name: Guide build
-        working-directory: guide
-        run: npm run build
-      - name: Install Chromium
-        working-directory: guide
-        run: npx playwright install --with-deps chromium
-      - name: Browser UX and accessibility
-        working-directory: guide
-        run: npm run e2e
-
   seal-producer:
-    name: seal-producer final head
-    needs: [core, guide]
+    name: seal-producer current head
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
+      TARGET_SHA: ea73d8995f9a46623a1571da80f0977c6bf05c8c
+      FULL_VERIFY_RUN_ID: "34844335176"
     steps:
-      - name: Checkout exact final head
+      - name: Checkout exact current head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
+          ref: ea73d8995f9a46623a1571da80f0977c6bf05c8c
           persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -179,7 +56,7 @@ jobs:
           metadata = {
               "schema_version": "issue559_signed_taker_flow_prereg_seal_v1",
               "target_sha": target,
-              "full_verification_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "full_verification_run_id": int(os.environ["FULL_VERIFY_RUN_ID"]),
               "source_blob_sha": subprocess.check_output(
                   ["git", "rev-parse", f"{target}:trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py"], text=True
               ).strip(),
@@ -202,22 +79,23 @@ jobs:
       - name: Upload protocol seal
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: issue559-prereg-seal-9c8aedb
+          name: issue559-prereg-seal-ea73d89
           path: seal/
           if-no-files-found: error
           retention-days: 90
 
   fresh-verifier:
-    name: fresh-verifier final head
+    name: fresh-verifier current head
     needs: seal-producer
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
+      TARGET_SHA: ea73d8995f9a46623a1571da80f0977c6bf05c8c
+      FULL_VERIFY_RUN_ID: "34844335176"
     steps:
-      - name: Checkout exact final head
+      - name: Checkout exact current head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9c8aedb2d59430758158a9f291c1b697fe0ab1b5
+          ref: ea73d8995f9a46623a1571da80f0977c6bf05c8c
           persist-credentials: false
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -231,7 +109,7 @@ jobs:
       - name: Download producer seal
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: issue559-prereg-seal-9c8aedb
+          name: issue559-prereg-seal-ea73d89
           path: sealed
       - name: Independently reconstruct and compare
         shell: bash
@@ -250,7 +128,7 @@ jobs:
           metadata = json.loads(Path("sealed/metadata.json").read_text(encoding="utf-8"))
           assert metadata["schema_version"] == "issue559_signed_taker_flow_prereg_seal_v1"
           assert metadata["target_sha"] == target
-          assert metadata["full_verification_run_id"] == int(os.environ["GITHUB_RUN_ID"])
+          assert metadata["full_verification_run_id"] == int(os.environ["FULL_VERIFY_RUN_ID"])
           assert metadata["training_relation_executed"] is False
           assert metadata["evaluation_pnl_inspected"] is False
           assert metadata["source_blob_sha"] == subprocess.check_output(

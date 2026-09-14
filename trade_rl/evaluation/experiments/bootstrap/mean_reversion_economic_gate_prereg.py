@@ -403,7 +403,7 @@ def load_mean_reversion_economic_gate_protocol(
         "market_order_spread_rate",
     ):
         converted[field_name] = _require_finite(raw[field_name], field=field_name)
-    return MeanReversionEconomicGateProtocol(**converted)  # type: ignore[arg-type]
+    return MeanReversionEconomicGateProtocol(**converted)
 
 
 __all__ = [

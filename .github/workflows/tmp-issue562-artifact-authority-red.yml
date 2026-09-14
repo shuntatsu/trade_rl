@@ -108,7 +108,7 @@ jobs:
           set -e
           cat /tmp/red.log
           test "$status" -ne 0
-          test "$(grep -c 'DID NOT RAISE' /tmp/red.log)" -eq 3
+          test "$(grep -c '^E       Failed: DID NOT RAISE ValueError$' /tmp/red.log)" -eq 3
           grep -q 'test_publication_requires_calibration_and_source_authority' /tmp/red.log
           grep -q 'test_loader_rejects_unbound_authority_even_with_valid_content_digest' /tmp/red.log
           grep -q 'test_loader_rejects_noncanonical_json_bytes' /tmp/red.log

@@ -410,30 +410,42 @@ def load_perp_index_basis_protocol(path: str | Path) -> PerpIndexBasisProtocol:
         raw_text = raw_bytes.decode("utf-8")
         raw: Any = json.loads(raw_text)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("perpetual-index basis preregistration is malformed") from error
+        raise ValueError(
+            "perpetual-index basis preregistration is malformed"
+        ) from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError("perpetual-index basis preregistration must be a JSON object")
     try:
         expected_bytes = canonical_json_bytes(raw)
     except (TypeError, ValueError) as error:
-        raise ValueError("perpetual-index basis preregistration is malformed") from error
+        raise ValueError(
+            "perpetual-index basis preregistration is malformed"
+        ) from error
     if raw_bytes != expected_bytes:
-        raise ValueError("perpetual-index basis preregistration must use canonical JSON bytes")
+        raise ValueError(
+            "perpetual-index basis preregistration must use canonical JSON bytes"
+        )
 
     expected_keys = {item.name for item in fields(PerpIndexBasisProtocol)}
     if set(raw) != expected_keys:
-        raise ValueError("perpetual-index basis preregistration keys differ from canonical")
+        raise ValueError(
+            "perpetual-index basis preregistration keys differ from canonical"
+        )
 
     resolved = dict(raw)
     symbols = resolved["symbols"]
-    if not isinstance(symbols, list) or any(not isinstance(item, str) for item in symbols):
+    if not isinstance(symbols, list) or any(
+        not isinstance(item, str) for item in symbols
+    ):
         raise ValueError("symbols must be a string array")
     resolved["symbols"] = tuple(symbols)
-    resolved["fit_start"] = _datetime_from_text(resolved["fit_start"], field="fit_start")
+    resolved["fit_start"] = _datetime_from_text(
+        resolved["fit_start"], field="fit_start"
+    )
     resolved["fit_cutoff"] = _datetime_from_text(
         resolved["fit_cutoff"], field="fit_cutoff"
     )
-    return PerpIndexBasisProtocol(**resolved)  # type: ignore[arg-type]
+    return PerpIndexBasisProtocol(**resolved)
 
 
 __all__ = [

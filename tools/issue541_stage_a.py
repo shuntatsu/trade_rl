@@ -89,7 +89,10 @@ def _verify_cash_and_costs(summary: dict[str, Any]) -> None:
                     if isinstance(summary.get("evaluation"), dict)
                     else None
                 )
-                if initial is not None and strategy.get("final_portfolio_value") != initial:
+                if (
+                    initial is not None
+                    and strategy.get("final_portfolio_value") != initial
+                ):
                     raise StageABridgeError("cash final portfolio value differs")
             else:
                 if (

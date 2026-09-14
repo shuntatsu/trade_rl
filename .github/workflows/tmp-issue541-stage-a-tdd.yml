@@ -1,0 +1,28 @@
+name: Temporary Issue 541 Stage A TDD
+
+on:
+  push:
+    branches:
+      - execute/issue541-stage-a
+    paths:
+      - tests/research/test_issue541_stage_a.py
+      - tools/issue541_stage_a.py
+      - .github/workflows/tmp-issue541-stage-a-tdd.yml
+
+permissions:
+  contents: read
+
+jobs:
+  stage-a-oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: execute/issue541-stage-a
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run pytest -q tests/research/test_issue541_stage_a.py

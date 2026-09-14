@@ -1,0 +1,289 @@
+name: Temporary Issue 560 adversarial GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-adversarial-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 0186a3a18ff14a5529de1f8869b1e45f461c036b
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0186a3a18ff14a5529de1f8869b1e45f461c036b
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply sealed contract hardening and permanent regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected patch site not found exactly once: {path}: {old[:120]!r}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_once(
+              "trade_rl/data/contracts.py",
+              '''        if len(set(names)) != len(names):
+            raise ValueError("feature names must be unique")
+        if any(spec.timeframe == self.base_timeframe for spec in self.features):
+''',
+              '''        if len(set(names)) != len(names):
+            raise ValueError("feature names must be unique")
+        if (
+            any(
+                FeatureKind(spec.kind) is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
+                for spec in self.features
+            )
+            and self.base_timeframe != "1h"
+        ):
+            raise ValueError(
+                "signed taker quote flow requires the 1h base decision clock"
+            )
+        if any(spec.timeframe == self.base_timeframe for spec in self.features):
+''',
+          )
+
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '''    MarketBuildConfig,
+    MarketCalendarKind,
+)
+''',
+              '''    MarketBuildConfig,
+    MarketCalendarKind,
+    VolumeUnit,
+)
+''',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '''                if (
+                    spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
+                    and native_timeframe != "1h"
+                ):
+                    raise ValueError(
+                        "signed taker quote flow is defined only on the 1h clock"
+                    )
+                if native_timeframe == self.config.base_timeframe:
+''',
+              '''                if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+                    if native_timeframe != "1h":
+                        raise ValueError(
+                            "signed taker quote flow is defined only on the 1h clock"
+                        )
+                    if VolumeUnit(contract.volume_unit) is not VolumeUnit.QUOTE_NOTIONAL:
+                        raise ValueError(
+                            "signed taker quote flow requires quote-notional volume semantics"
+                        )
+                if native_timeframe == self.config.base_timeframe:
+''',
+          )
+          replace_once(
+              "trade_rl/data/build/builder.py",
+              '''                    values, available, age_hours, staleness = _carry_feature(
+                        event_values,
+                        event_valid,
+                        symbol_active[:, symbol_index],
+                        timestamps,
+                        max_staleness_hours=spec.max_staleness_hours,
+                    )
+''',
+              '''                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+                        values = event_values
+                        available = event_valid
+                        age_hours = np.full(
+                            n_bars, spec.max_staleness_hours, dtype=np.float64
+                        )
+                        staleness = np.ones(n_bars, dtype=np.float64)
+                        age_hours[event_valid] = 0.0
+                        staleness[event_valid] = 0.0
+                    else:
+                        values, available, age_hours, staleness = _carry_feature(
+                            event_values,
+                            event_valid,
+                            symbol_active[:, symbol_index],
+                            timestamps,
+                            max_staleness_hours=spec.max_staleness_hours,
+                        )
+''',
+          )
+
+          test_path = Path("tests/data/test_signed_taker_flow_identity_compat.py")
+          text = test_path.read_text(encoding="utf-8")
+          text = text.replace("import numpy as np\n", "import numpy as np\nimport pytest\n", 1)
+          text = text.replace(
+              '''    MarketBuildConfig,
+)
+''',
+              '''    MarketBuildConfig,
+    VolumeUnit,
+)
+''',
+              1,
+          )
+          text = text.replace(
+              "def _series(*, taker: np.ndarray | None) -> RawMarketSeries:\n",
+              "def _series(*, taker: np.ndarray | None, tradable: np.ndarray | None = None) -> RawMarketSeries:\n",
+              1,
+          )
+          text = text.replace(
+              "        tradable=np.ones(n, dtype=np.bool_),\n",
+              '''        tradable=(
+            np.ones(n, dtype=np.bool_) if tradable is None else tradable
+        ),
+''',
+              1,
+          )
+          addition = '''
+
+
+def _signed_flow_builder() -> MarketDatasetBuilder:
+    return MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=(
+                FeatureSpec(
+                    name="1h__signed_taker_quote_flow_24bar",
+                    kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,
+                    lookback=24,
+                ),
+            ),
+        )
+    )
+
+
+def test_builder_materializes_signed_taker_flow_only_when_raw_field_exists() -> None:
+    builder = _signed_flow_builder()
+    instruments = (
+        InstrumentContract(
+            symbol="BTCUSDT",
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+        ),
+    )
+
+    enriched = builder.build(
+        InMemoryMarketDataSource(
+            {"BTCUSDT": _series(taker=np.full(30, 6.0, dtype=np.float64))}
+        ),
+        instruments,
+    )
+    missing = builder.build(
+        InMemoryMarketDataSource({"BTCUSDT": _series(taker=None)}),
+        instruments,
+    )
+
+    assert enriched.feature_available[23, 0, 0]
+    assert enriched.features[23, 0, 0] == np.float32(0.2)
+    assert not np.any(missing.feature_available[:, 0, 0])
+    assert not np.any(missing.features[:, 0, 0])
+
+
+def test_builder_does_not_carry_signed_flow_across_invalid_current_window() -> None:
+    tradable = np.ones(30, dtype=np.bool_)
+    tradable[24] = False
+    dataset = _signed_flow_builder().build(
+        InMemoryMarketDataSource(
+            {
+                "BTCUSDT": _series(
+                    taker=np.full(30, 6.0, dtype=np.float64),
+                    tradable=tradable,
+                )
+            }
+        ),
+        (
+            InstrumentContract(
+                symbol="BTCUSDT",
+                volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            ),
+        ),
+    )
+
+    assert dataset.feature_available[23, 0, 0]
+    assert not dataset.feature_available[24, 0, 0]
+    assert dataset.features[24, 0, 0] == 0.0
+
+
+def test_builder_rejects_non_quote_volume_semantics_for_signed_flow() -> None:
+    with pytest.raises(ValueError, match="quote.*notional"):
+        _signed_flow_builder().build(
+            InMemoryMarketDataSource(
+                {"BTCUSDT": _series(taker=np.full(30, 6.0, dtype=np.float64))}
+            ),
+            (InstrumentContract(symbol="BTCUSDT"),),
+        )
+
+
+def test_signed_flow_market_config_rejects_non_1h_base_clock() -> None:
+    with pytest.raises(ValueError, match="1h base decision clock"):
+        MarketBuildConfig(
+            base_timeframe="15m",
+            features=(
+                FeatureSpec(
+                    name="1h__signed_taker_quote_flow_24bar",
+                    kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,
+                    lookback=24,
+                    timeframe="1h",
+                ),
+            ),
+        )
+'''
+          if "test_builder_does_not_carry_signed_flow_across_invalid_current_window" in text:
+              raise SystemExit("permanent adversarial tests already exist unexpectedly")
+          test_path.write_text(text + addition, encoding="utf-8")
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed files
+        run: |
+          uv run ruff format \
+            trade_rl/data/contracts.py \
+            trade_rl/data/build/builder.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+      - name: Targeted and static GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py
+      - name: Commit only if branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/issue560-signed-taker-flow
+          test "$(git rev-parse FETCH_HEAD)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/contracts.py \
+            trade_rl/data/build/builder.py \
+            tests/data/test_signed_taker_flow_identity_compat.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "fix: enforce exact signed taker-flow availability"
+          git push origin HEAD:feat/issue560-signed-taker-flow

@@ -209,16 +209,27 @@ def _market_sensitivity(
         )
     if not np.isfinite(strategy).all() or not np.isfinite(market).all():
         raise ValueError("strategy and mark returns must be finite")
-    strategy_centered = strategy - float(np.mean(strategy))
-    market_centered = market - float(np.mean(market))
-    strategy_ss = float(np.dot(strategy_centered, strategy_centered))
-    market_ss = float(np.dot(market_centered, market_centered))
+    if strategy.size == 0:
+        raise ValueError("strategy and mark returns must not be empty")
+    strategy_mean = math.fsum(float(value) for value in strategy) / strategy.size
+    market_mean = math.fsum(float(value) for value in market) / market.size
+    strategy_centered = tuple(float(value) - strategy_mean for value in strategy)
+    market_centered = tuple(float(value) - market_mean for value in market)
+    strategy_ss = math.fsum(value * value for value in strategy_centered)
+    market_ss = math.fsum(value * value for value in market_centered)
     if strategy_ss <= _TOLERANCE or market_ss <= _TOLERANCE:
         return None, None
-    cross = float(np.dot(strategy_centered, market_centered))
+    cross = math.fsum(
+        strategy_value * market_value
+        for strategy_value, market_value in zip(
+            strategy_centered,
+            market_centered,
+            strict=True,
+        )
+    )
     correlation = cross / math.sqrt(strategy_ss * market_ss)
     beta = cross / market_ss
-    return float(correlation), float(beta)
+    return correlation, beta
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,295 @@
+name: Temporary Issue 562 sealed training calibration
+
+on:
+  push:
+    branches:
+      - run/issue562-signed-flow-training
+    paths:
+      - .github/workflows/tmp-issue562-real-training.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  HELPER_HEAD: a79b957af6f1d15d32dd6afe512fbfc59304bc4b
+  CALIBRATION_HEAD: dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+  PREFLIGHT_RUN_ID: "34857480729"
+  PREFLIGHT_ARTIFACT_ID: "10353233322"
+  PREFLIGHT_ARTIFACT_NAME: issue562-source-preflight-final-34857480729
+  PREFLIGHT_API_DIGEST: sha256:1bd6074c99d402efc98465655ba014423e6bb98003bf6c9f7eb4bbd64cbdad3c
+  PREFLIGHT_CONTENT_DIGEST: 2cf2dbbd08534e7d652b44e2fcc4f89f61382c865b9539580dbc8d8592e5098f
+
+jobs:
+  publisher:
+    name: Training-only publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact verified helper authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a79b957af6f1d15d32dd6afe512fbfc59304bc4b
+          persist-credentials: false
+      - name: Preserve exact publisher helper
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+          cp tools/tmp_issue562_signed_flow_publisher.py /tmp/issue562-publisher.py
+          sha256sum /tmp/issue562-publisher.py
+      - name: Checkout exact final calibration implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+          persist-credentials: false
+      - name: Assert exact calibration implementation
+        run: test "$(git rev-parse HEAD)" = "$CALIBRATION_HEAD"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Verify final source-preflight API identity and content before computation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue562-preflight-check
+          mkdir -p /tmp/issue562-preflight-check
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue562-preflight-authority/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/${PREFLIGHT_RUN_ID}/artifacts?per_page=100" \
+            --output /tmp/issue562-preflight-check/artifacts.json
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/issue562-preflight-check/artifacts.json').read_text())
+          matches = [
+              item for item in payload['artifacts']
+              if item['name'] == os.environ['PREFLIGHT_ARTIFACT_NAME']
+          ]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one preflight artifact, found {len(matches)}")
+          item = matches[0]
+          if str(item['id']) != os.environ['PREFLIGHT_ARTIFACT_ID']:
+              raise SystemExit('preflight Artifact ID mismatch')
+          if item.get('digest') != os.environ['PREFLIGHT_API_DIGEST']:
+              raise SystemExit('preflight API digest mismatch')
+          if item.get('expired') is not False:
+              raise SystemExit('preflight artifact is expired')
+          Path('/tmp/issue562-preflight-check/artifact-id.txt').write_text(str(item['id']))
+          PY
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue562-preflight-download/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${PREFLIGHT_ARTIFACT_ID}/zip" \
+            --output /tmp/issue562-preflight-check/preflight.zip
+          uv run python - <<'PY'
+          import hashlib
+          import io
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          raw = Path('/tmp/issue562-preflight-check/preflight.zip').read_bytes()
+          if 'sha256:' + hashlib.sha256(raw).hexdigest() != os.environ['PREFLIGHT_API_DIGEST']:
+              raise SystemExit('downloaded preflight ZIP digest mismatch')
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              names = archive.namelist()
+              if names != ['source-preflight.json']:
+                  raise SystemExit(f'unexpected preflight artifact members: {names!r}')
+              manifest = json.loads(archive.read('source-preflight.json').decode('utf-8'))
+          if not isinstance(manifest, dict):
+              raise SystemExit('preflight manifest must be an object')
+          digest = manifest.get('content_digest')
+          if digest != os.environ['PREFLIGHT_CONTENT_DIGEST']:
+              raise SystemExit('preflight content digest authority mismatch')
+          body = dict(manifest)
+          del body['content_digest']
+          canonical = json.dumps(
+              body, sort_keys=True, separators=(',', ':'), allow_nan=False
+          ).encode('utf-8')
+          if hashlib.sha256(canonical).hexdigest() != digest:
+              raise SystemExit('preflight self digest mismatch')
+          expected_missing = {
+              'ADAUSDT': 0,
+              'BNBUSDT': 0,
+              'BTCUSDT': 0,
+              'ETHUSDT': 0,
+              'XRPUSDT': 120,
+          }
+          checks = {
+              'schema_version': 'issue562_training_source_preflight_v3',
+              'issue_number': 562,
+              'calibration_head': 'dd3ecb617ecd2476e20e9215eeb422d2cdc95750',
+              'source_feature_head': 'adf835cf45936dbc40bf8d4f74879825ae211ef9',
+              'protocol_digest': '5fa9be305c948c4724e106ebd4f4090d2fc977da05d0884b7d4aa9a03df58407',
+              'planned_archives': 125,
+              'feature_or_target_values_computed': False,
+              'return_or_pnl_computed': False,
+              'missing_grid_rows_by_symbol': expected_missing,
+          }
+          for key, expected in checks.items():
+              if manifest.get(key) != expected:
+                  raise SystemExit(f'preflight field mismatch: {key}')
+          print('FINAL_PREFLIGHT_AUTHORITY_VERIFIED=true')
+          print('FEATURE_OR_TARGET_VALUES_COMPUTED=false')
+          print('RETURN_OR_PNL_COMPUTED=false')
+          PY
+      - name: Execute frozen pre-2023 training calibration once without interpreting result
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue562-published
+          uv run python /tmp/issue562-publisher.py \
+            --output-dir /tmp/issue562-published \
+            --preflight-run-id "$PREFLIGHT_RUN_ID" \
+            --preflight-artifact-id "$PREFLIGHT_ARTIFACT_ID" \
+            --preflight-api-digest "$PREFLIGHT_API_DIGEST" \
+            --preflight-content-digest "$PREFLIGHT_CONTENT_DIGEST"
+          test "$(find /tmp/issue562-published -maxdepth 1 -type f | wc -l)" -eq 3
+          test -f /tmp/issue562-published/result.json
+          test -f /tmp/issue562-published/source-manifest.json
+          test -f /tmp/issue562-published/publisher-metadata.json
+      - name: Upload immutable publisher artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-signed-flow-training-${{ github.run_id }}
+          path: /tmp/issue562-published/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  verifier:
+    name: Fresh independent reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PUBLISHER_ARTIFACT_NAME: issue562-signed-flow-training-${{ github.run_id }}
+    steps:
+      - name: Checkout exact verified helper authority independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a79b957af6f1d15d32dd6afe512fbfc59304bc4b
+          persist-credentials: false
+      - name: Preserve exact verifier helper
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+          cp tools/tmp_issue562_signed_flow_verifier.py /tmp/issue562-verifier.py
+          sha256sum /tmp/issue562-verifier.py
+      - name: Checkout exact final calibration implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+          persist-credentials: false
+      - name: Assert exact calibration implementation independently
+        run: test "$(git rev-parse HEAD)" = "$CALIBRATION_HEAD"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Download publisher artifact without forwarding GitHub auth to redirect host
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue562-publisher-download /tmp/issue562-published
+          mkdir -p /tmp/issue562-publisher-download /tmp/issue562-published
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue562-artifact-identity/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            --output /tmp/issue562-publisher-download/artifacts.json
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/issue562-publisher-download/artifacts.json').read_text())
+          matches = [
+              item for item in payload['artifacts']
+              if item['name'] == os.environ['PUBLISHER_ARTIFACT_NAME']
+          ]
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one publisher artifact, found {len(matches)}")
+          item = matches[0]
+          digest = item.get('digest')
+          if not isinstance(digest, str) or not digest.startswith('sha256:'):
+              raise SystemExit('publisher API digest is malformed')
+          if item.get('expired') is not False:
+              raise SystemExit('publisher artifact is expired')
+          Path('/tmp/issue562-publisher-download/artifact-id.txt').write_text(str(item['id']))
+          Path('/tmp/issue562-publisher-download/api-digest.txt').write_text(digest)
+          print(f"PUBLISHER_ARTIFACT_ID={item['id']}")
+          print(f"PUBLISHER_API_DIGEST={digest}")
+          PY
+          ARTIFACT_ID="$(cat /tmp/issue562-publisher-download/artifact-id.txt)"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: trade-rl-issue562-artifact-download/1" \
+            "https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/${ARTIFACT_ID}/zip" \
+            --output /tmp/issue562-publisher-download/publisher.zip
+          uv run python - <<'PY'
+          import hashlib
+          import io
+          import zipfile
+          from pathlib import Path
+
+          raw = Path('/tmp/issue562-publisher-download/publisher.zip').read_bytes()
+          expected = Path('/tmp/issue562-publisher-download/api-digest.txt').read_text().strip()
+          if 'sha256:' + hashlib.sha256(raw).hexdigest() != expected:
+              raise SystemExit('downloaded publisher ZIP digest differs from API digest')
+          expected_names = [
+              'publisher-metadata.json',
+              'result.json',
+              'source-manifest.json',
+          ]
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              names = sorted(archive.namelist())
+              if names != expected_names:
+                  raise SystemExit(f'unexpected publisher artifact members: {names!r}')
+              for name in expected_names:
+                  target = Path('/tmp/issue562-published') / name
+                  target.write_bytes(archive.read(name))
+          print('PUBLISHER_ARTIFACT_API_IDENTITY_VERIFIED=true')
+          PY
+      - name: Fresh re-fetch all 125 archives and reconstruct before interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue562-verified
+          uv run python /tmp/issue562-verifier.py \
+            --published-dir /tmp/issue562-published \
+            --verified-dir /tmp/issue562-verified \
+            --preflight-run-id "$PREFLIGHT_RUN_ID" \
+            --preflight-artifact-id "$PREFLIGHT_ARTIFACT_ID" \
+            --preflight-api-digest "$PREFLIGHT_API_DIGEST" \
+            --preflight-content-digest "$PREFLIGHT_CONTENT_DIGEST"
+      - name: Upload fresh reconstruction evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue562-signed-flow-training-verified-${{ github.run_id }}
+          path: /tmp/issue562-verified/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

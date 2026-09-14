@@ -225,7 +225,9 @@ class MeanReversionEconomicGateSymbolResult:
             self.candidate_n_periods,
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError("symbol evaluation counts must be non-negative integers")
+                raise ValueError(
+                    "symbol evaluation counts must be non-negative integers"
+                )
         for digest in (self.baseline_return_sha256, self.candidate_return_sha256):
             if len(digest) != 64 or any(
                 char not in "0123456789abcdef" for char in digest
@@ -281,9 +283,10 @@ class MeanReversionEconomicGateEvaluation:
     def __post_init__(self) -> None:
         if self.schema_version != _RESULT_SCHEMA_VERSION:
             raise ValueError("unsupported economic-gate evaluation result schema")
-        if self.symbols != _SYMBOLS or tuple(
-            item.symbol for item in self.by_symbol
-        ) != self.symbols:
+        if (
+            self.symbols != _SYMBOLS
+            or tuple(item.symbol for item in self.by_symbol) != self.symbols
+        ):
             raise ValueError("economic-gate evaluation result symbol roster mismatch")
         if self.research_status not in {
             "PROMOTE_RESEARCH_REFERENCE",

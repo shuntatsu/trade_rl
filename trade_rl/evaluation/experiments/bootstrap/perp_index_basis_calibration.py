@@ -148,6 +148,46 @@ class PerpIndexBasisSymbolCalibration:
         }
 
 
+def _symbol_semantic_failures(
+    item: PerpIndexBasisSymbolCalibration,
+    protocol: PerpIndexBasisProtocol,
+) -> tuple[str, ...]:
+    """Re-derive the frozen coverage/numeric gate from one symbol result."""
+
+    failures: list[str] = []
+    minimum = protocol.minimum_eligible_observations_per_symbol
+    if item.eligible_observations < minimum:
+        failures.append(f"{item.symbol}:eligible_observations<{minimum}")
+    if item.numerator is None:
+        failures.append(f"{item.symbol}:numerator_not_finite")
+    if item.denominator is None or item.denominator <= 0.0:
+        failures.append(f"{item.symbol}:denominator_not_finite_positive")
+
+    if failures:
+        if item.beta is not None:
+            raise ValueError(
+                "calibration beta must be null when coverage or numeric gate fails"
+            )
+        return tuple(failures)
+
+    assert item.numerator is not None
+    assert item.denominator is not None
+    expected_beta = item.numerator / item.denominator
+    if not math.isfinite(expected_beta):
+        if item.beta is not None:
+            raise ValueError(
+                "calibration beta must be null when regression is non-finite"
+            )
+        return (f"{item.symbol}:beta_not_finite",)
+    if item.beta is None:
+        raise ValueError("calibration beta is missing despite finite regression inputs")
+    if item.beta != expected_beta:
+        raise ValueError(
+            "calibration beta does not match canonical numerator / denominator"
+        )
+    return ()
+
+
 @dataclass(frozen=True, slots=True)
 class PerpIndexBasisCalibrationResult:
     protocol_digest: str
@@ -215,9 +255,22 @@ class PerpIndexBasisCalibrationResult:
             raise ValueError("calibration status is not canonical")
         if any(not isinstance(item, str) or not item for item in self.failures):
             raise ValueError("calibration failures must be non-empty strings")
-        if self.failures and self.status != protocol.invalid_coverage_status:
-            raise ValueError("calibration failures require INVALID_BASIS_COVERAGE")
-        if not self.failures:
+
+        expected_failures = tuple(
+            failure
+            for item in self.symbol_results
+            for failure in _symbol_semantic_failures(item, protocol)
+        )
+        if self.failures != expected_failures:
+            raise ValueError(
+                "calibration failures do not match frozen coverage/numeric semantics"
+            )
+        if expected_failures:
+            if self.status != protocol.invalid_coverage_status:
+                raise ValueError(
+                    "coverage/numeric failures require INVALID_BASIS_COVERAGE"
+                )
+        else:
             expected_status = (
                 protocol.valid_status
                 if self.negative_slope_count >= protocol.required_negative_symbol_slopes

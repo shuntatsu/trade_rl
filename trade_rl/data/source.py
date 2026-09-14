@@ -34,10 +34,10 @@ class RawMarketSeries:
     volume: np.ndarray
     funding_rate: np.ndarray
     tradable: np.ndarray
-    taker_buy_quote_volume: np.ndarray | None = None
     funding_available: np.ndarray | None = None
     available_at: np.ndarray | None = None
     funding_event_count: np.ndarray | None = None
+    taker_buy_quote_volume: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         timestamps = _readonly(self.timestamps)

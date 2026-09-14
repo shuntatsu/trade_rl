@@ -89,6 +89,36 @@ def _calculate(
     )
 
 
+def test_raw_market_series_preserves_legacy_optional_positional_arguments() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    close = 100.0 + np.arange(n, dtype=np.float64)
+    funding_available = np.ones(n, dtype=np.bool_)
+    available_at = timestamps.copy()
+    funding_event_count = np.ones(n, dtype=np.int32)
+
+    series = RawMarketSeries(
+        timestamps,
+        np.concatenate((close[:1], close[:-1])),
+        close + 1.0,
+        close - 1.0,
+        close,
+        np.full(n, 10.0, dtype=np.float64),
+        np.zeros(n, dtype=np.float64),
+        np.ones(n, dtype=np.bool_),
+        funding_available,
+        available_at,
+        funding_event_count,
+    )
+
+    assert series.taker_buy_quote_volume is None
+    np.testing.assert_array_equal(series.funding_available, funding_available)
+    np.testing.assert_array_equal(series.available_at, available_at)
+    np.testing.assert_array_equal(series.funding_event_count, funding_event_count)
+
+
 def test_raw_market_series_preserves_optional_taker_quote_volume_read_only() -> None:
     taker = np.linspace(1.0, 9.0, 30, dtype=np.float64)
     series = _raw(taker=taker)

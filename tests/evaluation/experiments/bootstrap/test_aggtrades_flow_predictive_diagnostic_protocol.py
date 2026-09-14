@@ -41,7 +41,9 @@ def test_protocol_binds_existing_provider_roster_and_ohlcv_authorities() -> None
     protocol = canonical_aggtrades_flow_predictive_diagnostic_protocol()
 
     assert protocol.provider_head_sha == "dd51da97845f4d8fe69c34b1c4e4859358911daf"
-    assert protocol.provider_parser_blob_sha == "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
+    assert (
+        protocol.provider_parser_blob_sha == "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
+    )
     assert protocol.archive_roster_protocol_digest == (
         "5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071"
     )

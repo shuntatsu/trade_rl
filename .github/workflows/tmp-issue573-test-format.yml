@@ -1,0 +1,69 @@
+name: Temporary Issue 573 RED test formatting
+
+on:
+  push:
+    branches:
+      - automation/issue573-test-format
+    paths:
+      - .github/workflows/tmp-issue573-test-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue573-perp-index-basis-source
+  TARGET_SHA: b075220970a824737440cfd40f1d5916e7f9fcb5
+
+jobs:
+  format_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and lint RED tests only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+          uv run ruff check --fix \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+          uv run ruff format \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+          uv run ruff check \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+      - name: Guard and publish only formatted tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py
+          git diff --cached --quiet && exit 0
+          git commit -m "style: format Issue 573 RED tests"
+          git push origin HEAD:"$TARGET_BRANCH"

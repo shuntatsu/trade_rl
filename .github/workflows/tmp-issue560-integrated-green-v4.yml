@@ -1,0 +1,133 @@
+name: Temporary Issue 560 integrated GREEN v4
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-31de975
+    paths:
+      - .github/workflows/tmp-issue560-integrated-green-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrated-green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 5fb1b43dccd251115a4cc92b8ed2382cce1ed75a
+    steps:
+      - name: Checkout verification helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue560-red-31de975
+      - name: Extract integrated patch script
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/tmp-issue560-integrated-green.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = lines.index('      - name: Apply integrated source and feature implementation')
+          end = lines.index('      - name: Set up uv', start + 1)
+          run_index = next(i for i in range(start, end) if lines[i].strip() == 'run: |')
+          script: list[str] = []
+          for line in lines[run_index + 1 : end]:
+              if line.startswith('          '):
+                  script.append(line[10:])
+              elif not line.strip():
+                  script.append('')
+              else:
+                  raise SystemExit(f'unexpected workflow indentation: {line!r}')
+          Path('/tmp/apply_issue560.sh').write_text('\n'.join(script) + '\n', encoding='utf-8')
+          PY
+      - name: Checkout exact implementation target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply integrated patch and correct compatibility oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/apply_issue560.sh
+          python - <<'PY'
+          from pathlib import Path
+
+          core = Path('trade_rl/data/features/core.py')
+          text = core.read_text(encoding='utf-8')
+          old = '        if spec.timeframe != "1h":\n'
+          new = '        if spec.timeframe not in (None, "1h"):\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected timeframe guard not found exactly once')
+          core.write_text(text.replace(old, new), encoding='utf-8')
+
+          test = Path('tests/data/test_signed_taker_flow_identity_compat.py')
+          text = test.read_text(encoding='utf-8')
+          old = '''                kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,\n                lookback=24,\n                timeframe="1h",\n            ),\n'''
+          new = '''                kind=FeatureKind.SIGNED_TAKER_QUOTE_FLOW,\n                lookback=24,\n            ),\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected builder feature spec not found exactly once')
+          text = text.replace(old, new)
+          old_assert = '    assert enriched.features[23, 0, 0] == 0.2\n'
+          new_assert = '    np.testing.assert_allclose(enriched.features[23, 0, 0], 0.2, rtol=0.0, atol=1e-15)\n'
+          if text.count(old_assert) != 1:
+              raise SystemExit('expected floating oracle not found exactly once')
+          test.write_text(text.replace(old_assert, new_assert), encoding='utf-8')
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed files
+        run: |
+          uv run ruff format \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Static and integrated targeted GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py
+      - name: Commit only if branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/issue560-signed-taker-flow
+          remote="$(git rev-parse FETCH_HEAD)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "feat: implement sealed signed taker-flow feature path"
+          git push origin HEAD:feat/issue560-signed-taker-flow

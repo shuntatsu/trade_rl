@@ -1,0 +1,47 @@
+name: Temporary Issue 547 normalize RED test
+
+on:
+  push:
+    branches:
+      - verify/issue547-calibration-red
+    paths:
+      - .github/workflows/tmp-issue547-fix-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue547-economic-gate-calibration
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Fix only the MarketDataset update API assumption and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('import math\n', 'import math\nfrom dataclasses import replace\n')
+          text = text.replace('dataset.with_updates(', 'replace(dataset, ')
+          if 'with_updates' in text:
+              raise SystemExit('unexpected with_updates remains')
+          path.write_text(text, encoding='utf-8')
+          PY
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py
+          git diff --check
+          test "$(git diff --name-only)" = "tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_calibration.py
+          git commit -m 'test: normalize issue547 calibration oracle'
+          git push origin HEAD:research/issue547-economic-gate-calibration

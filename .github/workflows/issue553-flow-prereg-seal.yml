@@ -1,0 +1,264 @@
+name: Issue 553 flow diagnostic preregistration seal
+
+on:
+  push:
+    branches:
+      - seal/issue553-aggtrades-flow-diagnostic-prereg
+    paths:
+      - .github/workflows/issue553-flow-prereg-seal.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PR_NUMBER: "557"
+  PR_HEAD: 3831b9a4483f5e09501e35e492212aeb3e287f85
+  PR_CI_RUN_ID: "34840792690"
+  PROVIDER_PR: "534"
+  PROVIDER_HEAD: dd51da97845f4d8fe69c34b1c4e4859358911daf
+  PROVIDER_PARSER_BLOB: 15cfe8f63716451fdb8c08ae84fba66ca754c55e
+  ROSTER_PROTOCOL_DIGEST: 5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071
+  ROSTER_SEAL_RUN_ID: "34761985041"
+  ROSTER_SEAL_ARTIFACT_ID: "10319386570"
+  ROSTER_SEAL_ARTIFACT_DIGEST: sha256:dbc6ef286abb9e4c8530089328fb64b2cfaa5e98715a82740439470a45942e57
+  ROSTER_FRESH_RUN_ID: "34762075059"
+  ARCHIVE_EVIDENCE_RUN_ID: "34766830666"
+  ARCHIVE_EVIDENCE_ARTIFACT_ID: "10320428830"
+  ARCHIVE_EVIDENCE_ARTIFACT_DIGEST: sha256:810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35
+  ARCHIVE_EVIDENCE_FRESH_RUN_ID: "34767391268"
+  DATASET_CONTAINER_RUN_ID: "34702660287"
+  DATASET_CONTAINER_ARTIFACT_ID: "10300479733"
+  DATASET_CONTAINER_NAME: canonical-m2-portable-prereg-v1-34702660287
+  DATASET_CONTAINER_ARTIFACT_DIGEST: sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4
+  DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+
+jobs:
+  seal:
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PR_HEAD }}
+          persist-credentials: false
+      - name: Bind exact PR head and full CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER --jq .head.sha)" = "$PR_HEAD"
+          ci="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PR_CI_RUN_ID)"
+          test "$(jq -r .head_sha <<<"$ci")" = "$PR_HEAD"
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PR_CI_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide") | .conclusion' <<<"$jobs")" = success
+      - name: API-bind all external source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/pulls/$PROVIDER_PR --jq .head.sha)" = "$PROVIDER_HEAD"
+          gh api repos/$GITHUB_REPOSITORY/git/blobs/$PROVIDER_PARSER_BLOB >/dev/null
+          verify_artifact() {
+            p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$1)"
+            test "$(jq -r .digest <<<"$p")" = "$2"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$3"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          verify_artifact "$ROSTER_SEAL_ARTIFACT_ID" "$ROSTER_SEAL_ARTIFACT_DIGEST" "$ROSTER_SEAL_RUN_ID"
+          verify_artifact "$ARCHIVE_EVIDENCE_ARTIFACT_ID" "$ARCHIVE_EVIDENCE_ARTIFACT_DIGEST" "$ARCHIVE_EVIDENCE_RUN_ID"
+          verify_artifact "$DATASET_CONTAINER_ARTIFACT_ID" "$DATASET_CONTAINER_ARTIFACT_DIGEST" "$DATASET_CONTAINER_RUN_ID"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ROSTER_FRESH_RUN_ID --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ARCHIVE_EVIDENCE_FRESH_RUN_ID --jq .conclusion)" = success
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove focused preregistration contract
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py tests/evaluation/experiments/bootstrap/test_aggtrades_flow_predictive_diagnostic_protocol.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py tests/evaluation/experiments/bootstrap/test_aggtrades_flow_predictive_diagnostic_protocol.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_aggtrades_flow_predictive_diagnostic_protocol.py
+      - name: Materialize canonical preregistration bytes
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.agg_flow_predictive_diagnostic import canonical_aggtrades_flow_predictive_diagnostic_protocol
+
+          p=canonical_aggtrades_flow_predictive_diagnostic_protocol()
+          payload=p.to_payload()
+          if len(p.planned_days)!=24 or len(p.planned_urls)!=120 or len(set(p.planned_urls))!=120:
+              raise RuntimeError('planned roster differs')
+          if any('2023-' in url for url in p.planned_urls):
+              raise RuntimeError('post-2022 archive leaked into protocol')
+          for forbidden in ('pnl','winner','strategy_return','candidate_return','q10','symbol_cap'):
+              if forbidden in payload:
+                  raise RuntimeError(f'forbidden field present: {forbidden}')
+          protocol_bytes=(json.dumps(payload,allow_nan=False,sort_keys=True,indent=2)+'\n').encode()
+          Path('/tmp/seal/protocol.json').write_bytes(protocol_bytes)
+          index={
+              'schema_version':'issue553_flow_diagnostic_prereg_seal_v1',
+              'pr_number':int(os.environ['PR_NUMBER']),
+              'pr_head':os.environ['PR_HEAD'],
+              'pr_ci_run_id':int(os.environ['PR_CI_RUN_ID']),
+              'protocol_digest':p.digest,
+              'protocol_json_sha256':hashlib.sha256(protocol_bytes).hexdigest(),
+              'planned_days':len(p.planned_days),
+              'planned_urls':len(p.planned_urls),
+              'dataset_id':p.canonical_dataset_id,
+              'dataset_artifact_digest':p.canonical_dataset_artifact_digest,
+              'diagnostic_executed':False,
+              'strategy_pnl_inspected':False,
+              'post_2022_data_used':False,
+          }
+          Path('/tmp/seal/seal-index.json').write_text(json.dumps(index,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          print('PROTOCOL_DIGEST='+p.digest)
+          PY
+      - id: meta
+        run: echo "name=issue553-flow-diagnostic-prereg-seal-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verify:
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration head on fresh runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PR_HEAD }}
+          persist-credentials: false
+      - name: API-bind published seal and source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.id }}
+          SEAL_NAME: ${{ needs.seal.outputs.name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.digest }}
+        run: |
+          set -euo pipefail
+          p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$SEAL_ID)"
+          test "$(jq -r .name <<<"$p")" = "$SEAL_NAME"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$SEAL_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          verify_artifact() {
+            q="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$1)"
+            test "$(jq -r .digest <<<"$q")" = "$2"
+            test "$(jq -r .workflow_run.id <<<"$q")" = "$3"
+            test "$(jq -r .expired <<<"$q")" = false
+          }
+          verify_artifact "$ROSTER_SEAL_ARTIFACT_ID" "$ROSTER_SEAL_ARTIFACT_DIGEST" "$ROSTER_SEAL_RUN_ID"
+          verify_artifact "$ARCHIVE_EVIDENCE_ARTIFACT_ID" "$ARCHIVE_EVIDENCE_ARTIFACT_DIGEST" "$ARCHIVE_EVIDENCE_RUN_ID"
+          verify_artifact "$DATASET_CONTAINER_ARTIFACT_ID" "$DATASET_CONTAINER_ARTIFACT_DIGEST" "$DATASET_CONTAINER_RUN_ID"
+      - name: Download exact published seal
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.name }}
+          path: /tmp/seal
+      - name: Download P&L-free canonical Dataset container
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.DATASET_CONTAINER_NAME }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.DATASET_CONTAINER_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Freshly reconstruct protocol and Dataset authority
+        run: |
+          set -euo pipefail
+          test ! -e /tmp/source/study/baseline
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap.agg_flow_predictive_diagnostic import canonical_aggtrades_flow_predictive_diagnostic_protocol, load_aggtrades_flow_predictive_diagnostic_protocol
+
+          p=canonical_aggtrades_flow_predictive_diagnostic_protocol()
+          sealed=load_aggtrades_flow_predictive_diagnostic_protocol('/tmp/seal/protocol.json')
+          if sealed != p or sealed.digest != p.digest:
+              raise RuntimeError('fresh protocol reconstruction mismatch')
+          expected=(json.dumps(p.to_payload(),allow_nan=False,sort_keys=True,indent=2)+'\n').encode()
+          actual=Path('/tmp/seal/protocol.json').read_bytes()
+          if actual != expected:
+              raise RuntimeError('canonical protocol bytes differ')
+          index=json.loads(Path('/tmp/seal/seal-index.json').read_text())
+          if index.get('protocol_digest') != p.digest or index.get('protocol_json_sha256') != hashlib.sha256(actual).hexdigest():
+              raise RuntimeError('seal index differs from canonical protocol')
+          if index.get('diagnostic_executed') is not False or index.get('strategy_pnl_inspected') is not False:
+              raise RuntimeError('seal is not pre-result')
+          artifact=inspect_published_market_dataset_artifact('/tmp/source/dataset')
+          dataset=load_market_dataset_artifact('/tmp/source/dataset')
+          if dataset.dataset_id != os.environ['DATASET_ID']:
+              raise RuntimeError('Dataset ID differs')
+          if artifact.artifact_digest != os.environ['DATASET_ARTIFACT_DIGEST']:
+              raise RuntimeError('Dataset artifact digest differs')
+          fresh={
+              'schema_version':'issue553_flow_diagnostic_prereg_fresh_verification_v1',
+              'protocol_digest':p.digest,
+              'protocol_json_sha256':hashlib.sha256(actual).hexdigest(),
+              'dataset_id':dataset.dataset_id,
+              'dataset_artifact_digest':artifact.artifact_digest,
+              'dataset_container_plan_only':True,
+              'planned_days':len(p.planned_days),
+              'planned_urls':len(p.planned_urls),
+              'diagnostic_executed':False,
+              'strategy_pnl_inspected':False,
+              'fresh_reconstruction_passed':True,
+          }
+          Path('/tmp/fresh.json').write_text(json.dumps(fresh,allow_nan=False,sort_keys=True,indent=2)+'\n')
+          PY
+      - id: meta
+        run: echo "name=issue553-flow-diagnostic-prereg-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    needs: [seal, fresh_verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API audit fresh verification artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.fresh_verify.outputs.id }}
+          NAME: ${{ needs.fresh_verify.outputs.name }}
+          DIGEST: ${{ needs.fresh_verify.outputs.digest }}
+        run: |
+          set -euo pipefail
+          p="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ID)"
+          test "$(jq -r .name <<<"$p")" = "$NAME"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$p")" = false

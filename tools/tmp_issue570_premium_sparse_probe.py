@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ISSUE_NUMBER = 570
-SCHEMA_VERSION = "issue570_premium_sparse_source_v1"
+SCHEMA_VERSION = "issue570_premium_sparse_source_v2"
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 YEARS = (2021, 2022)
 MONTHS = tuple(f"{year}-{month:02d}" for year in YEARS for month in range(1, 13))
@@ -38,7 +38,7 @@ HOUR_MS = 3_600_000
 ANNUAL_MIN_COVERAGE = 0.95
 SOURCE_PARENT_ISSUE = 555
 SOURCE_PARENT_REPORT_DIGEST = "628d75b64b027a0c6161c87f989d90bf81c989e272bb812def8c7b4c8e3ccfdb"
-USER_AGENT = "trade-rl-issue570-premium-sparse-source/1"
+USER_AGENT = "trade-rl-issue570-premium-sparse-source/2"
 
 
 def _fetch(url: str) -> bytes:
@@ -87,6 +87,7 @@ def _max_missing_run(missing: list[int]) -> int:
 
 
 def _parse_archive(*, symbol: str, month: str, payload: bytes) -> dict[str, object]:
+    del symbol
     first_ms, next_ms, expected_rows = _month_bounds(month)
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         members = [member for member in archive.infolist() if not member.is_dir()]
@@ -117,7 +118,6 @@ def _parse_archive(*, symbol: str, month: str, payload: bytes) -> dict[str, obje
         raise ValueError("CSV has no data rows")
 
     open_times: list[int] = []
-    close_times: list[int] = []
     for row_index, row in enumerate(data):
         if len(row) != 12:
             raise ValueError(f"row {row_index} has {len(row)} fields, expected 12")
@@ -146,7 +146,6 @@ def _parse_archive(*, symbol: str, month: str, payload: bytes) -> dict[str, obje
             if not math.isfinite(value):
                 raise ValueError(f"row {row_index} field {field_index} is non-finite")
         open_times.append(open_ms)
-        close_times.append(close_ms)
 
     if any(right <= left for left, right in zip(open_times, open_times[1:], strict=False)):
         raise ValueError("open timestamps are not strictly increasing and unique")
@@ -155,11 +154,12 @@ def _parse_archive(*, symbol: str, month: str, payload: bytes) -> dict[str, obje
         raise ValueError("open timestamp spacing is not a positive integer multiple of 1h")
 
     expected_grid = list(range(first_ms, next_ms, HOUR_MS))
+    expected_set = set(expected_grid)
     observed_set = set(open_times)
     if len(observed_set) != len(open_times):
         raise ValueError("duplicate open timestamp")
     missing = [timestamp for timestamp in expected_grid if timestamp not in observed_set]
-    unexpected = [timestamp for timestamp in open_times if timestamp not in set(expected_grid)]
+    unexpected = [timestamp for timestamp in open_times if timestamp not in expected_set]
     if unexpected:
         raise ValueError("observed timestamp lies outside nominal month grid")
     if len(open_times) + len(missing) != expected_rows:
@@ -308,14 +308,15 @@ def build_report() -> dict[str, object]:
         annual_coverage[symbol] = by_year
 
     archive_count_ok = len(entries) == 120 and all(entry.get("available") is True for entry in entries)
-    checksum_ok = all(entry.get("checksum_verified") is True for entry in entries)
-    structural_ok = all(entry.get("structurally_valid") is True for entry in entries)
-    compatible_headers = {
-        tuple(entry.get("header", []))
+    checksum_ok = len(entries) == 120 and all(entry.get("checksum_verified") is True for entry in entries)
+    structural_ok = len(entries) == 120 and all(entry.get("structurally_valid") is True for entry in entries)
+    header_modes = {
+        "exact_header" if entry.get("header_present") is True else "headerless"
         for entry in entries
         if entry.get("structurally_valid") is True
     }
-    header_ok = len(compatible_headers) <= 1
+    # Both exact-header and headerless archives normalize to the same 12-field schema.
+    header_ok = header_modes.issubset({"exact_header", "headerless"}) and bool(header_modes)
 
     if archive_count_ok and checksum_ok and structural_ok and header_ok and coverage_gate_pass:
         status = "PASS_SPARSE_SOURCE"
@@ -335,6 +336,8 @@ def build_report() -> dict[str, object]:
         "months": list(MONTHS),
         "planned_archives": 120,
         "annual_min_coverage_fraction": ANNUAL_MIN_COVERAGE,
+        "allowed_header_modes": ["exact_header", "headerless"],
+        "observed_header_modes": sorted(header_modes),
         "sparse_missing_rows_allowed": True,
         "missing_rows_imputed": False,
         "replacement_archives_allowed": False,
@@ -373,6 +376,7 @@ def main() -> None:
         "archive_count_gate_passed": report["archive_count_gate_passed"],
         "checksum_gate_passed": report["checksum_gate_passed"],
         "structural_gate_passed": report["structural_gate_passed"],
+        "header_compatibility_gate_passed": report["header_compatibility_gate_passed"],
         "annual_coverage_gate_passed": report["annual_coverage_gate_passed"],
         "annual_missing_grid_rows": {
             symbol: {

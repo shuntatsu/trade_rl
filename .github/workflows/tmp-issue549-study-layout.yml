@@ -1,0 +1,53 @@
+name: Temporary Issue 549 Study layout
+
+on:
+  push:
+    branches: [verify/issue549-study-layout]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  layout:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 7b352d53b037507e0f3546925bf0a8ab47275780
+      SOURCE_RUN_ID: 34803217815
+      SOURCE_ARTIFACT_ID: 10331899302
+      SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+      SOURCE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Verify source Artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          meta="$(curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}")"
+          META="$meta" python3 - <<'PY'
+          import json,os
+          x=json.loads(os.environ['META'])
+          assert x['id']==int(os.environ['SOURCE_ARTIFACT_ID'])
+          assert x['digest']==os.environ['SOURCE_API_DIGEST']
+          assert x['workflow_run']['id']==int(os.environ['SOURCE_RUN_ID'])
+          assert x['name']==os.environ['SOURCE_ARTIFACT_NAME']
+          assert x['expired'] is False
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Print names only, never file contents
+        run: |
+          set -euo pipefail
+          echo 'ROOT:'
+          find /tmp/successor -maxdepth 2 -printf '%y %P\n' | sort
+          echo 'STUDY:'
+          find /tmp/successor/study -maxdepth 5 -printf '%y %P\n' | sort

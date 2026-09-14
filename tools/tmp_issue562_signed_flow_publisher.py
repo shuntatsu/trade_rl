@@ -70,9 +70,7 @@ USER_AGENT = "trade-rl-issue562-signed-flow-publisher/1"
 
 def _months() -> tuple[str, ...]:
     return ("2020-12",) + tuple(
-        f"{year}-{month:02d}"
-        for year in (2021, 2022)
-        for month in range(1, 13)
+        f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
     )
 
 
@@ -149,9 +147,13 @@ def _parse_archive(
     payload: bytes,
     checksum_payload: bytes,
     url: str,
-) -> tuple[dict[str, object], list[tuple[int, float, float, float, float, float, float]]]:
+) -> tuple[
+    dict[str, object], list[tuple[int, float, float, float, float, float, float]]
+]:
     raw_sha = hashlib.sha256(payload).hexdigest()
-    checksum_sha, checksum_text = _checksum_digest(checksum_payload, url=url + ".CHECKSUM")
+    checksum_sha, checksum_text = _checksum_digest(
+        checksum_payload, url=url + ".CHECKSUM"
+    )
     if raw_sha != checksum_sha:
         raise RuntimeError(f"archive checksum mismatch: {url}")
 
@@ -241,7 +243,10 @@ def _parse_archive(
     return entry, parsed
 
 
-def _download_source() -> tuple[list[dict[str, object]], dict[str, list[tuple[int, float, float, float, float, float, float]]]]:
+def _download_source() -> tuple[
+    list[dict[str, object]],
+    dict[str, list[tuple[int, float, float, float, float, float, float]]],
+]:
     entries: list[dict[str, object]] = []
     rows_by_symbol: dict[
         str, list[tuple[int, float, float, float, float, float, float]]
@@ -266,7 +271,9 @@ def _download_source() -> tuple[list[dict[str, object]], dict[str, list[tuple[in
     for symbol, rows in rows_by_symbol.items():
         timestamps = [item[0] for item in rows]
         if not rows or any(b <= a for a, b in zip(timestamps, timestamps[1:])):
-            raise RuntimeError(f"filtered source rows are not strictly increasing: {symbol}")
+            raise RuntimeError(
+                f"filtered source rows are not strictly increasing: {symbol}"
+            )
         if len(set(timestamps)) != len(timestamps):
             raise RuntimeError(f"filtered source rows contain duplicates: {symbol}")
     return entries, rows_by_symbol
@@ -312,9 +319,7 @@ def _source_manifest(
         "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace(
             "+00:00", "Z"
         ),
-        "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace("+00:00", "Z"),
         "fit_start": "2021-01-01T01:00:00Z",
         "fit_cutoff": "2023-01-01T00:00:00Z",
         "missing_grid_rows_by_symbol": missing_by_symbol,
@@ -330,9 +335,7 @@ def _series_from_rows(
     rows: list[tuple[int, float, float, float, float, float, float]],
 ) -> RawMarketSeries:
     open_ms = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_ms + 3_600_000).astype("datetime64[ms]").astype(
-        "datetime64[ns]"
-    )
+    timestamps = (open_ms + 3_600_000).astype("datetime64[ms]").astype("datetime64[ns]")
     count = len(rows)
     return RawMarketSeries(
         timestamps=timestamps,
@@ -346,9 +349,7 @@ def _series_from_rows(
         tradable=np.ones(count, dtype=np.bool_),
         funding_available=np.zeros(count, dtype=np.bool_),
         funding_event_count=np.zeros(count, dtype=np.int32),
-        taker_buy_quote_volume=np.asarray(
-            [item[6] for item in rows], dtype=np.float64
-        ),
+        taker_buy_quote_volume=np.asarray([item[6] for item in rows], dtype=np.float64),
     )
 
 
@@ -392,7 +393,10 @@ def _build_dataset(
     )
     expected_first = np.datetime64("2020-12-31T02:00:00", "ns")
     expected_last = np.datetime64("2023-01-01T00:00:00", "ns")
-    if dataset.timestamps[0] != expected_first or dataset.timestamps[-1] != expected_last:
+    if (
+        dataset.timestamps[0] != expected_first
+        or dataset.timestamps[-1] != expected_last
+    ):
         raise RuntimeError("resolved dataset clock differs from frozen source window")
     if dataset.symbols != SYMBOLS:
         raise RuntimeError("resolved dataset symbol roster differs from frozen roster")
@@ -417,7 +421,9 @@ def execute(
 ) -> None:
     protocol = canonical_signed_taker_flow_protocol()
     if protocol.digest != PROTOCOL_DIGEST:
-        raise RuntimeError("canonical protocol digest changed before publisher execution")
+        raise RuntimeError(
+            "canonical protocol digest changed before publisher execution"
+        )
     if tuple(protocol.symbols) != SYMBOLS:
         raise RuntimeError("canonical protocol symbol roster changed before execution")
 
@@ -458,7 +464,9 @@ def execute(
             result.live_trading_authorized,
         )
     ):
-        raise RuntimeError("publisher crossed a forbidden evaluation/production boundary")
+        raise RuntimeError(
+            "publisher crossed a forbidden evaluation/production boundary"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=False)
     source_bytes = _write_json(output_dir / "source-manifest.json", manifest)

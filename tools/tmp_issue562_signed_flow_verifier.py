@@ -136,15 +136,15 @@ def _month_grid(month: str) -> tuple[int, int, int]:
 
 def _iso(ms: int) -> str:
     return (
-        datetime.fromtimestamp(ms / 1000.0, tz=UTC)
-        .isoformat()
-        .replace("+00:00", "Z")
+        datetime.fromtimestamp(ms / 1000.0, tz=UTC).isoformat().replace("+00:00", "Z")
     )
 
 
 def _fresh_archive(
     *, symbol: str, month: str, url: str
-) -> tuple[dict[str, object], list[tuple[int, float, float, float, float, float, float]]]:
+) -> tuple[
+    dict[str, object], list[tuple[int, float, float, float, float, float, float]]
+]:
     payload = _fetch(url)
     checksum_payload = _fetch(url + ".CHECKSUM")
     raw_sha = hashlib.sha256(payload).hexdigest()
@@ -234,7 +234,10 @@ def _fresh_archive(
 
 def _fresh_source(
     published_manifest: dict[str, object],
-) -> tuple[list[dict[str, object]], dict[str, list[tuple[int, float, float, float, float, float, float]]]]:
+) -> tuple[
+    list[dict[str, object]],
+    dict[str, list[tuple[int, float, float, float, float, float, float]]],
+]:
     raw_entries = published_manifest.get("entries")
     if not isinstance(raw_entries, list) or len(raw_entries) != 125:
         raise RuntimeError("published source manifest does not contain 125 entries")
@@ -260,10 +263,14 @@ def _fresh_source(
             key = (symbol, month)
             published_entry = by_key.get(key)
             if published_entry is None:
-                raise RuntimeError(f"published source manifest missing {symbol}:{month}")
+                raise RuntimeError(
+                    f"published source manifest missing {symbol}:{month}"
+                )
             expected_url = f"{ROOT}/{symbol}/1h/{symbol}-1h-{month}.zip"
             if published_entry.get("url") != expected_url:
-                raise RuntimeError(f"published URL differs from frozen plan: {symbol}:{month}")
+                raise RuntimeError(
+                    f"published URL differs from frozen plan: {symbol}:{month}"
+                )
             fresh_entry, rows = _fresh_archive(
                 symbol=symbol, month=month, url=expected_url
             )
@@ -314,9 +321,7 @@ def _manifest_from_fresh_entries(
         "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace(
             "+00:00", "Z"
         ),
-        "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace("+00:00", "Z"),
         "fit_start": "2021-01-01T01:00:00Z",
         "fit_cutoff": "2023-01-01T00:00:00Z",
         "missing_grid_rows_by_symbol": missing,
@@ -332,8 +337,8 @@ def _raw_series(
     rows: list[tuple[int, float, float, float, float, float, float]],
 ) -> RawMarketSeries:
     open_times = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_times + 3_600_000).astype("datetime64[ms]").astype(
-        "datetime64[ns]"
+    timestamps = (
+        (open_times + 3_600_000).astype("datetime64[ms]").astype("datetime64[ns]")
     )
     size = len(rows)
     return RawMarketSeries(
@@ -348,9 +353,7 @@ def _raw_series(
         tradable=np.ones(size, dtype=np.bool_),
         funding_available=np.zeros(size, dtype=np.bool_),
         funding_event_count=np.zeros(size, dtype=np.int32),
-        taker_buy_quote_volume=np.asarray(
-            [item[6] for item in rows], dtype=np.float64
-        ),
+        taker_buy_quote_volume=np.asarray([item[6] for item in rows], dtype=np.float64),
     )
 
 
@@ -436,7 +439,10 @@ def verify(
         raise RuntimeError("published result implementation head is wrong")
     if published_result.protocol_digest != PROTOCOL_DIGEST:
         raise RuntimeError("published result protocol digest is wrong")
-    if published_metadata.get("interpretation_deferred_until_fresh_reconstruction") is not True:
+    if (
+        published_metadata.get("interpretation_deferred_until_fresh_reconstruction")
+        is not True
+    ):
         raise RuntimeError("publisher metadata did not defer interpretation")
     if published_metadata.get("evaluation_pnl_inspected") is not False:
         raise RuntimeError("publisher metadata crossed evaluation boundary")
@@ -527,7 +533,9 @@ def verify(
             for item in reconstructed.symbol_results
         ],
     }
-    print("VERIFIED_TRAINING_INTERPRETATION=" + json.dumps(interpretation, sort_keys=True))
+    print(
+        "VERIFIED_TRAINING_INTERPRETATION=" + json.dumps(interpretation, sort_keys=True)
+    )
     print("EVALUATION_PNL_INSPECTED=false")
 
 

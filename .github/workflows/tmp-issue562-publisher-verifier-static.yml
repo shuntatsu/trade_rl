@@ -1,4 +1,4 @@
-name: Temporary Issue 562 publisher/verifier static validation v2
+name: Temporary Issue 562 publisher/verifier static validation v3
 
 on:
   push:
@@ -28,42 +28,101 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --extra dev
-      - name: Format-check helpers
+      - name: Format lint compile and types
         run: |
+          set -euo pipefail
           uv run ruff format --check \
             tools/tmp_issue562_signed_flow_publisher.py \
             tools/tmp_issue562_signed_flow_verifier.py
-      - name: Lint helpers
-        run: |
           uv run ruff check \
             tools/tmp_issue562_signed_flow_publisher.py \
             tools/tmp_issue562_signed_flow_verifier.py
-      - name: Compile helpers
-        run: |
           uv run python -m py_compile \
             tools/tmp_issue562_signed_flow_publisher.py \
             tools/tmp_issue562_signed_flow_verifier.py
-      - name: Authority/import smoke without real execution
+          uv run mypy \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+      - name: Authority and independent parser parity smoke without real execution
         run: |
           uv run python - <<'PY'
+          import csv
+          import hashlib
           import importlib.util
+          import io
+          import zipfile
           from pathlib import Path
+
           from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import canonical_signed_taker_flow_protocol
 
-          for name in (
-              "tmp_issue562_signed_flow_publisher.py",
-              "tmp_issue562_signed_flow_verifier.py",
-          ):
+          def load(name: str):
               path = Path("tools") / name
               spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)
               if spec is None or spec.loader is None:
                   raise RuntimeError(f"cannot load {path}")
               module = importlib.util.module_from_spec(spec)
               spec.loader.exec_module(module)
+              return module
+
+          publisher = load("tmp_issue562_signed_flow_publisher.py")
+          verifier = load("tmp_issue562_signed_flow_verifier.py")
+          for module in (publisher, verifier):
               assert module.CALIBRATION_HEAD == "817e3c96d702ffca3be74309bd68b31ef02643c5"
               assert module.IMPLEMENTATION_HEAD == "adf835cf45936dbc40bf8d4f74879825ae211ef9"
               assert module.PROTOCOL_DIGEST == canonical_signed_taker_flow_protocol().digest
               assert module.SYMBOLS == ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
-          print("HELPER_IMPORT_AUTHORITY_SMOKE=true")
+
+          rows = [publisher.EXPECTED_HEADER]
+          for hour in (0, 2):
+              open_ms = 1609459200000 + hour * 3_600_000
+              rows.append(
+                  (
+                      str(open_ms), "100", "102", "99", "101", "1",
+                      str(open_ms + 3_599_999), "10", "1", "0.5", "6", "0",
+                  )
+              )
+          csv_buffer = io.StringIO()
+          writer = csv.writer(csv_buffer, lineterminator="\n")
+          writer.writerows(rows)
+          archive_buffer = io.BytesIO()
+          with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+              archive.writestr("BTCUSDT-1h-2021-01.csv", csv_buffer.getvalue())
+          payload = archive_buffer.getvalue()
+          checksum = hashlib.sha256(payload).hexdigest()
+          checksum_payload = f"{checksum}  BTCUSDT-1h-2021-01.zip\n".encode()
+          url = f"{publisher.ROOT}/BTCUSDT/1h/BTCUSDT-1h-2021-01.zip"
+
+          published_entry, published_rows = publisher._parse_archive(
+              symbol="BTCUSDT",
+              month="2021-01",
+              payload=payload,
+              checksum_payload=checksum_payload,
+              url=url,
+          )
+          original_fetch = verifier._fetch
+          try:
+              verifier._fetch = lambda requested: (
+                  payload if requested == url else checksum_payload
+              )
+              verified_entry, verified_rows = verifier._fresh_archive(
+                  symbol="BTCUSDT", month="2021-01", url=url
+              )
+          finally:
+              verifier._fetch = original_fetch
+          assert verified_entry == published_entry
+          assert verified_rows == published_rows
+
+          preflight_args = {
+              "preflight_run_id": 34855081582,
+              "preflight_artifact_id": 10352297353,
+              "preflight_api_digest": "sha256:5be1b314b614491386e421f052d8afe02b6c917ea854900feff96e77f2c75f95",
+              "preflight_content_digest": "f948f133f23b00ce2a0189f2fd0a997591040921e284d8eceda62a3934ab4e18",
+          }
+          pub_manifest = publisher._source_manifest([published_entry], **preflight_args)
+          ver_manifest = verifier._manifest_from_fresh_entries([verified_entry], **preflight_args)
+          # Single-entry manifests intentionally have different planned roster content only if helpers drift.
+          assert pub_manifest == ver_manifest
+
+          print("HELPER_AUTHORITY_AND_PARSER_PARITY=true")
           print("REAL_CALIBRATION_EXECUTED=false")
           PY

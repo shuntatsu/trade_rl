@@ -18,6 +18,7 @@ RUNS_EXPORTS = {
     "ResolvedCandidateRunSpec",
     "build_candidate_run_provenance",
     "execute_candidate_run",
+    "execution_cost_for_overlay",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
     "parse_candidate_run_config",
@@ -94,6 +95,7 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert facade.run_lean_candidate_suite is candidate_suite.run_lean_candidate_suite
     assert facade.CandidateRunResult is execute.CandidateRunResult
     assert facade.execute_candidate_run is execute.execute_candidate_run
+    assert facade.execution_cost_for_overlay is execute.execution_cost_for_overlay
     assert facade.CandidateRunArtifactIdentity is artifact.CandidateRunArtifactIdentity
     assert facade.LoadedCandidateRun is artifact.LoadedCandidateRun
     assert facade.PublishedCandidateRun is artifact.PublishedCandidateRun

@@ -33,10 +33,17 @@ def _evidence_root(root: Path) -> Path:
     return root / "study" / "baseline" / "evidence"
 
 
-def _provenance_without_implementation(payload: dict[str, Any]) -> dict[str, Any]:
+def _plan_without_implementation(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload)
+    result.pop("implementation_digest", None)
+    return result
+
+
+def _provenance_without_bridge_context(payload: dict[str, Any]) -> dict[str, Any]:
     result = dict(payload)
     result.pop("implementation", None)
     result.pop("implementation_digest", None)
+    result.pop("research_context_digest", None)
     return result
 
 
@@ -82,10 +89,7 @@ def _verify_cash_and_costs(summary: dict[str, Any]) -> None:
                     if isinstance(summary.get("evaluation"), dict)
                     else None
                 )
-                if (
-                    initial is not None
-                    and strategy.get("final_portfolio_value") != initial
-                ):
+                if initial is not None and strategy.get("final_portfolio_value") != initial:
                     raise StageABridgeError("cash final portfolio value differs")
             else:
                 if (
@@ -129,11 +133,15 @@ def verify_stage_a_bridge(
 
     original = Path(original_root)
     replay = Path(replay_root)
+    original_plan = _read_json(original / "study" / "plan.json")
+    replay_plan = _read_json(replay / "study" / "plan.json")
     _require_equal(
-        "Study plan",
-        _read_json(original / "study" / "plan.json"),
-        _read_json(replay / "study" / "plan.json"),
+        "Study plan except implementation provenance",
+        _plan_without_implementation(original_plan),
+        _plan_without_implementation(replay_plan),
     )
+    original_plan_impl = original_plan.get("implementation_digest")
+    replay_plan_impl = replay_plan.get("implementation_digest")
 
     original_evidence = _evidence_root(original)
     replay_evidence = _evidence_root(replay)
@@ -142,7 +150,6 @@ def verify_stage_a_bridge(
     for key in (
         "schema_version",
         "ppo_seeds",
-        "research_context_digest",
         "semantic_config",
         "semantic_config_digest",
     ):
@@ -151,6 +158,10 @@ def verify_stage_a_bridge(
             original_manifest.get(key),
             replay_manifest.get(key),
         )
+    original_context = original_manifest.get("research_context_digest")
+    replay_context = replay_manifest.get("research_context_digest")
+    if not isinstance(original_context, str) or not isinstance(replay_context, str):
+        raise StageABridgeError("evidence research context digest is invalid")
     seeds = original_manifest.get("ppo_seeds")
     if (
         not isinstance(seeds, list)
@@ -199,14 +210,18 @@ def verify_stage_a_bridge(
 
         original_provenance = _read_json(original_run / "provenance.json")
         replay_provenance = _read_json(replay_run / "provenance.json")
-        if _provenance_without_implementation(
+        if _provenance_without_bridge_context(
             original_provenance
-        ) != _provenance_without_implementation(replay_provenance):
+        ) != _provenance_without_bridge_context(replay_provenance):
             if original_provenance.get(
                 "runtime_environment_digest"
             ) != replay_provenance.get("runtime_environment_digest"):
                 raise StageABridgeError(f"runtime environment differs for seed {seed}")
             raise StageABridgeError(f"unexplained provenance drift for seed {seed}")
+        if original_provenance.get("research_context_digest") != original_context:
+            raise StageABridgeError(f"source research context mismatch for seed {seed}")
+        if replay_provenance.get("research_context_digest") != replay_context:
+            raise StageABridgeError(f"replay research context mismatch for seed {seed}")
         old_impl = original_provenance.get("implementation_digest")
         new_impl = replay_provenance.get("implementation_digest")
         runtime = replay_provenance.get("runtime_environment_digest")
@@ -243,8 +258,13 @@ def verify_stage_a_bridge(
 
     original_impl = next(iter(original_implementations))
     replay_impl = next(iter(replay_implementations))
+    if original_plan_impl is not None and original_plan_impl != original_impl:
+        raise StageABridgeError("source Study/run implementation binding differs")
+    if replay_plan_impl is not None and replay_plan_impl != replay_impl:
+        raise StageABridgeError("replay Study/run implementation binding differs")
+
     return {
-        "schema_version": "issue541_stage_a_bridge_verification_v1",
+        "schema_version": "issue541_stage_a_bridge_verification_v2",
         "status": "PASS",
         "raw_return_arrays_checked": raw_arrays_checked,
         "summaries_checked": summaries_checked,
@@ -254,6 +274,8 @@ def verify_stage_a_bridge(
         "original_implementation_digest": original_impl,
         "replay_implementation_digest": replay_impl,
         "implementation_digest_changed": original_impl != replay_impl,
+        "study_plan_implementation_changed": original_plan_impl != replay_plan_impl,
+        "research_context_changed": original_context != replay_context,
         "runtime_environment_digest": next(iter(runtime_digests)),
         "runtime_environment_digest_match": True,
         "raw_returns_exact": True,

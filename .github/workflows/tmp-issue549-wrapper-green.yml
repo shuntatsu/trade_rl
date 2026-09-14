@@ -1,0 +1,32 @@
+name: Temporary Issue 549 wrapper GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue549-wrapper-green
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: "b621f5828d1a38431c755f10a723bd63c28be544"
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests/strategies/test_mean_reversion_economic_gate.py

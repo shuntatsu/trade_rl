@@ -6,6 +6,7 @@ on:
       - execute/issue541-stage-a
     paths:
       - tests/research/test_issue541_stage_a.py
+      - tests/research/test_issue541_stage_a_bridge_context.py
       - tools/issue541_stage_a.py
       - .github/workflows/tmp-issue541-stage-a-tdd.yml
 
@@ -25,4 +26,4 @@ jobs:
           version: "0.10.0"
           python-version: "3.12"
       - run: uv sync --extra dev
-      - run: uv run pytest -q tests/research/test_issue541_stage_a.py
+      - run: uv run pytest -q tests/research/test_issue541_stage_a.py tests/research/test_issue541_stage_a_bridge_context.py

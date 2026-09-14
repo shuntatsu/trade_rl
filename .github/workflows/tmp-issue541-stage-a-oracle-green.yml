@@ -1,0 +1,28 @@
+name: Temporary Issue 541 Stage A oracle green
+
+on:
+  push:
+    branches:
+      - verify/issue541-stage-a-oracle-green
+    paths:
+      - .github/workflows/tmp-issue541-stage-a-oracle-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue541-stage-a-oracle-green
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check tools/issue541_stage_a.py tests/research/test_issue541_stage_a.py
+      - run: uv run ruff format --check tools/issue541_stage_a.py tests/research/test_issue541_stage_a.py
+      - run: uv run pytest -q tests/research/test_issue541_stage_a.py

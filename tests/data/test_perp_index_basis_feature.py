@@ -169,6 +169,42 @@ def test_sparse_index_row_is_unavailable_and_never_stale_carried() -> None:
     )
 
 
+def test_sparse_index_gap_does_not_poison_unrelated_feature_availability() -> None:
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            _basis_spec(),
+            FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN, lookback=1),
+        ),
+    )
+    dataset = MarketDatasetBuilder(config).build(
+        _IndexCapableSource(_trade_series(), _index_series(omit=10)),
+        _instrument(),
+    )
+
+    assert not dataset.feature_available[10, 0, 0]
+    assert dataset.features[10, 0, 0] == 0.0
+    assert dataset.feature_available[10, 0, 1]
+    assert dataset.features[10, 0, 1] == 0.0
+
+
+def test_off_grid_index_timestamp_is_rejected_instead_of_nearest_alignment() -> None:
+    base = _index_series()
+    timestamps = np.asarray(base.timestamps).copy()
+    timestamps[10] += np.timedelta64(30, "m")
+    shifted = RawIndexPriceSeries(
+        timestamps=timestamps,
+        available_at=timestamps,
+        close=base.close,
+    )
+
+    with pytest.raises(ValueError, match="exact|base.*clock|match"):
+        MarketDatasetBuilder(_basis_config()).build(
+            _IndexCapableSource(_trade_series(), shifted),
+            _instrument(),
+        )
+
+
 def test_index_delay_and_perpetual_information_availability_fail_closed() -> None:
     index_delayed = MarketDatasetBuilder(_basis_config()).build(
         _IndexCapableSource(_trade_series(), _index_series(delay=10)),

@@ -18,6 +18,12 @@ _PROVIDER_PARSER_BLOB_SHA = "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
 _ARCHIVE_ROSTER_PROTOCOL_DIGEST = (
     "5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071"
 )
+_ARCHIVE_ROSTER_SEAL_RUN_ID = 34761985041
+_ARCHIVE_ROSTER_SEAL_ARTIFACT_ID = 10319386570
+_ARCHIVE_ROSTER_SEAL_ARTIFACT_DIGEST = (
+    "dbc6ef286abb9e4c8530089328fb64b2cfaa5e98715a82740439470a45942e57"
+)
+_ARCHIVE_ROSTER_FRESH_VERIFIER_RUN_ID = 34762075059
 _ARCHIVE_EVIDENCE_RUN_ID = 34766830666
 _ARCHIVE_EVIDENCE_ARTIFACT_ID = 10320428830
 _ARCHIVE_EVIDENCE_ARTIFACT_DIGEST = (
@@ -29,6 +35,11 @@ _CANONICAL_DATASET_ID = (
 )
 _CANONICAL_DATASET_ARTIFACT_DIGEST = (
     "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
+)
+_DATASET_CONTAINER_RUN_ID = 34702660287
+_DATASET_CONTAINER_ARTIFACT_ID = 10300479733
+_DATASET_CONTAINER_ARTIFACT_DIGEST = (
+    "60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4"
 )
 _MARKET = "usds-m"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
@@ -65,12 +76,19 @@ _PAYLOAD_FIELDS = frozenset(
         "provider_head_sha",
         "provider_parser_blob_sha",
         "archive_roster_protocol_digest",
+        "archive_roster_seal_run_id",
+        "archive_roster_seal_artifact_id",
+        "archive_roster_seal_artifact_digest",
+        "archive_roster_fresh_verifier_run_id",
         "archive_evidence_run_id",
         "archive_evidence_artifact_id",
         "archive_evidence_artifact_digest",
         "archive_evidence_fresh_verifier_run_id",
         "canonical_dataset_id",
         "canonical_dataset_artifact_digest",
+        "dataset_container_run_id",
+        "dataset_container_artifact_id",
+        "dataset_container_artifact_digest",
         "market",
         "symbols",
         "discovery_start",
@@ -178,12 +196,19 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
     provider_head_sha: str
     provider_parser_blob_sha: str
     archive_roster_protocol_digest: str
+    archive_roster_seal_run_id: int
+    archive_roster_seal_artifact_id: int
+    archive_roster_seal_artifact_digest: str
+    archive_roster_fresh_verifier_run_id: int
     archive_evidence_run_id: int
     archive_evidence_artifact_id: int
     archive_evidence_artifact_digest: str
     archive_evidence_fresh_verifier_run_id: int
     canonical_dataset_id: str
     canonical_dataset_artifact_digest: str
+    dataset_container_run_id: int
+    dataset_container_artifact_id: int
+    dataset_container_artifact_digest: str
     market: str
     symbols: tuple[str, ...]
     discovery_start: datetime
@@ -217,6 +242,19 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
                 self.archive_roster_protocol_digest,
                 field="archive_roster_protocol_digest",
             ),
+            _integer(self.archive_roster_seal_run_id, field="archive_roster_seal_run_id"),
+            _integer(
+                self.archive_roster_seal_artifact_id,
+                field="archive_roster_seal_artifact_id",
+            ),
+            _sha256(
+                self.archive_roster_seal_artifact_digest,
+                field="archive_roster_seal_artifact_digest",
+            ),
+            _integer(
+                self.archive_roster_fresh_verifier_run_id,
+                field="archive_roster_fresh_verifier_run_id",
+            ),
             _integer(self.archive_evidence_run_id, field="archive_evidence_run_id"),
             _integer(
                 self.archive_evidence_artifact_id,
@@ -234,6 +272,15 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
             _sha256(
                 self.canonical_dataset_artifact_digest,
                 field="canonical_dataset_artifact_digest",
+            ),
+            _integer(self.dataset_container_run_id, field="dataset_container_run_id"),
+            _integer(
+                self.dataset_container_artifact_id,
+                field="dataset_container_artifact_id",
+            ),
+            _sha256(
+                self.dataset_container_artifact_digest,
+                field="dataset_container_artifact_digest",
             ),
             _text(self.market, field="market"),
             tuple(self.symbols),
@@ -259,7 +306,10 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
                 self.min_accepted_days_per_symbol,
                 field="min_accepted_days_per_symbol",
             ),
-            _integer(self.min_accepted_days_per_year, field="min_accepted_days_per_year"),
+            _integer(
+                self.min_accepted_days_per_year,
+                field="min_accepted_days_per_year",
+            ),
             _integer(self.min_valid_observations, field="min_valid_observations"),
             _integer(
                 self.min_valid_observations_per_year,
@@ -285,12 +335,19 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
             _PROVIDER_HEAD_SHA,
             _PROVIDER_PARSER_BLOB_SHA,
             _ARCHIVE_ROSTER_PROTOCOL_DIGEST,
+            _ARCHIVE_ROSTER_SEAL_RUN_ID,
+            _ARCHIVE_ROSTER_SEAL_ARTIFACT_ID,
+            _ARCHIVE_ROSTER_SEAL_ARTIFACT_DIGEST,
+            _ARCHIVE_ROSTER_FRESH_VERIFIER_RUN_ID,
             _ARCHIVE_EVIDENCE_RUN_ID,
             _ARCHIVE_EVIDENCE_ARTIFACT_ID,
             _ARCHIVE_EVIDENCE_ARTIFACT_DIGEST,
             _ARCHIVE_EVIDENCE_FRESH_VERIFIER_RUN_ID,
             _CANONICAL_DATASET_ID,
             _CANONICAL_DATASET_ARTIFACT_DIGEST,
+            _DATASET_CONTAINER_RUN_ID,
+            _DATASET_CONTAINER_ARTIFACT_ID,
+            _DATASET_CONTAINER_ARTIFACT_DIGEST,
             _MARKET,
             _SYMBOLS,
             _DISCOVERY_START,
@@ -350,6 +407,14 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
             "provider_head_sha": self.provider_head_sha,
             "provider_parser_blob_sha": self.provider_parser_blob_sha,
             "archive_roster_protocol_digest": self.archive_roster_protocol_digest,
+            "archive_roster_seal_run_id": self.archive_roster_seal_run_id,
+            "archive_roster_seal_artifact_id": self.archive_roster_seal_artifact_id,
+            "archive_roster_seal_artifact_digest": (
+                self.archive_roster_seal_artifact_digest
+            ),
+            "archive_roster_fresh_verifier_run_id": (
+                self.archive_roster_fresh_verifier_run_id
+            ),
             "archive_evidence_run_id": self.archive_evidence_run_id,
             "archive_evidence_artifact_id": self.archive_evidence_artifact_id,
             "archive_evidence_artifact_digest": self.archive_evidence_artifact_digest,
@@ -358,6 +423,9 @@ class AggTradesFlowPredictiveDiagnosticProtocol:
             ),
             "canonical_dataset_id": self.canonical_dataset_id,
             "canonical_dataset_artifact_digest": self.canonical_dataset_artifact_digest,
+            "dataset_container_run_id": self.dataset_container_run_id,
+            "dataset_container_artifact_id": self.dataset_container_artifact_id,
+            "dataset_container_artifact_digest": self.dataset_container_artifact_digest,
             "market": self.market,
             "symbols": list(self.symbols),
             "discovery_start": _iso(self.discovery_start),
@@ -397,12 +465,19 @@ def canonical_aggtrades_flow_predictive_diagnostic_protocol() -> (
         provider_head_sha=_PROVIDER_HEAD_SHA,
         provider_parser_blob_sha=_PROVIDER_PARSER_BLOB_SHA,
         archive_roster_protocol_digest=_ARCHIVE_ROSTER_PROTOCOL_DIGEST,
+        archive_roster_seal_run_id=_ARCHIVE_ROSTER_SEAL_RUN_ID,
+        archive_roster_seal_artifact_id=_ARCHIVE_ROSTER_SEAL_ARTIFACT_ID,
+        archive_roster_seal_artifact_digest=_ARCHIVE_ROSTER_SEAL_ARTIFACT_DIGEST,
+        archive_roster_fresh_verifier_run_id=_ARCHIVE_ROSTER_FRESH_VERIFIER_RUN_ID,
         archive_evidence_run_id=_ARCHIVE_EVIDENCE_RUN_ID,
         archive_evidence_artifact_id=_ARCHIVE_EVIDENCE_ARTIFACT_ID,
         archive_evidence_artifact_digest=_ARCHIVE_EVIDENCE_ARTIFACT_DIGEST,
         archive_evidence_fresh_verifier_run_id=_ARCHIVE_EVIDENCE_FRESH_VERIFIER_RUN_ID,
         canonical_dataset_id=_CANONICAL_DATASET_ID,
         canonical_dataset_artifact_digest=_CANONICAL_DATASET_ARTIFACT_DIGEST,
+        dataset_container_run_id=_DATASET_CONTAINER_RUN_ID,
+        dataset_container_artifact_id=_DATASET_CONTAINER_ARTIFACT_ID,
+        dataset_container_artifact_digest=_DATASET_CONTAINER_ARTIFACT_DIGEST,
         market=_MARKET,
         symbols=_SYMBOLS,
         discovery_start=_DISCOVERY_START,
@@ -470,7 +545,9 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
             ),
         )
     except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"cannot load aggTrades flow diagnostic protocol: {source}") from error
+        raise ValueError(
+            f"cannot load aggTrades flow diagnostic protocol: {source}"
+        ) from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError("aggTrades flow diagnostic protocol must be a JSON object")
     payload = cast(dict[str, object], raw)
@@ -491,6 +568,21 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
         archive_roster_protocol_digest=_sha256(
             payload["archive_roster_protocol_digest"],
             field="archive_roster_protocol_digest",
+        ),
+        archive_roster_seal_run_id=_integer(
+            payload["archive_roster_seal_run_id"], field="archive_roster_seal_run_id"
+        ),
+        archive_roster_seal_artifact_id=_integer(
+            payload["archive_roster_seal_artifact_id"],
+            field="archive_roster_seal_artifact_id",
+        ),
+        archive_roster_seal_artifact_digest=_sha256(
+            payload["archive_roster_seal_artifact_digest"],
+            field="archive_roster_seal_artifact_digest",
+        ),
+        archive_roster_fresh_verifier_run_id=_integer(
+            payload["archive_roster_fresh_verifier_run_id"],
+            field="archive_roster_fresh_verifier_run_id",
         ),
         archive_evidence_run_id=_integer(
             payload["archive_evidence_run_id"], field="archive_evidence_run_id"
@@ -514,6 +606,17 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
             payload["canonical_dataset_artifact_digest"],
             field="canonical_dataset_artifact_digest",
         ),
+        dataset_container_run_id=_integer(
+            payload["dataset_container_run_id"], field="dataset_container_run_id"
+        ),
+        dataset_container_artifact_id=_integer(
+            payload["dataset_container_artifact_id"],
+            field="dataset_container_artifact_id",
+        ),
+        dataset_container_artifact_digest=_sha256(
+            payload["dataset_container_artifact_digest"],
+            field="dataset_container_artifact_digest",
+        ),
         market=_text(payload["market"], field="market"),
         symbols=_strings(payload["symbols"], field="symbols"),
         discovery_start=_parse_datetime(
@@ -522,7 +625,9 @@ def load_aggtrades_flow_predictive_diagnostic_protocol(
         discovery_stop_exclusive=_parse_datetime(
             payload["discovery_stop_exclusive"], field="discovery_stop_exclusive"
         ),
-        sample_month_days=_integers(payload["sample_month_days"], field="sample_month_days"),
+        sample_month_days=_integers(
+            payload["sample_month_days"], field="sample_month_days"
+        ),
         archive_url_template=_text(
             payload["archive_url_template"], field="archive_url_template"
         ),

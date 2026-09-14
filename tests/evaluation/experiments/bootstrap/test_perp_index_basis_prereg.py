@@ -235,7 +235,7 @@ def test_payload_is_result_blind_strict_and_canonical(tmp_path) -> None:
     assert loaded == protocol
     assert loaded.digest == protocol.digest
 
-    path.write_text("{\n  \"schema_version\": \"pretty\"\n}", encoding="utf-8")
+    path.write_text('{\n  "schema_version": "pretty"\n}', encoding="utf-8")
     with pytest.raises(ValueError, match="canonical|keys|malformed"):
         load_perp_index_basis_protocol(path)
 

@@ -1,0 +1,101 @@
+name: Temporary Issue 543 attribution diff v4
+
+on:
+  push:
+    branches:
+      - verify/issue543-baseline-attribution
+    paths:
+      - .github/workflows/tmp-issue543-attribution-diff-v4.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TARGET_SHA: 63e5d7f1688a9fcd1730718c49cf574baa37b155
+  SOURCE_RUN_ID: 34700123151
+  SOURCE_ARTIFACT_NAME: canonical-m2-portable-baseline-v1-34700123151
+  SOURCE_EVIDENCE_FINGERPRINT: 526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29
+  PUBLISHED_RUN_ID: 34807300429
+  PUBLISHED_NAME: issue543-baseline-loss-attribution-v1-34807300429
+
+jobs:
+  diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PUBLISHED_NAME }}
+          path: /tmp/issue543-published-v4
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PUBLISHED_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_ARTIFACT_NAME }}
+          path: /tmp/issue543-source-v4
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Print exact recursive mismatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          import math
+          import os
+          from pathlib import Path
+
+          from trade_rl.data import load_market_dataset_artifact
+          from trade_rl.evaluation.loss_attribution import analyze_deterministic_loss_attribution
+          from trade_rl.evaluation.runs import load_candidate_run_artifact
+
+          published = json.loads(Path('/tmp/issue543-published-v4/loss-attribution.json').read_text(encoding='utf-8'))['report']
+          root = Path('/tmp/issue543-source-v4')
+          dataset = load_market_dataset_artifact(root / 'dataset')
+          evidence = json.loads((root / 'study/baseline/evidence/manifest.json').read_text(encoding='utf-8'))
+          if evidence.get('fingerprint') != os.environ['SOURCE_EVIDENCE_FINGERPRINT']:
+              raise SystemExit('source fingerprint mismatch')
+          seeds = tuple(evidence['ppo_seeds'])
+          runs = tuple(load_candidate_run_artifact(root / f'study/baseline/evidence/runs/seed-{seed}') for seed in seeds)
+          strategies = ('cash','constant_long','constant_short','trend','mean_reversion','ridge24','lightgbm24')
+          fresh = analyze_deterministic_loss_attribution(runs, dataset, deterministic_strategies=strategies).to_payload()
+
+          diffs = []
+          def walk(a, b, path='report'):
+              if type(a) is not type(b):
+                  diffs.append((path, f'type {type(a).__name__}', f'type {type(b).__name__}', a, b))
+                  return
+              if isinstance(a, dict):
+                  if set(a) != set(b):
+                      diffs.append((path, 'keys', sorted(a), sorted(b), None))
+                      return
+                  for key in sorted(a): walk(a[key], b[key], f'{path}.{key}')
+                  return
+              if isinstance(a, list):
+                  if len(a) != len(b):
+                      diffs.append((path, 'length', len(a), len(b), None))
+                      return
+                  for i, (x, y) in enumerate(zip(a, b, strict=True)): walk(x, y, f'{path}[{i}]')
+                  return
+              if isinstance(a, float) and isinstance(b, float):
+                  if math.isnan(a) and math.isnan(b): return
+              if a != b:
+                  diffs.append((path, 'value', a, b, None))
+          walk(published, fresh)
+          print('DIFF_COUNT', len(diffs))
+          for diff in diffs[:50]: print(repr(diff))
+          if not diffs:
+              raise SystemExit('no semantic diffs found despite prior mismatch')
+          PY

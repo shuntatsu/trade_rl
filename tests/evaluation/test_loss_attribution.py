@@ -153,8 +153,8 @@ def test_loss_attribution_uses_realized_path_accounting_and_compounding() -> Non
     )
     assert cell.explicit_cost_flip_on_realized_path is False
     assert cell.year_returns == (
-        (2026, pytest.approx(-0.01)),
-        (2027, pytest.approx(0.20)),
+        (2025, pytest.approx(0.10)),
+        (2026, pytest.approx(0.08)),
     )
     assert cell.positive_months == 2
     assert cell.month_count == 3

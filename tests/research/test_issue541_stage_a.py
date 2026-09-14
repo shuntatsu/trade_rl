@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from tools.issue541_stage_a import StageABridgeError, verify_stage_a_bridge
 
 

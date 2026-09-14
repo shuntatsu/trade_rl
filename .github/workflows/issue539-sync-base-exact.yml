@@ -1,0 +1,180 @@
+name: Issue 539 sync updated base exact verification
+
+on:
+  push:
+    branches:
+      - verify/issue539-sync-base-e852
+    paths:
+      - .github/workflows/issue539-sync-base-exact.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 2e70d509e120684014ce7e00f7381baf157f7511
+  VERIFIED_IDENTITY_HEAD: 3e111a59153b7353e26080bd569b9775190577be
+  UPDATED_BASE: e8527a0471a68fe27b094a6353cf872037eb9100
+  EXPECTED_TREE: f1c520036ec8ff0dac8f23f480d89fe4e85f96f4
+  BUNDLE_RUN_ID: "34803217815"
+  BUNDLE_ID: "10331899302"
+  BUNDLE_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  BUNDLE_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  FRESH_RUN_ID: "34803432434"
+  FRESH_ID: "10332575500"
+  FRESH_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  FRESH_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+
+jobs:
+  core:
+    name: Synced Identity Lean Core
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact sync candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e70d509e120684014ce7e00f7381baf157f7511
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove history sync with zero content drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse "$VERIFIED_IDENTITY_HEAD^{tree}")" = "$EXPECTED_TREE"
+          test "$(git rev-parse HEAD^1)" = "$VERIFIED_IDENTITY_HEAD"
+          test "$(git rev-parse HEAD^2)" = "$UPDATED_BASE"
+          git merge-base --is-ancestor "$UPDATED_BASE" HEAD
+          git merge-base --is-ancestor "$VERIFIED_IDENTITY_HEAD" HEAD
+          test -z "$(git diff --name-only "$VERIFIED_IDENTITY_HEAD" "$TARGET_SHA")"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests
+      - run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  guide:
+    name: Synced Identity Human Guide
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: 2e70d509e120684014ce7e00f7381baf157f7511
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e70d509e120684014ce7e00f7381baf157f7511
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e
+
+  identity:
+    name: Rebind existing PRE-PnL identity evidence
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e70d509e120684014ce7e00f7381baf157f7511
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove implementation tree is exactly the verified identity tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse "$VERIFIED_IDENTITY_HEAD^{tree}")" = "$EXPECTED_TREE"
+          test -z "$(git diff --name-only "$VERIFIED_IDENTITY_HEAD" HEAD)"
+      - name: API-bind unchanged canonical bundle and fresh verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify "$BUNDLE_ID" "$BUNDLE_NAME" "$BUNDLE_DIGEST" "$BUNDLE_RUN_ID"
+          verify "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST" "$FRESH_RUN_ID"
+      - name: Confirm no PnL or identity rematerialization is needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SYNC_ONLY=true"
+          echo "IMPLEMENTATION_TREE_IDENTICAL=true"
+          echo "CANONICAL_BUNDLE_REMAINS_AUTHORITY=true"
+          echo "PNL_EXECUTED=false"

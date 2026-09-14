@@ -1,0 +1,218 @@
+name: Temporary Issue 549 implementation seal
+
+on:
+  push:
+    branches: [verify/issue549-impl-seal]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  publisher:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      TARGET_SHA: 7b352d53b037507e0f3546925bf0a8ab47275780
+      TARGETED_RUN_ID: 34833562626
+      FULL_CI_RUN_ID: 34833763386
+      PR_NUMBER: 550
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Wait for exact-head prerequisite verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for run_id in "$TARGETED_RUN_ID" "$FULL_CI_RUN_ID"; do
+            completed=false
+            for _ in $(seq 1 120); do
+              meta="$(curl --fail --silent --show-error \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+              status="$(META="$meta" python3 -c 'import json,os; print(json.loads(os.environ["META"])["status"])')"
+              if [ "$status" = completed ]; then
+                conclusion="$(META="$meta" python3 -c 'import json,os; print(json.loads(os.environ["META"])["conclusion"])')"
+                test "$conclusion" = success
+                completed=true
+                break
+              fi
+              sleep 10
+            done
+            test "$completed" = true
+          done
+      - name: Verify bound PR and immutable authority artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          PR_JSON="$pr" python3 - <<'PY'
+          import json, os
+          pr=json.loads(os.environ['PR_JSON'])
+          assert pr['head']['sha']==os.environ['TARGET_SHA']
+          assert pr['base']['ref']=='research/issue547-economic-gate-calibration'
+          assert pr['base']['sha']=='393952c927d46c8a7135f4a6311ce611f508f85e'
+          assert pr['state']=='open'
+          PY
+          cat > /tmp/artifacts.tsv <<'EOF'
+          10337873013 sha256:c92a9bf230a7a348d3461fa713809b2aa7487b2058f90cd520e405b6b4a64eed
+          10338681607 sha256:4bb76085456a2bcf4235979995798ce2b68c9373588e394b7b2adbc09a023a1e
+          10338981011 sha256:1a1d8c234ad09b7d81265201b4f9942660f7def9212cfee7cb969d75b89929b6
+          10341675711 sha256:249c507f7ea4c84f2af3fe6c37d2b1205a6e8bda8425bbeb2866329788ae87c0
+          10341661866 sha256:0734edf3283b84848f63de3fe0e16153564cfc9731d620d76ba9f762b90945db
+          10331899302 sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+          EOF
+          while read -r artifact_id expected_digest; do
+            meta="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}")"
+            META="$meta" ARTIFACT_ID="$artifact_id" EXPECTED="$expected_digest" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['META'])
+          assert x['id']==int(os.environ['ARTIFACT_ID'])
+          assert x['digest']==os.environ['EXPECTED']
+          assert x['expired'] is False
+          PY
+          done < /tmp/artifacts.tsv
+      - name: Build canonical implementation seal
+        run: |
+          mkdir -p /tmp/issue549-seal
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_evaluation import canonical_mean_reversion_economic_gate_evaluation_spec
+
+          paths=(
+            'trade_rl/strategies/rules/mean_reversion_economic_gate.py',
+            'trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py',
+            'trade_rl/evaluation/runs/execute.py',
+            'trade_rl/evaluation/runs/__init__.py',
+            'tests/strategies/test_mean_reversion_economic_gate.py',
+            'tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py',
+            'tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation_adversarial.py',
+            'tests/architecture/test_runs_capability_facade.py',
+          )
+          files={p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}
+          spec=canonical_mean_reversion_economic_gate_evaluation_spec()
+          payload={
+            'schema_version':'issue549_evaluation_implementation_seal_v1',
+            'issue_number':549,
+            'pr_number':550,
+            'pr_head_sha':os.environ['TARGET_SHA'],
+            'pr_base_branch':'research/issue547-economic-gate-calibration',
+            'pr_base_sha':'393952c927d46c8a7135f4a6311ce611f508f85e',
+            'targeted_verification_run_id':int(os.environ['TARGETED_RUN_ID']),
+            'full_exact_head_ci_run_id':int(os.environ['FULL_CI_RUN_ID']),
+            'evaluation_spec_digest':spec.digest,
+            'evaluation_spec':spec.to_payload(),
+            'source_sha256':files,
+            'source_tree_digest':content_digest(files),
+            'evaluation_pnl_inspected':False,
+            'strategy_execution_performed':False,
+            'production_eligible':False,
+            'final_test_authorized':False,
+            'live_trading_authorized':False,
+          }
+          payload['seal_digest']=content_digest(payload)
+          out=Path('/tmp/issue549-seal/implementation-seal.json')
+          out.write_text(json.dumps(payload,sort_keys=True,indent=2,allow_nan=False)+'\n',encoding='utf-8')
+          print(json.dumps({'seal_digest':payload['seal_digest'],'spec_digest':spec.digest},sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue549-evaluation-implementation-seal-${{ github.run_id }}
+          path: /tmp/issue549-seal/implementation-seal.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verifier:
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TARGET_SHA: 7b352d53b037507e0f3546925bf0a8ab47275780
+      TARGETED_RUN_ID: 34833562626
+      FULL_CI_RUN_ID: 34833763386
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue549-evaluation-implementation-seal-${{ github.run_id }}
+          path: /tmp/publisher-seal
+      - name: Independently reconstruct and require byte equality
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_evaluation import canonical_mean_reversion_economic_gate_evaluation_spec
+
+          paths=(
+            'trade_rl/strategies/rules/mean_reversion_economic_gate.py',
+            'trade_rl/evaluation/experiments/bootstrap/mean_reversion_economic_gate_evaluation.py',
+            'trade_rl/evaluation/runs/execute.py',
+            'trade_rl/evaluation/runs/__init__.py',
+            'tests/strategies/test_mean_reversion_economic_gate.py',
+            'tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation.py',
+            'tests/evaluation/experiments/bootstrap/test_mean_reversion_economic_gate_evaluation_adversarial.py',
+            'tests/architecture/test_runs_capability_facade.py',
+          )
+          files={p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}
+          spec=canonical_mean_reversion_economic_gate_evaluation_spec()
+          payload={
+            'schema_version':'issue549_evaluation_implementation_seal_v1',
+            'issue_number':549,
+            'pr_number':550,
+            'pr_head_sha':os.environ['TARGET_SHA'],
+            'pr_base_branch':'research/issue547-economic-gate-calibration',
+            'pr_base_sha':'393952c927d46c8a7135f4a6311ce611f508f85e',
+            'targeted_verification_run_id':int(os.environ['TARGETED_RUN_ID']),
+            'full_exact_head_ci_run_id':int(os.environ['FULL_CI_RUN_ID']),
+            'evaluation_spec_digest':spec.digest,
+            'evaluation_spec':spec.to_payload(),
+            'source_sha256':files,
+            'source_tree_digest':content_digest(files),
+            'evaluation_pnl_inspected':False,
+            'strategy_execution_performed':False,
+            'production_eligible':False,
+            'final_test_authorized':False,
+            'live_trading_authorized':False,
+          }
+          payload['seal_digest']=content_digest(payload)
+          rebuilt=(json.dumps(payload,sort_keys=True,indent=2,allow_nan=False)+'\n').encode()
+          published=Path('/tmp/publisher-seal/implementation-seal.json').read_bytes()
+          assert rebuilt==published
+          print(json.dumps({'fresh_reconstruction_byte_equal':True,'seal_digest':payload['seal_digest']},sort_keys=True))
+          PY

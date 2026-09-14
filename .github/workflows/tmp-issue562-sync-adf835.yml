@@ -1,0 +1,99 @@
+name: Temporary Issue 562 sync to verified signed-flow authority
+
+on:
+  push:
+    branches:
+      - automation/issue562-sync-adf835
+    paths:
+      - .github/workflows/tmp-issue562-sync-adf835.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue562-signed-taker-flow-calibration
+  TARGET_SHA: 9aa4c165b07fad94d173f8ebf048dd7d2b70fdb4
+  BASE_BRANCH: feat/issue560-signed-taker-flow
+  BASE_SHA: adf835cf45936dbc40bf8d4f74879825ae211ef9
+  OLD_IMPLEMENTATION_SHA: 0186a3a18ff14a5529de1f8869b1e45f461c036b
+
+jobs:
+  sync_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact calibration head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target and base authorities
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$BASE_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$BASE_BRANCH)" = "$BASE_SHA"
+      - name: Merge verified source authority without publishing
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff --no-commit "$BASE_SHA"
+          python - <<'PY'
+          from pathlib import Path
+
+          old = "0186a3a18ff14a5529de1f8869b1e45f461c036b"
+          new = "adf835cf45936dbc40bf8d4f74879825ae211ef9"
+          paths = (
+              Path("trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py"),
+              Path("tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py"),
+          )
+          total = 0
+          for path in paths:
+              text = path.read_text()
+              count = text.count(old)
+              total += count
+              path.write_text(text.replace(old, new))
+          if total < 2:
+              raise RuntimeError(f"expected implementation authority in module and tests, found {total}")
+          if any(old in path.read_text() for path in paths):
+              raise RuntimeError("stale implementation authority remains")
+          PY
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and synthetic verification
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Commit merge only after Green
+        run: |
+          set -euo pipefail
+          git commit -m "merge: bind calibration to verified signed-flow implementation"
+      - name: Recheck authorities and publish
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$BASE_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$BASE_BRANCH)" = "$BASE_SHA"
+          git push origin HEAD:"$TARGET_BRANCH"

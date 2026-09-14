@@ -82,6 +82,8 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "require_label_open_finite_positive": True,
     "calibration_method": "per_symbol_no_intercept_fixed_order_fsum",
     "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",
+    "require_calibration_denominator_finite_positive": True,
+    "require_calibration_beta_finite": True,
     "expected_effect_direction": "CONTINUATION",
     "required_positive_symbol_slopes": 4,
     "valid_status": "VALID_FLOW_HYPOTHESIS",
@@ -215,6 +217,8 @@ class SignedTakerFlowProtocol:
     require_label_open_finite_positive: bool
     calibration_method: str
     calibration_formula: str
+    require_calibration_denominator_finite_positive: bool
+    require_calibration_beta_finite: bool
     expected_effect_direction: str
     required_positive_symbol_slopes: int
     valid_status: str
@@ -305,6 +309,8 @@ class SignedTakerFlowProtocol:
             "require_execution_and_label_rows_tradable",
             "require_execution_and_label_rows_active",
             "require_label_open_finite_positive",
+            "require_calibration_denominator_finite_positive",
+            "require_calibration_beta_finite",
             "no_sign_flip_fallback",
             "no_magnitude_threshold_after_results",
             "calibration_slope_used_as_strategy_coefficient",

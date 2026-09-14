@@ -190,9 +190,9 @@ def test_signed_taker_flow_requires_complete_active_tradable_window() -> None:
     row_present = np.ones(30, dtype=np.bool_)
     active = np.ones(30, dtype=np.bool_)
     tradable = np.ones(30, dtype=np.bool_)
-    row_present[5] = False
-    active[7] = False
-    tradable[9] = False
+    row_present[0] = False
+    active[2] = False
+    tradable[5] = False
 
     _, valid, _ = _calculate(
         row_present=row_present,

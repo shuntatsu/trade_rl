@@ -1,0 +1,33 @@
+name: Temporary Issue 571 contract hardening RED
+
+on:
+  push:
+    branches:
+      - verify/issue571-contract-hardening-red
+    paths:
+      - tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+      - .github/workflows/tmp-issue571-contract-hardening-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format and lint test
+        run: |
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py
+      - name: Semantic RED
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg_hardening.py

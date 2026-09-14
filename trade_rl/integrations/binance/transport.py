@@ -459,8 +459,22 @@ class BinancePublicTransport:
                 expected_member=member,
                 interval_ms=interval_ms,
             )
+            month_start_ms = int(month.timestamp() * 1000)
+            if month.month == 12:
+                next_month = month.replace(
+                    year=month.year + 1,
+                    month=1,
+                    day=1,
+                )
+            else:
+                next_month = month.replace(month=month.month + 1, day=1)
+            month_end_ms = int(next_month.timestamp() * 1000)
             for row in rows:
                 open_ms = _normalize_epoch_ms(row[0])
+                if not month_start_ms <= open_ms < month_end_ms:
+                    raise BinanceTransportError(
+                        f"index-price row lies outside archive calendar month: {url}"
+                    )
                 if previous_open is not None and open_ms <= previous_open:
                     raise BinanceTransportError(
                         "index-price timestamps must be strictly increasing across archives"

@@ -25,9 +25,7 @@ _SOURCE_BASELINE_ARTIFACT_DIGEST = (
 _SOURCE_BASELINE_EVIDENCE_FINGERPRINT = (
     "526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29"
 )
-_SOURCE_DATASET_ID = (
-    "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
-)
+_SOURCE_DATASET_ID = "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
 _SOURCE_DATASET_ARTIFACT_DIGEST = (
     "77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8"
 )
@@ -195,7 +193,11 @@ def _datetime(value: datetime, *, field: str) -> datetime:
 
 
 def _parse_datetime(value: object, *, field: str) -> datetime:
-    text = require_non_empty(cast(str, value), field=field) if isinstance(value, str) else ""
+    text = (
+        require_non_empty(cast(str, value), field=field)
+        if isinstance(value, str)
+        else ""
+    )
     if not text:
         raise ValueError(f"{field} must be an ISO datetime")
     try:
@@ -213,9 +215,7 @@ def _string_tuple(value: object, *, field: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be an array")
     result = tuple(
-        require_non_empty(item, field=field)
-        for item in value
-        if isinstance(item, str)
+        require_non_empty(item, field=field) for item in value if isinstance(item, str)
     )
     if len(result) != len(value):
         raise ValueError(f"{field} must contain only strings")
@@ -251,7 +251,9 @@ def _parse_source_returns(value: object) -> tuple[tuple[str, tuple[float, ...]],
     result: list[tuple[str, tuple[float, ...]]] = []
     for entry in value:
         if not isinstance(entry, dict) or set(entry) != {"strategy", "total_returns"}:
-            raise ValueError("source_core_total_returns entry keys differ from contract")
+            raise ValueError(
+                "source_core_total_returns entry keys differ from contract"
+            )
         strategy = entry.get("strategy")
         if not isinstance(strategy, str):
             raise ValueError("source return strategy must be a string")
@@ -333,135 +335,137 @@ class CapacityRobustnessProtocol:
     schema_version: str = _SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        source_baseline_artifact_id = _positive_int(
+        _positive_int(
             self.source_baseline_artifact_id,
             field="source_baseline_artifact_id",
         )
-        source_baseline_artifact_digest = require_sha256(
+        require_sha256(
             self.source_baseline_artifact_digest,
             field="source_baseline_artifact_digest",
         )
-        source_baseline_evidence_fingerprint = require_sha256(
+        require_sha256(
             self.source_baseline_evidence_fingerprint,
             field="source_baseline_evidence_fingerprint",
         )
-        source_dataset_id = require_sha256(self.source_dataset_id, field="source_dataset_id")
-        source_dataset_artifact_digest = require_sha256(
+        require_sha256(self.source_dataset_id, field="source_dataset_id")
+        require_sha256(
             self.source_dataset_artifact_digest,
             field="source_dataset_artifact_digest",
         )
-        source_study_digest = require_sha256(
+        require_sha256(
             self.source_study_digest,
             field="source_study_digest",
         )
-        source_implementation_sha = require_git_sha(
+        require_git_sha(
             self.source_implementation_sha,
             field="source_implementation_sha",
         )
-        source_implementation_digest = require_sha256(
+        require_sha256(
             self.source_implementation_digest,
             field="source_implementation_digest",
         )
-        source_runtime_environment_digest = require_sha256(
+        require_sha256(
             self.source_runtime_environment_digest,
             field="source_runtime_environment_digest",
         )
-        source_eligibility_run_id = _positive_int(
+        _positive_int(
             self.source_eligibility_run_id,
             field="source_eligibility_run_id",
         )
-        source_eligibility_artifact_id = _positive_int(
+        _positive_int(
             self.source_eligibility_artifact_id,
             field="source_eligibility_artifact_id",
         )
-        source_eligibility_artifact_digest = require_sha256(
+        require_sha256(
             self.source_eligibility_artifact_digest,
             field="source_eligibility_artifact_digest",
         )
-        source_eligibility_digest = require_sha256(
+        require_sha256(
             self.source_eligibility_digest,
             field="source_eligibility_digest",
         )
-        capacity_protocol_digest = require_sha256(
+        require_sha256(
             self.capacity_protocol_digest,
             field="capacity_protocol_digest",
         )
-        capacity_result_digest = require_sha256(
+        require_sha256(
             self.capacity_result_digest,
             field="capacity_result_digest",
         )
-        capacity_result_json_sha256 = require_sha256(
+        require_sha256(
             self.capacity_result_json_sha256,
             field="capacity_result_json_sha256",
         )
-        capacity_result_artifact_id = _positive_int(
+        _positive_int(
             self.capacity_result_artifact_id,
             field="capacity_result_artifact_id",
         )
-        capacity_result_artifact_digest = require_sha256(
+        require_sha256(
             self.capacity_result_artifact_digest,
             field="capacity_result_artifact_digest",
         )
-        capacity_verifier_run_id = _positive_int(
+        _positive_int(
             self.capacity_verifier_run_id,
             field="capacity_verifier_run_id",
         )
-        capacity_verifier_artifact_id = _positive_int(
+        _positive_int(
             self.capacity_verifier_artifact_id,
             field="capacity_verifier_artifact_id",
         )
-        capacity_verifier_artifact_digest = require_sha256(
+        require_sha256(
             self.capacity_verifier_artifact_digest,
             field="capacity_verifier_artifact_digest",
         )
-        causal_capacity_pr = _positive_int(self.causal_capacity_pr, field="causal_capacity_pr")
-        causal_capacity_head_sha = require_git_sha(
+        _positive_int(self.causal_capacity_pr, field="causal_capacity_pr")
+        require_git_sha(
             self.causal_capacity_head_sha,
             field="causal_capacity_head_sha",
         )
-        identity_layer_pr = _positive_int(self.identity_layer_pr, field="identity_layer_pr")
-        identity_layer_head_sha = require_git_sha(
+        _positive_int(self.identity_layer_pr, field="identity_layer_pr")
+        require_git_sha(
             self.identity_layer_head_sha,
             field="identity_layer_head_sha",
         )
-        identity_layer_ci_run_id = _positive_int(
+        _positive_int(
             self.identity_layer_ci_run_id,
             field="identity_layer_ci_run_id",
         )
-        successor_bundle_run_id = _positive_int(
+        _positive_int(
             self.successor_bundle_run_id,
             field="successor_bundle_run_id",
         )
-        successor_bundle_artifact_id = _positive_int(
+        _positive_int(
             self.successor_bundle_artifact_id,
             field="successor_bundle_artifact_id",
         )
-        successor_bundle_artifact_digest = require_sha256(
+        require_sha256(
             self.successor_bundle_artifact_digest,
             field="successor_bundle_artifact_digest",
         )
-        successor_dataset_id = require_sha256(
+        require_sha256(
             self.successor_dataset_id,
             field="successor_dataset_id",
         )
-        successor_dataset_artifact_digest = require_sha256(
+        require_sha256(
             self.successor_dataset_artifact_digest,
             field="successor_dataset_artifact_digest",
         )
-        successor_study_digest = require_sha256(
+        require_sha256(
             self.successor_study_digest,
             field="successor_study_digest",
         )
-        successor_identity_index_digest = require_sha256(
+        require_sha256(
             self.successor_identity_index_digest,
             field="successor_identity_index_digest",
         )
-        successor_execution_overlay = require_non_empty(
+        require_non_empty(
             self.successor_execution_overlay,
             field="successor_execution_overlay",
         )
         symbols = tuple(self.symbols)
-        caps = tuple(_finite_float(value, field="capacity_caps") for value in self.capacity_caps)
+        caps = tuple(
+            _finite_float(value, field="capacity_caps") for value in self.capacity_caps
+        )
         fit_cutoff = _datetime(self.fit_cutoff, field="fit_cutoff")
         evaluation_start = _datetime(self.evaluation_start, field="evaluation_start")
         evaluation_stop = _datetime(
@@ -472,7 +476,13 @@ class CapacityRobustnessProtocol:
         core_strategies = tuple(self.core_strategies)
         control_strategies = tuple(self.control_strategies)
         source_returns = tuple(
-            (strategy, tuple(_finite_float(value, field="source total returns") for value in values))
+            (
+                strategy,
+                tuple(
+                    _finite_float(value, field="source total returns")
+                    for value in values
+                ),
+            )
             for strategy, values in self.source_core_total_returns
         )
         source_profitable = tuple(self.source_profitable_core_strategies)
@@ -489,11 +499,18 @@ class CapacityRobustnessProtocol:
 
         if len(symbols) != len(set(symbols)) or any(not item for item in symbols):
             raise ValueError("symbols must contain unique non-empty values")
-        if len(caps) != len(symbols) or any(value <= 0.0 or value > 1.0 for value in caps):
-            raise ValueError("capacity_caps must align with symbols and remain within (0, 1]")
+        if len(caps) != len(symbols) or any(
+            value <= 0.0 or value > 1.0 for value in caps
+        ):
+            raise ValueError(
+                "capacity_caps must align with symbols and remain within (0, 1]"
+            )
         if not fit_cutoff <= evaluation_start < evaluation_stop:
             raise ValueError("evaluation clock contract is invalid")
-        if any(isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 for seed in ppo_seeds):
+        if any(
+            isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+            for seed in ppo_seeds
+        ):
             raise ValueError("ppo_seeds must be non-negative integers")
         if len(set(ppo_seeds)) != len(ppo_seeds):
             raise ValueError("ppo_seeds must be unique")
@@ -506,7 +523,9 @@ class CapacityRobustnessProtocol:
         ):
             raise ValueError("control_strategies must contain unique non-empty values")
         if tuple(strategy for strategy, _ in source_returns) != core_strategies:
-            raise ValueError("source return strategy roster must match core_strategies")
+            raise ValueError(
+                "source return strategy roster differs from preregistered core_strategies"
+            )
         if any(len(values) != len(symbols) for _, values in source_returns):
             raise ValueError("source total returns must align with symbols")
         if any(item not in core_strategies for item in source_profitable):
@@ -534,8 +553,8 @@ class CapacityRobustnessProtocol:
                 self.experiment_0004_must_not_influence,
             ),
         )
-        for field, value in bool_fields:
-            _boolean(value, field=field)
+        for bool_field, bool_value in bool_fields:
+            _boolean(bool_value, field=bool_field)
 
         count_fields = (
             (
@@ -552,8 +571,8 @@ class CapacityRobustnessProtocol:
             ),
             ("experiment_0004_issue", self.experiment_0004_issue),
         )
-        for field, value in count_fields:
-            _positive_int(value, field=field)
+        for count_field, count_value in count_fields:
+            _positive_int(count_value, field=count_field)
 
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "capacity_caps", caps)
@@ -571,7 +590,9 @@ class CapacityRobustnessProtocol:
         object.__setattr__(self, "stage_a_failure_status", stage_a_failure_status)
 
         if self.to_payload() != _registered_payload():
-            raise ValueError("capacity robustness contract differs from preregistered authority")
+            raise ValueError(
+                "capacity robustness contract differs from preregistered authority"
+            )
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -753,7 +774,9 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         source_baseline_artifact_id=_positive_int(
             raw.get("source_baseline_artifact_id"), field="source_baseline_artifact_id"
         ),
-        source_baseline_artifact_digest=cast(str, raw.get("source_baseline_artifact_digest")),
+        source_baseline_artifact_digest=cast(
+            str, raw.get("source_baseline_artifact_digest")
+        ),
         source_baseline_evidence_fingerprint=cast(
             str, raw.get("source_baseline_evidence_fingerprint")
         ),
@@ -797,9 +820,13 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         capacity_verifier_artifact_digest=cast(
             str, raw.get("capacity_verifier_artifact_digest")
         ),
-        causal_capacity_pr=_positive_int(raw.get("causal_capacity_pr"), field="causal_capacity_pr"),
+        causal_capacity_pr=_positive_int(
+            raw.get("causal_capacity_pr"), field="causal_capacity_pr"
+        ),
         causal_capacity_head_sha=cast(str, raw.get("causal_capacity_head_sha")),
-        identity_layer_pr=_positive_int(raw.get("identity_layer_pr"), field="identity_layer_pr"),
+        identity_layer_pr=_positive_int(
+            raw.get("identity_layer_pr"), field="identity_layer_pr"
+        ),
         identity_layer_head_sha=cast(str, raw.get("identity_layer_head_sha")),
         identity_layer_ci_run_id=_positive_int(
             raw.get("identity_layer_ci_run_id"), field="identity_layer_ci_run_id"
@@ -833,7 +860,9 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
             raw.get("evaluation_stop_exclusive"), field="evaluation_stop_exclusive"
         ),
         ppo_seeds=_int_tuple(raw.get("ppo_seeds"), field="ppo_seeds"),
-        core_strategies=_string_tuple(raw.get("core_strategies"), field="core_strategies"),
+        core_strategies=_string_tuple(
+            raw.get("core_strategies"), field="core_strategies"
+        ),
         control_strategies=_string_tuple(
             raw.get("control_strategies"), field="control_strategies"
         ),
@@ -850,8 +879,12 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         ),
         pre_successor_suite_status=cast(str, raw.get("pre_successor_suite_status")),
         stage_b_role=cast(str, raw.get("stage_b_role")),
-        integration_gates=_string_tuple(raw.get("integration_gates"), field="integration_gates"),
-        stage_a_required=_boolean(raw.get("stage_a_required"), field="stage_a_required"),
+        integration_gates=_string_tuple(
+            raw.get("integration_gates"), field="integration_gates"
+        ),
+        stage_a_required=_boolean(
+            raw.get("stage_a_required"), field="stage_a_required"
+        ),
         stage_a_failure_status=cast(str, raw.get("stage_a_failure_status")),
         source_profitability_required_positive_symbols=_positive_int(
             raw.get("source_profitability_required_positive_symbols"),
@@ -875,8 +908,12 @@ def _from_payload(raw: dict[str, object]) -> CapacityRobustnessProtocol:
         execution_authorized=_boolean(
             raw.get("execution_authorized"), field="execution_authorized"
         ),
-        stage_a_executed=_boolean(raw.get("stage_a_executed"), field="stage_a_executed"),
-        stage_b_executed=_boolean(raw.get("stage_b_executed"), field="stage_b_executed"),
+        stage_a_executed=_boolean(
+            raw.get("stage_a_executed"), field="stage_a_executed"
+        ),
+        stage_b_executed=_boolean(
+            raw.get("stage_b_executed"), field="stage_b_executed"
+        ),
         successor_pnl_inspected=_boolean(
             raw.get("successor_pnl_inspected"), field="successor_pnl_inspected"
         ),
@@ -921,8 +958,12 @@ def load_capacity_robustness_protocol(
     try:
         decoded = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("capacity robustness preregistration is not valid JSON") from error
-    if not isinstance(decoded, dict) or any(not isinstance(key, str) for key in decoded):
+        raise ValueError(
+            "capacity robustness preregistration is not valid JSON"
+        ) from error
+    if not isinstance(decoded, dict) or any(
+        not isinstance(key, str) for key in decoded
+    ):
         raise ValueError("capacity robustness preregistration must be a JSON object")
     return _from_payload(cast(dict[str, object], decoded))
 

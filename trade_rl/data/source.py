@@ -34,6 +34,7 @@ class RawMarketSeries:
     volume: np.ndarray
     funding_rate: np.ndarray
     tradable: np.ndarray
+    taker_buy_quote_volume: np.ndarray | None = None
     funding_available: np.ndarray | None = None
     available_at: np.ndarray | None = None
     funding_event_count: np.ndarray | None = None
@@ -102,6 +103,26 @@ class RawMarketSeries:
             raise ValueError("OHLC prices must be strictly positive")
         if np.any(arrays["volume"] < 0.0):
             raise ValueError("volume must be non-negative")
+
+        taker_buy_quote_volume: np.ndarray | None = None
+        if self.taker_buy_quote_volume is not None:
+            taker_buy_quote_volume = _readonly(
+                self.taker_buy_quote_volume,
+                dtype=np.dtype(np.float64),
+            )
+            if taker_buy_quote_volume.shape != expected:
+                raise ValueError("taker_buy_quote_volume shape must match timestamps")
+            if not np.isfinite(taker_buy_quote_volume).all():
+                raise ValueError(
+                    "taker_buy_quote_volume must contain only finite values"
+                )
+            if np.any(taker_buy_quote_volume < 0.0):
+                raise ValueError("taker_buy_quote_volume must be non-negative")
+            if np.any(taker_buy_quote_volume > arrays["volume"]):
+                raise ValueError(
+                    "taker_buy_quote_volume must not exceed quote volume"
+                )
+
         if np.any(arrays["funding_event_count"] < 0):
             raise ValueError("funding_event_count must be non-negative")
         if np.any(arrays["funding_available"] != (arrays["funding_event_count"] > 0)):
@@ -119,6 +140,7 @@ class RawMarketSeries:
 
         object.__setattr__(self, "timestamps", timestamps.astype("datetime64[ns]"))
         object.__setattr__(self, "available_at", available_at.astype("datetime64[ns]"))
+        object.__setattr__(self, "taker_buy_quote_volume", taker_buy_quote_volume)
         for field_name, array in arrays.items():
             object.__setattr__(self, field_name, array)
 

@@ -1,0 +1,43 @@
+name: Temporary Issue 553 flow format
+
+on:
+  push:
+    branches:
+      - tmp/issue553-flow-prereg-format
+    paths:
+      - .github/workflows/tmp-issue553-flow-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue553-flow-prereg-format
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format exact protocol file
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py
+          changed="$(git status --short)"
+          test -n "$changed"
+          test "$(git status --short | wc -l)" = "1"
+          test "$(git status --short | awk '{print $2}')" = "trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py"
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py
+      - name: Commit formatter output only
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/evaluation/experiments/bootstrap/agg_flow_predictive_diagnostic.py
+          git commit -m 'style: format Issue 553 flow protocol'
+          git push origin HEAD:tmp/issue553-flow-prereg-format

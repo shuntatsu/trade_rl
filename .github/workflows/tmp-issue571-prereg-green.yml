@@ -1,0 +1,61 @@
+name: Temporary Issue 571 preregistration GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue571-prereg-green
+    paths:
+      - .github/workflows/tmp-issue571-prereg-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue571-basis-prereg
+  TARGET_SHA: 879b444f2ab57f707c29ec4b1ee9e49cd1c03a91
+  MODULE_PATH: trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py
+  TEST_PATH: tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and targeted tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE_PATH" "$TEST_PATH"
+          uv run ruff check "$MODULE_PATH" "$TEST_PATH"
+          uv run mypy "$MODULE_PATH"
+          uv run pytest -q "$TEST_PATH"
+      - name: Guard and publish only verified formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE_PATH" "$TEST_PATH"
+          git diff --cached --quiet && exit 0
+          git commit -m "style: format Issue 571 preregistration"
+          git push origin HEAD:"$TARGET_BRANCH"

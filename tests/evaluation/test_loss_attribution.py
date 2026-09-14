@@ -164,7 +164,9 @@ def test_loss_attribution_uses_realized_path_accounting_and_compounding() -> Non
     assert "counterfactual" not in report.to_payload()
 
 
-def test_loss_attribution_identifies_explicit_cost_flip_without_zero_cost_claim() -> None:
+def test_loss_attribution_identifies_explicit_cost_flip_without_zero_cost_claim() -> (
+    None
+):
     returns = np.asarray([-0.01, 0.0, 0.0], dtype=np.float64)
     runs = tuple(
         _candidate_run(

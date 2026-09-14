@@ -1,4 +1,4 @@
-name: Temporary Issue 560 minimal GREEN v2
+name: Temporary Issue 560 minimal GREEN v3
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           ref: 1e9c7d0659a775693547682d434a35cdfac47571
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-      - name: Apply minimal source and feature implementation
+      - name: Correct window oracle and apply minimal implementation
         shell: bash
         run: |
           set -euo pipefail
@@ -36,6 +36,11 @@ jobs:
                   raise SystemExit(f"expected patch site not found exactly once: {path}: {old[:80]!r}")
               target.write_text(text.replace(old, new), encoding="utf-8")
 
+          replace_once(
+              "tests/data/test_signed_taker_flow_feature.py",
+              "    row_present[5] = False\n    active[7] = False\n    tradable[9] = False\n",
+              "    tradable[3] = False\n    active[4] = False\n    row_present[5] = False\n",
+          )
           replace_once(
               "trade_rl/data/source.py",
               "    funding_event_count: np.ndarray | None = None\n",

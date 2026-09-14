@@ -47,16 +47,22 @@ SOURCE_IMPLEMENTATION_CI_RUN_ID = 34871818525
 PROTOCOL_DIGEST = "1dc531fb15bde8cb5d87531456bf9220843b1380f33831764ee56c7312c2a091"
 PREFLIGHT_RUN_ID = 34868358617
 PREFLIGHT_ARTIFACT_ID = 10358261087
-PREFLIGHT_API_DIGEST = "sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6"
+PREFLIGHT_API_DIGEST = (
+    "sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6"
+)
 PREFLIGHT_FRESH_ARTIFACT_ID = 10357523519
-PREFLIGHT_FRESH_API_DIGEST = "sha256:f1399532a3a90b5c75e70cd06da931942a7c8b0370f7eba06b62916d3d4f16bf"
-PREFLIGHT_REPORT_SHA256 = "9a8b4d88c48885eb2aba8becb1ae347c6a1c20774dfc9d47281fa042b065f7bf"
-PREFLIGHT_CONTENT_DIGEST = "ccb22002ac28a0f2a1275e4c31fb5cd0cde59b72d14017e15d1f88141dcf0e65"
+PREFLIGHT_FRESH_API_DIGEST = (
+    "sha256:f1399532a3a90b5c75e70cd06da931942a7c8b0370f7eba06b62916d3d4f16bf"
+)
+PREFLIGHT_REPORT_SHA256 = (
+    "9a8b4d88c48885eb2aba8becb1ae347c6a1c20774dfc9d47281fa042b065f7bf"
+)
+PREFLIGHT_CONTENT_DIGEST = (
+    "ccb22002ac28a0f2a1275e4c31fb5cd0cde59b72d14017e15d1f88141dcf0e65"
+)
 PREFLIGHT_SCHEMA = "issue571_full_index_preflight_v2"
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
-MONTHS = tuple(
-    f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
-)
+MONTHS = tuple(f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13))
 PERP_ROOT = "https://data.binance.vision/data/futures/um/monthly/klines"
 INDEX_ROOT = "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"
 INTERVAL_MS = 3_600_000
@@ -99,8 +105,8 @@ def _epoch_ms(value: datetime) -> int:
 
 
 def _iso_ms(value: int) -> str:
-    return datetime.fromtimestamp(value / 1_000, tz=UTC).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.fromtimestamp(value / 1_000, tz=UTC).isoformat().replace("+00:00", "Z")
     )
 
 
@@ -136,7 +142,9 @@ def _fetch_bytes(url: str) -> bytes:
     raise RuntimeError(f"download failed after retries ({last_error}): {url}")
 
 
-def _provider_checksum(payload: bytes, *, expected_name: str, url: str) -> tuple[str, str]:
+def _provider_checksum(
+    payload: bytes, *, expected_name: str, url: str
+) -> tuple[str, str]:
     try:
         text = payload.decode("utf-8").strip()
     except UnicodeDecodeError as error:
@@ -153,7 +161,9 @@ def _provider_checksum(payload: bytes, *, expected_name: str, url: str) -> tuple
     return digest, text
 
 
-def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str], dict[str, object]]]:
+def _load_preflight(
+    path: Path,
+) -> tuple[dict[str, object], dict[tuple[str, str], dict[str, object]]]:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != PREFLIGHT_REPORT_SHA256:
         raise RuntimeError("index preflight report SHA-256 authority mismatch")
@@ -163,7 +173,10 @@ def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str]
     observed_digest = payload.get("content_digest")
     body = dict(payload)
     body.pop("content_digest", None)
-    if observed_digest != PREFLIGHT_CONTENT_DIGEST or _canonical_digest(body) != observed_digest:
+    if (
+        observed_digest != PREFLIGHT_CONTENT_DIGEST
+        or _canonical_digest(body) != observed_digest
+    ):
         raise RuntimeError("index preflight content digest authority mismatch")
     required = {
         "schema_version": PREFLIGHT_SCHEMA,
@@ -188,7 +201,10 @@ def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str]
     for key, expected in required.items():
         if payload.get(key) != expected:
             raise RuntimeError(f"index preflight field mismatch: {key}")
-    if tuple(payload.get("symbols", ())) != SYMBOLS or tuple(payload.get("months", ())) != MONTHS:
+    if (
+        tuple(payload.get("symbols", ())) != SYMBOLS
+        or tuple(payload.get("months", ())) != MONTHS
+    ):
         raise RuntimeError("index preflight roster differs from frozen plan")
     entries = payload.get("entries")
     if not isinstance(entries, list) or len(entries) != 120:
@@ -210,9 +226,13 @@ def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str]
         if raw_entry.get("url") != expected_url:
             raise RuntimeError(f"index preflight URL mismatch: {symbol}:{month}")
         if raw_entry.get("available") is not True:
-            raise RuntimeError(f"index archive unavailable in preflight: {symbol}:{month}")
+            raise RuntimeError(
+                f"index archive unavailable in preflight: {symbol}:{month}"
+            )
         if raw_entry.get("checksum_verified") is not True:
-            raise RuntimeError(f"index checksum not verified in preflight: {symbol}:{month}")
+            raise RuntimeError(
+                f"index checksum not verified in preflight: {symbol}:{month}"
+            )
         if raw_entry.get("structurally_valid") is not True:
             raise RuntimeError(f"index archive invalid in preflight: {symbol}:{month}")
         raw_sha = raw_entry.get("raw_sha256")
@@ -339,7 +359,10 @@ def _parse_perp_archive(
     return entry, parsed
 
 
-def _download_perp() -> tuple[list[dict[str, object]], dict[str, list[tuple[int, float, float, float, float, float]]]]:
+def _download_perp() -> tuple[
+    list[dict[str, object]],
+    dict[str, list[tuple[int, float, float, float, float, float]]],
+]:
     entries: list[dict[str, object]] = []
     rows: dict[str, list[tuple[int, float, float, float, float, float]]] = {
         symbol: [] for symbol in SYMBOLS
@@ -361,7 +384,9 @@ def _download_perp() -> tuple[list[dict[str, object]], dict[str, list[tuple[int,
     return entries, rows
 
 
-def _index_expected_sha(preflight_entries: dict[tuple[str, str], dict[str, object]]) -> dict[str, str]:
+def _index_expected_sha(
+    preflight_entries: dict[tuple[str, str], dict[str, object]],
+) -> dict[str, str]:
     result: dict[str, str] = {}
     for key in [(symbol, month) for symbol in SYMBOLS for month in MONTHS]:
         entry = preflight_entries[key]
@@ -412,7 +437,9 @@ def _download_index(
                 raise RuntimeError("index runtime close is invalid")
             parsed.append((open_ms, close))
         if not parsed or any(b[0] <= a[0] for a, b in zip(parsed, parsed[1:])):
-            raise RuntimeError(f"index runtime rows are not strictly increasing: {symbol}")
+            raise RuntimeError(
+                f"index runtime rows are not strictly increasing: {symbol}"
+            )
         result[symbol] = parsed
     return result
 
@@ -435,7 +462,11 @@ def _index_missing_by_symbol(entries: list[object]) -> dict[str, int]:
             raise RuntimeError("index preflight entry is malformed")
         symbol = raw.get("symbol")
         missing = raw.get("missing_grid_rows")
-        if symbol not in result or isinstance(missing, bool) or not isinstance(missing, int):
+        if (
+            symbol not in result
+            or isinstance(missing, bool)
+            or not isinstance(missing, int)
+        ):
             raise RuntimeError("index preflight missingness is malformed")
         result[str(symbol)] += missing
     return result
@@ -471,7 +502,9 @@ def _source_manifest(
         "planned_perp_archives": 120,
         "planned_index_archives": 120,
         "planned_total_archives": 240,
-        "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace("+00:00", "Z"),
+        "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace(
+            "+00:00", "Z"
+        ),
         "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace("+00:00", "Z"),
         "fit_start": "2021-01-01T01:00:00Z",
         "fit_cutoff": "2023-01-01T00:00:00Z",
@@ -488,9 +521,13 @@ def _source_manifest(
     return {**body, "content_digest": _canonical_digest(body)}
 
 
-def _perp_series(rows: list[tuple[int, float, float, float, float, float]]) -> RawMarketSeries:
+def _perp_series(
+    rows: list[tuple[int, float, float, float, float, float]],
+) -> RawMarketSeries:
     open_times = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_times + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    timestamps = (
+        (open_times + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    )
     count = len(rows)
     return RawMarketSeries(
         timestamps=timestamps,
@@ -509,7 +546,9 @@ def _perp_series(rows: list[tuple[int, float, float, float, float, float]]) -> R
 
 def _index_series(rows: list[tuple[int, float]]) -> RawIndexPriceSeries:
     open_times = np.asarray([item[0] for item in rows], dtype=np.int64)
-    timestamps = (open_times + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    timestamps = (
+        (open_times + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
+    )
     return RawIndexPriceSeries(
         timestamps=timestamps,
         available_at=timestamps,
@@ -533,7 +572,9 @@ class FrozenBasisSource:
 
     def load_index_price(self, symbol: str, timeframe: str) -> RawIndexPriceSeries:
         if timeframe != "1h":
-            raise ValueError("frozen basis source supports only native 1h index history")
+            raise ValueError(
+                "frozen basis source supports only native 1h index history"
+            )
         return self._index[symbol]
 
     @property

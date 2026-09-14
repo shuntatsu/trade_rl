@@ -53,7 +53,9 @@ def test_publisher_and_verifier_normalize_same_perp_archive(
     header: bool,
 ) -> None:
     start_ms = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp() * 1_000)
-    payload = _archive([_row(start_ms), _row(start_ms + publisher.INTERVAL_MS)], header=header)
+    payload = _archive(
+        [_row(start_ms), _row(start_ms + publisher.INTERVAL_MS)], header=header
+    )
     checksum = _checksum(payload)
     url = (
         "https://data.binance.vision/data/futures/um/monthly/klines/"

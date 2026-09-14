@@ -48,15 +48,21 @@ SOURCE_IMPLEMENTATION_CI_RUN_ID = 34871818525
 PROTOCOL_DIGEST = "1dc531fb15bde8cb5d87531456bf9220843b1380f33831764ee56c7312c2a091"
 PREFLIGHT_RUN_ID = 34868358617
 PREFLIGHT_ARTIFACT_ID = 10358261087
-PREFLIGHT_API_DIGEST = "sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6"
-PREFLIGHT_FRESH_ARTIFACT_ID = 10357523519
-PREFLIGHT_FRESH_API_DIGEST = "sha256:f1399532a3a90b5c75e70cd06da931942a7c8b0370f7eba06b62916d3d4f16bf"
-PREFLIGHT_REPORT_SHA256 = "9a8b4d88c48885eb2aba8becb1ae347c6a1c20774dfc9d47281fa042b065f7bf"
-PREFLIGHT_CONTENT_DIGEST = "ccb22002ac28a0f2a1275e4c31fb5cd0cde59b72d14017e15d1f88141dcf0e65"
-SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
-MONTHS = tuple(
-    f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
+PREFLIGHT_API_DIGEST = (
+    "sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6"
 )
+PREFLIGHT_FRESH_ARTIFACT_ID = 10357523519
+PREFLIGHT_FRESH_API_DIGEST = (
+    "sha256:f1399532a3a90b5c75e70cd06da931942a7c8b0370f7eba06b62916d3d4f16bf"
+)
+PREFLIGHT_REPORT_SHA256 = (
+    "9a8b4d88c48885eb2aba8becb1ae347c6a1c20774dfc9d47281fa042b065f7bf"
+)
+PREFLIGHT_CONTENT_DIGEST = (
+    "ccb22002ac28a0f2a1275e4c31fb5cd0cde59b72d14017e15d1f88141dcf0e65"
+)
+SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+MONTHS = tuple(f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13))
 PERP_ROOT = "https://data.binance.vision/data/futures/um/monthly/klines"
 INDEX_ROOT = "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"
 INTERVAL_MS = 3_600_000
@@ -99,8 +105,8 @@ def _epoch_ms(value: datetime) -> int:
 
 
 def _iso_ms(value: int) -> str:
-    return datetime.fromtimestamp(value / 1_000, tz=UTC).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.fromtimestamp(value / 1_000, tz=UTC).isoformat().replace("+00:00", "Z")
     )
 
 
@@ -156,7 +162,9 @@ def _load_json(path: Path) -> dict[str, object]:
     return raw
 
 
-def _verify_self_digest(payload: dict[str, object], field: str = "content_digest") -> None:
+def _verify_self_digest(
+    payload: dict[str, object], field: str = "content_digest"
+) -> None:
     observed = payload.get(field)
     if not isinstance(observed, str) or len(observed) != 64:
         raise RuntimeError(f"{field} missing or malformed")
@@ -166,7 +174,9 @@ def _verify_self_digest(payload: dict[str, object], field: str = "content_digest
         raise RuntimeError(f"{field} mismatch")
 
 
-def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str], dict[str, object]]]:
+def _load_preflight(
+    path: Path,
+) -> tuple[dict[str, object], dict[tuple[str, str], dict[str, object]]]:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != PREFLIGHT_REPORT_SHA256:
         raise RuntimeError("fresh verifier preflight SHA-256 mismatch")
@@ -197,9 +207,16 @@ def _load_preflight(path: Path) -> tuple[dict[str, object], dict[tuple[str, str]
             raise RuntimeError("fresh verifier preflight roster mismatch")
         raw_sha = raw_entry.get("raw_sha256")
         checksum_sha = raw_entry.get("checksum_expected_sha256")
-        if raw_sha != checksum_sha or not isinstance(raw_sha, str) or len(raw_sha) != 64:
+        if (
+            raw_sha != checksum_sha
+            or not isinstance(raw_sha, str)
+            or len(raw_sha) != 64
+        ):
             raise RuntimeError("fresh verifier preflight SHA binding malformed")
-        if raw_entry.get("checksum_verified") is not True or raw_entry.get("structurally_valid") is not True:
+        if (
+            raw_entry.get("checksum_verified") is not True
+            or raw_entry.get("structurally_valid") is not True
+        ):
             raise RuntimeError("fresh verifier preflight structural binding invalid")
         result[key] = dict(raw_entry)
     if set(result) != {(symbol, month) for symbol in SYMBOLS for month in MONTHS}:
@@ -309,7 +326,12 @@ def _fresh_perp_archive(
     return entry, selected
 
 
-def _fresh_perp(published_entries: object) -> tuple[list[dict[str, object]], dict[str, list[tuple[int, float, float, float, float, float]]]]:
+def _fresh_perp(
+    published_entries: object,
+) -> tuple[
+    list[dict[str, object]],
+    dict[str, list[tuple[int, float, float, float, float, float]]],
+]:
     if not isinstance(published_entries, list) or len(published_entries) != 120:
         raise RuntimeError("published perp manifest entry count mismatch")
     by_key: dict[tuple[str, str], dict[str, object]] = {}
@@ -329,7 +351,9 @@ def _fresh_perp(published_entries: object) -> tuple[list[dict[str, object]], dic
             published = by_key.get((symbol, month))
             if published is None or published.get("url") != expected_url:
                 raise RuntimeError(f"published perp roster mismatch: {symbol}:{month}")
-            entry, parsed = _fresh_perp_archive(symbol=symbol, month=month, url=expected_url)
+            entry, parsed = _fresh_perp_archive(
+                symbol=symbol, month=month, url=expected_url
+            )
             if entry != published:
                 raise RuntimeError(f"fresh perp evidence differs: {symbol}:{month}")
             fresh_entries.append(entry)
@@ -337,15 +361,21 @@ def _fresh_perp(published_entries: object) -> tuple[list[dict[str, object]], dic
     return fresh_entries, rows
 
 
-def _index_expected(entries: dict[tuple[str, str], dict[str, object]]) -> dict[str, str]:
+def _index_expected(
+    entries: dict[tuple[str, str], dict[str, object]],
+) -> dict[str, str]:
     return {
-        str(entries[(symbol, month)]["url"]): str(entries[(symbol, month)]["raw_sha256"])
+        str(entries[(symbol, month)]["url"]): str(
+            entries[(symbol, month)]["raw_sha256"]
+        )
         for symbol in SYMBOLS
         for month in MONTHS
     }
 
 
-def _fresh_index(entries: dict[tuple[str, str], dict[str, object]]) -> dict[str, list[tuple[int, float]]]:
+def _fresh_index(
+    entries: dict[tuple[str, str], dict[str, object]],
+) -> dict[str, list[tuple[int, float]]]:
     transport = BinancePublicTransport(
         timeout_seconds=180.0,
         max_attempts=5,
@@ -365,7 +395,9 @@ def _fresh_index(entries: dict[tuple[str, str], dict[str, object]]) -> dict[str,
             mode=BinanceTransportMode.VISION,
             expected_archive_sha256=expected,
         )
-        expected_sources = tuple(str(entries[(symbol, month)]["url"]) for month in MONTHS)
+        expected_sources = tuple(
+            str(entries[(symbol, month)]["url"]) for month in MONTHS
+        )
         if sources != expected_sources:
             raise RuntimeError(f"fresh index source roster mismatch: {symbol}")
         parsed: list[tuple[int, float]] = []
@@ -383,7 +415,11 @@ def _fresh_index(entries: dict[tuple[str, str], dict[str, object]]) -> dict[str,
 
 def _missing_by_symbol(entries: list[dict[str, object]]) -> dict[str, int]:
     return {
-        symbol: sum(int(item["missing_grid_rows"]) for item in entries if item["symbol"] == symbol)
+        symbol: sum(
+            int(item["missing_grid_rows"])
+            for item in entries
+            if item["symbol"] == symbol
+        )
         for symbol in SYMBOLS
     }
 
@@ -395,13 +431,19 @@ def _index_missing(entries: list[object]) -> dict[str, int]:
             raise RuntimeError("index entry malformed")
         symbol = raw.get("symbol")
         missing = raw.get("missing_grid_rows")
-        if symbol not in result or isinstance(missing, bool) or not isinstance(missing, int):
+        if (
+            symbol not in result
+            or isinstance(missing, bool)
+            or not isinstance(missing, int)
+        ):
             raise RuntimeError("index missingness malformed")
         result[str(symbol)] += missing
     return result
 
 
-def _rebuild_manifest(preflight: dict[str, object], perp_entries: list[dict[str, object]]) -> dict[str, object]:
+def _rebuild_manifest(
+    preflight: dict[str, object], perp_entries: list[dict[str, object]]
+) -> dict[str, object]:
     index_entries = preflight["entries"]
     assert isinstance(index_entries, list)
     body: dict[str, object] = {
@@ -429,7 +471,9 @@ def _rebuild_manifest(preflight: dict[str, object], perp_entries: list[dict[str,
         "planned_perp_archives": 120,
         "planned_index_archives": 120,
         "planned_total_archives": 240,
-        "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace("+00:00", "Z"),
+        "source_open_start_inclusive": SOURCE_OPEN_START.isoformat().replace(
+            "+00:00", "Z"
+        ),
         "source_open_end_exclusive": SOURCE_OPEN_END.isoformat().replace("+00:00", "Z"),
         "fit_start": "2021-01-01T01:00:00Z",
         "fit_cutoff": "2023-01-01T00:00:00Z",
@@ -446,7 +490,9 @@ def _rebuild_manifest(preflight: dict[str, object], perp_entries: list[dict[str,
     return {**body, "content_digest": _canonical_digest(body)}
 
 
-def _perp_series(rows: list[tuple[int, float, float, float, float, float]]) -> RawMarketSeries:
+def _perp_series(
+    rows: list[tuple[int, float, float, float, float, float]],
+) -> RawMarketSeries:
     opens = np.asarray([item[0] for item in rows], dtype=np.int64)
     timestamps = (opens + INTERVAL_MS).astype("datetime64[ms]").astype("datetime64[ns]")
     count = len(rows)
@@ -568,7 +614,10 @@ def verify(*, published_dir: Path, verified_dir: Path, preflight_json: Path) -> 
         raise RuntimeError("published result source implementation mismatch")
     if published_result.protocol_digest != PROTOCOL_DIGEST:
         raise RuntimeError("published result protocol mismatch")
-    if published_metadata.get("interpretation_deferred_until_fresh_reconstruction") is not True:
+    if (
+        published_metadata.get("interpretation_deferred_until_fresh_reconstruction")
+        is not True
+    ):
         raise RuntimeError("publisher did not defer interpretation")
     if published_metadata.get("evaluation_pnl_inspected") is not False:
         raise RuntimeError("publisher crossed evaluation boundary")
@@ -576,7 +625,9 @@ def verify(*, published_dir: Path, verified_dir: Path, preflight_json: Path) -> 
     preflight, preflight_entries = _load_preflight(preflight_json)
     if published_manifest.get("index_preflight_entries") != preflight.get("entries"):
         raise RuntimeError("published index evidence differs from frozen preflight")
-    fresh_perp_entries, fresh_perp_rows = _fresh_perp(published_manifest.get("perp_entries"))
+    fresh_perp_entries, fresh_perp_rows = _fresh_perp(
+        published_manifest.get("perp_entries")
+    )
     fresh_index_rows = _fresh_index(preflight_entries)
     fresh_manifest = _rebuild_manifest(preflight, fresh_perp_entries)
     if fresh_manifest != published_manifest:
@@ -608,9 +659,13 @@ def verify(*, published_dir: Path, verified_dir: Path, preflight_json: Path) -> 
         raise RuntimeError("fresh result payload differs from publisher")
     if reconstructed_bytes != result_path.read_bytes():
         raise RuntimeError("fresh result bytes differ from publisher")
-    if hashlib.sha256(reconstructed_bytes).hexdigest() != published_metadata.get("result_json_sha256"):
+    if hashlib.sha256(reconstructed_bytes).hexdigest() != published_metadata.get(
+        "result_json_sha256"
+    ):
         raise RuntimeError("publisher result JSON SHA-256 mismatch")
-    if hashlib.sha256(fresh_manifest_bytes).hexdigest() != published_metadata.get("source_manifest_json_sha256"):
+    if hashlib.sha256(fresh_manifest_bytes).hexdigest() != published_metadata.get(
+        "source_manifest_json_sha256"
+    ):
         raise RuntimeError("publisher source manifest JSON SHA-256 mismatch")
     if reconstructed.digest != published_metadata.get("result_content_digest"):
         raise RuntimeError("publisher result content digest mismatch")
@@ -640,7 +695,10 @@ def verify(*, published_dir: Path, verified_dir: Path, preflight_json: Path) -> 
         "production_eligible": False,
         "live_trading_authorized": False,
     }
-    verification = {**verification_body, "content_digest": _canonical_digest(verification_body)}
+    verification = {
+        **verification_body,
+        "content_digest": _canonical_digest(verification_body),
+    }
     (verified_dir / "verification.json").write_bytes(canonical_json_bytes(verification))
 
     print("INDEPENDENT_RECONSTRUCTION_VERIFIED=true")

@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    source = Path(path)
+    text = source.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        raise RuntimeError(f"{path}: expected exactly one patch site")
+    source.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+# vision.py: exact maintained USD-M monthly index-price archive planner.
+replace_once(
+    "trade_rl/integrations/binance/vision.py",
+    '''def _next_month(value: datetime) -> datetime:\n''',
+    '''def vision_monthly_index_price_kline_url(\n    market: BinanceMarket | str,\n    symbol: str,\n    interval: str,\n    month: datetime | str,\n) -> str:\n    """Return the sole maintained monthly USD-M indexPriceKlines archive URL."""\n\n    resolved = _market(market)\n    if resolved is not BinanceMarket.USDS_M:\n        raise ValueError("indexPriceKlines are maintained only for Binance USD-M")\n    if interval != "1h":\n        raise ValueError("sealed indexPriceKlines source requires the 1h interval")\n    _interval_ms(interval)\n    if isinstance(month, str):\n        try:\n            parsed = datetime.strptime(month, "%Y-%m").replace(tzinfo=UTC)\n        except ValueError as error:\n            raise ValueError("month must use YYYY-MM") from error\n        if parsed.strftime("%Y-%m") != month:\n            raise ValueError("month must use YYYY-MM")\n        period = month\n    else:\n        period = _aware_utc(month, field="month").strftime("%Y-%m")\n    if not symbol:\n        raise ValueError("Binance symbol must not be empty")\n    return (\n        f"{_VISION_ROOT}/futures/um/monthly/indexPriceKlines/{symbol}/{interval}/"\n        f"{symbol}-{interval}-{period}.zip"\n    )\n\n\ndef _next_month(value: datetime) -> datetime:\n''',
+)
+
+# transport.py imports and URL helper.
+replace_once(
+    "trade_rl/integrations/binance/transport.py",
+    '''import hashlib\nimport json\nimport math\n''',
+    '''import csv\nimport hashlib\nimport io\nimport json\nimport math\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/transport.py",
+    '''import urllib.request\nfrom collections.abc import Callable, Mapping\n''',
+    '''import urllib.request\nimport zipfile\nfrom collections.abc import Callable, Mapping\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/transport.py",
+    '''    plan_vision_kline_urls,\n    vision_funding_url,\n)\n''',
+    '''    plan_vision_kline_urls,\n    vision_funding_url,\n    vision_monthly_index_price_kline_url,\n)\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/transport.py",
+    '''_USER_AGENT = "trade-rl/0.3 public-market-data"\n\n\nclass BinancePublicTransport:\n''',
+    '''_USER_AGENT = "trade-rl/0.3 public-market-data"\n_INDEX_PRICE_HEADER = (\n    "open_time",\n    "open",\n    "high",\n    "low",\n    "close",\n    "volume",\n    "close_time",\n    "quote_volume",\n    "count",\n    "taker_buy_volume",\n    "taker_buy_quote_volume",\n    "ignore",\n)\n\n\ndef _validated_sha256(value: object, *, field: str) -> str:\n    if not isinstance(value, str) or len(value) != 64:\n        raise BinanceTransportError(f"{field} must be a lowercase SHA-256 digest")\n    if value.lower() != value or any(char not in "0123456789abcdef" for char in value):\n        raise BinanceTransportError(f"{field} must be a lowercase SHA-256 digest")\n    return value\n\n\ndef _provider_checksum(payload: bytes, *, expected_name: str, source: str) -> str:\n    try:\n        text = payload.decode("utf-8").strip()\n    except UnicodeDecodeError as error:\n        raise BinanceTransportError(f"invalid checksum text: {source}") from error\n    parts = text.split()\n    if len(parts) < 2:\n        raise BinanceTransportError(f"malformed checksum file: {source}")\n    digest = _validated_sha256(parts[0], field="provider checksum")\n    observed_name = parts[-1].lstrip("*")\n    if observed_name != expected_name:\n        raise BinanceTransportError(\n            f"provider checksum filename mismatch for {source}: {observed_name}"\n        )\n    return digest\n\n\ndef _strict_index_price_archive_rows(\n    payload: bytes,\n    *,\n    source: str,\n    expected_member: str,\n    interval_ms: int,\n) -> list[list[object]]:\n    try:\n        with zipfile.ZipFile(io.BytesIO(payload)) as archive:\n            members = tuple(\n                item for item in archive.infolist() if not item.is_dir()\n            )\n            if len(members) != 1:\n                raise BinanceTransportError(\n                    f"index-price archive must contain exactly one CSV member: {source}"\n                )\n            member = members[0]\n            if member.filename != expected_member:\n                raise BinanceTransportError(\n                    f"unexpected index-price archive member {member.filename}: {source}"\n                )\n            raw_text = archive.read(member).decode("utf-8-sig")\n    except (UnicodeDecodeError, zipfile.BadZipFile, KeyError) as error:\n        raise BinanceTransportError(f"invalid index-price archive: {source}") from error\n\n    rows = [row for row in csv.reader(io.StringIO(raw_text)) if row]\n    if not rows:\n        raise BinanceTransportError(f"empty index-price archive: {source}")\n    if _looks_like_header(rows[0]):\n        if tuple(item.strip() for item in rows[0]) != _INDEX_PRICE_HEADER:\n            raise BinanceTransportError(\n                f"unsupported index-price header in {source}: {tuple(rows[0])}"\n            )\n        rows = rows[1:]\n    if not rows:\n        raise BinanceTransportError(f"index-price archive contains no rows: {source}")\n\n    result: list[list[object]] = []\n    previous_open: int | None = None\n    for row in rows:\n        if len(row) != 12:\n            raise BinanceTransportError(\n                f"index-price row must contain exactly 12 fields: {source}"\n            )\n        open_ms = _normalize_epoch_ms(row[0])\n        close_ms = _normalize_epoch_ms(row[6])\n        if open_ms % interval_ms != 0:\n            raise BinanceTransportError(\n                f"index-price open timestamp is off the native grid: {source}"\n            )\n        if close_ms != open_ms + interval_ms - 1:\n            raise BinanceTransportError(\n                f"index-price close-time contract mismatch: {source}"\n            )\n        if previous_open is not None and open_ms <= previous_open:\n            raise BinanceTransportError(\n                f"index-price timestamps must be strictly increasing: {source}"\n            )\n        previous_open = open_ms\n        for index in (1, 2, 3, 4, 5, 7, 8, 9, 10, 11):\n            _finite_float(row[index], field=f"index-price field {index}")\n        for index in (1, 2, 3, 4):\n            if _finite_float(row[index], field=f"index-price price field {index}") <= 0.0:\n                raise BinanceTransportError(\n                    f"index-price OHLC must be strictly positive: {source}"\n                )\n        result.append(list(row))\n    return result\n\n\nclass BinancePublicTransport:\n''',
+)
+
+# transport.py: sealed Vision-only loader before ordinary load_klines.
+replace_once(
+    "trade_rl/integrations/binance/transport.py",
+    '''    def load_klines(\n        self,\n''',
+    '''    def load_index_price_klines(\n        self,\n        *,\n        market: BinanceMarket | str,\n        symbol: str,\n        interval: str,\n        start_ms: int,\n        end_ms: int,\n        mode: BinanceTransportMode | str,\n        expected_archive_sha256: Mapping[str, str],\n    ) -> tuple[list[list[object]], tuple[str, ...]]:\n        """Load strict sparse USD-M monthly indexPriceKlines with no fallback."""\n\n        resolved_market = _market(market)\n        resolved_mode = _mode(mode)\n        if resolved_market is not BinanceMarket.USDS_M:\n            raise BinanceTransportError(\n                "index-price history is maintained only for Binance USD-M"\n            )\n        if resolved_mode is not BinanceTransportMode.VISION:\n            raise BinanceTransportError(\n                "sealed index-price history requires Binance Vision mode; fallback is forbidden"\n            )\n        if interval != "1h":\n            raise BinanceTransportError("sealed index-price history requires the 1h interval")\n        if end_ms <= start_ms:\n            raise BinanceTransportError("index-price end_ms must be later than start_ms")\n        interval_ms = _interval_ms(interval)\n        if start_ms % interval_ms != 0 or end_ms % interval_ms != 0:\n            raise BinanceTransportError(\n                "index-price range boundaries must align to the native 1h grid"\n            )\n        expected = dict(expected_archive_sha256)\n        result: list[list[object]] = []\n        sources: list[str] = []\n        previous_open: int | None = None\n        for month in _iter_months(start_ms, end_ms):\n            url = vision_monthly_index_price_kline_url(\n                resolved_market, symbol, interval, month\n            )\n            expected_digest = expected.get(url)\n            if expected_digest is None:\n                raise BinanceTransportError(\n                    f"index-price source manifest does not bind planned archive: {url}"\n                )\n            expected_digest = _validated_sha256(\n                expected_digest, field="index-price manifest digest"\n            )\n            payload = self._request_bytes(url)\n            actual_digest = hashlib.sha256(payload).hexdigest()\n            if actual_digest != expected_digest:\n                raise BinanceTransportError(\n                    f"index-price archive SHA-256 differs from frozen manifest: {url}"\n                )\n            archive_name = url.rsplit("/", 1)[-1]\n            checksum_payload = self._request_bytes(url + ".CHECKSUM")\n            provider_digest = _provider_checksum(\n                checksum_payload,\n                expected_name=archive_name,\n                source=url + ".CHECKSUM",\n            )\n            if provider_digest != actual_digest:\n                raise BinanceTransportError(\n                    f"index-price provider checksum differs from archive SHA-256: {url}"\n                )\n            member = archive_name.removesuffix(".zip") + ".csv"\n            rows = _strict_index_price_archive_rows(\n                payload,\n                source=url,\n                expected_member=member,\n                interval_ms=interval_ms,\n            )\n            for row in rows:\n                open_ms = _normalize_epoch_ms(row[0])\n                if previous_open is not None and open_ms <= previous_open:\n                    raise BinanceTransportError(\n                        "index-price timestamps must be strictly increasing across archives"\n                    )\n                previous_open = open_ms\n                if start_ms <= open_ms < end_ms:\n                    result.append(row)\n            sources.append(url)\n        if not result:\n            raise BinanceTransportError("index-price source returned no rows for range")\n        return result, tuple(sources)\n\n    def load_klines(\n        self,\n''',
+)
+
+# dataset.py imports.
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''import numpy as np\n\nfrom trade_rl.data.build.builder import MarketDatasetBuilder\n''',
+    '''import numpy as np\n\nfrom trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.data.build.builder import MarketDatasetBuilder\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''from trade_rl.data.source import MarketDataSource, RawMarketSeries\n''',
+    '''from trade_rl.data.source import (\n    MarketDataSource,\n    RawIndexPriceSeries,\n    RawMarketSeries,\n)\n''',
+)
+
+# dataset.py sparse raw parser before funding alignment.
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''def _align_funding(\n    timestamps: np.ndarray,\n''',
+    '''def _parse_index_price_rows(\n    rows: Sequence[Sequence[object]],\n    *,\n    interval_ms: int,\n    start_ms: int,\n    end_ms: int,\n) -> RawIndexPriceSeries:\n    timestamps: list[int] = []\n    closes: list[float] = []\n    previous_open: int | None = None\n    for row in rows:\n        if len(row) != 12:\n            raise ValueError("Binance index-price row must contain exactly 12 fields")\n        open_ms = _normalize_epoch_ms(row[0])\n        close_event_ms = open_ms + interval_ms\n        if not start_ms <= open_ms < end_ms or close_event_ms > end_ms:\n            continue\n        raw_close_ms = _normalize_epoch_ms(row[6])\n        if raw_close_ms != close_event_ms - 1:\n            raise ValueError("Binance index-price close-time contract mismatch")\n        if open_ms % interval_ms != 0:\n            raise ValueError("Binance index-price timestamp is off the native grid")\n        if previous_open is not None and open_ms <= previous_open:\n            raise ValueError("Binance index-price timestamps must be strictly increasing")\n        if previous_open is not None and (open_ms - previous_open) % interval_ms != 0:\n            raise ValueError("Binance index-price timestamps must remain on the 1h grid")\n        previous_open = open_ms\n        close = _finite_float(row[4], field="index price close")\n        if close <= 0.0:\n            raise ValueError("Binance index price close must be strictly positive")\n        timestamps.append(close_event_ms)\n        closes.append(close)\n    if not timestamps:\n        raise ValueError("Binance index-price range contains no closed bars")\n    completed = np.asarray(timestamps, dtype=np.int64).astype("datetime64[ms]").astype(\n        "datetime64[ns]"\n    )\n    return RawIndexPriceSeries(\n        timestamps=completed,\n        available_at=completed,\n        close=np.asarray(closes, dtype=np.float64),\n    )\n\n\ndef _align_funding(\n    timestamps: np.ndarray,\n''',
+)
+
+# dataset.py append constructor args and caches without disturbing existing callers.
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''        transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,\n        transport: Any | None = None,\n    ) -> None:\n''',
+    '''        transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,\n        transport: Any | None = None,\n        index_archive_sha256: Mapping[str, str] | None = None,\n        index_manifest_digest: str | None = None,\n    ) -> None:\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''        self.transport_mode = _mode(transport_mode)\n        self.transport = transport or BinancePublicTransport()\n        self._sources_used: set[str] = set()\n        self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}\n        self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}\n''',
+    '''        self.transport_mode = _mode(transport_mode)\n        self.transport = transport or BinancePublicTransport()\n        if index_archive_sha256 is None:\n            self.index_archive_sha256: dict[str, str] | None = None\n        else:\n            resolved_index_digests: dict[str, str] = {}\n            for url, digest in index_archive_sha256.items():\n                if not isinstance(url, str) or not url:\n                    raise ValueError("index archive manifest URLs must be non-empty strings")\n                if (\n                    not isinstance(digest, str)\n                    or len(digest) != 64\n                    or digest.lower() != digest\n                    or any(char not in "0123456789abcdef" for char in digest)\n                ):\n                    raise ValueError(\n                        "index archive manifest values must be lowercase SHA-256 digests"\n                    )\n                resolved_index_digests[url] = digest\n            self.index_archive_sha256 = dict(sorted(resolved_index_digests.items()))\n        if index_manifest_digest is not None and (\n            len(index_manifest_digest) != 64\n            or index_manifest_digest.lower() != index_manifest_digest\n            or any(char not in "0123456789abcdef" for char in index_manifest_digest)\n        ):\n            raise ValueError("index_manifest_digest must be a lowercase SHA-256 digest")\n        self.index_manifest_digest = index_manifest_digest\n        self._sources_used: set[str] = set()\n        self._index_sources_used: set[str] = set()\n        self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}\n        self._index_series_cache: dict[tuple[str, str], RawIndexPriceSeries] = {}\n        self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}\n''',
+)
+
+# dataset.py explicit index source methods after sources_used property.
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''    @property\n    def sources_used(self) -> tuple[str, ...]:\n        return tuple(sorted(self._sources_used))\n\n    def _record_source(self, source: object) -> None:\n''',
+    '''    @property\n    def sources_used(self) -> tuple[str, ...]:\n        return tuple(sorted(self._sources_used))\n\n    @property\n    def index_price_provenance(self) -> Mapping[str, object]:\n        if self.index_archive_sha256 is None or self.index_manifest_digest is None:\n            raise ValueError("index-price provenance requires a frozen source manifest")\n        return {\n            "schema_version": "binance_index_price_source_v1",\n            "source_family": "indexPriceKlines",\n            "market": self.market.value,\n            "manifest_digest": self.index_manifest_digest,\n            "archive_sha256_digest": content_digest(self.index_archive_sha256),\n            "sources": sorted(self._index_sources_used),\n        }\n\n    def _record_source(self, source: object) -> None:\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/dataset.py",
+    '''    def load(self, symbol: str) -> RawMarketSeries:\n        return self.load_timeframe(symbol, self.interval)\n\n    def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries:\n''',
+    '''    def load(self, symbol: str) -> RawMarketSeries:\n        return self.load_timeframe(symbol, self.interval)\n\n    def load_index_price(self, symbol: str, timeframe: str) -> RawIndexPriceSeries:\n        if not symbol:\n            raise ValueError("Binance symbol must not be empty")\n        if self.market is not BinanceMarket.USDS_M:\n            raise ValueError("sealed index-price history requires Binance USD-M")\n        if timeframe != "1h":\n            raise ValueError("sealed index-price history requires the 1h timeframe")\n        if self.transport_mode is not BinanceTransportMode.VISION:\n            raise ValueError(\n                "sealed index-price history requires Binance Vision mode; fallback is forbidden"\n            )\n        if self.index_archive_sha256 is None or self.index_manifest_digest is None:\n            raise ValueError(\n                "sealed index-price history requires frozen manifest SHA digests"\n            )\n        key = (symbol, timeframe)\n        cached = self._index_series_cache.get(key)\n        if cached is not None:\n            return cached\n        start_ms = _epoch_ms(self.start_time)\n        end_ms = _epoch_ms(self.end_time)\n        rows, sources = self.transport.load_index_price_klines(\n            market=self.market,\n            symbol=symbol,\n            interval=timeframe,\n            start_ms=start_ms,\n            end_ms=end_ms,\n            mode=self.transport_mode,\n            expected_archive_sha256=self.index_archive_sha256,\n        )\n        series = _parse_index_price_rows(\n            rows,\n            interval_ms=_interval_ms(timeframe),\n            start_ms=start_ms,\n            end_ms=end_ms,\n        )\n        self._index_sources_used.update(str(item) for item in sources)\n        self._index_series_cache[key] = series\n        return series\n\n    def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries:\n''',
+)
+
+# __init__.py export the public URL planner.
+replace_once(
+    "trade_rl/integrations/binance/__init__.py",
+    '''    vision_monthly_kline_url,\n)\n''',
+    '''    vision_monthly_index_price_kline_url,\n    vision_monthly_kline_url,\n)\n''',
+)
+replace_once(
+    "trade_rl/integrations/binance/__init__.py",
+    '''    "vision_monthly_kline_url",\n]\n''',
+    '''    "vision_monthly_index_price_kline_url",\n    "vision_monthly_kline_url",\n]\n''',
+)

@@ -131,6 +131,18 @@ jobs:
                   '            "full_preflight_checksum_required",\n'
                   '            "full_preflight_sparse_rows_remain_unavailable",\n',
               ),
+              (
+                  '    resolved["symbols"] = tuple(symbols)\n'
+                  '    resolved["fit_start"] = _datetime_from_text(\n',
+                  '    resolved["symbols"] = tuple(symbols)\n'
+                  '    months = resolved["full_preflight_months"]\n'
+                  '    if not isinstance(months, list) or any(\n'
+                  '        not isinstance(item, str) for item in months\n'
+                  '    ):\n'
+                  '        raise ValueError("full_preflight_months must be a string array")\n'
+                  '    resolved["full_preflight_months"] = tuple(months)\n'
+                  '    resolved["fit_start"] = _datetime_from_text(\n',
+              ),
           ]
           for old, new in pairs:
               count = text.count(old)

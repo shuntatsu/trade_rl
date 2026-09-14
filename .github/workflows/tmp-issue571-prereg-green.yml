@@ -33,6 +33,20 @@ jobs:
           git fetch origin "$TARGET_BRANCH" --no-tags
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Remove only proven unused mypy suppression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py")
+          text = path.read_text(encoding="utf-8")
+          old = "    return PerpIndexBasisProtocol(**resolved)  # type: ignore[arg-type]\n"
+          new = "    return PerpIndexBasisProtocol(**resolved)\n"
+          if text.count(old) != 1:
+              raise SystemExit("expected exactly one proven unused suppression")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -47,7 +61,7 @@ jobs:
           uv run ruff check "$MODULE_PATH" "$TEST_PATH"
           uv run mypy "$MODULE_PATH"
           uv run pytest -q "$TEST_PATH"
-      - name: Guard and publish only verified formatting
+      - name: Guard and publish only verified changes
         shell: bash
         run: |
           set -euo pipefail
@@ -57,5 +71,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$MODULE_PATH" "$TEST_PATH"
           git diff --cached --quiet && exit 0
-          git commit -m "style: format Issue 571 preregistration"
+          git commit -m "fix: finalize Issue 571 preregistration"
           git push origin HEAD:"$TARGET_BRANCH"

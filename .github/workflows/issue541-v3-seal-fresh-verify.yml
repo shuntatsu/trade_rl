@@ -1,0 +1,347 @@
+name: Issue 541 v3 seal and fresh verify
+
+on:
+  push:
+    branches:
+      - seal/issue541-v3-06f368d
+    paths:
+      - .github/workflows/issue541-v3-seal-fresh-verify.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 06f368d4d8d0aafac8b80c60309b1d24dc5e32e6
+  EXACT_VERIFY_RUN_ID: "34804240016"
+  EXPECTED_PROTOCOL_DIGEST: 11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8
+  SOURCE_ELIGIBILITY_RUN_ID: "34794576828"
+  SOURCE_ELIGIBILITY_NAME: issue541-source-eligibility-34794576828
+  SOURCE_ELIGIBILITY_ID: "10329551558"
+  SOURCE_ELIGIBILITY_API_DIGEST: sha256:907599e2330e52fe832872b3b11a5f0ad62316fe4a170acd4453ab39ba1a0800
+  SOURCE_ELIGIBILITY_CONTENT_DIGEST: cb92548157200067907abdb221bcfb9cea5fa527dd22193ae065fcad9c4fdbe7
+  SUCCESSOR_BUNDLE_RUN_ID: "34803217815"
+  SUCCESSOR_BUNDLE_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SUCCESSOR_BUNDLE_ID: "10331899302"
+  SUCCESSOR_BUNDLE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  SUCCESSOR_FRESH_RUN_ID: "34803432434"
+  SUCCESSOR_FRESH_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  SUCCESSOR_FRESH_ID: "10332575500"
+  SUCCESSOR_FRESH_API_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+
+jobs:
+  seal:
+    name: Seal v3 preregistration
+    runs-on: ubuntu-24.04
+    outputs:
+      seal_name: ${{ steps.meta.outputs.seal_name }}
+      seal_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      seal_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      seal_index_digest: ${{ steps.build.outputs.seal_index_digest }}
+    steps:
+      - name: Checkout exact preregistration implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 06f368d4d8d0aafac8b80c60309b1d24dc5e32e6
+          persist-credentials: false
+      - name: Prove exact head and exact full verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID/jobs?per_page=100")"
+          test "$(jq '[.jobs[] | select(.name=="Exact Lean Core" and .conclusion=="success")] | length' <<<"$jobs")" = "1"
+          test "$(jq '[.jobs[] | select(.name=="Exact Human Guide" and .conclusion=="success")] | length' <<<"$jobs")" = "1"
+          test "$(jq '[.jobs[] | select(.name=="Verify frozen authority without PnL" and .conclusion=="success")] | length' <<<"$jobs")" = "1"
+      - name: API-bind all external authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ELIGIBILITY_ID" "$SOURCE_ELIGIBILITY_NAME" "$SOURCE_ELIGIBILITY_API_DIGEST" "$SOURCE_ELIGIBILITY_RUN_ID"
+          verify_artifact "$SUCCESSOR_BUNDLE_ID" "$SUCCESSOR_BUNDLE_NAME" "$SUCCESSOR_BUNDLE_API_DIGEST" "$SUCCESSOR_BUNDLE_RUN_ID"
+          verify_artifact "$SUCCESSOR_FRESH_ID" "$SUCCESSOR_FRESH_NAME" "$SUCCESSOR_FRESH_API_DIGEST" "$SUCCESSOR_FRESH_RUN_ID"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Build canonical immutable v3 seal
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue541-v3-seal
+          mkdir -p /tmp/issue541-v3-seal
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol
+
+          protocol = canonical_capacity_robustness_protocol()
+          if protocol.digest != os.environ['EXPECTED_PROTOCOL_DIGEST']:
+              raise RuntimeError('protocol digest differs from exact-head authority run')
+          if protocol.schema_version != 'calibrated_capacity_robustness_prereg_v3':
+              raise RuntimeError('unexpected protocol schema')
+          if protocol.capacity_result_run_id != 34766830666:
+              raise RuntimeError('calibration publisher run is not bound')
+          if protocol.identity_layer_head_sha != '3e111a59153b7353e26080bd569b9775190577be':
+              raise RuntimeError('final Issue 539 head is not bound')
+          if protocol.successor_bundle_run_id != int(os.environ['SUCCESSOR_BUNDLE_RUN_ID']) or protocol.successor_bundle_artifact_id != int(os.environ['SUCCESSOR_BUNDLE_ID']):
+              raise RuntimeError('final successor bundle is not bound')
+          if protocol.successor_fresh_verification_run_id != int(os.environ['SUCCESSOR_FRESH_RUN_ID']) or protocol.successor_fresh_verification_artifact_id != int(os.environ['SUCCESSOR_FRESH_ID']):
+              raise RuntimeError('final successor fresh verification is not bound')
+          if protocol.source_eligibility_run_id != int(os.environ['SOURCE_ELIGIBILITY_RUN_ID']) or protocol.source_eligibility_artifact_id != int(os.environ['SOURCE_ELIGIBILITY_ID']):
+              raise RuntimeError('source eligibility authority is not bound')
+          if protocol.source_eligibility_digest != os.environ['SOURCE_ELIGIBILITY_CONTENT_DIGEST']:
+              raise RuntimeError('source eligibility content digest drift')
+          if protocol.integration_gate_satisfied or protocol.execution_authorized or protocol.stage_a_executed or protocol.stage_b_executed or protocol.successor_pnl_inspected:
+              raise RuntimeError('pre-execution seal must keep every execution/PnL gate closed')
+
+          protocol_bytes = (json.dumps(protocol.to_payload(), allow_nan=False, sort_keys=True, indent=2) + '\n').encode('utf-8')
+          root = Path('/tmp/issue541-v3-seal')
+          (root / 'protocol.json').write_bytes(protocol_bytes)
+          index = {
+              'schema_version': 'issue541_capacity_robustness_prereg_seal_v3',
+              'implementation_git_sha': os.environ['TARGET_SHA'],
+              'exact_verification_run_id': int(os.environ['EXACT_VERIFY_RUN_ID']),
+              'protocol_schema_version': protocol.schema_version,
+              'protocol_digest': protocol.digest,
+              'source_eligibility_run_id': protocol.source_eligibility_run_id,
+              'source_eligibility_artifact_id': protocol.source_eligibility_artifact_id,
+              'source_eligibility_artifact_api_digest': os.environ['SOURCE_ELIGIBILITY_API_DIGEST'],
+              'source_eligibility_content_digest': protocol.source_eligibility_digest,
+              'successor_bundle_run_id': protocol.successor_bundle_run_id,
+              'successor_bundle_artifact_id': protocol.successor_bundle_artifact_id,
+              'successor_bundle_artifact_api_digest': os.environ['SUCCESSOR_BUNDLE_API_DIGEST'],
+              'successor_fresh_verification_run_id': protocol.successor_fresh_verification_run_id,
+              'successor_fresh_verification_artifact_id': protocol.successor_fresh_verification_artifact_id,
+              'successor_fresh_verification_artifact_api_digest': os.environ['SUCCESSOR_FRESH_API_DIGEST'],
+              'pre_successor_suite_status': protocol.pre_successor_suite_status,
+              'source_profitable_core_strategies': list(protocol.source_profitable_core_strategies),
+              'integration_gate_satisfied': protocol.integration_gate_satisfied,
+              'execution_authorized': protocol.execution_authorized,
+              'stage_a_executed': protocol.stage_a_executed,
+              'stage_b_executed': protocol.stage_b_executed,
+              'successor_pnl_inspected': protocol.successor_pnl_inspected,
+          }
+          digest = content_digest(index)
+          index['seal_index_digest'] = digest
+          (root / 'seal-index.json').write_text(json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print('PROTOCOL_DIGEST=' + protocol.digest)
+          print('SEAL_INDEX_DIGEST=' + digest)
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
+              f.write(f'seal_index_digest={digest}\n')
+          PY
+      - name: Set artifact name
+        id: meta
+        shell: bash
+        run: echo "seal_name=issue541-capacity-robustness-prereg-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable v3 seal
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-capacity-robustness-prereg-v3-${{ github.run_id }}
+          path: /tmp/issue541-v3-seal
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh_verify:
+    name: Fresh independent v3 seal verification
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      verify_name: ${{ steps.meta.outputs.verify_name }}
+      verify_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      verify_artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 06f368d4d8d0aafac8b80c60309b1d24dc5e32e6
+          persist-credentials: false
+      - name: API-bind immutable v3 seal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.seal_artifact_id }}
+          SEAL_DIGEST_RAW: ${{ needs.seal.outputs.seal_artifact_digest }}
+          SEAL_NAME: ${{ needs.seal.outputs.seal_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SEAL_ID")"
+          test "$(jq -r '.name' <<<"$payload")" = "$SEAL_NAME"
+          test "$(jq -r '.digest' <<<"$payload")" = "sha256:$SEAL_DIGEST_RAW"
+          test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$payload")" = "false"
+      - name: Download exact published v3 seal
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.seal_name }}
+          path: /tmp/seal
+      - name: Re-API-bind external authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$SOURCE_ELIGIBILITY_ID" "$SOURCE_ELIGIBILITY_NAME" "$SOURCE_ELIGIBILITY_API_DIGEST" "$SOURCE_ELIGIBILITY_RUN_ID"
+          verify_artifact "$SUCCESSOR_BUNDLE_ID" "$SUCCESSOR_BUNDLE_NAME" "$SUCCESSOR_BUNDLE_API_DIGEST" "$SUCCESSOR_BUNDLE_RUN_ID"
+          verify_artifact "$SUCCESSOR_FRESH_ID" "$SUCCESSOR_FRESH_NAME" "$SUCCESSOR_FRESH_API_DIGEST" "$SUCCESSOR_FRESH_RUN_ID"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Fresh canonical reconstruction and byte comparison
+        shell: bash
+        env:
+          SEAL_ID: ${{ needs.seal.outputs.seal_artifact_id }}
+          SEAL_DIGEST_RAW: ${{ needs.seal.outputs.seal_artifact_digest }}
+          SEAL_INDEX_DIGEST: ${{ needs.seal.outputs.seal_index_digest }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.capacity_robustness_prereg import canonical_capacity_robustness_protocol, load_capacity_robustness_protocol
+
+          root = Path('/tmp/seal')
+          protocol = canonical_capacity_robustness_protocol()
+          if protocol.digest != os.environ['EXPECTED_PROTOCOL_DIGEST']:
+              raise RuntimeError('fresh canonical protocol digest drift')
+          expected_bytes = (json.dumps(protocol.to_payload(), allow_nan=False, sort_keys=True, indent=2) + '\n').encode('utf-8')
+          published_bytes = (root / 'protocol.json').read_bytes()
+          if published_bytes != expected_bytes:
+              raise RuntimeError('fresh canonical protocol bytes differ from seal')
+          loaded = load_capacity_robustness_protocol(root / 'protocol.json')
+          if loaded != protocol or loaded.digest != protocol.digest:
+              raise RuntimeError('sealed protocol parser reconstruction mismatch')
+          index = json.loads((root / 'seal-index.json').read_text(encoding='utf-8'))
+          index_digest = index.pop('seal_index_digest')
+          if index_digest != os.environ['SEAL_INDEX_DIGEST'] or content_digest(index) != index_digest:
+              raise RuntimeError('seal index digest mismatch')
+          if index['implementation_git_sha'] != os.environ['TARGET_SHA'] or index['exact_verification_run_id'] != int(os.environ['EXACT_VERIFY_RUN_ID']):
+              raise RuntimeError('seal exact-head binding drift')
+          if index['protocol_digest'] != protocol.digest:
+              raise RuntimeError('seal protocol digest binding drift')
+          if index['successor_bundle_artifact_id'] != 10331899302 or index['successor_fresh_verification_artifact_id'] != 10332575500:
+              raise RuntimeError('seal final successor authority drift')
+          if index['integration_gate_satisfied'] or index['execution_authorized'] or index['stage_a_executed'] or index['stage_b_executed'] or index['successor_pnl_inspected']:
+              raise RuntimeError('sealed execution boundary is not closed')
+          verification = {
+              'schema_version': 'issue541_capacity_robustness_prereg_fresh_verification_v3',
+              'seal_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'seal_artifact_id': int(os.environ['SEAL_ID']),
+              'seal_artifact_api_digest': 'sha256:' + os.environ['SEAL_DIGEST_RAW'],
+              'implementation_git_sha': os.environ['TARGET_SHA'],
+              'exact_verification_run_id': int(os.environ['EXACT_VERIFY_RUN_ID']),
+              'protocol_digest': protocol.digest,
+              'seal_index_digest': index_digest,
+              'canonical_protocol_bytes_match': True,
+              'external_authorities_api_reverified': True,
+              'integration_gate_satisfied': False,
+              'execution_authorized': False,
+              'stage_a_executed': False,
+              'stage_b_executed': False,
+              'successor_pnl_inspected': False,
+              'preregistration_authorized': True,
+          }
+          Path('/tmp/fresh-verification.json').write_text(json.dumps(verification, allow_nan=False, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+          print('ISSUE541_V3_FRESH_VERIFY=' + json.dumps(verification, allow_nan=False, sort_keys=True))
+          PY
+      - name: Set verification artifact name
+        id: meta
+        shell: bash
+        run: echo "verify_name=issue541-capacity-robustness-prereg-fresh-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable fresh verification
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue541-capacity-robustness-prereg-fresh-v3-${{ github.run_id }}
+          path: /tmp/fresh-verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Audit v3 preregistration authority
+    needs:
+      - seal
+      - fresh_verify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind seal and fresh verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.seal_artifact_id }}
+          SEAL_RAW_DIGEST: ${{ needs.seal.outputs.seal_artifact_digest }}
+          SEAL_NAME: ${{ needs.seal.outputs.seal_name }}
+          VERIFY_ID: ${{ needs.fresh_verify.outputs.verify_artifact_id }}
+          VERIFY_RAW_DIGEST: ${{ needs.fresh_verify.outputs.verify_artifact_digest }}
+          VERIFY_NAME: ${{ needs.fresh_verify.outputs.verify_name }}
+        run: |
+          set -euo pipefail
+          for tuple in "$SEAL_ID|$SEAL_NAME|$SEAL_RAW_DIGEST" "$VERIFY_ID|$VERIFY_NAME|$VERIFY_RAW_DIGEST"; do
+            IFS='|' read -r id name raw <<<"$tuple"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "sha256:$raw"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          done
+      - name: Download exact fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh_verify.outputs.verify_name }}
+          path: /tmp/audit
+      - name: Audit closed execution boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .protocol_digest == "11bf254c262aff9daef620a18b80badb40c6ffc239566b88fe70442ebaf54dc8" and
+            .canonical_protocol_bytes_match == true and
+            .external_authorities_api_reverified == true and
+            .integration_gate_satisfied == false and
+            .execution_authorized == false and
+            .stage_a_executed == false and
+            .stage_b_executed == false and
+            .successor_pnl_inspected == false and
+            .preregistration_authorized == true
+          ' /tmp/audit/fresh-verification.json >/dev/null

@@ -73,6 +73,7 @@ trade_rl/
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
     ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
+    ├── final_test/{__init__.py,contracts.py,workflow.py}
     └── experiments/
         ├── errors.py
         ├── codec.py
@@ -87,6 +88,8 @@ trade_rl/
 ```
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
+
+`evaluation/final_test/` はterminal `WINNER` Studyをread-onlyで検証し、unused-future / final evaluationを開く資格だけを別rootへone-shotで封印する。Dataset取得、strategy実行、Replay/P&L、stress、Production認可は所有しない。詳細契約は `architecture/final-evaluation-authorization.md` を正本とする。
 
 ## Ownership
 

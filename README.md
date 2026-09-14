@@ -12,6 +12,7 @@ Start from:
 - `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
 - `docs/architecture/package-boundaries.md` — current package ownership and dependency direction
 - `docs/architecture/controlled-experiment-loop.md` — append-only Study/Experiment/EvidenceSet lifecycle and freeze contract
+- `docs/architecture/final-evaluation-authorization.md` — WINNER-only one-shot gate before any unused/final-data access
 - `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
 
 Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.

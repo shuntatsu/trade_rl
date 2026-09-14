@@ -1,0 +1,103 @@
+name: Temporary Issue 539 compare source Study
+
+on:
+  push:
+    branches:
+      - verify/issue539-exact-15bf6546
+    paths:
+      - .github/workflows/tmp-issue539-compare-source-study.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SOURCE_RUN: "34702660287"
+  SOURCE_NAME: canonical-m2-portable-prereg-v1-34702660287
+  SOURCE_ID: "10300479733"
+  SOURCE_DIGEST: sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4
+  OFFICIAL_RUN: "34793586474"
+  OFFICIAL_NAME: issue539-calibrated-causal-identities-34793586474
+  OFFICIAL_ID: "10328956351"
+  OFFICIAL_DIGEST: sha256:98a87c4a1da8e4f5e97362aa8d90c13e2f1291b5bc6f6dbef73dfecbb924c756
+  EXACT_RUN: "34794384559"
+  EXACT_NAME: issue539-calibrated-causal-successor-v1-34794384559
+  EXACT_ID: "10329107309"
+  EXACT_DIGEST: sha256:6e8bff792fb905bf93fbf591e2c9cf18c2b28e6a1396f4e1a88562e83a65986d
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind all three bundles
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for tuple in "$SOURCE_ID|$SOURCE_NAME|$SOURCE_DIGEST|$SOURCE_RUN" "$OFFICIAL_ID|$OFFICIAL_NAME|$OFFICIAL_DIGEST|$OFFICIAL_RUN" "$EXACT_ID|$EXACT_NAME|$EXACT_DIGEST|$EXACT_RUN"; do
+            IFS='|' read -r id name digest run_id <<<"$tuple"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          done
+      - name: Download source
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_NAME }}
+          path: /tmp/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Download official
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.OFFICIAL_NAME }}
+          path: /tmp/official
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.OFFICIAL_RUN }}
+      - name: Download exact-head
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.EXACT_NAME }}
+          path: /tmp/exact
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.EXACT_RUN }}
+      - name: Report source-to-successor plan diff paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          source=json.loads(Path('/tmp/source/study/plan.json').read_text())
+          official=json.loads(Path('/tmp/official/study/plan.json').read_text())
+          exact=json.loads(Path('/tmp/exact/study/plan.json').read_text())
+          def diffs(a,b):
+              out=[]
+              def walk(x,y,path=()):
+                  if type(x) is not type(y): out.append((path,x,y)); return
+                  if isinstance(x,dict):
+                      for k in sorted(set(x)|set(y)):
+                          if k not in x or k not in y: out.append((path+(k,),x.get(k,'<MISSING>'),y.get(k,'<MISSING>')))
+                          else: walk(x[k],y[k],path+(k,))
+                  elif isinstance(x,list):
+                      if len(x)!=len(y): out.append((path+('length',),len(x),len(y)))
+                      for i,(u,v) in enumerate(zip(x,y)): walk(u,v,path+(str(i),))
+                  elif x!=y: out.append((path,x,y))
+              walk(a,b); return out
+          for label,plan in [('OFFICIAL',official),('EXACT',exact)]:
+              ds=diffs(source,plan)
+              print(label+'_DIFF_COUNT='+str(len(ds)))
+              for path,left,right in ds:
+                  print(label+'_PATH='+'.'.join(path))
+                  print(label+'_SOURCE='+json.dumps(left,sort_keys=True))
+                  print(label+'_SUCCESSOR='+json.dumps(right,sort_keys=True))
+          print('SOURCE_RUNTIME='+json.dumps(source.get('runtime_environment_digest')))
+          print('OFFICIAL_RUNTIME='+json.dumps(official.get('runtime_environment_digest')))
+          print('EXACT_RUNTIME='+json.dumps(exact.get('runtime_environment_digest')))
+          PY

@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 import numpy as np
 import pytest
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, NormalizationMode
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    NormalizationMode,
+)
 from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.features.multitimeframe import align_native_feature
 from trade_rl.data.source import RawMarketSeries
 
 
-def _raw(*, taker: np.ndarray | None) -> RawMarketSeries:
+def _raw(
+    *,
+    taker: np.ndarray | None,
+    available_at: np.ndarray | None = None,
+) -> RawMarketSeries:
     n = 30
     timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
         n
@@ -18,7 +29,7 @@ def _raw(*, taker: np.ndarray | None) -> RawMarketSeries:
     close = 100.0 + np.arange(n, dtype=np.float64)
     return RawMarketSeries(
         timestamps=timestamps,
-        available_at=timestamps,
+        available_at=timestamps if available_at is None else available_at,
         open=np.concatenate((close[:1], close[:-1])),
         high=close + 1.0,
         low=close - 1.0,
@@ -122,6 +133,23 @@ def test_signed_taker_flow_exact_24_bar_formula_and_bounds() -> None:
     assert sell_values[23] == pytest.approx(-1.0)
 
 
+def test_signed_taker_flow_uses_fixed_order_fsum_not_vector_reduction() -> None:
+    quote = np.asarray([1.0e16, *([1.0] * 23), *([10.0] * 6)], dtype=np.float64)
+    taker = np.asarray([5.0e15, *([0.6] * 23), *([6.0] * 6)], dtype=np.float64)
+
+    values, valid, _ = _calculate(volume=quote, taker=taker)
+
+    expected_quote = math.fsum(float(item) for item in quote[:24])
+    expected_taker = math.fsum(float(item) for item in taker[:24])
+    expected = (2.0 * expected_taker - expected_quote) / expected_quote
+    vectorized = (2.0 * float(np.sum(taker[:24])) - float(np.sum(quote[:24]))) / float(
+        np.sum(quote[:24])
+    )
+    assert expected != vectorized
+    assert valid[23]
+    assert values[23] == expected
+
+
 def test_signed_taker_flow_zero_denominator_is_unavailable() -> None:
     volume = np.full(30, 10.0)
     volume[:24] = 0.0
@@ -176,6 +204,31 @@ def test_signed_taker_flow_requires_complete_active_tradable_window() -> None:
     assert valid[29]
 
 
+def test_signed_taker_flow_delayed_source_row_is_not_visible_early() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    available_at = timestamps.copy()
+    available_at[5] = timestamps[24]
+    raw = _raw(
+        taker=np.full(n, 6.0, dtype=np.float64),
+        available_at=available_at,
+    )
+
+    _, available, _, _ = align_native_feature(
+        _spec(),
+        raw,
+        InstrumentContract(symbol="BTCUSDT"),
+        timestamps,
+        np.ones(n, dtype=np.bool_),
+        timeframe="1h",
+    )
+
+    assert not available[23]
+    assert available[24]
+
+
 def test_signed_taker_flow_prefix_causality() -> None:
     baseline_values, baseline_valid, _ = _calculate()
     taker = np.full(30, 6.0)
@@ -186,9 +239,11 @@ def test_signed_taker_flow_prefix_causality() -> None:
     np.testing.assert_array_equal(changed_values[:27], baseline_values[:27])
 
 
-def test_signed_taker_flow_rejects_alternate_lookback_and_normalization() -> None:
+def test_signed_taker_flow_rejects_alternate_lookback_timeframe_and_normalization() -> None:
     with pytest.raises(ValueError, match="24"):
         _calculate(spec=_spec(lookback=23))
+    with pytest.raises(ValueError, match="1h"):
+        _calculate(spec=_spec(timeframe="4h"))
     with pytest.raises(ValueError, match="normalization"):
         _calculate(
             spec=_spec(

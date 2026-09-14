@@ -32,12 +32,11 @@ jobs:
               '.workflow_runs[] | select(.path==".github/workflows/issue541-stage-b-formal-v2.yml") | .id',
               1,
           )
-          guard = '          test "$(jq -r \'.[0]\' <<<"$ids")" = "$GITHUB_RUN_ID"\n'
+          guard = '          test "$(jq -r \' .[0] \' <<<"$ids")" = "$GITHUB_RUN_ID"\n'.replace("' .[0] '", "'.[0]'")
           proof = '''          test "$(jq -r '.[0]' <<<"$ids")" = "$GITHUB_RUN_ID"\n          prior_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/34835000848/jobs?per_page=100")"\n          test "$(jq -r '.jobs[] | .steps[]? | select(.name=="Execute successor baseline exactly once with full capacity audit") | .conclusion' <<<"$prior_jobs")" = "skipped"\n          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/34835000848/artifacts" --jq .total_count)" = "0"\n'''
           if guard not in text:
               raise SystemExit('one-shot guard anchor not found')
           text = text.replace(guard, proof, 1)
-
           old = '''          verified=json.loads(next(Path('/tmp/successor-verify').glob('*.json')).read_text())\n          if verified.get('status') not in ('PASS','VERIFIED'):\n              raise RuntimeError('successor fresh verification status is not successful')\n'''
           new = '''          verified=json.loads(Path('/tmp/successor-verify/fresh-verification.json').read_text())\n          expected_verified={\n              'source_bundle_run_id':int(os.environ['SUCCESSOR_RUN_ID']),\n              'source_bundle_artifact_id':int(os.environ['SUCCESSOR_ID']),\n              'source_bundle_artifact_digest':os.environ['SUCCESSOR_DIGEST'],\n              'calibration_publisher_run_bound':True,\n              'fresh_runner_reconstructed_from_source':True,\n              'byte_level_tree_identity_verified':True,\n              'baseline_present':False,\n              'experiment_count':0,\n              'pnl_executed':False,\n              'returns_inspected':False,\n              'final_test_authorized':False,\n              'production_authorized':False,\n              'pre_pnl_identity_authorized':True,\n          }\n          for key,value in expected_verified.items():\n              if verified.get(key)!=value: raise RuntimeError(f'successor fresh verification drift: {key}')\n'''
           if old not in text:
@@ -58,7 +57,7 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows/issue541-stage-b-formal-v2.yml .github/workflows/tmp-issue541-stage-b-v2-builder.yml
+          git add -A .github/workflows
           mapfile -t changed < <(git diff --cached --name-only | sort)
           test "${#changed[@]}" = "2"
           test "${changed[0]}" = ".github/workflows/issue541-stage-b-formal-v2.yml"

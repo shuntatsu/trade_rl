@@ -1,0 +1,46 @@
+name: Temporary Issue 560 RED verification
+
+on:
+  push:
+    branches:
+      - verify/issue560-red-1e9c7d
+    paths:
+      - .github/workflows/tmp-issue560-red-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 1e9c7d0659a775693547682d434a35cdfac47571
+
+jobs:
+  red_verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Prove tests collect cleanly
+        run: |
+          uv run pytest --collect-only -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Prove source/feature tests are RED because production is absent
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            > /tmp/red.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/red.txt
+          test "$code" -ne 0
+          grep -Eq 'taker_buy_quote_volume|SIGNED_TAKER_QUOTE_FLOW|unexpected keyword argument|has no attribute' /tmp/red.txt

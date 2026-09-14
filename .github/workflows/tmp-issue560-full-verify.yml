@@ -93,7 +93,7 @@ jobs:
     name: Human Guide
     runs-on: ubuntu-latest
     env:
-      GUIDE_SOURCE_REV: ${{ env.TARGET_SHA }}
+      GUIDE_SOURCE_REV: 665927ab5b3d2f57fd4b08abc8afac6249cf2270
     steps:
       - name: Checkout exact target head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

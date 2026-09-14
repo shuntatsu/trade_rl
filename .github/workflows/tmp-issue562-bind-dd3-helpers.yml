@@ -1,0 +1,166 @@
+name: Temporary Issue 562 bind final calibration authority to helpers
+
+on:
+  push:
+    branches:
+      - verify/issue562-publisher-verifier-static
+    paths:
+      - .github/workflows/tmp-issue562-bind-dd3-helpers.yml
+
+permissions:
+  contents: write
+
+jobs:
+  bind:
+    runs-on: ubuntu-24.04
+    env:
+      HELPER_HEAD: 6a3c498e03656db579e610cd1e617840ec9c1773
+      CALIBRATION_HEAD: dd3ecb617ecd2476e20e9215eeb422d2cdc95750
+    steps:
+      - name: Checkout exact helper branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 6a3c498e03656db579e610cd1e617840ec9c1773
+          fetch-depth: 0
+      - name: Assert exact helper head and merge final calibration authority without commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+          git fetch origin "$CALIBRATION_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff --no-commit "$CALIBRATION_HEAD"
+      - name: Patch helper authority and canonical result bytes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          OLD = "817e3c96d702ffca3be74309bd68b31ef02643c5"
+          NEW = "dd3ecb617ecd2476e20e9215eeb422d2cdc95750"
+
+          publisher = Path("tools/tmp_issue562_signed_flow_publisher.py")
+          text = publisher.read_text(encoding="utf-8")
+          if text.count(f'CALIBRATION_HEAD = "{OLD}"') != 1:
+              raise SystemExit("publisher calibration authority site is ambiguous")
+          text = text.replace(
+              f'CALIBRATION_HEAD = "{OLD}"',
+              f'CALIBRATION_HEAD = "{NEW}"',
+              1,
+          )
+          import_marker = "import numpy as np\n\n"
+          canonical_import = (
+              "import numpy as np\n\n"
+              "from trade_rl.artifacts.canonical import canonical_json_bytes\n"
+          )
+          if text.count(import_marker) != 1:
+              raise SystemExit("publisher canonical import site is ambiguous")
+          text = text.replace(import_marker, canonical_import, 1)
+          old_result = '    result_bytes = _write_json(output_dir / "result.json", result_payload)\n'
+          new_result = '''    result_bytes = canonical_json_bytes(result_payload)\n    (output_dir / "result.json").write_bytes(result_bytes)\n'''
+          if text.count(old_result) != 1:
+              raise SystemExit("publisher result serialization site is ambiguous")
+          text = text.replace(old_result, new_result, 1)
+          publisher.write_text(text, encoding="utf-8")
+
+          verifier = Path("tools/tmp_issue562_signed_flow_verifier.py")
+          text = verifier.read_text(encoding="utf-8")
+          if text.count(f'CALIBRATION_HEAD = "{OLD}"') != 1:
+              raise SystemExit("verifier calibration authority site is ambiguous")
+          text = text.replace(
+              f'CALIBRATION_HEAD = "{OLD}"',
+              f'CALIBRATION_HEAD = "{NEW}"',
+              1,
+          )
+          if text.count(import_marker) != 1:
+              raise SystemExit("verifier canonical import site is ambiguous")
+          text = text.replace(import_marker, canonical_import, 1)
+          old_expected = '''def _expected_json_bytes(payload: dict[str, object]) -> bytes:\n    return (\n        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\\n"\n    ).encode("utf-8")\n'''
+          new_expected = '''def _expected_json_bytes(payload: dict[str, object]) -> bytes:\n    return canonical_json_bytes(payload)\n'''
+          if text.count(old_expected) != 1:
+              raise SystemExit("verifier expected-byte site is ambiguous")
+          text = text.replace(old_expected, new_expected, 1)
+          verifier.write_text(text, encoding="utf-8")
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Static and calibration regression gate
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run ruff format \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run mypy \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py
+      - name: Synthetic canonical result-byte roundtrip
+        run: |
+          uv run python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_calibration import (
+              calibrate_signed_taker_flow,
+              load_signed_taker_flow_calibration_result,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.signed_taker_flow_prereg import (
+              canonical_signed_taker_flow_protocol,
+          )
+          from tests.evaluation.experiments.bootstrap.test_signed_taker_flow_calibration import _dataset
+
+          def load(name: str):
+              path = Path("tools") / name
+              spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)
+              if spec is None or spec.loader is None:
+                  raise RuntimeError(f"cannot load {path}")
+              module = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(module)
+              return module
+
+          publisher = load("tmp_issue562_signed_flow_publisher.py")
+          verifier = load("tmp_issue562_signed_flow_verifier.py")
+          expected_head = "dd3ecb617ecd2476e20e9215eeb422d2cdc95750"
+          assert publisher.CALIBRATION_HEAD == expected_head
+          assert verifier.CALIBRATION_HEAD == expected_head
+
+          result = calibrate_signed_taker_flow(
+              _dataset(),
+              canonical_signed_taker_flow_protocol(),
+              calibration_head=expected_head,
+              source_manifest_digest="5" * 64,
+          )
+          payload = result.to_artifact_payload()
+          canonical = canonical_json_bytes(payload)
+          assert verifier._expected_json_bytes(payload) == canonical
+          path = Path("/tmp/issue562-synthetic-canonical-result.json")
+          path.write_bytes(canonical)
+          loaded = load_signed_taker_flow_calibration_result(path)
+          assert loaded.to_artifact_payload() == payload
+          print("SYNTHETIC_CANONICAL_RESULT_ROUNDTRIP=true")
+          print("REAL_CALIBRATION_EXECUTED=false")
+          PY
+      - name: Commit merge only if run branch has not moved
+        run: |
+          set -euo pipefail
+          git fetch origin run/issue562-signed-flow-training
+          test "$(git rev-parse FETCH_HEAD)" = "$HELPER_HEAD"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_calibration.py \
+            tests/evaluation/experiments/bootstrap/test_signed_taker_flow_calibration.py \
+            tools/tmp_issue562_signed_flow_publisher.py \
+            tools/tmp_issue562_signed_flow_verifier.py
+          git commit -m "merge: bind Issue 562 helpers to final calibration authority"
+          git push origin HEAD:run/issue562-signed-flow-training

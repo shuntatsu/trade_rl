@@ -1,4 +1,4 @@
-name: Temporary Issue 559 remove unused ignore and verify
+name: Temporary Issue 559 repair contract errors and verify
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           ref: 6cd31f84498dd1e1720d39899927fefc3f3c860b
       - name: Assert exact head
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-      - name: Remove only the unused loader ignore
+      - name: Apply minimal contract fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -30,11 +30,17 @@ jobs:
           from pathlib import Path
           path = Path("trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py")
           text = path.read_text(encoding="utf-8")
-          old = '    protocol = SignedTakerFlowProtocol(**payload)  # type: ignore[arg-type]\n'
-          new = '    protocol = SignedTakerFlowProtocol(**payload)\n'
-          if text.count(old) != 1:
-              raise SystemExit("expected unused-ignore site not found exactly once")
-          path.write_text(text.replace(old, new), encoding="utf-8")
+          replacements = {
+              '    protocol = SignedTakerFlowProtocol(**payload)  # type: ignore[arg-type]\n':
+                  '    protocol = SignedTakerFlowProtocol(**payload)\n',
+              '                raise ValueError(f"{field_name} must be a boolean")\n':
+                  '                raise ValueError(f"preregistered field {field_name} must be a boolean")\n',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected repair site not found exactly once: {old!r}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
           PY
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -51,7 +57,7 @@ jobs:
           uv run mypy trade_rl
           uv run mypy tools/agent_repo tests/architecture/distribution.py
           uv run pytest -q tests/evaluation/experiments/bootstrap/test_signed_taker_flow_prereg.py
-      - name: Commit verified fix
+      - name: Commit verified fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -59,5 +65,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/evaluation/experiments/bootstrap/signed_taker_flow_prereg.py
           test -n "$(git diff --cached --name-only)"
-          git commit -m "fix: remove obsolete taker-flow mypy suppression"
+          git commit -m "fix: enforce signed taker-flow contract errors"
           git push origin HEAD:research/issue558-taker-flow-prereg

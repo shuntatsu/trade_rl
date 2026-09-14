@@ -123,8 +123,73 @@ class RawMarketSeries:
             object.__setattr__(self, field_name, array)
 
 
+@dataclass(frozen=True, slots=True)
+class RawIndexPriceSeries:
+    """Sparse native completed-bar index closes with explicit availability."""
+
+    timestamps: np.ndarray
+    close: np.ndarray
+    available_at: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        timestamps = _readonly(self.timestamps)
+        if timestamps.ndim != 1 or not np.issubdtype(timestamps.dtype, np.datetime64):
+            raise ValueError(
+                "index-price timestamps must be a one-dimensional datetime64 array"
+            )
+        timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
+        if timestamp_ns.size == 0:
+            raise ValueError("raw index-price series must not be empty")
+        if np.any(timestamp_ns == np.iinfo(np.int64).min):
+            raise ValueError("index-price timestamps must not contain NaT")
+        if np.any(np.diff(timestamp_ns) <= 0):
+            raise ValueError(
+                "index-price timestamps must be strictly increasing and unique"
+            )
+
+        close = _readonly(self.close, dtype=np.dtype(np.float64))
+        if close.shape != timestamps.shape:
+            raise ValueError("index-price close shape must match timestamps")
+        if not np.isfinite(close).all() or np.any(close <= 0.0):
+            raise ValueError("index-price close must be finite and strictly positive")
+
+        available_at_value = (
+            timestamps if self.available_at is None else self.available_at
+        )
+        available_at = _readonly(available_at_value)
+        if available_at.ndim != 1 or not np.issubdtype(
+            available_at.dtype, np.datetime64
+        ):
+            raise ValueError(
+                "index-price available_at must be a one-dimensional datetime64 array"
+            )
+        if available_at.shape != timestamps.shape:
+            raise ValueError("index-price available_at shape must match timestamps")
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        if np.any(available_ns == np.iinfo(np.int64).min):
+            raise ValueError("index-price available_at must not contain NaT")
+        if np.any(available_ns < timestamp_ns):
+            raise ValueError(
+                "index-price available_at cannot be earlier than the event timestamp"
+            )
+
+        object.__setattr__(self, "timestamps", timestamps.astype("datetime64[ns]"))
+        object.__setattr__(self, "close", close)
+        object.__setattr__(self, "available_at", available_at.astype("datetime64[ns]"))
+
+
 class MarketDataSource(Protocol):
     def load(self, symbol: str) -> RawMarketSeries: ...
+
+
+@runtime_checkable
+class IndexPriceMarketDataSource(MarketDataSource, Protocol):
+    """Source with an explicit sparse native index-price history capability."""
+
+    def load_index_price(self, symbol: str, timeframe: str) -> RawIndexPriceSeries: ...
+
+    @property
+    def index_price_provenance(self) -> Mapping[str, object]: ...
 
 
 @runtime_checkable

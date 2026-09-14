@@ -164,7 +164,9 @@ def test_sparse_index_row_is_unavailable_and_never_stale_carried() -> None:
     assert dataset.feature_available[11, 0, 0]
     np.testing.assert_allclose(dataset.features[11, 0, 0], 10_000.0 * np.log(1.1))
     assert dataset.feature_staleness[10, 0, 0] == 1.0
-    assert dataset.feature_age_hours[10, 0, 0] == _basis_spec().max_staleness_hours
+    assert (
+        dataset.feature_staleness_hours[10, 0, 0] == _basis_spec().max_staleness_hours
+    )
 
 
 def test_index_delay_and_perpetual_information_availability_fail_closed() -> None:

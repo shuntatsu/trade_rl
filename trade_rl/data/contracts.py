@@ -87,6 +87,7 @@ class FeatureKind(StrEnum):
     ROLLING_BETA_TO_BTC = "rolling_beta_to_btc"
     CROSS_SECTIONAL_MOMENTUM_RANK = "cross_sectional_momentum_rank"
     CROSS_ASSET_DISPERSION = "cross_asset_dispersion"
+    PERP_INDEX_LOG_BASIS_BPS = "perp_index_log_basis_bps"
 
 
 class NormalizationMode(StrEnum):
@@ -379,6 +380,35 @@ class MarketBuildConfig:
         names = tuple(spec.name for spec in self.features)
         if len(set(names)) != len(names):
             raise ValueError("feature names must be unique")
+        basis_specs = tuple(
+            spec
+            for spec in self.features
+            if spec.kind is FeatureKind.PERP_INDEX_LOG_BASIS_BPS
+        )
+        if basis_specs:
+            if self.base_timeframe != "1h":
+                raise ValueError("perp-index basis requires the 1h base decision clock")
+            for spec in basis_specs:
+                if spec.name != "1h__perp_index_log_basis_bps":
+                    raise ValueError("perp-index basis feature name is not canonical")
+                if spec.timeframe is not None:
+                    raise ValueError(
+                        "perp-index basis must use the native 1h base timeframe"
+                    )
+                if spec.lookback != 1:
+                    raise ValueError("perp-index basis lookback must equal 1")
+                if spec.normalization is not NormalizationMode.NONE:
+                    raise ValueError("perp-index basis normalization is forbidden")
+                if spec.normalization_window != 1:
+                    raise ValueError(
+                        "perp-index basis normalization_window must equal 1"
+                    )
+                if spec.min_periods != 1:
+                    raise ValueError("perp-index basis min_periods must equal 1")
+                if spec.alignment is not None:
+                    raise ValueError(
+                        "perp-index basis alignment must remain on decision time"
+                    )
         if any(spec.timeframe == self.base_timeframe for spec in self.features):
             raise ValueError(
                 "base timeframe features must omit timeframe instead of repeating it"

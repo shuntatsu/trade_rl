@@ -10,6 +10,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
+    FeatureKind,
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
@@ -32,8 +33,10 @@ from trade_rl.data.identity import (
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import (
+    IndexPriceMarketDataSource,
     MarketDataSource,
     MultiTimeframeMarketDataSource,
+    RawIndexPriceSeries,
     RawMarketSeries,
 )
 
@@ -79,6 +82,28 @@ def _calculate_one_bar_returns(
     )
     returns[1:] = np.where(available[1:], portable_log(ratios), 0.0)
     return returns, available
+
+
+def _align_index_price_series(
+    raw: RawIndexPriceSeries,
+    timestamps: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Align only exact sparse completed timestamps; never carry or synthesize."""
+
+    base_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
+    event_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
+    positions = np.searchsorted(base_ns, event_ns)
+    if np.any(positions >= len(base_ns)) or np.any(base_ns[positions] != event_ns):
+        raise ValueError("index-price timestamps must match the base 1h clock exactly")
+    close = np.zeros(len(timestamps), dtype=np.float64)
+    present = np.zeros(len(timestamps), dtype=np.bool_)
+    information_available = np.zeros(len(timestamps), dtype=np.bool_)
+    close[positions] = raw.close
+    present[positions] = True
+    assert raw.available_at is not None
+    available_ns = raw.available_at.astype("datetime64[ns]").astype(np.int64)
+    information_available[positions] = available_ns <= event_ns
+    return close, present, information_available
 
 
 def _carry_feature(
@@ -271,6 +296,14 @@ class MarketDatasetBuilder:
         symbols = tuple(contract.symbol for contract in instruments)
         if len(set(symbols)) != len(symbols):
             raise ValueError("instrument symbols must be unique")
+        basis_requested = any(
+            spec.kind is FeatureKind.PERP_INDEX_LOG_BASIS_BPS
+            for spec in self.config.features
+        )
+        if basis_requested and not isinstance(source, IndexPriceMarketDataSource):
+            raise ValueError(
+                "perp-index basis requires an explicit index-price source capability"
+            )
         raw_series = tuple(source.load(symbol) for symbol in symbols)
         step_ns = int(round(self.config.bar_hours * _NS_PER_HOUR))
         if self.config.calendar_kind == MarketCalendarKind.SESSION.value:
@@ -351,12 +384,47 @@ class MarketDatasetBuilder:
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        index_cache: dict[str, RawIndexPriceSeries] = {}
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
                     continue
                 native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
-                if native_timeframe == self.config.base_timeframe:
+                if spec.kind is FeatureKind.PERP_INDEX_LOG_BASIS_BPS:
+                    assert isinstance(source, IndexPriceMarketDataSource)
+                    index_raw = index_cache.get(contract.symbol)
+                    if index_raw is None:
+                        index_raw = source.load_index_price(contract.symbol, "1h")
+                        index_cache[contract.symbol] = index_raw
+                    index_close, index_present, index_information = (
+                        _align_index_price_series(index_raw, timestamps)
+                    )
+                    valid = (
+                        causal_row_present[:, symbol_index]
+                        & symbol_active[:, symbol_index]
+                        & tradable[:, symbol_index]
+                        & index_present
+                        & index_information
+                        & np.isfinite(close[:, symbol_index])
+                        & (close[:, symbol_index] > 0.0)
+                    )
+                    ratios = np.ones(n_bars, dtype=np.float64)
+                    np.divide(
+                        close[:, symbol_index],
+                        index_close,
+                        out=ratios,
+                        where=valid,
+                    )
+                    values = np.zeros(n_bars, dtype=np.float64)
+                    values[valid] = 10_000.0 * portable_log(ratios[valid])
+                    available = valid
+                    age_hours = np.full(
+                        n_bars, spec.max_staleness_hours, dtype=np.float64
+                    )
+                    staleness = np.ones(n_bars, dtype=np.float64)
+                    age_hours[valid] = 0.0
+                    staleness[valid] = 0.0
+                elif native_timeframe == self.config.base_timeframe:
                     event_values, event_valid, _ = calculate_feature_events(
                         spec,
                         open_price=open_price[:, symbol_index],
@@ -512,6 +580,11 @@ class MarketDatasetBuilder:
         }
         if identity_provenance is not None:
             metadata["metadata_evidence"] = identity_provenance
+        if basis_requested:
+            assert isinstance(source, IndexPriceMarketDataSource)
+            metadata["index_price_source_evidence"] = dict(
+                source.index_price_provenance
+            )
         if execution_economics is not None:
             metadata["execution_economics"] = execution_economics.to_payload()
         periods_per_year = (

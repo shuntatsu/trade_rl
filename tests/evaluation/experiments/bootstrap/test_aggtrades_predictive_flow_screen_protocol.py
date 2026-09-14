@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -83,8 +84,12 @@ def test_statistic_decision_and_coverage_contract_are_frozen() -> None:
     assert protocol.pass_status == "PASS_FLOW_SCREEN"
     assert protocol.no_signal_status == "NO_STABLE_FLOW_SIGNAL"
     assert protocol.invalid_status == "INVALID_FLOW_DIAGNOSTIC_COVERAGE"
+    assert protocol.replacement_dates_allowed is False
+    assert protocol.alternate_horizon_search_allowed is False
+    assert protocol.posthoc_sign_flip_allowed is False
     assert protocol.disjoint_validation_required_after_pass is True
     assert protocol.strategy_pnl_allowed is False
+    assert protocol.numeric_capacity_result_allowed is False
 
 
 def test_protocol_rejects_post_result_tuning_and_alignment_mutation() -> None:
@@ -103,13 +108,14 @@ def test_protocol_rejects_post_result_tuning_and_alignment_mutation() -> None:
         {"sample_month_days": (1, 15)},
         {"post_2022_observations_allowed": True},
         {"strategy_pnl_allowed": True},
+        {"numeric_capacity_result_allowed": True},
     )
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered predictive-flow contract"):
             replace(protocol, **mutation)
 
 
-def test_payload_is_content_addressed_strict_and_round_trips(tmp_path: object) -> None:
+def test_payload_is_content_addressed_strict_and_round_trips(tmp_path: Path) -> None:
     protocol = canonical_m2_aggtrades_predictive_flow_screen_protocol()
     payload = protocol.to_payload()
 
@@ -118,32 +124,32 @@ def test_payload_is_content_addressed_strict_and_round_trips(tmp_path: object) -
     assert payload["planned_urls"] == list(protocol.planned_urls)
     assert {"pnl", "strategy", "candidate_result"}.isdisjoint(payload)
 
-    path = tmp_path / "predictive-flow-protocol.json"  # type: ignore[operator]
-    path.write_text(  # type: ignore[union-attr]
+    path = tmp_path / "predictive-flow-protocol.json"
+    path.write_text(
         json.dumps(payload, sort_keys=True),
         encoding="utf-8",
     )
-    loaded = load_aggtrades_predictive_flow_screen_protocol(path)  # type: ignore[arg-type]
+    loaded = load_aggtrades_predictive_flow_screen_protocol(path)
     assert loaded == protocol
     assert loaded.digest == protocol.digest
 
     tampered = dict(payload)
     tampered["label_horizon_bars"] = 4
-    path.write_text(  # type: ignore[union-attr]
+    path.write_text(
         json.dumps(tampered, sort_keys=True),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="sealed canonical payload"):
-        load_aggtrades_predictive_flow_screen_protocol(path)  # type: ignore[arg-type]
+        load_aggtrades_predictive_flow_screen_protocol(path)
 
     extra = dict(payload)
     extra["pnl"] = 123.0
-    path.write_text(  # type: ignore[union-attr]
+    path.write_text(
         json.dumps(extra, sort_keys=True),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="sealed canonical payload"):
-        load_aggtrades_predictive_flow_screen_protocol(path)  # type: ignore[arg-type]
+        load_aggtrades_predictive_flow_screen_protocol(path)
 
 
 def test_protocol_type_is_immutable() -> None:

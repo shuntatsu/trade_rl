@@ -104,6 +104,7 @@ def test_calibrated_dataset_changes_only_participation_array_and_identity(
         == 0.05
     )
     assert identity["execution_capacity_calibration"] == authority.to_payload()
+    assert identity["execution_capacity_calibration"]["result_run_id"] == 34766830666
 
     successor_publication = publish_market_dataset_artifact(
         tmp_path / "successor",
@@ -140,6 +141,7 @@ def test_calibration_authority_preserves_exact_symbol_cap_mapping_without_pnl_in
     assert authority.result_json_sha256 == (
         "397004e6a1a9c3b30b32212066ac41366f7af74edc0ae23372f847e50c6c5a4e"
     )
+    assert authority.result_run_id == 34766830666
     forbidden = {
         "returns",
         "pnl",

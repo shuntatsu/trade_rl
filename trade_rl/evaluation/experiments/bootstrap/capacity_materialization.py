@@ -13,7 +13,7 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 
-_AUTHORITY_SCHEMA = "aggtrades_capacity_calibration_authority_v1"
+_AUTHORITY_SCHEMA = "aggtrades_capacity_calibration_authority_v2"
 _TRANSFORM_SCHEMA = "aggtrades_calibrated_capacity_dataset_transform_v1"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _CAPS = (
@@ -26,6 +26,7 @@ _CAPS = (
 _PROTOCOL_DIGEST = "5fb013fb0a3d717846a701b23d2f4bfca8e742ebaef0e6f564a331053f2ed071"
 _RESULT_DIGEST = "a5490f9209b16a8ba94f11506b83aa45ce44c7d61d13234480e2362f6df89809"
 _RESULT_JSON_SHA256 = "397004e6a1a9c3b30b32212066ac41366f7af74edc0ae23372f847e50c6c5a4e"
+_RESULT_RUN_ID = 34766830666
 _RESULT_ARTIFACT_ID = 10320428830
 _RESULT_ARTIFACT_API_DIGEST = (
     "810e792636a696a0bc11e22ab53a21f378aaa0bfaeab8c3411123e9c6d9a5c35"
@@ -44,6 +45,7 @@ class AggTradesCapacityAuthority:
     protocol_digest: str
     result_digest: str
     result_json_sha256: str
+    result_run_id: int
     result_artifact_id: int
     result_artifact_api_digest: str
     verifier_run_id: int
@@ -75,6 +77,7 @@ class AggTradesCapacityAuthority:
             (self.protocol_digest, _PROTOCOL_DIGEST),
             (self.result_digest, _RESULT_DIGEST),
             (self.result_json_sha256, _RESULT_JSON_SHA256),
+            (self.result_run_id, _RESULT_RUN_ID),
             (self.result_artifact_id, _RESULT_ARTIFACT_ID),
             (self.result_artifact_api_digest, _RESULT_ARTIFACT_API_DIGEST),
             (self.verifier_run_id, _VERIFIER_RUN_ID),
@@ -94,6 +97,7 @@ class AggTradesCapacityAuthority:
             "protocol_digest": self.protocol_digest,
             "result_digest": self.result_digest,
             "result_json_sha256": self.result_json_sha256,
+            "result_run_id": self.result_run_id,
             "result_artifact_id": self.result_artifact_id,
             "result_artifact_api_digest": self.result_artifact_api_digest,
             "verifier_run_id": self.verifier_run_id,
@@ -109,6 +113,7 @@ def canonical_aggtrades_capacity_authority() -> AggTradesCapacityAuthority:
         protocol_digest=_PROTOCOL_DIGEST,
         result_digest=_RESULT_DIGEST,
         result_json_sha256=_RESULT_JSON_SHA256,
+        result_run_id=_RESULT_RUN_ID,
         result_artifact_id=_RESULT_ARTIFACT_ID,
         result_artifact_api_digest=_RESULT_ARTIFACT_API_DIGEST,
         verifier_run_id=_VERIFIER_RUN_ID,

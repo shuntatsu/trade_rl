@@ -72,14 +72,19 @@ def test_protocol_freezes_causality_and_continuation_gate() -> None:
     assert protocol.require_all_feature_rows_present is True
     assert protocol.require_all_feature_rows_information_available is True
     assert protocol.require_all_feature_rows_active is True
+    assert protocol.require_all_feature_rows_tradable is True
     assert protocol.require_quote_volume_finite_nonnegative is True
     assert protocol.require_taker_volume_finite_nonnegative is True
     assert protocol.require_taker_not_above_quote is True
     assert protocol.zero_quote_denominator_action == "UNAVAILABLE"
     assert protocol.future_feature_rows_forbidden is True
     assert protocol.require_label_end_strictly_before_fit_cutoff is True
+    assert protocol.require_execution_and_label_rows_present is True
+    assert protocol.require_execution_and_label_rows_contiguous is True
+    assert protocol.require_execution_and_label_rows_information_available is True
     assert protocol.require_execution_and_label_rows_tradable is True
     assert protocol.require_execution_and_label_rows_active is True
+    assert protocol.require_label_open_finite_positive is True
 
     assert protocol.calibration_method == "per_symbol_no_intercept_fixed_order_fsum"
     assert protocol.calibration_formula == "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)"
@@ -91,6 +96,21 @@ def test_protocol_freezes_causality_and_continuation_gate() -> None:
     assert protocol.no_sign_flip_fallback is True
     assert protocol.no_magnitude_threshold_after_results is True
     assert protocol.calibration_slope_used_as_strategy_coefficient is False
+
+
+def test_protocol_freezes_no_hidden_transform_contract() -> None:
+    protocol = canonical_signed_taker_flow_protocol()
+
+    assert protocol.feature_transform == "identity"
+    assert protocol.winsorization_allowed is False
+    assert protocol.fitted_normalization_allowed is False
+    assert protocol.clipping_allowed is False
+    assert protocol.log_transform_allowed is False
+    assert protocol.ema_allowed is False
+    assert protocol.alternate_lookback_allowed is False
+    assert protocol.symbol_specific_normalization_allowed is False
+    assert protocol.missing_value_imputation_allowed is False
+    assert protocol.feature_threshold_allowed is False
 
 
 def test_protocol_freezes_legacy_compatibility_and_evaluation_boundary() -> None:
@@ -127,10 +147,25 @@ def test_protocol_rejects_semantic_drift_and_bool_integer_alias() -> None:
         {"feature_window_start_offset_bars": -24},
         {"feature_window_stop_offset_bars_inclusive": 1},
         {"require_all_feature_rows_information_available": False},
+        {"require_all_feature_rows_tradable": False},
         {"future_feature_rows_forbidden": False},
+        {"feature_transform": "rank"},
+        {"winsorization_allowed": True},
+        {"fitted_normalization_allowed": True},
+        {"clipping_allowed": True},
+        {"log_transform_allowed": True},
+        {"ema_allowed": True},
+        {"alternate_lookback_allowed": True},
+        {"symbol_specific_normalization_allowed": True},
+        {"missing_value_imputation_allowed": True},
+        {"feature_threshold_allowed": True},
         {"label_execution_offset_bars": 0},
         {"label_endpoint_offset_bars": 24},
         {"label_formula": "log(close[t+24]/close[t])"},
+        {"require_execution_and_label_rows_present": False},
+        {"require_execution_and_label_rows_contiguous": False},
+        {"require_execution_and_label_rows_information_available": False},
+        {"require_label_open_finite_positive": False},
         {"minimum_eligible_observations_per_symbol": 100},
         {"calibration_method": "pooled_ols"},
         {"expected_effect_direction": "REVERSAL"},

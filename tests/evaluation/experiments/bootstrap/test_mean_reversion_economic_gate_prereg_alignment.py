@@ -43,3 +43,12 @@ def test_protocol_rejects_calibration_alignment_drift() -> None:
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered"):
             replace(protocol, **mutation)
+
+
+def test_protocol_rejects_integer_alias_for_boolean_fields() -> None:
+    protocol = canonical_mean_reversion_economic_gate_protocol()
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        replace(protocol, require_tradable_through_label_window=1)
+    with pytest.raises(ValueError, match="must be a boolean"):
+        replace(protocol, production_eligible=0)

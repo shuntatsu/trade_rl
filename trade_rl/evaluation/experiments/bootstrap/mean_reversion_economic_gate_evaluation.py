@@ -206,6 +206,8 @@ class MeanReversionEconomicGateSymbolResult:
     candidate_return_sha256: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.symbol, str) or not self.symbol:
+            raise ValueError("symbol must be non-empty")
         numeric = (
             self.baseline_total_return,
             self.candidate_total_return,
@@ -219,6 +221,9 @@ class MeanReversionEconomicGateSymbolResult:
         )
         if not all(math.isfinite(value) for value in numeric):
             raise ValueError("symbol evaluation metrics must be finite")
+        expected_excess = self.candidate_total_return - self.baseline_total_return
+        if self.excess_total_return != expected_excess:
+            raise ValueError("excess_total_return must equal candidate minus baseline")
         for value in (
             self.baseline_termination_count,
             self.candidate_termination_count,
@@ -229,6 +234,18 @@ class MeanReversionEconomicGateSymbolResult:
                 raise ValueError(
                     "symbol evaluation counts must be non-negative integers"
                 )
+        for reasons in (
+            self.baseline_termination_reasons,
+            self.candidate_termination_reasons,
+        ):
+            if not isinstance(reasons, tuple) or any(
+                not isinstance(reason, str) or not reason for reason in reasons
+            ):
+                raise ValueError("termination reasons must be non-empty strings")
+        if self.baseline_termination_count != len(self.baseline_termination_reasons):
+            raise ValueError("baseline termination count/reasons mismatch")
+        if self.candidate_termination_count != len(self.candidate_termination_reasons):
+            raise ValueError("candidate termination count/reasons mismatch")
         for digest in (self.baseline_return_sha256, self.candidate_return_sha256):
             if len(digest) != 64 or any(
                 char not in "0123456789abcdef" for char in digest
@@ -236,6 +253,14 @@ class MeanReversionEconomicGateSymbolResult:
                 raise ValueError("return digest must be lowercase SHA-256")
         if type(self.new_termination) is not bool:
             raise ValueError("new_termination must be a bool")
+        expected_new_termination = _has_new_termination(
+            self.baseline_termination_reasons,
+            self.candidate_termination_reasons,
+            baseline_count=self.baseline_termination_count,
+            candidate_count=self.candidate_termination_count,
+        )
+        if self.new_termination is not expected_new_termination:
+            raise ValueError("new_termination does not match termination evidence")
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -284,17 +309,16 @@ class MeanReversionEconomicGateEvaluation:
     def __post_init__(self) -> None:
         if self.schema_version != _RESULT_SCHEMA_VERSION:
             raise ValueError("unsupported economic-gate evaluation result schema")
+        spec = canonical_mean_reversion_economic_gate_evaluation_spec()
+        if self.spec_digest != spec.digest:
+            raise ValueError("spec_digest differs from frozen evaluation authority")
+        if self.dataset_id != spec.dataset_id:
+            raise ValueError("dataset_id differs from frozen evaluation authority")
         if (
-            self.symbols != _SYMBOLS
+            self.symbols != spec.symbols
             or tuple(item.symbol for item in self.by_symbol) != self.symbols
         ):
             raise ValueError("economic-gate evaluation result symbol roster mismatch")
-        if self.research_status not in {
-            "PROMOTE_RESEARCH_REFERENCE",
-            "REJECT_MECHANISM",
-            "INCONCLUSIVE",
-        }:
-            raise ValueError("unsupported economic-gate research status")
         if not math.isfinite(self.median_excess_total_return):
             raise ValueError("median_excess_total_return must be finite")
         for value in (
@@ -308,11 +332,58 @@ class MeanReversionEconomicGateEvaluation:
             if (
                 isinstance(value, bool)
                 or not isinstance(value, int)
-                or not 0 <= value <= 5
+                or not 0 <= value <= len(spec.symbols)
             ):
                 raise ValueError(
                     "evaluation symbol counts must be integers within [0, 5]"
                 )
+
+        expected_positive = sum(
+            item.excess_total_return > 0.0 for item in self.by_symbol
+        )
+        expected_median = float(
+            median(item.excess_total_return for item in self.by_symbol)
+        )
+        expected_cost = sum(
+            item.candidate_total_cost < item.baseline_total_cost
+            for item in self.by_symbol
+        )
+        expected_turnover = sum(
+            item.candidate_turnover_total < item.baseline_turnover_total
+            for item in self.by_symbol
+        )
+        expected_drawdown = sum(
+            item.candidate_max_drawdown <= item.baseline_max_drawdown
+            for item in self.by_symbol
+        )
+        expected_new_termination = sum(item.new_termination for item in self.by_symbol)
+        expected_candidate_positive = sum(
+            item.candidate_total_return > 0.0 for item in self.by_symbol
+        )
+        expected_status = research_status_from_counts(
+            positive_effect_symbols=expected_positive,
+            median_excess_total_return=expected_median,
+            cost_reduction_symbols=expected_cost,
+            turnover_reduction_symbols=expected_turnover,
+            drawdown_nonworse_symbols=expected_drawdown,
+            new_termination_symbols=expected_new_termination,
+        )
+        expected_fields = {
+            "positive_effect_symbols": expected_positive,
+            "median_excess_total_return": expected_median,
+            "cost_reduction_symbols": expected_cost,
+            "turnover_reduction_symbols": expected_turnover,
+            "drawdown_nonworse_symbols": expected_drawdown,
+            "new_termination_symbols": expected_new_termination,
+            "candidate_positive_total_return_symbols": expected_candidate_positive,
+            "research_status": expected_status,
+        }
+        for field_name, expected in expected_fields.items():
+            if getattr(self, field_name) != expected:
+                raise ValueError(
+                    f"{field_name} does not match per-symbol evaluation evidence"
+                )
+
         for value in (
             self.production_eligible,
             self.final_test_authorized,

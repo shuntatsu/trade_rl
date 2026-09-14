@@ -14,6 +14,9 @@ from trade_rl.artifacts.hashing import content_digest
 
 _SCHEMA_VERSION = "perp_index_basis_prereg_v1"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+_FULL_PREFLIGHT_MONTHS = tuple(
+    f"{year}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
+)
 
 _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "schema_version": _SCHEMA_VERSION,
@@ -71,6 +74,7 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "absolute_value_allowed": False,
     "funding_combination_allowed": False,
     "cross_sectional_normalization_allowed": False,
+    "rank_transform_allowed": False,
     "symbol_specific_transform_allowed": False,
     "feature_threshold_allowed": False,
     "alternate_feature_formula_allowed": False,
@@ -91,6 +95,8 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "require_label_open_finite_positive": True,
     "calibration_method": "per_symbol_no_intercept_fixed_order_fsum",
     "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",
+    "weighted_regression_allowed": False,
+    "robust_regression_fallback_allowed": False,
     "require_calibration_numerator_finite": True,
     "require_calibration_denominator_finite_positive": True,
     "require_calibration_beta_finite": True,
@@ -103,6 +109,19 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "no_magnitude_threshold_after_results": True,
     "calibration_slope_used_as_strategy_coefficient": False,
     "full_preflight_required": True,
+    "index_source_market": "USD_M",
+    "perpetual_source_market": "USD_M",
+    "perpetual_source_family": "klines",
+    "full_preflight_months": _FULL_PREFLIGHT_MONTHS,
+    "full_preflight_archive_root": (
+        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines"
+    ),
+    "full_preflight_archive_url_template": (
+        "https://data.binance.vision/data/futures/um/monthly/indexPriceKlines/"
+        "{symbol}/1h/{symbol}-1h-{month}.zip"
+    ),
+    "full_preflight_checksum_suffix": ".CHECKSUM",
+    "full_preflight_checksum_required": True,
     "full_preflight_start_month": "2021-01",
     "full_preflight_end_month": "2022-12",
     "full_preflight_expected_archives": 120,
@@ -220,6 +239,7 @@ class PerpIndexBasisProtocol:
     absolute_value_allowed: bool
     funding_combination_allowed: bool
     cross_sectional_normalization_allowed: bool
+    rank_transform_allowed: bool
     symbol_specific_transform_allowed: bool
     feature_threshold_allowed: bool
     alternate_feature_formula_allowed: bool
@@ -240,6 +260,8 @@ class PerpIndexBasisProtocol:
     require_label_open_finite_positive: bool
     calibration_method: str
     calibration_formula: str
+    weighted_regression_allowed: bool
+    robust_regression_fallback_allowed: bool
     require_calibration_numerator_finite: bool
     require_calibration_denominator_finite_positive: bool
     require_calibration_beta_finite: bool
@@ -252,6 +274,14 @@ class PerpIndexBasisProtocol:
     no_magnitude_threshold_after_results: bool
     calibration_slope_used_as_strategy_coefficient: bool
     full_preflight_required: bool
+    index_source_market: str
+    perpetual_source_market: str
+    perpetual_source_family: str
+    full_preflight_months: tuple[str, ...]
+    full_preflight_archive_root: str
+    full_preflight_archive_url_template: str
+    full_preflight_checksum_suffix: str
+    full_preflight_checksum_required: bool
     full_preflight_start_month: str
     full_preflight_end_month: str
     full_preflight_expected_archives: int
@@ -331,6 +361,7 @@ class PerpIndexBasisProtocol:
             "absolute_value_allowed",
             "funding_combination_allowed",
             "cross_sectional_normalization_allowed",
+            "rank_transform_allowed",
             "symbol_specific_transform_allowed",
             "feature_threshold_allowed",
             "alternate_feature_formula_allowed",
@@ -345,10 +376,13 @@ class PerpIndexBasisProtocol:
             "require_calibration_numerator_finite",
             "require_calibration_denominator_finite_positive",
             "require_calibration_beta_finite",
+            "weighted_regression_allowed",
+            "robust_regression_fallback_allowed",
             "no_sign_flip_fallback",
             "no_magnitude_threshold_after_results",
             "calibration_slope_used_as_strategy_coefficient",
             "full_preflight_required",
+            "full_preflight_checksum_required",
             "full_preflight_sparse_rows_remain_unavailable",
             "full_preflight_replacement_source_allowed",
             "legacy_dataset_behavior_unchanged_when_feature_omitted",
@@ -439,6 +473,12 @@ def load_perp_index_basis_protocol(path: str | Path) -> PerpIndexBasisProtocol:
     ):
         raise ValueError("symbols must be a string array")
     resolved["symbols"] = tuple(symbols)
+    months = resolved["full_preflight_months"]
+    if not isinstance(months, list) or any(
+        not isinstance(item, str) for item in months
+    ):
+        raise ValueError("full_preflight_months must be a string array")
+    resolved["full_preflight_months"] = tuple(months)
     resolved["fit_start"] = _datetime_from_text(
         resolved["fit_start"], field="fit_start"
     )

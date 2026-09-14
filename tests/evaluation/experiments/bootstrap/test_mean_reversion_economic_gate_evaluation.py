@@ -14,11 +14,13 @@ from trade_rl.evaluation.experiments.bootstrap.mean_reversion_economic_gate_eval
 )
 
 
-def _dataset() -> MarketDataset:
+def _dataset(*, include_stop_boundary: bool = True) -> MarketDataset:
     spec = canonical_mean_reversion_economic_gate_evaluation_spec()
     start = np.datetime64(spec.evaluation_start, "ns")
     stop = np.datetime64(spec.evaluation_stop_exclusive, "ns")
     n_bars = int((stop - start) / np.timedelta64(1, "h")) + 1
+    if not include_stop_boundary:
+        n_bars -= 1
     timestamps = start + np.arange(n_bars, dtype=np.int64) * np.timedelta64(1, "h")
     n_symbols = len(spec.symbols)
 
@@ -185,28 +187,10 @@ def test_evaluation_fails_closed_on_dataset_cost_or_signal_identity_drift() -> N
 
 def test_evaluation_requires_exact_stop_boundary() -> None:
     spec = canonical_mean_reversion_economic_gate_evaluation_spec()
-    dataset = _dataset()
-    shortened = replace(
-        dataset,
-        timestamps=np.asarray(dataset.timestamps[:-1]),
-        features=np.asarray(dataset.features[:-1]),
-        global_features=np.asarray(dataset.global_features[:-1]),
-        open=np.asarray(dataset.open[:-1]),
-        high=np.asarray(dataset.high[:-1]),
-        low=np.asarray(dataset.low[:-1]),
-        close=np.asarray(dataset.close[:-1]),
-        volume=np.asarray(dataset.volume[:-1]),
-        funding_rate=np.asarray(dataset.funding_rate[:-1]),
-        tradable=np.asarray(dataset.tradable[:-1]),
-        feature_available=np.asarray(dataset.feature_available[:-1]),
-        fee_rate=np.asarray(dataset.fee_rate[:-1]),
-        taker_fee_rate=np.asarray(dataset.taker_fee_rate[:-1]),
-        spread_rate=np.asarray(dataset.spread_rate[:-1]),
-        max_participation_rate=np.asarray(dataset.max_participation_rate[:-1]),
-        asset_active=np.asarray(dataset.asset_active[:-1]),
-    )
     with pytest.raises(ValueError, match="evaluation_stop_exclusive"):
-        evaluate_mean_reversion_economic_gate(shortened, spec)
+        evaluate_mean_reversion_economic_gate(
+            _dataset(include_stop_boundary=False), spec
+        )
 
 
 def test_research_status_boundaries_are_frozen() -> None:

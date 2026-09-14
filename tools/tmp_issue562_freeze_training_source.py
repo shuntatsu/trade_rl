@@ -136,7 +136,8 @@ def _inspect_archive(
         next_month = datetime(year + 1, 1, 1, tzinfo=UTC)
     else:
         next_month = datetime(year, month + 1, 1, tzinfo=UTC)
-    last_expected = int(next_month.timestamp() * 1000) - INTERVAL_MS
+    next_month_ms = int(next_month.timestamp() * 1000)
+    last_expected = next_month_ms - INTERVAL_MS
 
     open_times: list[int] = []
     for row in data:
@@ -162,12 +163,25 @@ def _inspect_archive(
         if quote < 0.0 or taker < 0.0 or taker > quote:
             raise RuntimeError(f"taker/quote invariant failed: {symbol}:{period}")
 
-    if len(data) != expected_rows:
-        raise RuntimeError(f"incomplete month row count: {symbol}:{period}")
-    if not open_times or open_times[0] != first_expected or open_times[-1] != last_expected:
-        raise RuntimeError(f"month coverage mismatch: {symbol}:{period}")
-    if any(b - a != INTERVAL_MS for a, b in zip(open_times, open_times[1:], strict=False)):
-        raise RuntimeError(f"1h spacing mismatch: {symbol}:{period}")
+    if not open_times:
+        raise RuntimeError(f"no data rows: {symbol}:{period}")
+    if len(open_times) > expected_rows:
+        raise RuntimeError(f"too many monthly rows: {symbol}:{period}")
+    if any(b <= a for a, b in zip(open_times, open_times[1:], strict=False)):
+        raise RuntimeError(f"open times not strictly increasing: {symbol}:{period}")
+    if any(
+        timestamp < first_expected
+        or timestamp >= next_month_ms
+        or (timestamp - first_expected) % INTERVAL_MS != 0
+        for timestamp in open_times
+    ):
+        raise RuntimeError(f"off-grid monthly timestamp: {symbol}:{period}")
+    if any(
+        (b - a) % INTERVAL_MS != 0
+        for a, b in zip(open_times, open_times[1:], strict=False)
+    ):
+        raise RuntimeError(f"non-hourly timestamp gap: {symbol}:{period}")
+    missing_bars = expected_rows - len(open_times)
 
     return {
         "symbol": symbol,
@@ -183,10 +197,15 @@ def _inspect_archive(
         "csv_member": members[0].filename,
         "header_present": header_present,
         "field_count": 12,
+        "expected_row_count": expected_rows,
         "row_count": len(data),
-        "first_open_time_ms": open_times[0],
-        "last_open_time_ms": open_times[-1],
-        "spacing_ms": INTERVAL_MS,
+        "missing_native_bar_count": missing_bars,
+        "complete_month": missing_bars == 0,
+        "first_expected_open_time_ms": first_expected,
+        "last_expected_open_time_ms": last_expected,
+        "first_observed_open_time_ms": open_times[0],
+        "last_observed_open_time_ms": open_times[-1],
+        "grid_spacing_ms": INTERVAL_MS,
         "structural_valid": True,
     }
 
@@ -236,6 +255,8 @@ def main() -> None:
 
     if len(entries) != 125 or any(not bool(item["structural_valid"]) for item in entries):
         raise RuntimeError("source bundle archive contract failed")
+    gap_entries = [item for item in entries if int(item["missing_native_bar_count"]) > 0]
+    total_missing = sum(int(item["missing_native_bar_count"]) for item in entries)
 
     body: dict[str, object] = {
         "schema_version": "signed_taker_flow_training_source_bundle_v1",
@@ -252,12 +273,18 @@ def main() -> None:
         "source_fresh_artifact_id": SOURCE_FRESH_ARTIFACT_ID,
         "source_fresh_artifact_api_digest": SOURCE_FRESH_ARTIFACT_API_DIGEST,
         "source_status": "PASS",
+        "bundle_validation_status": (
+            "PASS_WITH_RECORDED_NATIVE_GAPS" if gap_entries else "PASS_COMPLETE_CLOCKS"
+        ),
         "market": "usds-m",
         "archive_family": "data.binance.vision futures/um/monthly/klines",
         "interval": "1h",
         "symbols": list(SYMBOLS),
         "months": list(months),
         "planned_archives": 125,
+        "archives_with_native_gaps": len(gap_entries),
+        "total_missing_native_bars": total_missing,
+        "native_gap_policy": "preserve official gaps; no imputation/source substitution; builder regular clock marks missing rows unavailable",
         "required_raw_open_start_inclusive": _iso(required_raw_open_start),
         "required_raw_open_end_exclusive": _iso(required_raw_open_end_exclusive),
         "fit_start": _iso(protocol.fit_start),
@@ -281,6 +308,8 @@ def main() -> None:
             {
                 "source_manifest_digest": manifest["content_digest"],
                 "archive_count": len(entries),
+                "archives_with_native_gaps": len(gap_entries),
+                "total_missing_native_bars": total_missing,
                 "first_month": months[0],
                 "last_month": months[-1],
                 "target_relation_computed": False,

@@ -1,0 +1,35 @@
+name: Temporary Issue 560 semantic RED
+
+on:
+  push:
+    branches:
+      - verify/issue560-red2
+    paths:
+      - .github/workflows/tmp-issue560-red2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 1e9c7d0659a775693547682d434a35cdfac47571
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Expected semantic RED
+        run: uv run pytest -q tests/data/test_signed_taker_flow_feature.py tests/integrations/test_binance_signed_taker_flow_source.py

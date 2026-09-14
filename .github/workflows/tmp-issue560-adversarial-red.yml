@@ -114,6 +114,8 @@ jobs:
                       (InstrumentContract(symbol="BTCUSDT"),),
                   )
           PY
+      - name: Format adversarial tests
+        run: uv run ruff format tests/data/test_signed_taker_flow_adversarial_tmp.py
       - name: Static check adversarial tests
         run: |
           uv run ruff check tests/data/test_signed_taker_flow_adversarial_tmp.py

@@ -1,0 +1,70 @@
+name: Temporary Issue 575 bind prerequisite authorities
+
+on:
+  push:
+    branches:
+      - automation/issue575-bind-authorities
+    paths:
+      - .github/workflows/tmp-issue575-bind-authorities.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue575-basis-calibration-base
+  SOURCE_HEAD: 4911579874111bb6620481be8a4dbd7a8e664918
+  PREREG_HEAD: 795b2e9efc2e7d9d65a7131a160c7da16ba02043
+
+jobs:
+  bind_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact source-feature authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_HEAD }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard integration base and fetch prereg authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$PREREG_HEAD" --no-tags
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$SOURCE_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff --no-edit "$PREREG_HEAD"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify both frozen authorities together
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy \
+            trade_rl/evaluation/experiments/bootstrap/perp_index_basis_prereg.py \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/transport.py \
+            trade_rl/integrations/binance/dataset.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_perp_index_basis_prereg.py \
+            tests/data/test_perp_index_basis_feature.py \
+            tests/integrations/test_binance_index_price_source.py \
+            tests/architecture/test_lean_binance_layout.py
+      - name: Recheck authorities and publish merge base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" feat/issue573-perp-index-basis-source research/issue571-basis-prereg --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$SOURCE_HEAD"
+          test "$(git rev-parse origin/feat/issue573-perp-index-basis-source)" = "$SOURCE_HEAD"
+          test "$(git rev-parse origin/research/issue571-basis-prereg)" = "$PREREG_HEAD"
+          git push origin HEAD:"$TARGET_BRANCH"

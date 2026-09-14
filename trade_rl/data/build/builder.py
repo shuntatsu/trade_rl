@@ -14,6 +14,7 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
+    VolumeUnit,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -367,13 +368,18 @@ class MarketDatasetBuilder:
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
                     continue
                 native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
-                if (
-                    spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
-                    and native_timeframe != "1h"
-                ):
-                    raise ValueError(
-                        "signed taker quote flow is defined only on the 1h clock"
-                    )
+                if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+                    if native_timeframe != "1h":
+                        raise ValueError(
+                            "signed taker quote flow is defined only on the 1h clock"
+                        )
+                    if (
+                        VolumeUnit(contract.volume_unit)
+                        is not VolumeUnit.QUOTE_NOTIONAL
+                    ):
+                        raise ValueError(
+                            "signed taker quote flow requires quote-notional volume semantics"
+                        )
                 if native_timeframe == self.config.base_timeframe:
                     event_values, event_valid, _ = calculate_feature_events(
                         spec,
@@ -384,7 +390,11 @@ class MarketDatasetBuilder:
                         volume=volume[:, symbol_index],
                         funding_rate=funding_rate[:, symbol_index],
                         funding_available=funding_available[:, symbol_index],
-                        row_present=causal_row_present[:, symbol_index],
+                        row_present=(
+                            row_present[:, symbol_index]
+                            if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW
+                            else causal_row_present[:, symbol_index]
+                        ),
                         active=symbol_active[:, symbol_index],
                         taker_buy_quote_volume=(
                             taker_buy_quote_volume[:, symbol_index]
@@ -393,13 +403,40 @@ class MarketDatasetBuilder:
                         ),
                         tradable=tradable[:, symbol_index],
                     )
-                    values, available, age_hours, staleness = _carry_feature(
-                        event_values,
-                        event_valid,
-                        symbol_active[:, symbol_index],
-                        timestamps,
-                        max_staleness_hours=spec.max_staleness_hours,
-                    )
+                    if spec.kind is FeatureKind.SIGNED_TAKER_QUOTE_FLOW:
+                        decision_information_valid = np.zeros(n_bars, dtype=np.bool_)
+                        for event_index in np.flatnonzero(event_valid):
+                            start = int(event_index) - spec.lookback + 1
+                            if start < 0:
+                                continue
+                            decision_information_valid[event_index] = bool(
+                                np.all(
+                                    available_at[
+                                        start : int(event_index) + 1,
+                                        symbol_index,
+                                    ]
+                                    <= timestamps[event_index]
+                                )
+                            )
+                        event_valid = event_valid & decision_information_valid
+                        event_values = event_values.copy()
+                        event_values[~event_valid] = 0.0
+                        values = event_values
+                        available = event_valid
+                        age_hours = np.full(
+                            n_bars, spec.max_staleness_hours, dtype=np.float64
+                        )
+                        staleness = np.ones(n_bars, dtype=np.float64)
+                        age_hours[event_valid] = 0.0
+                        staleness[event_valid] = 0.0
+                    else:
+                        values, available, age_hours, staleness = _carry_feature(
+                            event_values,
+                            event_valid,
+                            symbol_active[:, symbol_index],
+                            timestamps,
+                            max_staleness_hours=spec.max_staleness_hours,
+                        )
                 else:
                     if not isinstance(source, MultiTimeframeMarketDataSource):
                         raise ValueError(

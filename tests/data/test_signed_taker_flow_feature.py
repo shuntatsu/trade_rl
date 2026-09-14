@@ -11,6 +11,7 @@ from trade_rl.data.contracts import (
     FeatureSpec,
     InstrumentContract,
     NormalizationMode,
+    VolumeUnit,
 )
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.features.multitimeframe import align_native_feature
@@ -249,7 +250,10 @@ def test_signed_taker_flow_delayed_source_row_is_not_visible_early() -> None:
     _, available, _, _ = align_native_feature(
         _spec(),
         raw,
-        InstrumentContract(symbol="BTCUSDT"),
+        InstrumentContract(
+            symbol="BTCUSDT",
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+        ),
         timestamps,
         np.ones(n, dtype=np.bool_),
         timeframe="1h",
@@ -284,3 +288,63 @@ def test_signed_taker_flow_rejects_alternate_lookback_timeframe_and_normalizatio
                 min_periods=24,
             )
         )
+
+
+def test_signed_taker_flow_native_alignment_rejects_non_quote_volume_semantics() -> (
+    None
+):
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    raw = _raw(taker=np.full(n, 6.0, dtype=np.float64))
+
+    with pytest.raises(ValueError, match="quote.*notional"):
+        align_native_feature(
+            _spec(),
+            raw,
+            InstrumentContract(symbol="BTCUSDT"),
+            timestamps,
+            np.ones(n, dtype=np.bool_),
+            timeframe="1h",
+        )
+
+
+def test_signed_taker_flow_native_alignment_does_not_carry_invalid_window() -> None:
+    n = 30
+    timestamps = np.datetime64("2022-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
+    tradable = np.ones(n, dtype=np.bool_)
+    tradable[24] = False
+    raw = _raw(taker=np.full(n, 6.0, dtype=np.float64))
+    raw = RawMarketSeries(
+        timestamps=raw.timestamps,
+        available_at=raw.available_at,
+        open=raw.open,
+        high=raw.high,
+        low=raw.low,
+        close=raw.close,
+        volume=raw.volume,
+        funding_rate=raw.funding_rate,
+        funding_available=raw.funding_available,
+        funding_event_count=raw.funding_event_count,
+        tradable=tradable,
+        taker_buy_quote_volume=raw.taker_buy_quote_volume,
+    )
+
+    values, available, _, _ = align_native_feature(
+        _spec(),
+        raw,
+        InstrumentContract(
+            symbol="BTCUSDT",
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+        ),
+        timestamps,
+        np.ones(n, dtype=np.bool_),
+        timeframe="1h",
+    )
+
+    assert available[23]
+    assert not available[24]
+    assert values[24] == 0.0

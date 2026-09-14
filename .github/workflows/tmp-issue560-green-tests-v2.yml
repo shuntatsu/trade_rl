@@ -1,0 +1,123 @@
+name: Temporary Issue 560 GREEN tests v2
+
+on:
+  push:
+    branches:
+      - automation/issue560-green-tests-v2
+    paths:
+      - .github/workflows/tmp-issue560-green-tests-v2.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: feat/issue560-signed-taker-flow
+  TARGET_SHA: 5fb1b43dccd251115a4cc92b8ed2382cce1ed75a
+  PATCH_COMMIT: a68565e584922e0a7cc4821a9192ee37fd68ab68
+  PATCH_WORKFLOW: .github/workflows/tmp-issue560-green-impl.yml
+
+jobs:
+  implement_test_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Reapply previously static-Green implementation patch exactly
+        run: |
+          set -euo pipefail
+          git fetch origin "$PATCH_COMMIT" --no-tags
+          git show "$PATCH_COMMIT:$PATCH_WORKFLOW" > /tmp/patch-workflow.yml
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path('/tmp/patch-workflow.yml').read_text()
+          marker = '      - name: Apply minimal sealed source/feature implementation\n'
+          start = text.index(marker)
+          run_start = text.index('        run: |\n', start) + len('        run: |\n')
+          end = text.index('      - name: Setup Python\n', run_start)
+          lines = text[run_start:end].splitlines()
+          script_lines: list[str] = []
+          for line in lines:
+              if not line:
+                  script_lines.append('')
+                  continue
+              if not line.startswith('          '):
+                  raise RuntimeError(f'unexpected patch indentation: {line!r}')
+              script_lines.append(line[10:])
+          script = '\n'.join(script_lines) + '\n'
+          if 'replace_once(' not in script or 'SIGNED_TAKER_QUOTE_FLOW' not in script:
+              raise RuntimeError('expected implementation patch was not extracted')
+          Path('/tmp/apply-issue560.sh').write_text(script)
+          PY
+          bash /tmp/apply-issue560.sh
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format touched files
+        run: |
+          uv run ruff format \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+      - name: Static checks
+        run: |
+          uv run ruff check \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py
+          uv run mypy \
+            trade_rl/data/source.py \
+            trade_rl/data/contracts.py \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/multitimeframe.py \
+            trade_rl/data/build/builder.py \
+            trade_rl/integrations/binance/dataset.py
+      - name: Targeted and regression tests
+        run: |
+          uv run pytest -q \
+            tests/data/test_signed_taker_flow_feature.py \
+            tests/data/test_signed_taker_flow_identity_compat.py \
+            tests/integrations/test_binance_signed_taker_flow_source.py \
+            tests/data/test_market_builder.py \
+            tests/data/test_multitimeframe_builder.py \
+            tests/data/test_information_availability.py \
+            tests/data/test_portable_feature_numerics.py \
+            tests/data/test_market_source.py \
+            tests/integrations/test_binance.py \
+            tests/integrations/test_binance_multitimeframe.py
+      - name: Recheck target and publish implementation commit
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl tests/data/test_signed_taker_flow_feature.py tests/data/test_signed_taker_flow_identity_compat.py tests/integrations/test_binance_signed_taker_flow_source.py
+          git diff --cached --check
+          git commit -m "feat: implement sealed signed taker-flow feature path"
+          git push origin HEAD:"$TARGET_BRANCH"

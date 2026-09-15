@@ -1,0 +1,50 @@
+name: Temporary Issue 586 test formatter
+
+on:
+  push:
+    branches:
+      - automation/issue586-test-format
+    paths:
+      - .github/workflows/tmp-issue586-test-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout RED branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue586-target-source-validator-red
+          fetch-depth: 0
+      - name: Assert expected starting head
+        run: test "$(git rev-parse HEAD)" = "ae37b77ad3f2905de9091c42230ab84b90fe83df"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and statically check test only
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          uv run ruff format "$file"
+          uv run ruff check "$file"
+          uv run ruff format --check "$file"
+          git diff --check
+      - name: Guard and publish formatting-only commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=ae37b77ad3f2905de9091c42230ab84b90fe83df
+          remote="$(git ls-remote origin refs/heads/verify/issue586-target-source-validator-red | cut -f1)"
+          test "$remote" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          git commit -m "style: format Issue 586 expanded RED oracle"
+          git push origin HEAD:verify/issue586-target-source-validator-red

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tools import tmp_issue578_spot_aggtrades_source_probe as probe
+import tools.tmp_issue578_spot_aggtrades_source_probe as probe
 from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_source_prereg import (
     canonical_spot_aggtrades_source_protocol,
 )
@@ -177,10 +177,9 @@ def _status_entry(
 
 
 def test_frozen_status_gate_distinguishes_missing_from_incompatible() -> None:
-    assert (
-        probe.classify_status([_status_entry() for _ in range(20)])
-        == "PASS_SPOT_AGGTRADES_SOURCE"
-    )
+    assert probe.classify_status(
+        [_status_entry() for _ in range(20)]
+    ) == "PASS_SPOT_AGGTRADES_SOURCE"
 
     partial = [_status_entry() for _ in range(20)]
     partial[-1] = _status_entry(
@@ -193,7 +192,9 @@ def test_frozen_status_gate_distinguishes_missing_from_incompatible() -> None:
 
     missing_checksum = [_status_entry() for _ in range(20)]
     missing_checksum[-1] = _status_entry(
-        checksum_available=False, checksum_verified=False, schema_valid=True
+        checksum_available=False,
+        checksum_verified=False,
+        schema_valid=True,
     )
     assert probe.classify_status(missing_checksum) == "PARTIAL_SPOT_AGGTRADES_SOURCE"
 

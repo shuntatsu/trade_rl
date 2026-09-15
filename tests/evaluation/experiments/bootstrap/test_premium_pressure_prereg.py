@@ -67,9 +67,9 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
 
     assert protocol.fit_start == datetime(2021, 1, 1, 1, tzinfo=UTC)
     assert protocol.fit_cutoff == datetime(2023, 1, 1, tzinfo=UTC)
-    assert protocol.last_candidate_decision == datetime(2022, 12, 30, 22, tzinfo=UTC)
-    assert protocol.nominal_candidate_decisions_per_symbol == 17_494
-    assert protocol.minimum_eligible_observations_per_symbol == 16_620
+    assert protocol.last_candidate_decision == datetime(2022, 12, 30, 23, tzinfo=UTC)
+    assert protocol.nominal_candidate_decisions_per_symbol == 17_495
+    assert protocol.minimum_eligible_observations_per_symbol == 16_621
 
     assert protocol.target_source_market == "USD_M"
     assert protocol.target_source_family == "klines"
@@ -100,24 +100,28 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
     assert protocol.invalid_coverage_status == "INVALID_PREMIUM_PRESSURE_COVERAGE"
 
 
-def test_fit_clock_counts_are_derived_from_completed_endpoint_semantics() -> None:
+def test_fit_clock_counts_are_derived_from_raw_endpoint_semantics() -> None:
     protocol = canonical_premium_pressure_protocol()
     one_hour = timedelta(hours=1)
+    endpoint_offset = timedelta(
+        minutes=protocol.endpoint_raw_open_time_offset_minutes
+    )
     decisions: list[datetime] = []
     decision = protocol.fit_start
-    while decision + protocol.label_endpoint_offset_bars * one_hour < protocol.fit_cutoff:
+    while decision + endpoint_offset < protocol.fit_cutoff:
         decisions.append(decision)
         decision += one_hour
 
     assert decisions[-1] == protocol.last_candidate_decision
-    assert len(decisions) == protocol.nominal_candidate_decisions_per_symbol == 17_494
+    assert len(decisions) == protocol.nominal_candidate_decisions_per_symbol == 17_495
     assert (
         math.ceil(0.95 * len(decisions))
         == protocol.minimum_eligible_observations_per_symbol
-        == 16_620
+        == 16_621
     )
-    assert decisions[-1] + 25 * one_hour < protocol.fit_cutoff
-    assert decisions[-1] + 26 * one_hour == protocol.fit_cutoff
+    assert decisions[-1] + 24 * one_hour < protocol.fit_cutoff
+    assert decisions[-1] + 25 * one_hour == protocol.fit_cutoff
+    assert protocol.label_endpoint_offset_bars == protocol.label_horizon_bars + 1
 
 
 def test_canonical_protocol_freezes_causal_and_stop_rule_boundaries() -> None:
@@ -243,9 +247,7 @@ def test_loader_rejects_missing_unknown_tampered_and_noncanonical_payloads() -> 
     }
     with pytest.raises(ValueError):
         load_premium_pressure_protocol_bytes(
-            json.dumps(
-                calibration_drift, sort_keys=True, separators=(",", ":")
-            ).encode()
+            json.dumps(calibration_drift, sort_keys=True, separators=(",", ":")).encode()
         )
 
     canonical = canonical_premium_pressure_protocol_bytes(protocol)

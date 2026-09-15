@@ -1,0 +1,82 @@
+name: Temporary Issue 600 premium reversal prereg digest
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-digest-9e03
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-digest-9e03.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+  FULL_VERIFY_RUN_ID: "34958528844"
+
+jobs:
+  derive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Derive canonical protocol digest without economic data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID)"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = success
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              canonical_premium_pressure_protocol,
+              canonical_premium_pressure_protocol_bytes,
+              load_premium_pressure_protocol_bytes,
+          )
+
+          protocol = canonical_premium_pressure_protocol()
+          raw = canonical_premium_pressure_protocol_bytes(protocol)
+          restored = load_premium_pressure_protocol_bytes(raw)
+          assert restored == protocol
+          assert restored.digest == protocol.digest
+          payload = json.loads(raw)
+          forbidden_true = [
+              'source_premium_value_distribution_inspected',
+              'source_target_relation_computed',
+              'source_strategy_pnl_computed',
+              'training_relation_executed',
+              'evaluation_pnl_inspected',
+              'evaluation_execution_authorized',
+              'final_test_authorized',
+              'shared_cash_profitability_established',
+              'production_eligible',
+              'live_trading_authorized',
+          ]
+          assert all(payload[name] is False for name in forbidden_true)
+          assert payload['expected_effect_direction'] == 'REVERSAL'
+          assert payload['label_horizon_bars'] == 24
+          assert payload['calibration_intercept_required'] is True
+          assert payload['nominal_candidate_decisions_per_symbol'] == 17495
+          assert payload['minimum_eligible_observations_per_symbol'] == 16621
+          print(f"PROTOCOL_SHA256={hashlib.sha256(raw).hexdigest()}")
+          print(f"PROTOCOL_CONTENT_DIGEST={protocol.digest}")
+          print(f"PROTOCOL_BYTES={len(raw)}")
+          print("ECONOMIC_VALUES_INSPECTED=false")
+          PY
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

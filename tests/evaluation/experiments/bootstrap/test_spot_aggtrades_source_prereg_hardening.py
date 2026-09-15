@@ -25,7 +25,10 @@ def test_protocol_freezes_archive_row_and_status_semantics() -> None:
     assert protocol.usable_aggregate_ids_strictly_increasing_unique is True
     assert protocol.usable_timestamps_nondecreasing is True
     assert protocol.pass_requires_all_20_archives_and_checksums is True
-    assert protocol.partial_requires_missing_only_with_all_available_structurally_valid is True
+    assert (
+        protocol.partial_requires_missing_only_with_all_available_structurally_valid
+        is True
+    )
     assert protocol.incompatible_on_any_malformed_or_ambiguous_archive is True
 
 

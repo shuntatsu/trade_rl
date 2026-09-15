@@ -1,0 +1,55 @@
+name: Temporary Issue 600 corrected prereg RED format
+
+on:
+  push:
+    branches:
+      - automation/issue600-premium-prereg-red-format-corrected
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-red-format-corrected.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue600-premium-pressure-prereg
+  TARGET_SHA: b435727b7174a97f8c9ac363acd1c2796b1f4bed
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  format_only:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+      - name: Guard exact corrected RED branch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Apply format only
+        run: |
+          set -euo pipefail
+          before="$(git hash-object "$TEST_FILE")"
+          uv run ruff format "$TEST_FILE"
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+          test "$(git diff --name-only)" = "$TEST_FILE"
+          after="$(git hash-object "$TEST_FILE")"
+          test "$before" != "$after"
+      - name: Guard and publish format-only commit
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_FILE"
+          git commit -m "style: format corrected Issue 600 prereg RED oracle"
+          test "$(git diff --name-only HEAD^ HEAD)" = "$TEST_FILE"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

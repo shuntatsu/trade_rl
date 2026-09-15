@@ -166,8 +166,10 @@ def _validate_target_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         raise ValueError("target source roster differs from frozen authority")
     if manifest.get("planned_archive_count") != 120:
         raise ValueError("target planned archive count differs")
-    if manifest.get("target_source_family") != "binance_vision_contract_klines":
+    if manifest.get("target_source_family") != "klines":
         raise ValueError("target source family differs")
+    if manifest.get("target_source_market") != "USD_M":
+        raise ValueError("target source market differs")
     if manifest.get("target_interval") != "1h":
         raise ValueError("target interval differs")
     for key in (

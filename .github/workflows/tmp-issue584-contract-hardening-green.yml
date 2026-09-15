@@ -1,0 +1,187 @@
+name: Temporary Issue 584 contract hardening GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue584-contract-hardening-green
+    paths:
+      - .github/workflows/tmp-issue584-contract-hardening-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue584-spot-flow-prereg
+          fetch-depth: 0
+      - name: Assert expected starting head
+        run: test "$(git rev-parse HEAD)" = "84b055d59c71b86393f1523b017d8893a2af68bc"
+      - name: Apply minimal protocol hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one protocol anchor, got {count}: {old!r}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '        "spot_source_result_content_digest": _SPOT_SOURCE_RESULT_CONTENT_DIGEST,\n'
+              '        "feature_name": _FEATURE_NAME,\n',
+              '        "spot_source_result_content_digest": _SPOT_SOURCE_RESULT_CONTENT_DIGEST,\n'
+              '        "spot_source_usable_rows": 13_598_332,\n'
+              '        "spot_source_malformed_rows": 0,\n'
+              '        "spot_source_invalid_sentinel_rows": 0,\n'
+              '        "feature_name": _FEATURE_NAME,\n',
+          )
+          replace_once(
+              '        "use_best_price_match": False,\n'
+              '        "target_market": _TARGET_MARKET,\n',
+              '        "use_best_price_match": False,\n'
+              '        "provider_order_required": True,\n'
+              '        "event_time_strictly_before_decision": True,\n'
+              '        "archive_publication_time_used_as_market_event_time": False,\n'
+              '        "clipping_allowed": False,\n'
+              '        "winsorization_allowed": False,\n'
+              '        "zscore_allowed": False,\n'
+              '        "volume_scaling_allowed": False,\n'
+              '        "volatility_scaling_allowed": False,\n'
+              '        "funding_combination_allowed": False,\n'
+              '        "basis_combination_allowed": False,\n'
+              '        "price_return_input_allowed": False,\n'
+              '        "cross_sectional_normalization_allowed": False,\n'
+              '        "rank_transform_allowed": False,\n'
+              '        "learned_coefficient_allowed": False,\n'
+              '        "feature_threshold_allowed": False,\n'
+              '        "target_market": _TARGET_MARKET,\n',
+          )
+          replace_once(
+              '        "label_formula": _LABEL_FORMULA,\n'
+              '        "expected_direction": _EXPECTED_DIRECTION,\n',
+              '        "label_formula": _LABEL_FORMULA,\n'
+              '        "require_target_rows_present": True,\n'
+              '        "require_target_rows_contiguous": True,\n'
+              '        "require_target_rows_information_available": True,\n'
+              '        "require_target_rows_active": True,\n'
+              '        "require_target_rows_tradable": True,\n'
+              '        "require_target_open_finite_positive": True,\n'
+              '        "target_2023_or_later_allowed": False,\n'
+              '        "expected_direction": _EXPECTED_DIRECTION,\n',
+          )
+          replace_once(
+              '        "fixed_reduction": _FIXED_REDUCTION,\n'
+              '        "alternate_sign_allowed": False,\n',
+              '        "fixed_reduction": _FIXED_REDUCTION,\n'
+              '        "weighted_regression_allowed": False,\n'
+              '        "robust_regression_allowed": False,\n'
+              '        "require_numerator_finite": True,\n'
+              '        "require_denominator_finite_positive": True,\n'
+              '        "require_beta_finite": True,\n'
+              '        "no_magnitude_threshold_after_results": True,\n'
+              '        "training_relation_executed": False,\n'
+              '        "alternate_sign_allowed": False,\n',
+          )
+
+          replace_once(
+              '    spot_source_result_content_digest: str = _SPOT_SOURCE_RESULT_CONTENT_DIGEST\n'
+              '    feature_name: str = _FEATURE_NAME\n',
+              '    spot_source_result_content_digest: str = _SPOT_SOURCE_RESULT_CONTENT_DIGEST\n'
+              '    spot_source_usable_rows: int = 13_598_332\n'
+              '    spot_source_malformed_rows: int = 0\n'
+              '    spot_source_invalid_sentinel_rows: int = 0\n'
+              '    feature_name: str = _FEATURE_NAME\n',
+          )
+          replace_once(
+              '    use_best_price_match: bool = False\n'
+              '    target_market: str = _TARGET_MARKET\n',
+              '    use_best_price_match: bool = False\n'
+              '    provider_order_required: bool = True\n'
+              '    event_time_strictly_before_decision: bool = True\n'
+              '    archive_publication_time_used_as_market_event_time: bool = False\n'
+              '    clipping_allowed: bool = False\n'
+              '    winsorization_allowed: bool = False\n'
+              '    zscore_allowed: bool = False\n'
+              '    volume_scaling_allowed: bool = False\n'
+              '    volatility_scaling_allowed: bool = False\n'
+              '    funding_combination_allowed: bool = False\n'
+              '    basis_combination_allowed: bool = False\n'
+              '    price_return_input_allowed: bool = False\n'
+              '    cross_sectional_normalization_allowed: bool = False\n'
+              '    rank_transform_allowed: bool = False\n'
+              '    learned_coefficient_allowed: bool = False\n'
+              '    feature_threshold_allowed: bool = False\n'
+              '    target_market: str = _TARGET_MARKET\n',
+          )
+          replace_once(
+              '    label_formula: str = _LABEL_FORMULA\n'
+              '    expected_direction: str = _EXPECTED_DIRECTION\n',
+              '    label_formula: str = _LABEL_FORMULA\n'
+              '    require_target_rows_present: bool = True\n'
+              '    require_target_rows_contiguous: bool = True\n'
+              '    require_target_rows_information_available: bool = True\n'
+              '    require_target_rows_active: bool = True\n'
+              '    require_target_rows_tradable: bool = True\n'
+              '    require_target_open_finite_positive: bool = True\n'
+              '    target_2023_or_later_allowed: bool = False\n'
+              '    expected_direction: str = _EXPECTED_DIRECTION\n',
+          )
+          replace_once(
+              '    fixed_reduction: str = _FIXED_REDUCTION\n'
+              '    alternate_sign_allowed: bool = False\n',
+              '    fixed_reduction: str = _FIXED_REDUCTION\n'
+              '    weighted_regression_allowed: bool = False\n'
+              '    robust_regression_allowed: bool = False\n'
+              '    require_numerator_finite: bool = True\n'
+              '    require_denominator_finite_positive: bool = True\n'
+              '    require_beta_finite: bool = True\n'
+              '    no_magnitude_threshold_after_results: bool = True\n'
+              '    training_relation_executed: bool = False\n'
+              '    alternate_sign_allowed: bool = False\n',
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format, static checks, and targeted GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py"
+          uv run ruff format $files
+          uv run ruff check $files
+          uv run ruff format --check $files
+          uv run mypy $files
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+          git diff --check
+      - name: Guard and publish verified hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=84b055d59c71b86393f1523b017d8893a2af68bc
+          remote="$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)"
+          test "$remote" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+          git commit -m "feat: harden Spot flow preregistration boundaries"
+          git push origin HEAD:research/issue584-spot-flow-prereg

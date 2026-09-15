@@ -27,7 +27,9 @@ MIN_TARGET_WINDOWS = 360
 
 
 def _day_start_ms(date: str) -> int:
-    return int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
+    return int(
+        datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000
+    )
 
 
 def _next_date(date: str) -> str:
@@ -50,7 +52,9 @@ def _archive_url(symbol: str, date: str) -> str:
 
 
 def _download(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "trade-rl-research/1.0"})
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "trade-rl-research/1.0"}
+    )
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
             if response.status != 200:
@@ -70,8 +74,10 @@ def _checksum_digest(raw: bytes, *, expected_filename: str) -> str:
         raise ValueError("checksum text is malformed")
     digest = parts[0]
     filename = parts[-1].lstrip("*")
-    if len(digest) != 64 or digest.lower() != digest or any(
-        char not in "0123456789abcdef" for char in digest
+    if (
+        len(digest) != 64
+        or digest.lower() != digest
+        or any(char not in "0123456789abcdef" for char in digest)
     ):
         raise ValueError("checksum digest is malformed")
     if filename != expected_filename:
@@ -108,7 +114,9 @@ def _validate_archive(symbol: str, date: str) -> tuple[dict[str, object], set[in
     start = _day_start_ms(date)
     expected = {start + index * INTERVAL_MS for index in range(EXPECTED_ROWS_PER_DAY)}
     if not observed.issubset(expected):
-        raise ValueError("target archive contains timestamps outside planned native grid")
+        raise ValueError(
+            "target archive contains timestamps outside planned native grid"
+        )
     missing = sorted(expected - observed)
     record: dict[str, object] = {
         "symbol": symbol,
@@ -152,7 +160,10 @@ def build_report() -> tuple[dict[str, object], dict[str, object]]:
         raise ValueError("runtime preregistration target source family differs")
     if protocol.target_transport_mode != "VISION":
         raise ValueError("runtime preregistration target transport differs")
-    if protocol.target_source_fallback_allowed or protocol.target_source_replacement_allowed:
+    if (
+        protocol.target_source_fallback_allowed
+        or protocol.target_source_replacement_allowed
+    ):
         raise ValueError("runtime preregistration permits forbidden target fallback")
 
     records: list[dict[str, object]] = []
@@ -185,12 +196,16 @@ def build_report() -> tuple[dict[str, object], dict[str, object]]:
         total = 0
         for source_date in SOURCE_DATES:
             combined = set(by_symbol_date.get((symbol, source_date), set()))
-            combined.update(by_symbol_date.get((symbol, _next_date(source_date)), set()))
+            combined.update(
+                by_symbol_date.get((symbol, _next_date(source_date)), set())
+            )
             total += _target_window_count(source_date, combined)
         target_windows[symbol] = total
 
     all_archives_valid = len(errors) == 0 and len(records) == 40
-    coverage_valid = all(value >= MIN_TARGET_WINDOWS for value in target_windows.values())
+    coverage_valid = all(
+        value >= MIN_TARGET_WINDOWS for value in target_windows.values()
+    )
     if all_archives_valid and coverage_valid:
         status = "PASS_TARGET_SOURCE_PREFLIGHT"
     elif all_archives_valid:
@@ -235,7 +250,10 @@ def build_report() -> tuple[dict[str, object], dict[str, object]]:
         "fallback_used": False,
         "replacement_source_used": False,
     }
-    report = {**report_without_digest, "content_digest": content_digest(report_without_digest)}
+    report = {
+        **report_without_digest,
+        "content_digest": content_digest(report_without_digest),
+    }
     return report, manifest
 
 
@@ -252,7 +270,10 @@ def main() -> None:
     print("STATUS=" + str(report["status"]))
     print("PLANNED_ARCHIVES=" + str(report["planned_archives"]))
     print("VALID_ARCHIVES=" + str(report["valid_archives"]))
-    print("TARGET_WINDOWS=" + json.dumps(report["target_windows_by_symbol"], sort_keys=True))
+    print(
+        "TARGET_WINDOWS="
+        + json.dumps(report["target_windows_by_symbol"], sort_keys=True)
+    )
     print("TARGET_MANIFEST_DIGEST=" + str(report["target_manifest_digest"]))
     print("ECONOMIC_VALUES_REPORTED=false")
     print("TARGET_RETURN_COMPUTED=false")

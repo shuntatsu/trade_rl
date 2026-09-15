@@ -1,0 +1,64 @@
+name: Temporary Issue 584 diagnostic mypy fix
+
+on:
+  push:
+    branches:
+      - automation/issue584-diagnostic-mypy-fix
+    paths:
+      - .github/workflows/tmp-issue584-diagnostic-mypy-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: c0f147b42a6aad74dd88f6a5102be2bdf8cbadbb
+  RESEARCH_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+  TEST_PATH: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+
+jobs:
+  repair_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply minimal typing repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py")
+          text = path.read_text()
+          old = '''        bar = by_time.get(timestamp)\n        if bar is None:\n            return None\n        if not (bar.information_available and bar.active and bar.tradable):\n            return None\n        window.append(bar)\n'''
+          new = '''        candidate = by_time.get(timestamp)\n        if candidate is None:\n            return None\n        if not (\n            candidate.information_available and candidate.active and candidate.tradable\n        ):\n            return None\n        window.append(candidate)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("expected typing target not found exactly once")
+          path.write_text(text.replace(old, new))
+          PY
+          test "$(git status --porcelain | cut -c4- | sort -u)" = "$SOURCE_PATH"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify repair
+        run: |
+          uv run ruff format "$SOURCE_PATH"
+          uv run ruff check "$SOURCE_PATH" "$TEST_PATH"
+          uv run ruff format --check "$SOURCE_PATH" "$TEST_PATH"
+          uv run mypy "$SOURCE_PATH"
+          uv run pytest -q "$TEST_PATH"
+      - name: Guard and publish verified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$SOURCE_PATH"
+          git commit -m "fix: satisfy Spot flow diagnostic typing contract"
+          git push origin HEAD:"$RESEARCH_BRANCH"

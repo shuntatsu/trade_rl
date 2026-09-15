@@ -30,15 +30,21 @@ from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
 
 IMPLEMENTATION_HEAD = "9751445fb98a5c99156b23afeb2bfcc445be1acd"
 IMPLEMENTATION_VERIFY_RUN_ID = 34968108264
-PREMIUM_REPORT_SHA256 = "059987f3692c0f249f2db5ef2e14f8cbaaefa5ca24dccf4c45bae009ca19ebe4"
-PREMIUM_REPORT_CONTENT_DIGEST = "fc756962aa997cfb8beafdafe06e70e02602e23e09a5dce5a36d229ddb558f88"
-TARGET_MANIFEST_SHA256 = "e287f03bf18619834108b5b452c26cdffbc66a6be3d51d418c928daa2e77dd15"
-TARGET_MANIFEST_CONTENT_DIGEST = "9ced3fbab6e51fbd654768ec6a4ea28f98cc4b9f36c1d9d2a9a8f6540864934e"
+PREMIUM_REPORT_SHA256 = (
+    "059987f3692c0f249f2db5ef2e14f8cbaaefa5ca24dccf4c45bae009ca19ebe4"
+)
+PREMIUM_REPORT_CONTENT_DIGEST = (
+    "fc756962aa997cfb8beafdafe06e70e02602e23e09a5dce5a36d229ddb558f88"
+)
+TARGET_MANIFEST_SHA256 = (
+    "e287f03bf18619834108b5b452c26cdffbc66a6be3d51d418c928daa2e77dd15"
+)
+TARGET_MANIFEST_CONTENT_DIGEST = (
+    "9ced3fbab6e51fbd654768ec6a4ea28f98cc4b9f36c1d9d2a9a8f6540864934e"
+)
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 MONTHS = tuple(
-    f"{year:04d}-{month:02d}"
-    for year in (2021, 2022)
-    for month in range(1, 13)
+    f"{year:04d}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
 )
 
 
@@ -154,7 +160,9 @@ def _validate_premium_report(report: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _validate_target_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    if manifest.get("symbols") != list(SYMBOLS) or manifest.get("months") != list(MONTHS):
+    if manifest.get("symbols") != list(SYMBOLS) or manifest.get("months") != list(
+        MONTHS
+    ):
         raise ValueError("target source roster differs from frozen authority")
     if manifest.get("planned_archive_count") != 120:
         raise ValueError("target planned archive count differs")
@@ -189,7 +197,12 @@ def _validate_target_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(symbol, str) or not isinstance(month, str):
             raise ValueError("target source symbol/month is malformed")
         observed.append((symbol, month))
-        for key in ("archive_available", "checksum_available", "checksum_verified", "schema_valid"):
+        for key in (
+            "archive_available",
+            "checksum_available",
+            "checksum_verified",
+            "schema_valid",
+        ):
             if item.get(key) is not True:
                 raise ValueError(f"target record failed structural gate: {key}")
     if observed != expected:
@@ -251,8 +264,12 @@ def build_real_result(
     premium_entries = _validate_premium_report(premium_report)
     target_records = _validate_target_manifest(target_manifest)
 
-    premium_by_symbol: dict[str, list[PremiumObservation]] = {symbol: [] for symbol in SYMBOLS}
-    target_by_symbol: dict[str, list[TargetOpenObservation]] = {symbol: [] for symbol in SYMBOLS}
+    premium_by_symbol: dict[str, list[PremiumObservation]] = {
+        symbol: [] for symbol in SYMBOLS
+    }
+    target_by_symbol: dict[str, list[TargetOpenObservation]] = {
+        symbol: [] for symbol in SYMBOLS
+    }
     for item in premium_entries:
         premium_by_symbol[str(item["symbol"])].extend(_load_premium_entry(item))
     for item in target_records:
@@ -311,7 +328,9 @@ def _self_test() -> None:
     for index, symbol in enumerate(SYMBOLS):
         sign = -1.0 if index < 4 else 1.0
         pairs = tuple(
-            TrainingPair(decision_time_ms=i * 3_600_000, x=float(i % 7), y=sign * float(i % 7))
+            TrainingPair(
+                decision_time_ms=i * 3_600_000, x=float(i % 7), y=sign * float(i % 7)
+            )
             for i in range(n)
         )
         calibrations.append(calibrate_symbol(symbol, pairs))
@@ -351,7 +370,9 @@ def main() -> None:
             args.execution_run_id,
         )
     ):
-        parser.error("real mode requires source artifacts, outputs, and execution run id")
+        parser.error(
+            "real mode requires source artifacts, outputs, and execution run id"
+        )
     if args.execution_run_id <= 0:
         parser.error("execution run id must be positive")
     result_bytes, evidence_bytes = build_real_result(

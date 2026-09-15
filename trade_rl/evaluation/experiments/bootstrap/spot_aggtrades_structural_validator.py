@@ -449,8 +449,9 @@ def build_structural_report(
 
 
 def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
-    """Validate report closure and return its exact canonical JSON bytes."""
+    """Validate full semantic closure and return exact canonical JSON bytes."""
 
+    protocol = canonical_spot_aggtrades_source_protocol()
     expected_fields = {
         "schema_version",
         "issue_number",
@@ -483,6 +484,68 @@ def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
         or report.get("issue_number") != 578
     ):
         raise ValueError("structural report schema authority differs")
+    if report.get("protocol_digest") != protocol.digest:
+        raise ValueError("structural report protocol_digest is not canonical")
+    _hex(report.get("protocol_head"), length=40, field="protocol_head")
+    _positive_int(report.get("protocol_seal_run_id"), field="protocol_seal_run_id")
+    _positive_int(
+        report.get("protocol_seal_artifact_id"),
+        field="protocol_seal_artifact_id",
+    )
+    _hex(
+        report.get("protocol_seal_artifact_api_digest"),
+        length=64,
+        field="protocol_seal_artifact_api_digest",
+    )
+    _positive_int(
+        report.get("protocol_fresh_artifact_id"),
+        field="protocol_fresh_artifact_id",
+    )
+    _hex(
+        report.get("protocol_fresh_artifact_api_digest"),
+        length=64,
+        field="protocol_fresh_artifact_api_digest",
+    )
+    if report.get("planned_archive_count") != protocol.planned_archive_count:
+        raise ValueError("planned_archive_count is not canonical")
+
+    raw_archive_reports = report.get("archive_reports")
+    if not isinstance(raw_archive_reports, list):
+        raise ValueError("archive_reports must be a canonical list")
+    archive_reports: list[Mapping[str, object]] = []
+    for item in raw_archive_reports:
+        if not isinstance(item, Mapping):
+            raise ValueError("archive_reports entries must be mappings")
+        copied = dict(item)
+        _require_archive_report_fields(protocol, copied)
+        archive_reports.append(copied)
+
+    recomputed_status = decide_source_status(protocol, archive_reports)
+    if report.get("status") != recomputed_status:
+        raise ValueError("structural report status differs from archive evidence")
+
+    expected_counts = {
+        "available_archive_count": sum(
+            item["archive_available"] is True for item in archive_reports
+        ),
+        "available_checksum_count": sum(
+            item["checksum_available"] is True for item in archive_reports
+        ),
+        "checksum_verified_count": sum(
+            item["checksum_verified"] is True for item in archive_reports
+        ),
+        "structurally_valid_available_archive_count": sum(
+            item["archive_available"] is True and item["schema_valid"] is True
+            for item in archive_reports
+        ),
+    }
+    for field, expected in expected_counts.items():
+        observed = report.get(field)
+        if isinstance(observed, bool) or not isinstance(observed, int):
+            raise ValueError(f"{field} must be a strict integer")
+        if observed != expected:
+            raise ValueError(f"{field} differs from archive evidence")
+
     for field in (
         "economic_values_inspected",
         "target_relation_computed",
@@ -493,6 +556,7 @@ def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
     ):
         if report.get(field) is not False:
             raise ValueError(f"forbidden structural-report flag differs: {field}")
+
     payload = dict(report)
     observed_digest = payload.pop("content_digest")
     if observed_digest != content_digest(payload):

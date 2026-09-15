@@ -1,0 +1,232 @@
+name: Issue 584 target-source structural preflight v1
+
+on:
+  push:
+    branches:
+      - preflight/issue584-target-source-v1
+    paths:
+      - .github/workflows/issue584-target-source-preflight-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 1a7a1ae12ebeb7d104f3278fcc0a0dbd6ac64ac8
+  RESEARCH_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  PREREG_HEAD: 89ec1092e438d69657840567e684739ca0c4e3d5
+  PREREG_PROTOCOL_DIGEST: bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3
+  PREREG_SEAL_RUN_ID: "34932424904"
+  PREREG_SEAL_ARTIFACT_ID: "10381763665"
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:f0a7de4e5b477f86d773793f3d4a154ac307c68a88b4eee4cf10a48190fd0f02
+  PREREG_FRESH_ARTIFACT_ID: "10381379452"
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:012126c32a0d65c0164624dff9b9657a4a8ff208bf24397256048f65ea0f89b8
+  TARGETED_VERIFY_RUN_ID: "34940742164"
+  HELPER: tools/tmp_issue584_target_preflight.py
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+
+jobs:
+  publisher:
+    name: Structural target-source publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind immutable authorities before network access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$IMPLEMENTATION_SHA"
+          test "$(git rev-parse "$IMPLEMENTATION_SHA:$SOURCE_PATH")" = "$(git rev-parse "HEAD:$SOURCE_PATH")"
+          verify="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$TARGETED_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          seal_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$seal_run")" = success
+          for spec in "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_DIGEST" "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+          echo "ECONOMIC_VALUES_REPORTED=false"
+          echo "TARGET_RETURN_COMPUTED=false"
+          echo "TRAINING_RELATION_COMPUTED=false"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify helper and target parser contract
+        run: |
+          uv run ruff format --check "$HELPER"
+          uv run ruff check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+      - name: Fetch and structurally validate exact 40 archives
+        run: |
+          mkdir -p /tmp/publisher
+          uv run python "$HELPER" --report /tmp/publisher/report.json --manifest /tmp/publisher/manifest.json
+      - id: meta
+        run: echo "name=issue584-target-source-preflight-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable publisher evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/publisher/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent 40-archive reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: API-bind publisher artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.publisher.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$IMPLEMENTATION_SHA"
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/published
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently re-fetch all 40 archives
+        run: |
+          mkdir -p /tmp/fresh
+          uv run python "$HELPER" --report /tmp/fresh/report.json --manifest /tmp/fresh/manifest.json
+          cmp /tmp/published/report.json /tmp/fresh/report.json
+          cmp /tmp/published/manifest.json /tmp/fresh/manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('/tmp/fresh/report.json').read_bytes())
+          verification = {
+              'schema_version': 'issue584_target_source_fresh_v1',
+              'status': report['status'],
+              'report_byte_equal': True,
+              'manifest_byte_equal': True,
+              'target_manifest_digest': report['target_manifest_digest'],
+              'economic_values_reported': False,
+              'target_return_computed': False,
+              'spot_flow_computed': False,
+              'training_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+          }
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          Path('/tmp/fresh/verification.json').write_bytes(canonical_json_bytes(verification))
+          PY
+      - id: meta
+        run: echo "name=issue584-target-source-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final target-source preflight audit
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind publisher and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require byte equality, structural PASS, and result-blind boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/report.json /tmp/fresh/report.json
+          cmp /tmp/publisher/manifest.json /tmp/fresh/manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('/tmp/publisher/report.json').read_bytes())
+          fresh = json.loads(Path('/tmp/fresh/verification.json').read_bytes())
+          if report['status'] != 'PASS_TARGET_SOURCE_PREFLIGHT':
+              raise SystemExit('target source preflight did not PASS')
+          if report['planned_archives'] != 40 or report['valid_archives'] != 40:
+              raise SystemExit('target archive roster is incomplete')
+          if any(value < 360 for value in report['target_windows_by_symbol'].values()):
+              raise SystemExit('target structural coverage below frozen minimum')
+          if not fresh['report_byte_equal'] or not fresh['manifest_byte_equal']:
+              raise SystemExit('fresh reconstruction did not prove byte equality')
+          for payload in (report, fresh):
+              for key in ('economic_values_reported','target_return_computed','spot_flow_computed','training_relation_computed','evaluation_pnl_inspected'):
+                  if payload.get(key) is not False:
+                      raise SystemExit(f'forbidden structural-preflight flag differs: {key}')
+          print('ISSUE584_TARGET_SOURCE_PREFLIGHT=PASS')
+          print('TARGET_MANIFEST_DIGEST=' + report['target_manifest_digest'])
+          print('ECONOMIC_VALUES_REPORTED=false')
+          print('TRAINING_RELATION_COMPUTED=false')
+          PY

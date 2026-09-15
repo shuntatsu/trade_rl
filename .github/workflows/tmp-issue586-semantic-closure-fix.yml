@@ -1,0 +1,237 @@
+name: Temporary Issue 586 semantic-closure fix
+
+on:
+  push:
+    branches:
+      - automation/issue586-semantic-closure-fix
+    paths:
+      - .github/workflows/tmp-issue586-semantic-closure-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue586-target-source-validator
+  TARGET_SHA: d9f23e2ac8becc1630716cfd13468c92cbf7dcc0
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact semantic RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Add nested structural semantic closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py')
+          text = path.read_text()
+          marker = '\n\ndef _ordered_entries(\n'
+          if marker not in text:
+              raise SystemExit('ordered_entries marker missing')
+          insert = r'''
+
+
+def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
+    symbol = report.get("symbol")
+    date = report.get("date")
+    if not isinstance(symbol, str) or not isinstance(date, str):
+        return False
+    if symbol not in TARGET_SYMBOLS or date not in TARGET_DATES:
+        return False
+    expected_url = _url(symbol, date)
+    if report.get("url") != expected_url or report.get("checksum_url") != expected_url + ".CHECKSUM":
+        return False
+    if report.get("normalized_schema") != list(_EXPECTED_HEADER):
+        return False
+    expected_rows = report.get("expected_row_count")
+    if isinstance(expected_rows, bool) or expected_rows != _EXPECTED_ROWS:
+        return False
+
+    for field in ("archive_available", "checksum_available", "checksum_verified"):
+        if type(report.get(field)) is not bool:
+            return False
+    for field in (
+        "header_present",
+        "open_times_strictly_increasing_unique",
+        "native_grid_valid",
+        "close_time_valid",
+        "rows_inside_requested_utc_date",
+        "schema_valid",
+    ):
+        value = report.get(field)
+        if value is not None and type(value) is not bool:
+            return False
+
+    for field in ("raw_zip_size_bytes", "row_count", "missing_grid_rows"):
+        value = report.get(field)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            return False
+    for field in (
+        "first_open_time",
+        "last_open_time",
+        "first_close_time",
+        "last_close_time",
+    ):
+        value = report.get(field)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            return False
+
+    for field in ("raw_zip_sha256", "checksum_digest", "missing_grid_open_times_sha256"):
+        value = report.get(field)
+        if value is not None:
+            try:
+                _hex(value, length=64, field=field)
+            except ValueError:
+                return False
+    for field in ("checksum_text", "member_name"):
+        value = report.get(field)
+        if value is not None and not isinstance(value, str):
+            return False
+
+    archive_available = report["archive_available"]
+    checksum_available = report["checksum_available"]
+    checksum_verified = report["checksum_verified"]
+    schema_valid = report["schema_valid"]
+
+    if archive_available is False:
+        for field in (
+            "raw_zip_size_bytes",
+            "raw_zip_sha256",
+            "member_name",
+            "header_present",
+            "row_count",
+            "missing_grid_rows",
+            "missing_grid_open_times_sha256",
+            "first_open_time",
+            "last_open_time",
+            "first_close_time",
+            "last_close_time",
+            "open_times_strictly_increasing_unique",
+            "native_grid_valid",
+            "close_time_valid",
+            "rows_inside_requested_utc_date",
+            "schema_valid",
+        ):
+            if report.get(field) is not None:
+                return False
+    if checksum_available is False:
+        if report.get("checksum_text") is not None or report.get("checksum_digest") is not None:
+            return False
+        if checksum_verified is not False:
+            return False
+
+    if schema_valid is True:
+        if archive_available is not True or checksum_available is not True or checksum_verified is not True:
+            return False
+        if type(report.get("header_present")) is not bool:
+            return False
+        if report.get("member_name") != f"{symbol}-15m-{date}.csv":
+            return False
+        size = report.get("raw_zip_size_bytes")
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            return False
+        raw_digest = report.get("raw_zip_sha256")
+        checksum_digest = report.get("checksum_digest")
+        if raw_digest is None or checksum_digest != raw_digest or report.get("checksum_text") is None:
+            return False
+        row_count = report.get("row_count")
+        missing_rows = report.get("missing_grid_rows")
+        if (
+            isinstance(row_count, bool)
+            or not isinstance(row_count, int)
+            or isinstance(missing_rows, bool)
+            or not isinstance(missing_rows, int)
+            or not (0 < row_count <= _EXPECTED_ROWS)
+            or not (0 <= missing_rows <= _EXPECTED_ROWS)
+            or row_count + missing_rows != _EXPECTED_ROWS
+        ):
+            return False
+        if report.get("missing_grid_open_times_sha256") is None:
+            return False
+        for field in (
+            "open_times_strictly_increasing_unique",
+            "native_grid_valid",
+            "close_time_valid",
+            "rows_inside_requested_utc_date",
+        ):
+            if report.get(field) is not True:
+                return False
+        first_open = report.get("first_open_time")
+        last_open = report.get("last_open_time")
+        first_close = report.get("first_close_time")
+        last_close = report.get("last_close_time")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (first_open, last_open, first_close, last_close)
+        ):
+            return False
+        assert isinstance(first_open, int)
+        assert isinstance(last_open, int)
+        assert isinstance(first_close, int)
+        assert isinstance(last_close, int)
+        start_ms, end_ms = _day_bounds_ms(date)
+        if not (
+            start_ms <= first_open <= last_open < end_ms
+            and start_ms <= first_close <= last_close < end_ms
+            and first_close == first_open + _INTERVAL_MS - 1
+            and last_close == last_open + _INTERVAL_MS - 1
+        ):
+            return False
+    return True
+'''
+          text = text.replace(marker, insert + marker, 1)
+          old = '''        if set(report) != _ENTRY_FIELDS:\n            return None\n        pair = (report.get("symbol"), report.get("date"))\n'''
+          new = '''        if set(report) != _ENTRY_FIELDS:\n            return None\n        if not _entry_semantics_valid(report):\n            return None\n        pair = (report.get("symbol"), report.get("date"))\n'''
+          if old not in text:
+              raise SystemExit('ordered_entries insertion point missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and complete synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          module=trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py
+          base=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          hard=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run ruff format "$module" "$base" "$hard"
+          uv run ruff check --fix "$module" "$base" "$hard"
+          uv run ruff check "$module" "$base" "$hard"
+          uv run mypy "$module"
+          uv run pytest -q "$base" "$hard"
+      - name: Guard and publish code-only semantic fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py|tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py|tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix: enforce Issue 586 structural semantic closure"
+          git push origin HEAD:"$TARGET_BRANCH"

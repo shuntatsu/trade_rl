@@ -6,7 +6,9 @@ import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.experiments.bootstrap import spot_flow_continuation_diagnostic as diagnostic
+from trade_rl.evaluation.experiments.bootstrap import (
+    spot_flow_continuation_diagnostic as diagnostic,
+)
 from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import (
     canonical_spot_flow_continuation_protocol,
 )
@@ -61,7 +63,9 @@ def test_result_binds_complete_target_preflight_authority() -> None:
         result.target_preflight_publisher_artifact_api_digest
         == TARGET_PREFLIGHT_PUBLISHER_DIGEST
     )
-    assert result.target_preflight_fresh_artifact_id == TARGET_PREFLIGHT_FRESH_ARTIFACT_ID
+    assert (
+        result.target_preflight_fresh_artifact_id == TARGET_PREFLIGHT_FRESH_ARTIFACT_ID
+    )
     assert (
         result.target_preflight_fresh_artifact_api_digest
         == TARGET_PREFLIGHT_FRESH_DIGEST

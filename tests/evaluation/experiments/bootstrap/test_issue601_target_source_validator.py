@@ -142,7 +142,9 @@ def test_frozen_roster_and_calendar_row_counts_are_exact() -> None:
         expected_rows_in_month("2023-01")
 
 
-def test_complete_month_is_structurally_valid_without_exposing_economic_values() -> None:
+def test_complete_month_is_structurally_valid_without_exposing_economic_values() -> (
+    None
+):
     validation = _validate()
     report = validation.report
     assert report["archive_available"] is True
@@ -279,9 +281,10 @@ def test_sparse_on_grid_month_is_valid_and_records_exact_missing_digest() -> Non
     assert result.report["row_count"] == 743
     assert result.report["missing_grid_rows"] == 1
     assert result.open_times[16] < missing_open < result.open_times[17]
-    assert result.report["missing_grid_open_times_sha256"] == hashlib.sha256(
-        str(missing_open).encode("ascii")
-    ).hexdigest()
+    assert (
+        result.report["missing_grid_open_times_sha256"]
+        == hashlib.sha256(str(missing_open).encode("ascii")).hexdigest()
+    )
 
 
 def test_timestamp_only_target_window_count_uses_raw_t_through_t_plus_24h() -> None:
@@ -302,7 +305,10 @@ def test_timestamp_only_target_window_count_uses_raw_t_through_t_plus_24h() -> N
     unchanged = count_structural_target_windows(without_irrelevant)
     assert unchanged["structurally_present_windows"] == 17_495
 
-    assert int(datetime(2022, 12, 30, 23, tzinfo=UTC).timestamp() * 1000) + 24 * _HOUR_MS == last_endpoint
+    assert (
+        int(datetime(2022, 12, 30, 23, tzinfo=UTC).timestamp() * 1000) + 24 * _HOUR_MS
+        == last_endpoint
+    )
     assert last_endpoint < int(datetime(2023, 1, 1, tzinfo=UTC).timestamp() * 1000)
 
 
@@ -316,30 +322,47 @@ def test_status_gate_distinguishes_pass_partial_and_incompatible() -> None:
         for month in TARGET_MONTHS:
             reports.append(_validate(symbol, month).report)
     assert len(reports) == 120
-    assert decide_target_source_status(reports, ideal_summary) == "PASS_USDM_1H_TARGET_SOURCE"
+    assert (
+        decide_target_source_status(reports, ideal_summary)
+        == "PASS_USDM_1H_TARGET_SOURCE"
+    )
 
     missing_checksum = [dict(item) for item in reports]
     missing_checksum[0]["checksum_available"] = False
     missing_checksum[0]["checksum_text"] = None
     missing_checksum[0]["checksum_digest"] = None
     missing_checksum[0]["checksum_verified"] = False
-    assert decide_target_source_status(missing_checksum, ideal_summary) == "PARTIAL_USDM_1H_TARGET_SOURCE"
+    assert (
+        decide_target_source_status(missing_checksum, ideal_summary)
+        == "PARTIAL_USDM_1H_TARGET_SOURCE"
+    )
 
     low_coverage = {symbol: dict(summary) for symbol, summary in ideal_summary.items()}
     low_coverage[TARGET_SYMBOLS[0]]["structurally_present_windows"] = 16_620
     low_coverage[TARGET_SYMBOLS[0]]["structurally_missing_windows"] = 875
-    assert decide_target_source_status(reports, low_coverage) == "PARTIAL_USDM_1H_TARGET_SOURCE"
+    assert (
+        decide_target_source_status(reports, low_coverage)
+        == "PARTIAL_USDM_1H_TARGET_SOURCE"
+    )
 
     mismatch = [dict(item) for item in reports]
     mismatch[0]["checksum_verified"] = False
-    assert decide_target_source_status(mismatch, ideal_summary) == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+    assert (
+        decide_target_source_status(mismatch, ideal_summary)
+        == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+    )
 
     corrupt = [dict(item) for item in reports]
     corrupt[0]["schema_valid"] = False
-    assert decide_target_source_status(corrupt, ideal_summary) == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+    assert (
+        decide_target_source_status(corrupt, ideal_summary)
+        == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+    )
 
 
-def test_status_gate_rejects_duplicate_missing_unexpected_or_bool_spoofed_roster() -> None:
+def test_status_gate_rejects_duplicate_missing_unexpected_or_bool_spoofed_roster() -> (
+    None
+):
     reports = [
         _validate(symbol, month).report
         for symbol in TARGET_SYMBOLS
@@ -355,14 +378,17 @@ def test_status_gate_rejects_duplicate_missing_unexpected_or_bool_spoofed_roster
         [*reports[:-1], {**reports[-1], "symbol": "DOGEUSDT"}],
         [{**reports[0], "row_count": True}, *reports[1:]],
     ):
-        assert decide_target_source_status(changed, summaries) == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+        assert (
+            decide_target_source_status(changed, summaries)
+            == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+        )
 
 
-def test_canonical_report_binds_issue600_authority_is_deterministic_and_result_blind() -> None:
+def test_canonical_report_binds_issue600_authority_is_deterministic_and_result_blind() -> (
+    None
+):
     validations = [
-        _validate(symbol, month)
-        for symbol in TARGET_SYMBOLS
-        for month in TARGET_MONTHS
+        _validate(symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS
     ]
     report = build_target_source_report(
         validations,
@@ -375,7 +401,9 @@ def test_canonical_report_binds_issue600_authority_is_deterministic_and_result_b
     assert json.loads(raw) == report
     assert report["status"] == "PASS_USDM_1H_TARGET_SOURCE"
     assert report["planned_archive_count"] == 120
-    assert report["issue600_protocol_head"] == "6ffc414baa10e91f34df258fe5cfabacce65fd77"
+    assert (
+        report["issue600_protocol_head"] == "6ffc414baa10e91f34df258fe5cfabacce65fd77"
+    )
     assert report["issue600_protocol_digest"] == (
         "18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731"
     )
@@ -384,7 +412,10 @@ def test_canonical_report_binds_issue600_authority_is_deterministic_and_result_b
     assert report["issue600_prereg_fresh_artifact_id"] == 10391714897
     for symbol in TARGET_SYMBOLS:
         assert report["target_windows_by_symbol"][symbol]["nominal_decisions"] == 17_495
-        assert report["target_windows_by_symbol"][symbol]["structurally_present_windows"] == 17_495
+        assert (
+            report["target_windows_by_symbol"][symbol]["structurally_present_windows"]
+            == 17_495
+        )
     for field in (
         "economic_values_inspected",
         "target_price_values_inspected",
@@ -418,11 +449,11 @@ def test_canonical_report_binds_issue600_authority_is_deterministic_and_result_b
         assert forbidden.isdisjoint(entry)
 
 
-def test_loader_rejects_unknown_fields_authority_forgery_and_resigned_status_forgery() -> None:
+def test_loader_rejects_unknown_fields_authority_forgery_and_resigned_status_forgery() -> (
+    None
+):
     validations = [
-        _validate(symbol, month)
-        for symbol in TARGET_SYMBOLS
-        for month in TARGET_MONTHS
+        _validate(symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS
     ]
     report = build_target_source_report(
         validations,

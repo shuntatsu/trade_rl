@@ -66,6 +66,12 @@ _TARGET_MARKET = "binance_usdm_perpetual"
 _TARGET_TIMEFRAME = "15m"
 _TARGET_SOURCE_FAMILY = "binance_vision_contract_klines"
 _TARGET_TRANSPORT_MODE = "VISION"
+_TARGET_DATASET_TIMESTAMP_SEMANTICS = "completed_bar_close_boundary"
+_TARGET_DATASET_TIMESTAMP_FORMULA = "dataset_timestamp=raw_open_time+15m"
+_DECISION_TARGET_ROW_SEMANTICS = "decision_t_equals_target_completed_row_timestamp"
+_DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES = -15
+_EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES = 0
+_ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES = 240
 _EXECUTION_OFFSET = 1
 _ENDPOINT_OFFSET = 17
 _HORIZON_BARS = 16
@@ -155,6 +161,18 @@ def _canonical_values() -> dict[str, object]:
         "target_source_checksum_required": True,
         "target_source_manifest_binding_required": True,
         "target_source_structural_preflight_required": True,
+        "target_dataset_timestamp_semantics": (_TARGET_DATASET_TIMESTAMP_SEMANTICS),
+        "target_dataset_timestamp_formula": _TARGET_DATASET_TIMESTAMP_FORMULA,
+        "decision_target_row_semantics": _DECISION_TARGET_ROW_SEMANTICS,
+        "decision_row_raw_open_time_offset_minutes": (
+            _DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES
+        ),
+        "execution_raw_open_time_offset_minutes": (
+            _EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES
+        ),
+        "endpoint_raw_open_time_offset_minutes": (
+            _ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES
+        ),
         "execution_open_offset_bars": _EXECUTION_OFFSET,
         "endpoint_open_offset_bars": _ENDPOINT_OFFSET,
         "horizon_bars": _HORIZON_BARS,
@@ -278,6 +296,16 @@ class SpotFlowContinuationProtocol:
     target_source_checksum_required: bool = True
     target_source_manifest_binding_required: bool = True
     target_source_structural_preflight_required: bool = True
+    target_dataset_timestamp_semantics: str = _TARGET_DATASET_TIMESTAMP_SEMANTICS
+    target_dataset_timestamp_formula: str = _TARGET_DATASET_TIMESTAMP_FORMULA
+    decision_target_row_semantics: str = _DECISION_TARGET_ROW_SEMANTICS
+    decision_row_raw_open_time_offset_minutes: int = (
+        _DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES
+    )
+    execution_raw_open_time_offset_minutes: int = (
+        _EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES
+    )
+    endpoint_raw_open_time_offset_minutes: int = _ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES
     execution_open_offset_bars: int = _EXECUTION_OFFSET
     endpoint_open_offset_bars: int = _ENDPOINT_OFFSET
     horizon_bars: int = _HORIZON_BARS

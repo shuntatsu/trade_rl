@@ -1,0 +1,201 @@
+name: Temporary Issue 578 structural report closure hardening
+
+on:
+  push:
+    branches:
+      - automation/issue578-validator-hardening-fix
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: verify/issue578-validator-hardening-green
+  TARGET_SHA: 03295f5014fe8121a6b09b66cc44be52e6c7f9f1
+  RED_BRANCH: verify/issue578-validator-hardening-red
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target and load adversarial test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$RED_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git show origin/$RED_BRANCH:tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            > tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+      - name: Apply minimal report-closure hardening
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py")
+          text = path.read_text()
+          marker = "def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:\n"
+          if marker not in text:
+              raise SystemExit("canonical structural report function not found")
+          prefix = text.split(marker, 1)[0]
+          replacement = '''def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
+              """Validate full semantic closure and return exact canonical JSON bytes."""
+
+              protocol = canonical_spot_aggtrades_source_protocol()
+              expected_fields = {
+                  "schema_version",
+                  "issue_number",
+                  "protocol_digest",
+                  "protocol_head",
+                  "protocol_seal_run_id",
+                  "protocol_seal_artifact_id",
+                  "protocol_seal_artifact_api_digest",
+                  "protocol_fresh_artifact_id",
+                  "protocol_fresh_artifact_api_digest",
+                  "planned_archive_count",
+                  "available_archive_count",
+                  "available_checksum_count",
+                  "checksum_verified_count",
+                  "structurally_valid_available_archive_count",
+                  "status",
+                  "archive_reports",
+                  "economic_values_inspected",
+                  "target_relation_computed",
+                  "evaluation_pnl_inspected",
+                  "feature_hypothesis_selected",
+                  "production_eligible",
+                  "live_trading_authorized",
+                  "content_digest",
+              }
+              if set(report) != expected_fields:
+                  raise ValueError("structural report fields are not canonical")
+              if (
+                  report.get("schema_version") != _REPORT_SCHEMA
+                  or report.get("issue_number") != 578
+              ):
+                  raise ValueError("structural report schema authority differs")
+              if report.get("protocol_digest") != protocol.digest:
+                  raise ValueError("structural report protocol_digest is not canonical")
+              _hex(report.get("protocol_head"), length=40, field="protocol_head")
+              _positive_int(report.get("protocol_seal_run_id"), field="protocol_seal_run_id")
+              _positive_int(
+                  report.get("protocol_seal_artifact_id"),
+                  field="protocol_seal_artifact_id",
+              )
+              _hex(
+                  report.get("protocol_seal_artifact_api_digest"),
+                  length=64,
+                  field="protocol_seal_artifact_api_digest",
+              )
+              _positive_int(
+                  report.get("protocol_fresh_artifact_id"),
+                  field="protocol_fresh_artifact_id",
+              )
+              _hex(
+                  report.get("protocol_fresh_artifact_api_digest"),
+                  length=64,
+                  field="protocol_fresh_artifact_api_digest",
+              )
+              if report.get("planned_archive_count") != protocol.planned_archive_count:
+                  raise ValueError("planned_archive_count is not canonical")
+
+              raw_archive_reports = report.get("archive_reports")
+              if not isinstance(raw_archive_reports, list):
+                  raise ValueError("archive_reports must be a canonical list")
+              archive_reports: list[Mapping[str, object]] = []
+              for item in raw_archive_reports:
+                  if not isinstance(item, Mapping):
+                      raise ValueError("archive_reports entries must be mappings")
+                  copied = dict(item)
+                  _require_archive_report_fields(protocol, copied)
+                  archive_reports.append(copied)
+
+              recomputed_status = decide_source_status(protocol, archive_reports)
+              if report.get("status") != recomputed_status:
+                  raise ValueError("structural report status differs from archive evidence")
+
+              expected_counts = {
+                  "available_archive_count": sum(
+                      item["archive_available"] is True for item in archive_reports
+                  ),
+                  "available_checksum_count": sum(
+                      item["checksum_available"] is True for item in archive_reports
+                  ),
+                  "checksum_verified_count": sum(
+                      item["checksum_verified"] is True for item in archive_reports
+                  ),
+                  "structurally_valid_available_archive_count": sum(
+                      item["archive_available"] is True and item["schema_valid"] is True
+                      for item in archive_reports
+                  ),
+              }
+              for field, expected in expected_counts.items():
+                  observed = report.get(field)
+                  if isinstance(observed, bool) or not isinstance(observed, int):
+                      raise ValueError(f"{field} must be a strict integer")
+                  if observed != expected:
+                      raise ValueError(f"{field} differs from archive evidence")
+
+              for field in (
+                  "economic_values_inspected",
+                  "target_relation_computed",
+                  "evaluation_pnl_inspected",
+                  "feature_hypothesis_selected",
+                  "production_eligible",
+                  "live_trading_authorized",
+              ):
+                  if report.get(field) is not False:
+                      raise ValueError(f"forbidden structural-report flag differs: {field}")
+
+              payload = dict(report)
+              observed_digest = payload.pop("content_digest")
+              if observed_digest != content_digest(payload):
+                  raise ValueError("structural report content_digest differs")
+              return canonical_json_bytes(dict(report))
+          '''
+          path.write_text(prefix + replacement)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+      - name: Guard and publish code-only hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: enforce Spot structural report semantic closure"
+          git push origin HEAD:"$TARGET_BRANCH"

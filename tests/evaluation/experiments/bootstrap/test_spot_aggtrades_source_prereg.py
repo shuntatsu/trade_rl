@@ -11,7 +11,6 @@ from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_source_prereg impo
     load_spot_aggtrades_source_protocol_bytes,
 )
 
-
 EXPECTED_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 EXPECTED_DATES = ("2021-01-15", "2021-07-15", "2022-01-15", "2022-07-15")
 EXPECTED_HEADER = (

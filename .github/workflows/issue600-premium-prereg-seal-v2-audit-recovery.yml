@@ -1,0 +1,221 @@
+name: Issue 600 premium prereg seal v2 audit recovery
+
+on:
+  push:
+    branches:
+      - audit/issue600-premium-prereg-seal-v2-recovery
+    paths:
+      - .github/workflows/issue600-premium-prereg-seal-v2-audit-recovery.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  PROTOCOL_DIGEST: c78d556f94e247d5bdc1c0e9a891d160e4c48c4f0b62cd5be7600874b3017d22
+  SEAL_RUN_ID: "34959723495"
+  SEAL_JOB_NAME: Immutable completed-endpoint premium protocol publisher
+  FRESH_JOB_NAME: Fresh independent completed-endpoint prereg reconstruction
+  SEAL_ARTIFACT_ID: "10392597937"
+  SEAL_ARTIFACT_NAME: issue600-premium-prereg-seal-v2-34959723495
+  SEAL_ARTIFACT_DIGEST: sha256:c485b90f4be41556c85e50e146c663dca8bcaa84c4d5dae3c2d26ce179fd60f3
+  FRESH_ARTIFACT_ID: "10392916717"
+  FRESH_ARTIFACT_NAME: issue600-premium-prereg-fresh-v2-34959723495
+  FRESH_ARTIFACT_DIGEST: sha256:3cf2580fc29240583025da1f7bb2b7b5a4d8bf15f24e49c525c3ad58757470ed
+  FULL_VERIFY_RUN_ID: "34958973042"
+  DIGEST_VERIFY_RUN_ID: "34959535015"
+  SUPERSEDED_RAW_ENDPOINT_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+
+jobs:
+  audit_recovery:
+    name: Final immutable v2 seal audit recovery
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact completed-endpoint authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Bind successful publisher/fresh jobs and immutable artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SEAL_RUN_ID")"
+          test "$(jq -r .head_sha <<<"$run")" = "0da0575f7ff71dad75493ca491ed015c6ab8d0bf"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SEAL_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r --arg name "$SEAL_JOB_NAME" '.jobs[] | select(.name==$name) | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r --arg name "$FRESH_JOB_NAME" '.jobs[] | select(.name==$name) | .conclusion' <<<"$jobs")" = success
+
+          bind_artifact() {
+            local id="$1" name="$2" digest="$3"
+            local artifact
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          }
+          bind_artifact "$SEAL_ARTIFACT_ID" "$SEAL_ARTIFACT_NAME" "$SEAL_ARTIFACT_DIGEST"
+          bind_artifact "$FRESH_ARTIFACT_ID" "$FRESH_ARTIFACT_NAME" "$FRESH_ARTIFACT_DIGEST"
+
+          for verify_run in "$FULL_VERIFY_RUN_ID" "$DIGEST_VERIFY_RUN_ID"; do
+            verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$verify_run")"
+            test "$(jq -r .status <<<"$verify")" = completed
+            test "$(jq -r .conclusion <<<"$verify")" = success
+          done
+
+      - name: Download immutable publisher and fresh evidence from original seal run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal /tmp/fresh
+          gh run download "$SEAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$SEAL_ARTIFACT_NAME" --dir /tmp/seal
+          gh run download "$SEAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$FRESH_ARTIFACT_NAME" --dir /tmp/fresh
+          test -f /tmp/seal/protocol.json
+          test -f /tmp/seal/seal-index.json
+          test -f /tmp/fresh/protocol.json
+          test -f /tmp/fresh/seal-index.json
+          test -f /tmp/fresh/verification.json
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Perform final byte, semantic, and result-blind audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/protocol.json /tmp/fresh/protocol.json
+          cmp /tmp/seal/seal-index.json /tmp/fresh/seal-index.json
+          mkdir -p /tmp/audit
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              load_premium_pressure_protocol_bytes,
+          )
+
+          protocol_raw = Path('/tmp/seal/protocol.json').read_bytes()
+          protocol = load_premium_pressure_protocol_bytes(protocol_raw)
+          expected = os.environ['PROTOCOL_DIGEST']
+          if protocol.digest != expected:
+              raise SystemExit('protocol content digest differs')
+          if hashlib.sha256(protocol_raw).hexdigest() != expected:
+              raise SystemExit('protocol canonical-byte SHA differs')
+
+          payload = protocol.to_dict()
+          expected_fields = {
+              'last_candidate_decision': '2022-12-30T22:00:00Z',
+              'nominal_candidate_decisions_per_symbol': 17494,
+              'minimum_eligible_observations_per_symbol': 16620,
+              'premium_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'label_execution_offset_bars': 1,
+              'label_endpoint_offset_bars': 25,
+              'label_horizon_bars': 24,
+              'calibration_method': 'per_symbol_ols_intercept_fixed_order_fsum',
+              'expected_effect_direction': 'REVERSAL',
+              'required_negative_symbol_slopes': 4,
+          }
+          for key, value in expected_fields.items():
+              if payload.get(key) != value or type(payload.get(key)) is not type(value):
+                  raise SystemExit(f'protocol authority drifted: {key}')
+
+          index_raw = Path('/tmp/seal/seal-index.json').read_bytes()
+          index = json.loads(index_raw)
+          if canonical_json_bytes(index) != index_raw:
+              raise SystemExit('seal index is noncanonical')
+          if index.get('target_sha') != os.environ['TARGET_SHA']:
+              raise SystemExit('seal target SHA differs')
+          if index.get('protocol_digest') != expected:
+              raise SystemExit('seal index digest differs')
+          if index.get('completed_endpoint_authority') is not True:
+              raise SystemExit('completed-endpoint authority flag differs')
+          if index.get('supersedes_raw_endpoint_sha') != os.environ['SUPERSEDED_RAW_ENDPOINT_SHA']:
+              raise SystemExit('raw-endpoint supersession binding differs')
+          if index.get('selection_frozen_before_economic_inspection') is not True:
+              raise SystemExit('selection freeze boundary differs')
+
+          verification_raw = Path('/tmp/fresh/verification.json').read_bytes()
+          verification = json.loads(verification_raw)
+          if canonical_json_bytes(verification) != verification_raw:
+              raise SystemExit('fresh verification is noncanonical')
+          for key in (
+              'protocol_byte_equal',
+              'seal_index_byte_equal',
+              'source_test_blob_equal',
+              'completed_endpoint_authority',
+              'fresh_reconstruction_passed',
+          ):
+              if verification.get(key) is not True:
+                  raise SystemExit(f'fresh proof differs: {key}')
+
+          for container in (payload, index, verification):
+              for key in (
+                  'economic_values_inspected',
+                  'training_relation_executed',
+                  'evaluation_pnl_inspected',
+                  'evaluation_execution_authorized',
+                  'final_test_authorized',
+                  'shared_cash_profitability_established',
+                  'production_eligible',
+                  'live_trading_authorized',
+              ):
+                  if key in container and container[key] is not False:
+                      raise SystemExit(f'forbidden boundary crossed: {key}')
+
+          audit_without_digest = {
+              'schema_version': 'issue600_premium_pressure_prereg_seal_v2_audit_recovery',
+              'issue_number': 600,
+              'target_sha': os.environ['TARGET_SHA'],
+              'protocol_digest': expected,
+              'original_seal_run_id': int(os.environ['SEAL_RUN_ID']),
+              'seal_artifact_id': int(os.environ['SEAL_ARTIFACT_ID']),
+              'seal_artifact_digest': os.environ['SEAL_ARTIFACT_DIGEST'],
+              'fresh_artifact_id': int(os.environ['FRESH_ARTIFACT_ID']),
+              'fresh_artifact_digest': os.environ['FRESH_ARTIFACT_DIGEST'],
+              'protocol_byte_equal': True,
+              'seal_index_byte_equal': True,
+              'strict_loader_passed': True,
+              'completed_endpoint_authority': True,
+              'superseded_raw_endpoint_authority_used': False,
+              'economic_values_inspected': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          audit = {
+              **audit_without_digest,
+              'content_digest': content_digest(audit_without_digest),
+          }
+          Path('/tmp/audit/audit.json').write_bytes(canonical_json_bytes(audit))
+          print('ISSUE600_PREMIUM_PREREG_SEAL_V2_AUDIT_RECOVERY=PASS')
+          print('PROTOCOL_DIGEST=' + expected)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+
+      - name: Upload immutable recovered final audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue600-premium-prereg-seal-v2-audit-recovery-${{ github.run_id }}
+          path: /tmp/audit/audit.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

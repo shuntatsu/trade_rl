@@ -12,7 +12,6 @@ from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_source_prereg impo
     canonical_spot_aggtrades_source_protocol,
 )
 
-
 SYMBOL = "BTCUSDT"
 DATE = "2021-01-15"
 HEADER = (
@@ -31,7 +30,9 @@ def _timestamp(offset_ms: int = 0) -> int:
     return int(datetime(2021, 1, 15, tzinfo=UTC).timestamp() * 1000) + offset_ms
 
 
-def _zip_bytes(rows: list[list[object]], *, header: tuple[str, ...] | None = HEADER) -> bytes:
+def _zip_bytes(
+    rows: list[list[object]], *, header: tuple[str, ...] | None = HEADER
+) -> bytes:
     member = f"{SYMBOL}-aggTrades-{DATE}.csv"
     lines: list[str] = []
     if header is not None:
@@ -48,7 +49,9 @@ def _checksum(payload: bytes, *, name: str | None = None) -> bytes:
     return f"{hashlib.sha256(payload).hexdigest()}  {filename}\n".encode()
 
 
-def _parse(rows: list[list[object]], *, header: tuple[str, ...] | None = HEADER) -> dict[str, object]:
+def _parse(
+    rows: list[list[object]], *, header: tuple[str, ...] | None = HEADER
+) -> dict[str, object]:
     payload = _zip_bytes(rows, header=header)
     return probe.parse_archive_bytes(
         symbol=SYMBOL,
@@ -154,7 +157,13 @@ def test_checksum_and_member_identity_fail_closed() -> None:
     assert wrong_member["schema_valid"] is False
 
 
-def _status_entry(*, available: bool = True, checksum_available: bool = True, checksum_verified: bool = True, schema_valid: bool = True) -> dict[str, object]:
+def _status_entry(
+    *,
+    available: bool = True,
+    checksum_available: bool = True,
+    checksum_verified: bool = True,
+    schema_valid: bool = True,
+) -> dict[str, object]:
     return {
         "archive_available": available,
         "checksum_available": checksum_available,
@@ -168,14 +177,24 @@ def _status_entry(*, available: bool = True, checksum_available: bool = True, ch
 
 
 def test_frozen_status_gate_distinguishes_missing_from_incompatible() -> None:
-    assert probe.classify_status([_status_entry() for _ in range(20)]) == "PASS_SPOT_AGGTRADES_SOURCE"
+    assert (
+        probe.classify_status([_status_entry() for _ in range(20)])
+        == "PASS_SPOT_AGGTRADES_SOURCE"
+    )
 
     partial = [_status_entry() for _ in range(20)]
-    partial[-1] = _status_entry(available=False, checksum_available=False, checksum_verified=False, schema_valid=False)
+    partial[-1] = _status_entry(
+        available=False,
+        checksum_available=False,
+        checksum_verified=False,
+        schema_valid=False,
+    )
     assert probe.classify_status(partial) == "PARTIAL_SPOT_AGGTRADES_SOURCE"
 
     missing_checksum = [_status_entry() for _ in range(20)]
-    missing_checksum[-1] = _status_entry(checksum_available=False, checksum_verified=False, schema_valid=True)
+    missing_checksum[-1] = _status_entry(
+        checksum_available=False, checksum_verified=False, schema_valid=True
+    )
     assert probe.classify_status(missing_checksum) == "PARTIAL_SPOT_AGGTRADES_SOURCE"
 
     incompatible = [_status_entry() for _ in range(20)]

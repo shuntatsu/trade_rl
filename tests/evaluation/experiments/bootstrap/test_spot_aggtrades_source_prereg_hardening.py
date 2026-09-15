@@ -18,7 +18,9 @@ def test_protocol_freezes_archive_row_and_status_semantics() -> None:
     assert protocol.usable_aggregate_id_nonnegative_integer is True
     assert protocol.usable_price_quantity_finite_strictly_positive is True
     assert protocol.usable_trade_ids_nonnegative_first_le_last is True
-    assert protocol.event_timestamp_nonnegative_millisecond_inside_requested_date is True
+    assert (
+        protocol.event_timestamp_nonnegative_millisecond_inside_requested_date is True
+    )
     assert protocol.provider_sentinel_requires_exact_four_field_match is True
     assert protocol.provider_sentinel_is_never_usable is True
     assert protocol.partial_or_near_sentinel_is_malformed is True

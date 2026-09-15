@@ -69,9 +69,7 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
     assert protocol.target_interval == "1h"
 
     assert protocol.calibration_method == "per_symbol_no_intercept_fixed_order_fsum"
-    assert protocol.calibration_formula == (
-        "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)"
-    )
+    assert protocol.calibration_formula == ("beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)")
     assert protocol.expected_effect_direction == "CONTINUATION"
     assert protocol.required_positive_symbol_slopes == 4
     assert protocol.valid_status == "VALID_PREMIUM_PRESSURE_CONTINUATION"

@@ -180,9 +180,7 @@ def test_malformed_rows_fail_closed(bad_row: list[object]) -> None:
 
 
 def test_usable_order_and_timestamp_monotonicity_are_independent_oracles() -> None:
-    duplicate_id = _validate(
-        [_row(2), _row(2, timestamp=DAY_START_MS + 2_000)]
-    )
+    duplicate_id = _validate([_row(2), _row(2, timestamp=DAY_START_MS + 2_000)])
     assert duplicate_id["schema_valid"] is False
     assert duplicate_id["usable_ids_strictly_increasing_unique"] is False
 
@@ -255,7 +253,9 @@ def _all_good_reports() -> list[dict[str, object]]:
             url = PROTOCOL.url_template.format(symbol=symbol, date=date)
             name = url.rsplit("/", 1)[-1]
             member = name.removesuffix(".zip") + ".csv"
-            timestamp = int(datetime.fromisoformat(date).replace(tzinfo=UTC).timestamp() * 1000)
+            timestamp = int(
+                datetime.fromisoformat(date).replace(tzinfo=UTC).timestamp() * 1000
+            )
             payload = _zip(
                 [_row(1, timestamp=timestamp + 1_000)],
                 member_name=member,

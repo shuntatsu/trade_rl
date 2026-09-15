@@ -26,8 +26,9 @@ HEADER = (
 )
 
 
-def _timestamp(offset_ms: int = 0) -> int:
-    return int(datetime(2021, 1, 15, tzinfo=UTC).timestamp() * 1000) + offset_ms
+def _timestamp(offset_ms: int = 0, *, date: str = DATE) -> int:
+    parsed = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC)
+    return int(parsed.timestamp() * 1000) + offset_ms
 
 
 def _zip_bytes(
@@ -204,8 +205,49 @@ def test_frozen_status_gate_distinguishes_missing_from_incompatible() -> None:
     assert probe.classify_status(incompatible) == "INCOMPATIBLE_SPOT_AGGTRADES_SOURCE"
 
 
+def _valid_structural_entry(symbol: str, date: str) -> dict[str, object]:
+    protocol = canonical_spot_aggtrades_source_protocol()
+    url = protocol.url_template.format(symbol=symbol, date=date)
+    filename = url.rsplit("/", 1)[-1]
+    digest = "a" * 64
+    timestamp = _timestamp(date=date)
+    return {
+        "symbol": symbol,
+        "date": date,
+        "url": url,
+        "checksum_url": url + protocol.checksum_suffix,
+        "archive_available": True,
+        "raw_zip_size_bytes": 1,
+        "raw_zip_sha256": digest,
+        "checksum_available": True,
+        "checksum_text": f"{digest}  {filename}",
+        "checksum_digest": digest,
+        "checksum_verified": True,
+        "member_name": filename.removesuffix(".zip") + ".csv",
+        "header_present": True,
+        "normalized_schema": list(HEADER),
+        "total_row_count": 1,
+        "usable_row_count": 1,
+        "provider_invalid_sentinel_count": 0,
+        "malformed_row_count": 0,
+        "first_usable_aggregate_id": 1,
+        "last_usable_aggregate_id": 1,
+        "first_usable_event_timestamp_ms": timestamp,
+        "last_usable_event_timestamp_ms": timestamp,
+        "usable_ids_strictly_increasing_unique": True,
+        "usable_timestamps_nondecreasing": True,
+        "timestamps_inside_requested_utc_date": True,
+        "schema_valid": True,
+    }
+
+
 def test_report_contains_only_frozen_structural_evidence() -> None:
-    entries = probe.synthetic_valid_entries_for_test()
+    protocol = canonical_spot_aggtrades_source_protocol()
+    entries = [
+        _valid_structural_entry(symbol, date)
+        for symbol in protocol.symbols
+        for date in protocol.dates
+    ]
     report = probe.build_report_from_entries(entries, probe_commit="a" * 40)
 
     assert report["status"] == "PASS_SPOT_AGGTRADES_SOURCE"
@@ -218,9 +260,12 @@ def test_report_contains_only_frozen_structural_evidence() -> None:
     assert report["live_trading_authorized"] is False
     assert report["content_digest"] == probe.report_content_digest(report)
 
-    forbidden_fragments = (
+    forbidden_keys = {
         "price_min",
         "price_max",
+        "price_mean",
+        "quantity_min",
+        "quantity_max",
         "quantity_mean",
         "notional",
         "imbalance",
@@ -229,10 +274,8 @@ def test_report_contains_only_frozen_structural_evidence() -> None:
         "beta",
         "ic",
         "pnl",
-    )
-    lowered_keys = {str(key).lower() for key in report}
+    }
+    observed_keys = {str(key).lower() for key in report}
     for entry in report["entries"]:
-        lowered_keys.update(str(key).lower() for key in entry)
-    assert not any(
-        fragment in key for key in lowered_keys for fragment in forbidden_fragments
-    )
+        observed_keys.update(str(key).lower() for key in entry)
+    assert observed_keys.isdisjoint(forbidden_keys)

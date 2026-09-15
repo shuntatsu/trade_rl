@@ -24,7 +24,9 @@ def test_canonical_protocol_freezes_source_feature_target_and_gate() -> None:
     assert protocol.spot_archive_count == 20
     assert protocol.spot_source_issue == 578
     assert protocol.spot_source_status == "PASS_SPOT_AGGTRADES_SOURCE"
-    assert protocol.spot_source_protocol_head == "9932775127c79a85d81fb304850c3349460e4a2a"
+    assert (
+        protocol.spot_source_protocol_head == "9932775127c79a85d81fb304850c3349460e4a2a"
+    )
     assert protocol.spot_source_protocol_digest == (
         "808f999915815259762067aaff381a88589a7c28ceb0383d8aa0626d5c67e8d4"
     )

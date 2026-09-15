@@ -1,0 +1,434 @@
+name: Issue 584 exactly-once Spot-flow diagnostic v3
+
+on:
+  push:
+    branches:
+      - run/issue584-spot-flow-diagnostic-v3
+    paths:
+      - .github/workflows/issue584-spot-flow-diagnostic-v3-real.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 53b005f4dd16de4b4bfe9593714db4d77d8da07f
+  VERIFIED_RUNNER_SHA: 8e4ccf57dbdb9b9202391ca65cb1935b449ef4b6
+  HELPER: tools/tmp_issue584_spot_flow_real_v3.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+  WORKFLOW_PATH: .github/workflows/issue584-spot-flow-diagnostic-v3-real.yml
+
+  PREREG_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  PREREG_FULL_RUN_ID: "34952378700"
+  PREREG_SEAL_RUN_ID: "34952843190"
+  PREREG_SEAL_ARTIFACT_ID: "10390380265"
+  PREREG_SEAL_ARTIFACT_NAME: issue584-spot-flow-prereg-seal-v3-34952843190
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:bd80fe0ae93ad95c5106eacc9f9b99c85164da65f5fc7ae8d290f45a03e84646
+  PREREG_FRESH_ARTIFACT_ID: "10390415743"
+  PREREG_FRESH_ARTIFACT_NAME: issue584-spot-flow-prereg-fresh-v3-34952843190
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:014cc3fc01b34a40086efe776717dfff15ffed1c5874afcc5e0aa907a9fd7115
+
+  IMPLEMENTATION_FULL_RUN_ID: "34953739416"
+  RUNNER_VERIFY_RUN_ID: "34954978813"
+
+  SPOT_SOURCE_RUN_ID: "34930477567"
+  SPOT_PUBLISHER_ARTIFACT_ID: "10381815598"
+  SPOT_PUBLISHER_ARTIFACT_NAME: issue578-spot-structural-publisher-34930477567
+  SPOT_PUBLISHER_ARTIFACT_DIGEST: sha256:faad983c85f496f6c6f88fa6adacdd0f53af785d35e3c15778ace17378d7a0a7
+  SPOT_FRESH_ARTIFACT_ID: "10381247817"
+  SPOT_FRESH_ARTIFACT_NAME: issue578-spot-structural-fresh-34930477567
+  SPOT_FRESH_ARTIFACT_DIGEST: sha256:0dc8faba79881ce36489bbf83f2526b7aae6fd6441539e46e0bec92f660b020f
+
+  TARGET_PREFLIGHT_RUN_ID: "34941447564"
+  TARGET_PUBLISHER_ARTIFACT_ID: "10385451448"
+  TARGET_PUBLISHER_ARTIFACT_NAME: issue584-target-source-preflight-v2-34941447564
+  TARGET_PUBLISHER_ARTIFACT_DIGEST: sha256:07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb
+  TARGET_FRESH_ARTIFACT_ID: "10385516382"
+  TARGET_FRESH_ARTIFACT_NAME: issue584-target-source-fresh-v2-34941447564
+  TARGET_FRESH_ARTIFACT_DIGEST: sha256:7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d
+
+  TARGET_VALIDATOR_FULL_RUN_ID: "34951770631"
+  TARGET_ADOPTION_RUN_ID: "34952526725"
+  TARGET_ADOPTION_ARTIFACT_ID: "10389971187"
+  TARGET_ADOPTION_ARTIFACT_DIGEST: sha256:599c2770d4f8ebffc1976d0ff84f12627f7b47f0a81b3cbf875cf096737fd071
+  TARGET_ADOPTION_FRESH_ARTIFACT_ID: "10390001155"
+  TARGET_ADOPTION_FRESH_ARTIFACT_DIGEST: sha256:c5652f11b3f9404bfb80cdaa5202b49b41d686f09f4fbbedfb234878eeaa3fd9
+
+jobs:
+  publisher:
+    name: Exactly-once frozen diagnostic publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact execution lineage
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind all immutable authorities before real data access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$(git rev-parse "$IMPLEMENTATION_SHA:$MODULE")" = "$(git rev-parse "HEAD:$MODULE")"
+          test "$(git rev-parse "$VERIFIED_RUNNER_SHA:$HELPER")" = "$(git rev-parse "HEAD:$HELPER")"
+          changed="$(git diff --name-only "$IMPLEMENTATION_SHA..$GITHUB_SHA")"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(tools/tmp_issue584_spot_flow_real_v3.py|.github/workflows/issue584-spot-flow-diagnostic-v3-real.yml)$' || true)"
+          test "$(printf '%s\n' "$changed" | grep -Fx "$HELPER" | wc -l)" = "1"
+          test "$(printf '%s\n' "$changed" | grep -Fx "$WORKFLOW_PATH" | wc -l)" = "1"
+
+          branch_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&event=push&per_page=100")"
+          current_workflow_runs="$(jq --arg path "$WORKFLOW_PATH" '[.workflow_runs[] | select(.path==$path)]' <<<"$branch_runs")"
+          test "$(jq 'length' <<<"$current_workflow_runs")" = "1"
+          test "$(jq -r '.[0].id' <<<"$current_workflow_runs")" = "$GITHUB_RUN_ID"
+
+          require_success_run() {
+            local run_id="$1"
+            local run
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            test "$(jq -r .conclusion <<<"$run")" = success
+          }
+          require_two_full_jobs() {
+            local run_id="$1"
+            local jobs
+            jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
+            test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$jobs")" = success
+            test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$jobs")" = success
+          }
+          bind_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local artifact
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            if [ -n "$name" ]; then test "$(jq -r .name <<<"$artifact")" = "$name"; fi
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          }
+
+          require_success_run "$PREREG_FULL_RUN_ID"
+          require_two_full_jobs "$PREREG_FULL_RUN_ID"
+          require_success_run "$PREREG_SEAL_RUN_ID"
+          bind_artifact "$PREREG_SEAL_ARTIFACT_ID" "$PREREG_SEAL_ARTIFACT_NAME" "$PREREG_SEAL_ARTIFACT_DIGEST" "$PREREG_SEAL_RUN_ID"
+          bind_artifact "$PREREG_FRESH_ARTIFACT_ID" "$PREREG_FRESH_ARTIFACT_NAME" "$PREREG_FRESH_ARTIFACT_DIGEST" "$PREREG_SEAL_RUN_ID"
+
+          require_success_run "$IMPLEMENTATION_FULL_RUN_ID"
+          require_two_full_jobs "$IMPLEMENTATION_FULL_RUN_ID"
+          require_success_run "$RUNNER_VERIFY_RUN_ID"
+
+          require_success_run "$SPOT_SOURCE_RUN_ID"
+          bind_artifact "$SPOT_PUBLISHER_ARTIFACT_ID" "$SPOT_PUBLISHER_ARTIFACT_NAME" "$SPOT_PUBLISHER_ARTIFACT_DIGEST" "$SPOT_SOURCE_RUN_ID"
+          bind_artifact "$SPOT_FRESH_ARTIFACT_ID" "$SPOT_FRESH_ARTIFACT_NAME" "$SPOT_FRESH_ARTIFACT_DIGEST" "$SPOT_SOURCE_RUN_ID"
+
+          require_success_run "$TARGET_PREFLIGHT_RUN_ID"
+          bind_artifact "$TARGET_PUBLISHER_ARTIFACT_ID" "$TARGET_PUBLISHER_ARTIFACT_NAME" "$TARGET_PUBLISHER_ARTIFACT_DIGEST" "$TARGET_PREFLIGHT_RUN_ID"
+          bind_artifact "$TARGET_FRESH_ARTIFACT_ID" "$TARGET_FRESH_ARTIFACT_NAME" "$TARGET_FRESH_ARTIFACT_DIGEST" "$TARGET_PREFLIGHT_RUN_ID"
+
+          require_success_run "$TARGET_VALIDATOR_FULL_RUN_ID"
+          require_two_full_jobs "$TARGET_VALIDATOR_FULL_RUN_ID"
+          require_success_run "$TARGET_ADOPTION_RUN_ID"
+          bind_artifact "$TARGET_ADOPTION_ARTIFACT_ID" "" "$TARGET_ADOPTION_ARTIFACT_DIGEST" "$TARGET_ADOPTION_RUN_ID"
+          bind_artifact "$TARGET_ADOPTION_FRESH_ARTIFACT_ID" "" "$TARGET_ADOPTION_FRESH_ARTIFACT_DIGEST" "$TARGET_ADOPTION_RUN_ID"
+
+          test "$(git rev-parse "$PREREG_SHA:trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py")" = "$(git rev-parse "HEAD:trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py")"
+          echo "AUTHORITIES_BOUND=true"
+          echo "REAL_ECONOMIC_VALUES_INSPECTED=false"
+
+      - name: Download immutable source authorities only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/spot-authority /tmp/target-authority
+          gh run download "$SPOT_SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$SPOT_PUBLISHER_ARTIFACT_NAME" --dir /tmp/spot-authority
+          gh run download "$TARGET_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_PUBLISHER_ARTIFACT_NAME" --dir /tmp/target-authority
+          test -f /tmp/spot-authority/result.json
+          test -f /tmp/target-authority/report.json
+          test -f /tmp/target-authority/manifest.json
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Final pre-network implementation verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$HELPER"
+          uv run ruff check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python "$HELPER" --self-check
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "PRE_NETWORK_GATE=PASS"
+          echo "REAL_ECONOMIC_VALUES_INSPECTED=false"
+
+      - name: Execute exactly-once frozen diagnostic publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher
+          uv run python "$HELPER" \
+            --spot-result /tmp/spot-authority/result.json \
+            --target-report /tmp/target-authority/report.json \
+            --target-manifest /tmp/target-authority/manifest.json \
+            --execution-run-id "$GITHUB_RUN_ID" \
+            --output-dir /tmp/publisher
+          test -f /tmp/publisher/result.json
+          test -f /tmp/publisher/evidence.json
+          echo "PUBLISHER_RESULT_CREATED=true"
+          echo "PUBLISHER_RESULT_INTERPRETED=false"
+
+      - id: meta
+        run: echo "name=issue584-spot-flow-diagnostic-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable publisher result before interpretation
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/publisher/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent raw-source reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact implementation authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recover verified execution helper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$GITHUB_SHA" --no-tags
+          git show "$GITHUB_SHA:$HELPER" > /tmp/runner.py
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git rev-parse "$VERIFIED_RUNNER_SHA:$HELPER")" = "$(git hash-object /tmp/runner.py)"
+
+      - name: Bind publisher and immutable old authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          publisher="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PUB_ID")"
+          test "$(jq -r .name <<<"$publisher")" = "$PUB_NAME"
+          test "$(jq -r .workflow_run.id <<<"$publisher")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$publisher")" = false
+          api_digest="$(jq -r .digest <<<"$publisher")"
+          case "$PUB_DIGEST" in
+            sha256:*) test "$api_digest" = "$PUB_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PUB_DIGEST" ;;
+          esac
+          for spec in \
+            "$SPOT_PUBLISHER_ARTIFACT_ID|$SPOT_PUBLISHER_ARTIFACT_NAME|$SPOT_PUBLISHER_ARTIFACT_DIGEST|$SPOT_SOURCE_RUN_ID" \
+            "$TARGET_PUBLISHER_ARTIFACT_ID|$TARGET_PUBLISHER_ARTIFACT_NAME|$TARGET_PUBLISHER_ARTIFACT_DIGEST|$TARGET_PREFLIGHT_RUN_ID"; do
+            IFS='|' read -r id name digest run_id <<<"$spec"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+
+      - name: Download publisher and frozen source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/published /tmp/spot-authority /tmp/target-authority
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "${{ needs.publisher.outputs.artifact_name }}" --dir /tmp/published
+          gh run download "$SPOT_SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$SPOT_PUBLISHER_ARTIFACT_NAME" --dir /tmp/spot-authority
+          gh run download "$TARGET_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_PUBLISHER_ARTIFACT_NAME" --dir /tmp/target-authority
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Independently re-fetch and reconstruct exact canonical result
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python /tmp/runner.py --self-check
+          mkdir -p /tmp/fresh
+          uv run python /tmp/runner.py \
+            --spot-result /tmp/spot-authority/result.json \
+            --target-report /tmp/target-authority/report.json \
+            --target-manifest /tmp/target-authority/manifest.json \
+            --execution-run-id "$GITHUB_RUN_ID" \
+            --output-dir /tmp/fresh
+          cmp /tmp/published/result.json /tmp/fresh/result.json
+          cmp /tmp/published/evidence.json /tmp/fresh/evidence.json
+          echo "FRESH_RESULT_BYTE_EQUAL=true"
+          echo "FRESH_EVIDENCE_BYTE_EQUAL=true"
+          echo "ECONOMIC_RESULT_INTERPRETED=false"
+
+      - id: meta
+        run: echo "name=issue584-spot-flow-diagnostic-fresh-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final frozen diagnostic audit and interpretation
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact implementation authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          persist-credentials: false
+
+      - name: API-bind publisher and fresh result artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+
+      - name: Download both immutable result reconstructions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Require byte equality, semantic validity, then interpret frozen status
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/result.json /tmp/fresh/result.json
+          cmp /tmp/publisher/evidence.json /tmp/fresh/evidence.json
+          uv run python - /tmp/publisher/result.json /tmp/publisher/evidence.json "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_diagnostic import load_spot_flow_result_bytes
+
+          result_path = Path(sys.argv[1])
+          evidence_path = Path(sys.argv[2])
+          run_id = int(sys.argv[3])
+          raw = result_path.read_bytes()
+          result = load_spot_flow_result_bytes(raw)
+          evidence = json.loads(evidence_path.read_bytes())
+          if evidence_path.read_bytes() != __import__('trade_rl.artifacts.canonical', fromlist=['canonical_json_bytes']).canonical_json_bytes(evidence):
+              raise SystemExit('execution evidence is not canonical JSON')
+          unsigned = dict(evidence)
+          digest = unsigned.pop('content_digest', None)
+          if not isinstance(digest, str) or content_digest(unsigned) != digest:
+              raise SystemExit('execution evidence content digest mismatch')
+          if result.execution_run_id != run_id or evidence.get('execution_run_id') != run_id:
+              raise SystemExit('execution run id mismatch')
+          if result.implementation_head != '53b005f4dd16de4b4bfe9593714db4d77d8da07f':
+              raise SystemExit('implementation authority mismatch')
+          if result.source_manifest_digest != '06207c17f997ebd6c99db553cee07881a10e8b54d16af062a47e0fcb0a2cb51a':
+              raise SystemExit('Spot source authority mismatch')
+          if result.target_manifest_digest != '69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b':
+              raise SystemExit('target manifest authority mismatch')
+          if result.training_relation_executed is not True:
+              raise SystemExit('training relation was not executed')
+          forbidden = (
+              result.evaluation_pnl_inspected,
+              result.evaluation_execution_authorized,
+              result.final_test_authorized,
+              result.shared_cash_profitability_established,
+              result.production_eligible,
+              result.live_trading_authorized,
+          )
+          if any(forbidden):
+              raise SystemExit('forbidden post-training boundary crossed')
+          if evidence.get('spot_archive_count') != 20 or evidence.get('target_archive_count') != 40:
+              raise SystemExit('real source roster is incomplete')
+          if evidence.get('source_replacement_used') is not False or evidence.get('target_replacement_used') is not False:
+              raise SystemExit('source replacement was used')
+
+          print('ISSUE584_DIAGNOSTIC_AUDIT=PASS')
+          print('STATUS=' + result.status)
+          print('POSITIVE_SLOPE_COUNT=' + str(result.positive_slope_count))
+          for item in result.symbol_results:
+              print(
+                  'SYMBOL_RESULT=' + json.dumps(
+                      {
+                          'symbol': item.symbol,
+                          'eligible_observations': item.eligible_observations,
+                          'numerator': item.numerator,
+                          'denominator': item.denominator,
+                          'beta': item.beta,
+                          'positive_slope': item.positive_slope,
+                          'failures': list(item.failures),
+                      },
+                      sort_keys=True,
+                      separators=(',', ':'),
+                  )
+              )
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('FINAL_TEST_AUTHORIZED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          PY

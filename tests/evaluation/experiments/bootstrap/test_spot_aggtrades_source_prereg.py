@@ -92,7 +92,16 @@ def test_canonical_protocol_freezes_complete_result_blind_contract() -> None:
     assert encoded == canonical_json_bytes(payload)
     assert b"flow_imbalance" not in encoded
     assert b"beta" not in encoded
-    assert b"pnl" not in encoded.lower()
+    forbidden_report_fields = {
+        "flow_imbalance",
+        "beta",
+        "pnl",
+        "price_mean",
+        "quantity_mean",
+        "notional_mean",
+    }
+    assert forbidden_report_fields.isdisjoint(protocol.allowed_archive_report_fields)
+    assert payload["evaluation_pnl_inspected"] is False
     assert len(protocol.digest) == 64
 
 

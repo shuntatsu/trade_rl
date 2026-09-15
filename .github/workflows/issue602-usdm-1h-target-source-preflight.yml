@@ -1,0 +1,392 @@
+name: Issue 602 USD-M 1h target-source structural preflight
+
+on:
+  push:
+    branches:
+      - preflight/issue602-usdm-1h-target-source
+    paths:
+      - .github/workflows/issue602-usdm-1h-target-source-preflight.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  VALIDATOR_SHA: d914d49aca7a30bdbf8ac394dc492b3e19e9d61c
+  VALIDATOR_FULL_RUN_ID: "34961124202"
+  VERIFIED_HELPER_SHA: 9fd7d0d5600d83c8b710106c8150a9d8701b41fd
+  HELPER_VERIFY_RUN_ID: "34961432544"
+  MODULE: trade_rl/evaluation/experiments/bootstrap/issue602_target_source_validator.py
+  TEST: tests/evaluation/experiments/bootstrap/test_issue602_target_source_validator.py
+  HELPER: tools/tmp_issue602_target_source_preflight.py
+
+  ISSUE600_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  ISSUE600_PROTOCOL_DIGEST: c78d556f94e247d5bdc1c0e9a891d160e4c48c4f0b62cd5be7600874b3017d22
+  ISSUE600_FULL_RUN_ID: "34958973042"
+  ISSUE600_DIGEST_RUN_ID: "34959535015"
+  ISSUE600_SEAL_RUN_ID: "34959723495"
+  ISSUE600_SEAL_ARTIFACT_ID: "10392597937"
+  ISSUE600_SEAL_ARTIFACT_DIGEST: sha256:c485b90f4be41556c85e50e146c663dca8bcaa84c4d5dae3c2d26ce179fd60f3
+  ISSUE600_FRESH_ARTIFACT_ID: "10392916717"
+  ISSUE600_FRESH_ARTIFACT_DIGEST: sha256:3cf2580fc29240583025da1f7bb2b7b5a4d8bf15f24e49c525c3ad58757470ed
+  ISSUE600_AUDIT_RUN_ID: "34959887850"
+  ISSUE600_AUDIT_ARTIFACT_ID: "10392966885"
+  ISSUE600_AUDIT_ARTIFACT_DIGEST: sha256:79a363b394529fbd1364cb08d0792592ed69e3876fc337ee36c76f877fa2e454
+
+jobs:
+  publisher:
+    name: Structural 120-archive publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact execution lineage
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind validator, helper, and completed-endpoint prereg authorities before network
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$VALIDATOR_SHA:$MODULE")" = "$(git rev-parse "HEAD:$MODULE")"
+          test "$(git rev-parse "$VALIDATOR_SHA:$TEST")" = "$(git rev-parse "HEAD:$TEST")"
+          test "$(git rev-parse "$VERIFIED_HELPER_SHA:$HELPER")" = "$(git rev-parse "HEAD:$HELPER")"
+          changed="$(git diff --name-only "$VALIDATOR_SHA..$GITHUB_SHA")"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(tools/tmp_issue602_target_source_preflight.py|.github/workflows/issue602-usdm-1h-target-source-preflight.yml)$' || true)"
+
+          require_success_run() {
+            local run_id="$1"
+            local run
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            test "$(jq -r .status <<<"$run")" = completed
+            test "$(jq -r .conclusion <<<"$run")" = success
+          }
+          require_two_full_jobs() {
+            local run_id="$1"
+            local jobs
+            jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
+            test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$jobs")" = success
+            test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$jobs")" = success
+          }
+          bind_artifact() {
+            local id="$1" digest="$2" run_id="$3"
+            local artifact
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          }
+
+          require_success_run "$VALIDATOR_FULL_RUN_ID"
+          require_two_full_jobs "$VALIDATOR_FULL_RUN_ID"
+          require_success_run "$HELPER_VERIFY_RUN_ID"
+
+          require_success_run "$ISSUE600_FULL_RUN_ID"
+          require_two_full_jobs "$ISSUE600_FULL_RUN_ID"
+          require_success_run "$ISSUE600_DIGEST_RUN_ID"
+          seal_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ISSUE600_SEAL_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Immutable completed-endpoint premium protocol publisher") | .conclusion' <<<"$seal_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Fresh independent completed-endpoint prereg reconstruction") | .conclusion' <<<"$seal_jobs")" = success
+          bind_artifact "$ISSUE600_SEAL_ARTIFACT_ID" "$ISSUE600_SEAL_ARTIFACT_DIGEST" "$ISSUE600_SEAL_RUN_ID"
+          bind_artifact "$ISSUE600_FRESH_ARTIFACT_ID" "$ISSUE600_FRESH_ARTIFACT_DIGEST" "$ISSUE600_SEAL_RUN_ID"
+          require_success_run "$ISSUE600_AUDIT_RUN_ID"
+          bind_artifact "$ISSUE600_AUDIT_ARTIFACT_ID" "$ISSUE600_AUDIT_ARTIFACT_DIGEST" "$ISSUE600_AUDIT_RUN_ID"
+
+          test "$(git rev-parse "$ISSUE600_SHA:trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py")" != ""
+          echo "AUTHORITIES_BOUND=true"
+          echo "ISSUE600_PROTOCOL_DIGEST=$ISSUE600_PROTOCOL_DIGEST"
+          echo "PREMIUM_ECONOMIC_VALUES_INSPECTED=false"
+          echo "TARGET_RELATION_COMPUTED=false"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Final no-network gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$HELPER" "$MODULE" "$TEST"
+          uv run ruff check "$HELPER" "$MODULE" "$TEST"
+          uv run mypy "$HELPER" "$MODULE"
+          uv run python "$HELPER" --self-check
+          uv run pytest -q "$TEST"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "PRE_NETWORK_GATE=PASS"
+          echo "PREMIUM_ECONOMIC_VALUES_INSPECTED=false"
+
+      - name: Fetch and structurally validate exact 120 target archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher
+          uv run python "$HELPER" --output /tmp/publisher/report.json
+          test -f /tmp/publisher/report.json
+          echo "TARGET_RELATION_COMPUTED=false"
+          echo "PREMIUM_ECONOMIC_VALUES_INSPECTED=false"
+
+      - id: meta
+        run: echo "name=issue602-usdm-1h-target-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable structural publisher evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/publisher/report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent 120-archive reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recover verified helper and API-bind publisher artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$VERIFIED_HELPER_SHA" --no-tags
+          git show "$VERIFIED_HELPER_SHA:$HELPER" > /tmp/helper.py
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
+          test "$(git hash-object /tmp/helper.py)" = "$(git rev-parse "$VERIFIED_HELPER_SHA:$HELPER")"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PUB_ID")"
+          test "$(jq -r .name <<<"$artifact")" = "$PUB_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$PUB_DIGEST" in
+            sha256:*) test "$api_digest" = "$PUB_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PUB_DIGEST" ;;
+          esac
+
+      - name: Download immutable publisher report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/published
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Independently re-fetch all 120 archives and reconstruct canonical report
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python /tmp/helper.py --self-check
+          mkdir -p /tmp/fresh
+          uv run python /tmp/helper.py --output /tmp/fresh/report.json
+          cmp /tmp/published/report.json /tmp/fresh/report.json
+          echo "FRESH_REPORT_BYTE_EQUAL=true"
+          echo "PREMIUM_ECONOMIC_VALUES_INSPECTED=false"
+          echo "TARGET_RELATION_COMPUTED=false"
+
+      - id: meta
+        run: echo "name=issue602-usdm-1h-target-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/report.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 602 structural target-source audit
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          persist-credentials: false
+
+      - name: API-bind publisher and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Require byte equality and strict structural semantic closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/report.json /tmp/fresh/report.json
+          mkdir -p /tmp/audit
+          uv run python - /tmp/publisher/report.json "${{ needs.publisher.outputs.artifact_id }}" "${{ needs.publisher.outputs.artifact_digest }}" "${{ needs.fresh.outputs.artifact_id }}" "${{ needs.fresh.outputs.artifact_digest }}" "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.issue602_target_source_validator import (
+              load_target_source_report_bytes,
+          )
+
+          report_path = Path(sys.argv[1])
+          pub_id = int(sys.argv[2])
+          pub_digest = sys.argv[3]
+          fresh_id = int(sys.argv[4])
+          fresh_digest = sys.argv[5]
+          run_id = int(sys.argv[6])
+          raw = report_path.read_bytes()
+          report = load_target_source_report_bytes(raw)
+          allowed_status = {
+              'PASS_USDM_1H_TARGET_SOURCE',
+              'PARTIAL_USDM_1H_TARGET_SOURCE',
+              'INCOMPATIBLE_USDM_1H_TARGET_SOURCE',
+          }
+          if report['status'] not in allowed_status:
+              raise SystemExit('unexpected structural status')
+          if report['planned_archive_count'] != 120 or len(report['entries']) != 120:
+              raise SystemExit('frozen archive roster differs')
+          if report['validator_head'] != 'd914d49aca7a30bdbf8ac394dc492b3e19e9d61c':
+              raise SystemExit('validator authority differs')
+          if report['validator_verification_run_id'] != 34961124202:
+              raise SystemExit('validator verification authority differs')
+          if report['issue600_protocol_head'] != 'da97eb59b08ef042a96ebea4aaa645af02b450e9':
+              raise SystemExit('Issue 600 authority differs')
+          if report['issue600_protocol_digest'] != 'c78d556f94e247d5bdc1c0e9a891d160e4c48c4f0b62cd5be7600874b3017d22':
+              raise SystemExit('Issue 600 protocol digest differs')
+          if report['superseded_raw_endpoint_authority_used'] is not False:
+              raise SystemExit('superseded raw-endpoint authority was used')
+          if report['dataset_timestamp_semantics'] != 'completed_bar_close_boundary':
+              raise SystemExit('Dataset timestamp semantics differ')
+          for key in (
+              'premium_economic_values_inspected',
+              'target_relation_computed',
+              'evaluation_pnl_inspected',
+              'production_eligible',
+              'live_trading_authorized',
+          ):
+              if report[key] is not False:
+                  raise SystemExit(f'forbidden structural boundary crossed: {key}')
+
+          audit_without_digest = {
+              'schema_version': 'issue602_usdm_1h_target_source_audit_v1',
+              'issue_number': 602,
+              'run_id': run_id,
+              'validator_head': report['validator_head'],
+              'validator_verification_run_id': report['validator_verification_run_id'],
+              'issue600_protocol_head': report['issue600_protocol_head'],
+              'issue600_protocol_digest': report['issue600_protocol_digest'],
+              'status': report['status'],
+              'planned_archive_count': report['planned_archive_count'],
+              'available_archive_count': report['available_archive_count'],
+              'available_checksum_count': report['available_checksum_count'],
+              'checksum_verified_count': report['checksum_verified_count'],
+              'structurally_valid_archive_count': report['structurally_valid_archive_count'],
+              'complete_archive_count': report['complete_archive_count'],
+              'total_missing_grid_rows': report['total_missing_grid_rows'],
+              'report_content_digest': report['content_digest'],
+              'publisher_artifact_id': pub_id,
+              'publisher_artifact_digest': pub_digest,
+              'fresh_artifact_id': fresh_id,
+              'fresh_artifact_digest': fresh_digest,
+              'publisher_fresh_report_byte_equal': True,
+              'strict_loader_passed': True,
+              'premium_economic_values_inspected': False,
+              'target_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          audit = {
+              **audit_without_digest,
+              'content_digest': content_digest(audit_without_digest),
+          }
+          Path('/tmp/audit/audit.json').write_bytes(canonical_json_bytes(audit))
+          print('ISSUE602_TARGET_SOURCE_AUDIT=PASS')
+          print('STATUS=' + str(report['status']))
+          print('AVAILABLE_ARCHIVES=' + str(report['available_archive_count']))
+          print('CHECKSUM_VERIFIED=' + str(report['checksum_verified_count']))
+          print('STRUCTURALLY_VALID=' + str(report['structurally_valid_archive_count']))
+          print('COMPLETE_ARCHIVES=' + str(report['complete_archive_count']))
+          print('TOTAL_MISSING_GRID_ROWS=' + str(report['total_missing_grid_rows']))
+          print('PREMIUM_ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_RELATION_COMPUTED=false')
+          PY
+
+      - id: meta
+        run: echo "name=issue602-usdm-1h-target-audit-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable final structural audit
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/audit/audit.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

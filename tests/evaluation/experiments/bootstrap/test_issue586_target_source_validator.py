@@ -83,9 +83,7 @@ def _zip(
 
 
 def _checksum(payload: bytes, symbol: str, date: str) -> bytes:
-    return (
-        f"{hashlib.sha256(payload).hexdigest()}  {symbol}-15m-{date}.zip\n".encode()
-    )
+    return f"{hashlib.sha256(payload).hexdigest()}  {symbol}-15m-{date}.zip\n".encode()
 
 
 def _validate(
@@ -149,7 +147,9 @@ def test_complete_daily_archive_passes_structural_oracles() -> None:
     assert report["schema_valid"] is True
 
 
-def test_headerless_and_exact_header_normalize_identically_but_bad_header_fails() -> None:
+def test_headerless_and_exact_header_normalize_identically_but_bad_header_fails() -> (
+    None
+):
     headerless = _validate("BTCUSDT", "2021-01-15")
     headered = _validate("BTCUSDT", "2021-01-15", header=_HEADER)
     assert headerless["header_present"] is False
@@ -261,12 +261,15 @@ def test_native_gap_is_recorded_exactly_and_never_filled() -> None:
     assert report["schema_valid"] is True
     assert report["row_count"] == 95
     assert report["missing_grid_rows"] == 1
-    assert report["missing_grid_open_times_sha256"] == hashlib.sha256(
-        str(missing_open).encode("ascii")
-    ).hexdigest()
+    assert (
+        report["missing_grid_open_times_sha256"]
+        == hashlib.sha256(str(missing_open).encode("ascii")).hexdigest()
+    )
 
 
-def test_status_gate_distinguishes_pass_partial_incompatible_and_missing_source() -> None:
+def test_status_gate_distinguishes_pass_partial_incompatible_and_missing_source() -> (
+    None
+):
     reports = [
         _valid(symbol, date) for symbol in TARGET_SYMBOLS for date in TARGET_DATES
     ]

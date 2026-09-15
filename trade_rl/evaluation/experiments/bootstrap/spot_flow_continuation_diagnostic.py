@@ -405,6 +405,42 @@ def build_four_hour_label(
     return label if math.isfinite(label) else None
 
 
+def _expected_symbol_semantics(
+    *,
+    symbol: str,
+    eligible_observations: int,
+    numerator: float | None,
+    denominator: float | None,
+    beta: float | None,
+    minimum_observations: int,
+) -> tuple[tuple[str, ...], float | None]:
+    failures: list[str] = []
+    if eligible_observations < minimum_observations:
+        failures.append(f"{symbol}:eligible_observations<{minimum_observations}")
+    if numerator is None:
+        failures.append(f"{symbol}:numerator_not_finite")
+    if denominator is None or denominator <= 0.0:
+        failures.append(f"{symbol}:denominator_not_finite_positive")
+
+    expected_beta: float | None = None
+    if not failures:
+        assert numerator is not None and denominator is not None
+        candidate = numerator / denominator
+        if math.isfinite(candidate):
+            expected_beta = candidate
+        else:
+            failures.append(f"{symbol}:beta_not_finite")
+
+    if failures:
+        if beta is not None:
+            raise ValueError("beta must be null when symbol semantic failures exist")
+    elif beta is None or beta != expected_beta:
+        raise ValueError(
+            "beta does not equal numerator / denominator semantic authority"
+        )
+    return tuple(failures), expected_beta
+
+
 @dataclass(frozen=True, slots=True)
 class SpotFlowSymbolCalibration:
     symbol: str
@@ -414,24 +450,39 @@ class SpotFlowSymbolCalibration:
     beta: float | None
     positive_slope: bool
     failures: tuple[str, ...]
+    minimum_observations: int = 360
 
     def __post_init__(self) -> None:
         _require_string(self.symbol, field="symbol")
-        _require_int(self.eligible_observations, field="eligible_observations")
+        eligible = _require_int(
+            self.eligible_observations, field="eligible_observations"
+        )
+        minimum = _require_int(
+            self.minimum_observations, field="minimum_observations", minimum=1
+        )
         numerator = _require_optional_finite(self.numerator, field="numerator")
         denominator = _require_optional_finite(self.denominator, field="denominator")
         beta = _require_optional_finite(self.beta, field="beta")
         _require_bool(self.positive_slope, field="positive_slope")
         if denominator is not None and denominator < 0.0:
             raise ValueError("denominator must be non-negative when present")
-        if self.positive_slope is not (beta is not None and beta > 0.0):
-            raise ValueError("positive_slope does not match beta sign")
-        if beta is not None and (
-            numerator is None or denominator is None or denominator <= 0.0
-        ):
-            raise ValueError("beta requires finite numerator and positive denominator")
         if any(not isinstance(item, str) or not item for item in self.failures):
             raise ValueError("symbol failures must be non-empty strings")
+
+        expected_failures, expected_beta = _expected_symbol_semantics(
+            symbol=self.symbol,
+            eligible_observations=eligible,
+            numerator=numerator,
+            denominator=denominator,
+            beta=beta,
+            minimum_observations=minimum,
+        )
+        if self.failures != expected_failures:
+            raise ValueError("symbol failure list does not match semantic authority")
+        if self.positive_slope is not (
+            expected_beta is not None and expected_beta > 0.0
+        ):
+            raise ValueError("positive_slope does not match semantic beta sign")
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -442,6 +493,7 @@ class SpotFlowSymbolCalibration:
             "beta": self.beta,
             "positive_slope": self.positive_slope,
             "failures": list(self.failures),
+            "minimum_observations": self.minimum_observations,
         }
 
 
@@ -506,6 +558,7 @@ def calibrate_spot_flow_symbol(
         beta=beta,
         positive_slope=beta is not None and beta > 0.0,
         failures=tuple(failures),
+        minimum_observations=minimum,
     )
 
 
@@ -578,6 +631,12 @@ class SpotFlowDiagnosticResult:
             raise ValueError("diagnostic symbol roster is not canonical")
         if tuple(item.symbol for item in self.symbol_results) != self.symbols:
             raise ValueError("symbol result roster does not match canonical symbols")
+        if any(
+            item.minimum_observations
+            != protocol.minimum_eligible_observations_per_symbol
+            for item in self.symbol_results
+        ):
+            raise ValueError("symbol minimum coverage differs from preregistration")
         _require_int(self.positive_slope_count, field="positive_slope_count")
         observed_positive = sum(item.positive_slope for item in self.symbol_results)
         if self.positive_slope_count != observed_positive:
@@ -747,6 +806,7 @@ def _symbol_result_from_payload(raw: object) -> SpotFlowSymbolCalibration:
         "beta",
         "positive_slope",
         "failures",
+        "minimum_observations",
     }
     if set(raw) != expected:
         raise ValueError("symbol result has unknown or missing fields")
@@ -765,6 +825,11 @@ def _symbol_result_from_payload(raw: object) -> SpotFlowSymbolCalibration:
         beta=_require_optional_finite(raw["beta"], field="beta"),
         positive_slope=_require_bool(raw["positive_slope"], field="positive_slope"),
         failures=tuple(failures_raw),
+        minimum_observations=_require_int(
+            raw["minimum_observations"],
+            field="minimum_observations",
+            minimum=1,
+        ),
     )
 
 

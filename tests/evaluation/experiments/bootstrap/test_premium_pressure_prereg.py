@@ -49,30 +49,50 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
     assert protocol.feature_name == "1h__premium_index_close_bps"
     assert protocol.feature_kind == "premium_index_close_bps"
     assert protocol.premium_price_field == "close"
-    assert protocol.feature_formula == "10000*premium_index_close[t]"
+    assert protocol.feature_formula == "10000*premium_index_close(raw_open_time=t-1h)"
     assert protocol.feature_scale_bps == 10_000.0
     assert protocol.feature_transform == "fixed_scale_only"
     assert protocol.source_family == "premiumIndexKlines"
     assert protocol.source_interval == "1h"
     assert protocol.source_market == "USD_M"
+    assert protocol.premium_dataset_timestamp_semantics == "completed_bar_close_boundary"
+    assert (
+        protocol.premium_dataset_timestamp_formula
+        == "dataset_timestamp=raw_open_time+1h"
+    )
+    assert protocol.premium_decision_raw_open_time_offset_minutes == -60
 
     assert protocol.fit_start == datetime(2021, 1, 1, 1, tzinfo=UTC)
     assert protocol.fit_cutoff == datetime(2023, 1, 1, tzinfo=UTC)
-    assert protocol.nominal_candidate_decisions_per_symbol == 17_510
-    assert protocol.minimum_eligible_observations_per_symbol == 16_635
-    assert protocol.label_execution_offset_bars == 1
-    assert protocol.label_endpoint_offset_bars == 9
-    assert protocol.label_horizon_bars == 8
-    assert protocol.label_formula == "log(open[t+9] / open[t+1])"
+    assert protocol.last_candidate_decision == datetime(2022, 12, 30, 23, tzinfo=UTC)
+    assert protocol.nominal_candidate_decisions_per_symbol == 17_495
+    assert protocol.minimum_eligible_observations_per_symbol == 16_621
+
     assert protocol.target_source_market == "USD_M"
     assert protocol.target_source_family == "klines"
     assert protocol.target_interval == "1h"
+    assert protocol.target_dataset_timestamp_semantics == "completed_bar_close_boundary"
+    assert (
+        protocol.target_dataset_timestamp_formula
+        == "dataset_timestamp=raw_open_time+1h"
+    )
+    assert protocol.target_decision_raw_open_time_offset_minutes == -60
+    assert protocol.execution_raw_open_time_offset_minutes == 0
+    assert protocol.endpoint_raw_open_time_offset_minutes == 1_440
+    assert protocol.label_execution_offset_bars == 1
+    assert protocol.label_endpoint_offset_bars == 25
+    assert protocol.label_horizon_bars == 24
+    assert protocol.label_formula == "log(open[t+25] / open[t+1])"
 
-    assert protocol.calibration_method == "per_symbol_no_intercept_fixed_order_fsum"
-    assert protocol.calibration_formula == ("beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)")
-    assert protocol.expected_effect_direction == "CONTINUATION"
-    assert protocol.required_positive_symbol_slopes == 4
-    assert protocol.valid_status == "VALID_PREMIUM_PRESSURE_CONTINUATION"
+    assert protocol.calibration_method == "per_symbol_ols_intercept_fixed_order_fsum"
+    assert protocol.calibration_formula == (
+        "x_bar=fsum(x)/n;y_bar=fsum(y)/n;"
+        "beta=fsum((x-x_bar)*(y-y_bar))/fsum((x-x_bar)^2);"
+        "alpha=y_bar-beta*x_bar"
+    )
+    assert protocol.expected_effect_direction == "REVERSAL"
+    assert protocol.required_negative_symbol_slopes == 4
+    assert protocol.valid_status == "VALID_PREMIUM_PRESSURE_REVERSAL"
     assert protocol.reject_status == "REJECT_PREMIUM_PRESSURE_HYPOTHESIS"
     assert protocol.invalid_coverage_status == "INVALID_PREMIUM_PRESSURE_COVERAGE"
 
@@ -93,10 +113,16 @@ def test_canonical_protocol_freezes_causal_and_stop_rule_boundaries() -> None:
         "require_execution_and_label_rows_tradable",
         "require_execution_and_label_rows_active",
         "require_label_open_finite_positive",
+        "require_calibration_x_mean_finite",
+        "require_calibration_y_mean_finite",
         "require_calibration_numerator_finite",
         "require_calibration_denominator_finite_positive",
+        "require_calibration_alpha_finite",
         "require_calibration_beta_finite",
+        "calibration_intercept_required",
+        "calibration_centering_required",
         "target_source_authority_required",
+        "target_source_structural_preflight_required",
         "no_sign_flip_fallback",
         "no_second_premium_hypothesis",
         "portable_fixed_order_reduction_required",
@@ -111,8 +137,8 @@ def test_canonical_protocol_freezes_causal_and_stop_rule_boundaries() -> None:
         "forward_fill_allowed",
         "source_substitution_allowed",
         "rolling_window_allowed",
-        "centering_allowed",
-        "fitted_normalization_allowed",
+        "feature_centering_allowed",
+        "fitted_feature_normalization_allowed",
         "zscore_allowed",
         "clipping_allowed",
         "winsorization_allowed",
@@ -125,6 +151,8 @@ def test_canonical_protocol_freezes_causal_and_stop_rule_boundaries() -> None:
         "alternate_feature_field_allowed",
         "alternate_feature_formula_allowed",
         "alternate_horizon_allowed",
+        "alternate_sign_allowed",
+        "no_intercept_regression_allowed",
         "funding_reconstruction_allowed",
         "current_funding_formula_backcast_allowed",
         "weighted_regression_allowed",
@@ -168,16 +196,31 @@ def test_loader_rejects_missing_unknown_tampered_and_noncanonical_payloads() -> 
             json.dumps(missing, sort_keys=True, separators=(",", ":")).encode()
         )
 
-    unknown = {**payload, "observed_beta": 1.0}
+    unknown = {**payload, "observed_beta": -1.0}
     with pytest.raises(ValueError):
         load_premium_pressure_protocol_bytes(
             json.dumps(unknown, sort_keys=True, separators=(",", ":")).encode()
         )
 
-    tampered = {**payload, "expected_effect_direction": "MEAN_REVERSION"}
+    tampered = {**payload, "expected_effect_direction": "CONTINUATION"}
     with pytest.raises(ValueError):
         load_premium_pressure_protocol_bytes(
             json.dumps(tampered, sort_keys=True, separators=(",", ":")).encode()
+        )
+
+    clock_shifted = {**payload, "premium_decision_raw_open_time_offset_minutes": 0}
+    with pytest.raises(ValueError):
+        load_premium_pressure_protocol_bytes(
+            json.dumps(clock_shifted, sort_keys=True, separators=(",", ":")).encode()
+        )
+
+    calibration_drift = {
+        **payload,
+        "calibration_method": "per_symbol_no_intercept_fixed_order_fsum",
+    }
+    with pytest.raises(ValueError):
+        load_premium_pressure_protocol_bytes(
+            json.dumps(calibration_drift, sort_keys=True, separators=(",", ":")).encode()
         )
 
     canonical = canonical_premium_pressure_protocol_bytes(protocol)
@@ -191,17 +234,23 @@ def test_protocol_constructor_rejects_bool_int_spoofing_and_semantic_drift() -> 
     with pytest.raises(ValueError):
         replace(protocol, minimum_eligible_observations_per_symbol=True)
     with pytest.raises(ValueError):
-        replace(protocol, required_positive_symbol_slopes=True)
+        replace(protocol, required_negative_symbol_slopes=True)
     with pytest.raises(ValueError):
         replace(protocol, feature_scale_bps=True)
     with pytest.raises(ValueError):
         replace(protocol, fit_cutoff=protocol.fit_start)
     with pytest.raises(ValueError):
-        replace(protocol, label_endpoint_offset_bars=8)
+        replace(protocol, last_candidate_decision=protocol.fit_cutoff)
     with pytest.raises(ValueError):
-        replace(protocol, label_horizon_bars=7)
+        replace(protocol, label_endpoint_offset_bars=24)
     with pytest.raises(ValueError):
-        replace(protocol, required_positive_symbol_slopes=6)
+        replace(protocol, label_horizon_bars=23)
+    with pytest.raises(ValueError):
+        replace(protocol, endpoint_raw_open_time_offset_minutes=1_380)
+    with pytest.raises(ValueError):
+        replace(protocol, premium_decision_raw_open_time_offset_minutes=0)
+    with pytest.raises(ValueError):
+        replace(protocol, required_negative_symbol_slopes=6)
     with pytest.raises(ValueError):
         replace(protocol, symbols=("BTCUSDT",) * 5)
 
@@ -209,10 +258,15 @@ def test_protocol_constructor_rejects_bool_int_spoofing_and_semantic_drift() -> 
 def test_protocol_dataclass_has_no_observed_result_fields() -> None:
     protocol = canonical_premium_pressure_protocol()
     forbidden = {
+        "alpha",
+        "alphas",
         "beta",
         "betas",
+        "x_bar",
+        "y_bar",
         "numerator",
         "denominator",
+        "negative_slope_count",
         "positive_slope_count",
         "pnl",
         "sharpe",

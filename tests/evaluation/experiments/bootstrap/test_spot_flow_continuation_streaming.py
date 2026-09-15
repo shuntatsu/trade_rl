@@ -12,7 +12,9 @@ QUARTER_HOUR_MS = 900_000
 
 
 def _start(date: str) -> int:
-    return int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
+    return int(
+        datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000
+    )
 
 
 def test_streaming_day_aggregation_matches_frozen_interval_semantics(

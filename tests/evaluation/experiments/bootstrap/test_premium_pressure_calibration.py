@@ -179,7 +179,9 @@ def test_premium_parser_uses_close_only_fixed_bps_and_completed_bar_clock() -> N
         _premium_row(raw_open + _HOUR_MS, close="0"),
         _premium_row(raw_open + 2 * _HOUR_MS, close="0.0025"),
     ]
-    points = parse_premium_index_1h_csv(_csv(rows, header=True), expected_month="2021-01")
+    points = parse_premium_index_1h_csv(
+        _csv(rows, header=True), expected_month="2021-01"
+    )
     assert tuple(point.close_bps for point in points) == (-12.5, 0.0, 25.0)
     assert points[0].raw_open_time_ms == raw_open
     assert points[0].dataset_time_ms == _ms(decision)
@@ -206,7 +208,9 @@ def test_premium_parser_rejects_nonfinite_close_wrong_clock_and_bad_schema() -> 
         parse_premium_index_1h_csv(_csv([wrong_fields]), expected_month="2021-01")
 
 
-def test_target_parser_maps_raw_open_to_completed_dataset_and_rejects_bad_open() -> None:
+def test_target_parser_maps_raw_open_to_completed_dataset_and_rejects_bad_open() -> (
+    None
+):
     raw_open = _ms(_decision())
     points = parse_usdm_1h_target_csv(
         _csv([_target_row(raw_open, open_price="101.25")], header=True),
@@ -292,7 +296,9 @@ def test_any_missing_or_masked_target_row_invalidates_the_pair() -> None:
         assert build_training_pairs(premium, tuple(changed)) == ()
 
 
-def test_endpoint_at_fit_cutoff_is_excluded_but_last_frozen_decision_is_eligible() -> None:
+def test_endpoint_at_fit_cutoff_is_excluded_but_last_frozen_decision_is_eligible() -> (
+    None
+):
     protocol = canonical_premium_pressure_protocol()
     last = protocol.last_candidate_decision
     pairs = build_training_pairs((_premium_point(last),), _target_window(last))
@@ -328,7 +334,9 @@ def test_intercept_ols_is_canonical_and_differs_from_no_intercept_regression() -
     assert no_intercept != result.beta
 
 
-def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator() -> None:
+def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator() -> (
+    None
+):
     protocol = canonical_premium_pressure_protocol()
     n = protocol.minimum_eligible_observations_per_symbol
     x_values = [1e16, 1.0, -1e16] + [0.0] * (n - 3)
@@ -362,7 +370,9 @@ def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator(
     assert constant.failures == ("BTCUSDT:denominator_not_finite_positive",)
 
 
-def test_four_of_five_negative_is_valid_three_is_reject_and_failure_is_invalid() -> None:
+def test_four_of_five_negative_is_valid_three_is_reject_and_failure_is_invalid() -> (
+    None
+):
     valid = _valid_result(negative_count=4)
     assert valid.status == "VALID_PREMIUM_PRESSURE_REVERSAL"
     assert valid.negative_slope_count == 4
@@ -394,7 +404,9 @@ def test_four_of_five_negative_is_valid_three_is_reject_and_failure_is_invalid()
     assert invalid.status == "INVALID_PREMIUM_PRESSURE_COVERAGE"
 
 
-def test_result_binds_all_authorities_is_deterministic_and_post_training_blind() -> None:
+def test_result_binds_all_authorities_is_deterministic_and_post_training_blind() -> (
+    None
+):
     result = _valid_result()
     raw = canonical_premium_pressure_result_bytes(result)
     assert raw == canonical_premium_pressure_result_bytes(result)
@@ -424,7 +436,9 @@ def test_result_binds_all_authorities_is_deterministic_and_post_training_blind()
     assert len(payload["content_digest"]) == 64
 
 
-def test_result_loader_rejects_summary_nested_authority_and_boundary_tampering() -> None:
+def test_result_loader_rejects_summary_nested_authority_and_boundary_tampering() -> (
+    None
+):
     result = _valid_result()
     payload = result.to_dict()
 

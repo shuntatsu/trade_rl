@@ -1,0 +1,100 @@
+name: Temporary Issue 600 premium prereg digest verification
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-digest-da97
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-digest-da97.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  FULL_VERIFY_RUN_ID: "34958973042"
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  digest:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact prereg authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact target and full verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue600-premium-pressure-prereg | cut -f1)" = "$TARGET_SHA"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID)"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = success
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$jobs")" = success
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove result-blind contract and compute canonical digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+          uv run python - <<'PY'
+          import hashlib
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              canonical_premium_pressure_protocol,
+              canonical_premium_pressure_protocol_bytes,
+              load_premium_pressure_protocol_bytes,
+          )
+          p = canonical_premium_pressure_protocol()
+          raw = canonical_premium_pressure_protocol_bytes(p)
+          sha = hashlib.sha256(raw).hexdigest()
+          if p.digest != sha:
+              raise SystemExit('content digest and canonical-byte SHA differ')
+          if load_premium_pressure_protocol_bytes(raw) != p:
+              raise SystemExit('strict loader roundtrip differs')
+          payload = p.to_dict()
+          if payload['last_candidate_decision'] != '2022-12-30T22:00:00Z':
+              raise SystemExit('completed-endpoint cutoff drifted')
+          if payload['nominal_candidate_decisions_per_symbol'] != 17494:
+              raise SystemExit('candidate-count authority drifted')
+          if payload['minimum_eligible_observations_per_symbol'] != 16620:
+              raise SystemExit('coverage authority drifted')
+          if payload['expected_effect_direction'] != 'REVERSAL':
+              raise SystemExit('sign authority drifted')
+          for key in (
+              'source_premium_value_distribution_inspected',
+              'source_target_relation_computed',
+              'source_strategy_pnl_computed',
+              'training_relation_executed',
+              'evaluation_pnl_inspected',
+              'evaluation_execution_authorized',
+              'final_test_authorized',
+              'shared_cash_profitability_established',
+              'production_eligible',
+              'live_trading_authorized',
+          ):
+              if payload[key] is not False:
+                  raise SystemExit(f'result-blind boundary crossed: {key}')
+          print('PROTOCOL_DIGEST=' + p.digest)
+          print('PROTOCOL_JSON_SHA256=' + sha)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

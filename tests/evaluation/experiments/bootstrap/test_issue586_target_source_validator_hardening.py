@@ -43,7 +43,9 @@ def _valid(symbol: str, date: str) -> dict[str, object]:
         ]
         for i in range(96)
     ]
-    body = ("\n".join(",".join(str(value) for value in row) for row in rows) + "\n").encode()
+    body = (
+        "\n".join(",".join(str(value) for value in row) for row in rows) + "\n"
+    ).encode()
     stream = io.BytesIO()
     member = f"{symbol}-15m-{date}.csv"
     archive_name = f"{symbol}-15m-{date}.zip"

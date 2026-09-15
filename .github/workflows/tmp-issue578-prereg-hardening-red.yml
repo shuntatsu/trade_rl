@@ -1,0 +1,44 @@
+name: Temporary Issue 578 preregistration hardening RED
+
+on:
+  push:
+    branches:
+      - verify/issue578-prereg-hardening-red
+    paths:
+      - .github/workflows/tmp-issue578-prereg-hardening-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 2cd45ff44f9b8eb4274e320ab6b0f49ffc5bb3cd
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact RED target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Require intended contract RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg_hardening.py >/tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "AttributeError" /tmp/red.log
+          ! grep -q "ImportError\|ModuleNotFoundError\|SyntaxError" /tmp/red.log

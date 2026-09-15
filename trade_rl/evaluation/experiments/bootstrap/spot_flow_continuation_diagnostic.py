@@ -388,12 +388,14 @@ def build_four_hour_label(
     window: list[TargetBar] = []
     for index in range(17):
         timestamp = decision + index * _QUARTER_HOUR_MS
-        bar = by_time.get(timestamp)
-        if bar is None:
+        candidate = by_time.get(timestamp)
+        if candidate is None:
             return None
-        if not (bar.information_available and bar.active and bar.tradable):
+        if not (
+            candidate.information_available and candidate.active and candidate.tradable
+        ):
             return None
-        window.append(bar)
+        window.append(candidate)
     execution = window[0].open_price
     endpoint = window[-1].open_price
     ratio = endpoint / execution

@@ -40,9 +40,7 @@ _INTERVAL_MS = 60 * 60 * 1000
 
 def _month_start_ms(month: str) -> int:
     return int(
-        datetime.strptime(month + "-01", "%Y-%m-%d")
-        .replace(tzinfo=UTC)
-        .timestamp()
+        datetime.strptime(month + "-01", "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
         * 1000
     )
 
@@ -91,9 +89,7 @@ def _zip(
 
 
 def _checksum(payload: bytes, symbol: str, month: str) -> bytes:
-    return (
-        f"{hashlib.sha256(payload).hexdigest()}  {symbol}-1h-{month}.zip\n".encode()
-    )
+    return f"{hashlib.sha256(payload).hexdigest()}  {symbol}-1h-{month}.zip\n".encode()
 
 
 def _validate(
@@ -106,9 +102,7 @@ def _validate(
 ) -> dict[str, object]:
     payload = _zip(symbol, month, _rows(month) if rows is None else rows, header=header)
     checksum = (
-        _checksum(payload, symbol, month)
-        if checksum_bytes is ...
-        else checksum_bytes
+        _checksum(payload, symbol, month) if checksum_bytes is ... else checksum_bytes
     )
     assert checksum is None or isinstance(checksum, bytes)
     return validate_target_archive_bytes(
@@ -130,7 +124,9 @@ def _valid(symbol: str, month: str) -> dict[str, object]:
 
 
 def _reports() -> list[dict[str, object]]:
-    return [_valid(symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS]
+    return [
+        _valid(symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS
+    ]
 
 
 def test_frozen_roster_and_calendar_counts_are_exact() -> None:
@@ -214,7 +210,9 @@ def test_wrong_member_extra_member_wrong_field_count_fail_closed() -> None:
     assert _validate(symbol, month, rows=wrong_fields)["schema_valid"] is False
 
 
-def test_checksum_digest_filename_and_missing_checksum_have_distinct_semantics() -> None:
+def test_checksum_digest_filename_and_missing_checksum_have_distinct_semantics() -> (
+    None
+):
     symbol, month = "BTCUSDT", "2021-01"
     payload = _zip(symbol, month, _rows(month))
 
@@ -279,7 +277,9 @@ def test_timestamp_order_grid_month_and_close_time_fail_closed() -> None:
         assert _validate(symbol, month, rows=rows)["schema_valid"] is False
 
 
-def test_nonfinite_nonpositive_and_negative_structural_numeric_fields_fail_closed() -> None:
+def test_nonfinite_nonpositive_and_negative_structural_numeric_fields_fail_closed() -> (
+    None
+):
     for column in (1, 2, 3, 4, 5, 7, 9, 10, 11):
         rows = _rows("2021-01")
         rows[4][column] = "nan"
@@ -309,12 +309,15 @@ def test_native_gap_is_recorded_exactly_and_never_filled() -> None:
     assert report["row_count"] == 671
     assert report["expected_row_count"] == 672
     assert report["missing_grid_rows"] == 1
-    assert report["missing_grid_open_times_sha256"] == hashlib.sha256(
-        str(missing_open).encode("ascii")
-    ).hexdigest()
+    assert (
+        report["missing_grid_open_times_sha256"]
+        == hashlib.sha256(str(missing_open).encode("ascii")).hexdigest()
+    )
 
 
-def test_status_gate_allows_explicit_native_gaps_but_distinguishes_missing_and_bad() -> None:
+def test_status_gate_allows_explicit_native_gaps_but_distinguishes_missing_and_bad() -> (
+    None
+):
     reports = _reports()
     assert decide_target_source_status(reports) == "PASS_USDM_1H_TARGET_SOURCE"
 
@@ -332,8 +335,7 @@ def test_status_gate_allows_explicit_native_gaps_but_distinguishes_missing_and_b
         checksum_bytes=None,
     )
     assert (
-        decide_target_source_status(missing_archive)
-        == "PARTIAL_USDM_1H_TARGET_SOURCE"
+        decide_target_source_status(missing_archive) == "PARTIAL_USDM_1H_TARGET_SOURCE"
     )
 
     missing_checksum = [dict(item) for item in reports]
@@ -346,8 +348,7 @@ def test_status_gate_allows_explicit_native_gaps_but_distinguishes_missing_and_b
         checksum_bytes=None,
     )
     assert (
-        decide_target_source_status(missing_checksum)
-        == "PARTIAL_USDM_1H_TARGET_SOURCE"
+        decide_target_source_status(missing_checksum) == "PARTIAL_USDM_1H_TARGET_SOURCE"
     )
 
     bad_checksum = [dict(item) for item in reports]
@@ -367,7 +368,9 @@ def test_status_gate_allows_explicit_native_gaps_but_distinguishes_missing_and_b
     )
 
 
-def test_status_gate_rejects_duplicate_missing_unexpected_roster_and_bool_spoof() -> None:
+def test_status_gate_rejects_duplicate_missing_unexpected_roster_and_bool_spoof() -> (
+    None
+):
     reports = _reports()
     assert len(reports) == 120
 
@@ -378,8 +381,7 @@ def test_status_gate_rejects_duplicate_missing_unexpected_roster_and_bool_spoof(
         [*reports[:-1], {**reports[-1], "month": "2023-01"}],
     ):
         assert (
-            decide_target_source_status(changed)
-            == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+            decide_target_source_status(changed) == "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
         )
 
     spoof = [dict(item) for item in reports]
@@ -402,7 +404,9 @@ def test_builder_rejects_impossible_nested_structural_semantics() -> None:
         )
 
 
-def test_canonical_report_binds_completed_endpoint_authority_and_is_result_blind() -> None:
+def test_canonical_report_binds_completed_endpoint_authority_and_is_result_blind() -> (
+    None
+):
     reports = _reports()
     report = build_target_source_report(
         reports,
@@ -476,7 +480,9 @@ def test_canonical_report_binds_completed_endpoint_authority_and_is_result_blind
         assert forbidden.isdisjoint(entry)
 
 
-def test_canonical_loader_recomputes_summary_rejects_nested_economic_and_redigest() -> None:
+def test_canonical_loader_recomputes_summary_rejects_nested_economic_and_redigest() -> (
+    None
+):
     report = build_target_source_report(
         _reports(),
         validator_head="9" * 40,

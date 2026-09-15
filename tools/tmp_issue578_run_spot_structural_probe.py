@@ -56,7 +56,9 @@ def _fetch(url: str) -> bytes | None:
             last_error = error
         if attempt < 2:
             time.sleep(1.0 * (2**attempt))
-    raise RuntimeError(f"failed to fetch exact source after retries: {url}: {last_error}")
+    raise RuntimeError(
+        f"failed to fetch exact source after retries: {url}: {last_error}"
+    )
 
 
 def _build_report(fetcher=_fetch) -> dict[str, object]:
@@ -102,15 +104,18 @@ def _synthetic_sources() -> dict[str, bytes]:
             url = protocol.url_template.format(symbol=symbol, date=date)
             archive_name = url.rsplit("/", 1)[-1]
             member_name = archive_name.removesuffix(".zip") + ".csv"
-            timestamp = int(
-                datetime.strptime(date, "%Y-%m-%d")
-                .replace(tzinfo=UTC)
-                .timestamp()
-                * 1_000
-            ) + 1_000
+            timestamp = (
+                int(
+                    datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
+                    * 1_000
+                )
+                + 1_000
+            )
             row = f"1,100,1,1,1,{timestamp},False,True\n".encode()
             stream = io.BytesIO()
-            with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
+            with zipfile.ZipFile(
+                stream, "w", compression=zipfile.ZIP_STORED
+            ) as archive:
                 archive.writestr(member_name, row)
             payload = stream.getvalue()
             digest = hashlib.sha256(payload).hexdigest()
@@ -135,7 +140,9 @@ def _self_test() -> None:
     if decoded["validator_head"] != VALIDATOR_HEAD:
         raise AssertionError("validator authority missing from canonical bytes")
     if decoded["validator_verification_run_id"] != VALIDATOR_VERIFICATION_RUN_ID:
-        raise AssertionError("validator verification authority missing from canonical bytes")
+        raise AssertionError(
+            "validator verification authority missing from canonical bytes"
+        )
     if decoded["economic_values_inspected"] is not False:
         raise AssertionError("self-test crossed economic-value boundary")
 

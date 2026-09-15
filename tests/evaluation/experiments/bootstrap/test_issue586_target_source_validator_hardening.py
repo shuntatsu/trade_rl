@@ -130,10 +130,7 @@ def test_checksum_mismatch_keeps_structure_valid_but_is_incompatible() -> None:
     assert mismatch["checksum_verified"] is False
     assert mismatch["schema_valid"] is True
     reports[0] = mismatch
-    assert (
-        decide_target_source_status(reports)
-        == "INCOMPATIBLE_USDM_15M_TARGET_SOURCE"
-    )
+    assert decide_target_source_status(reports) == "INCOMPATIBLE_USDM_15M_TARGET_SOURCE"
 
 
 def test_canonical_loader_recomputes_summary_and_rejects_redigested_tampering() -> None:

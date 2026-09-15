@@ -1,0 +1,53 @@
+name: Temporary Issue 603 calibration RED
+
+on:
+  push:
+    branches:
+      - verify/issue603-calibration-red
+    paths:
+      - .github/workflows/tmp-issue603-calibration-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 0338e2fd4c5b8746db41cace915e1f87855dc9c5
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact formatted test-only head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Prove test source quality
+        run: |
+          uv run ruff format --check "$TEST"
+          uv run ruff check "$TEST"
+      - name: Require missing-production-module semantic RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q "$TEST" > /tmp/red.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/red.log
+          test "$code" -ne 0
+          grep -Eq "ModuleNotFoundError|No module named.*premium_pressure_calibration" /tmp/red.log
+          ! grep -Eq "SyntaxError|IndentationError" /tmp/red.log
+          echo "SEMANTIC_RED=PASS"
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

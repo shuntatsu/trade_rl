@@ -177,9 +177,10 @@ def _status_entry(
 
 
 def test_frozen_status_gate_distinguishes_missing_from_incompatible() -> None:
-    assert probe.classify_status(
-        [_status_entry() for _ in range(20)]
-    ) == "PASS_SPOT_AGGTRADES_SOURCE"
+    assert (
+        probe.classify_status([_status_entry() for _ in range(20)])
+        == "PASS_SPOT_AGGTRADES_SOURCE"
+    )
 
     partial = [_status_entry() for _ in range(20)]
     partial[-1] = _status_entry(

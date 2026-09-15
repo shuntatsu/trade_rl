@@ -1,0 +1,58 @@
+name: Temporary Issue 578 publisher helper format and verify
+
+on:
+  push:
+    branches:
+      - automation/issue578-publisher-helper-format
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: run/issue578-spot-aggtrades-structural
+  TARGET_SHA: 56b5f7dbe0907509c8cf1c7f33f813f1a5930a4d
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard execution branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic helper verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format tools/tmp_issue578_run_spot_structural_probe.py
+          uv run ruff check --fix tools/tmp_issue578_run_spot_structural_probe.py
+          uv run ruff check tools/tmp_issue578_run_spot_structural_probe.py
+          uv run python -m py_compile tools/tmp_issue578_run_spot_structural_probe.py
+          uv run python tools/tmp_issue578_run_spot_structural_probe.py --self-test
+      - name: Guard and publish helper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test -z "$(git diff --name-only | grep -v '^tools/tmp_issue578_run_spot_structural_probe.py$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/tmp_issue578_run_spot_structural_probe.py
+          git commit -m "style: format verified Issue 578 publisher helper"
+          git push origin HEAD:"$TARGET_BRANCH"

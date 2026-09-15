@@ -1,0 +1,321 @@
+name: Issue 584 Spot-flow continuation preregistration seal v3
+
+on:
+  push:
+    branches:
+      - seal/issue584-spot-flow-prereg-v3
+    paths:
+      - .github/workflows/issue584-spot-flow-prereg-seal-v3.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  FULL_VERIFY_RUN_ID: "34952378700"
+  DIGEST_VERIFY_RUN_ID: "34952496129"
+  PROTOCOL_DIGEST: 9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76
+  SUPERSEDED_V2_RUN_ID: "34932424904"
+  SUPERSEDED_V2_SEAL_ARTIFACT_ID: "10381763665"
+  SUPERSEDED_V2_SEAL_ARTIFACT_DIGEST: sha256:f0a7de4e5b477f86d773793f3d4a154ac307c68a88b4eee4cf10a48190fd0f02
+  SUPERSEDED_V2_FRESH_ARTIFACT_ID: "10381379452"
+  SUPERSEDED_V2_FRESH_ARTIFACT_DIGEST: sha256:012126c32a0d65c0164624dff9b9657a4a8ff208bf24397256048f65ea0f89b8
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+  TEST_PATH: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+  HARDENING_TEST_PATH: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+  TARGET_SOURCE_TEST_PATH: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+
+jobs:
+  seal:
+    name: Immutable clock-hardened protocol publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact authority and superseded v2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)" = "$TARGET_SHA"
+          full="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$full")" = success
+          full_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$full_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$full_jobs")" = success
+          digest="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$DIGEST_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$digest")" = success
+          old="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SUPERSEDED_V2_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$old")" = success
+          for spec in "$SUPERSEDED_V2_SEAL_ARTIFACT_ID|$SUPERSEDED_V2_SEAL_ARTIFACT_DIGEST" "$SUPERSEDED_V2_FRESH_ARTIFACT_ID|$SUPERSEDED_V2_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$SUPERSEDED_V2_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          done
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove clock-hardened preregistration contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$SOURCE_PATH $TEST_PATH $HARDENING_TEST_PATH $TARGET_SOURCE_TEST_PATH"
+          uv run ruff check $files
+          uv run ruff format --check $files
+          uv run mypy "$SOURCE_PATH"
+          uv run pytest -q "$TEST_PATH" "$HARDENING_TEST_PATH" "$TARGET_SOURCE_TEST_PATH"
+      - name: Materialize canonical protocol and blob authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - <<'PY'
+          import hashlib
+          import os
+          import subprocess
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol, load_spot_flow_continuation_protocol_bytes
+
+          protocol = canonical_spot_flow_continuation_protocol()
+          raw = protocol.canonical_json_bytes
+          expected = os.environ['PROTOCOL_DIGEST']
+          if protocol.digest != expected or hashlib.sha256(raw).hexdigest() != expected:
+              raise SystemExit('protocol digest/bytes authority differs')
+          if load_spot_flow_continuation_protocol_bytes(raw).digest != expected:
+              raise SystemExit('strict protocol reload differs')
+          payload = protocol.to_payload()
+          clock = {
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_formula': 'dataset_timestamp=raw_open_time+15m',
+              'decision_target_row_semantics': 'decision_t_equals_target_completed_row_timestamp',
+              'decision_row_raw_open_time_offset_minutes': -15,
+              'execution_raw_open_time_offset_minutes': 0,
+              'endpoint_raw_open_time_offset_minutes': 240,
+          }
+          for key, value in clock.items():
+              if payload.get(key) != value or type(payload.get(key)) is not type(value):
+                  raise SystemExit(f'clock authority differs: {key}')
+          if payload.get('target_source_family') != 'binance_vision_contract_klines' or payload.get('target_transport_mode') != 'VISION':
+              raise SystemExit('target source authority differs')
+          for key in ('target_source_fallback_allowed','target_source_replacement_allowed','economic_values_inspected','target_relation_computed','training_relation_executed','evaluation_pnl_inspected','evaluation_execution_authorized','final_test_authorized','shared_cash_profitability_established','production_eligible','live_trading_authorized','alternate_sign_allowed','alternate_window_allowed','alternate_horizon_allowed','alternate_weighting_allowed','symbol_subset_allowed','additional_spot_dates_allowed'):
+              if payload.get(key) is not False:
+                  raise SystemExit(f'forbidden flag differs: {key}')
+          for key in ('target_source_checksum_required','target_source_manifest_binding_required','target_source_structural_preflight_required'):
+              if payload.get(key) is not True:
+                  raise SystemExit(f'required target source flag differs: {key}')
+          paths = [os.environ['SOURCE_PATH'], os.environ['TEST_PATH'], os.environ['HARDENING_TEST_PATH'], os.environ['TARGET_SOURCE_TEST_PATH']]
+          blobs = {path: subprocess.check_output(['git','rev-parse',f'HEAD:{path}'], text=True).strip() for path in paths}
+          Path('/tmp/seal/protocol.json').write_bytes(raw)
+          index = {
+              'schema_version': 'issue584_spot_flow_prereg_seal_v3',
+              'issue_number': 584,
+              'target_sha': os.environ['TARGET_SHA'],
+              'full_verify_run_id': int(os.environ['FULL_VERIFY_RUN_ID']),
+              'digest_verify_run_id': int(os.environ['DIGEST_VERIFY_RUN_ID']),
+              'superseded_v2_run_id': int(os.environ['SUPERSEDED_V2_RUN_ID']),
+              'protocol_digest': expected,
+              'protocol_json_sha256': expected,
+              'blob_shas': blobs,
+              'clock_authority': clock,
+              'economic_values_inspected': False,
+              'target_relation_computed': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/seal/seal-index.json').write_bytes(canonical_json_bytes(index))
+          print('PROTOCOL_DIGEST=' + expected)
+          print('TARGET_CLOCK_AUTHORITY=completed_bar_close_boundary')
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+      - id: meta
+        run: echo "name=issue584-spot-flow-prereg-seal-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent clock-hardened reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: API-bind publisher artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.seal.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)" = "$TARGET_SHA"
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;; *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;; esac
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/published
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reconstruct canonical bytes and blob authority independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol, load_spot_flow_continuation_protocol_bytes
+          published = Path('/tmp/published/protocol.json').read_bytes()
+          seal_index = json.loads(Path('/tmp/published/seal-index.json').read_bytes())
+          protocol = canonical_spot_flow_continuation_protocol()
+          fresh = protocol.canonical_json_bytes
+          expected = os.environ['PROTOCOL_DIGEST']
+          if fresh != published or hashlib.sha256(fresh).hexdigest() != expected or protocol.digest != expected:
+              raise SystemExit('fresh protocol differs')
+          if load_spot_flow_continuation_protocol_bytes(published).digest != expected:
+              raise SystemExit('published strict-loader digest differs')
+          paths = [os.environ['SOURCE_PATH'], os.environ['TEST_PATH'], os.environ['HARDENING_TEST_PATH'], os.environ['TARGET_SOURCE_TEST_PATH']]
+          blobs = {path: subprocess.check_output(['git','rev-parse',f'HEAD:{path}'], text=True).strip() for path in paths}
+          if seal_index.get('blob_shas') != blobs:
+              raise SystemExit('source/test blob authority differs')
+          if seal_index.get('clock_authority') != {
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_formula': 'dataset_timestamp=raw_open_time+15m',
+              'decision_target_row_semantics': 'decision_t_equals_target_completed_row_timestamp',
+              'decision_row_raw_open_time_offset_minutes': -15,
+              'execution_raw_open_time_offset_minutes': 0,
+              'endpoint_raw_open_time_offset_minutes': 240,
+          }:
+              raise SystemExit('sealed clock authority differs')
+          Path('/tmp/fresh/fresh-protocol.json').write_bytes(fresh)
+          verification = {
+              'schema_version': 'issue584_spot_flow_prereg_fresh_v3',
+              'issue_number': 584,
+              'target_sha': os.environ['TARGET_SHA'],
+              'protocol_digest': expected,
+              'blob_shas': blobs,
+              'protocol_byte_equal': True,
+              'source_test_blob_equal': True,
+              'clock_authority_equal': True,
+              'fresh_reconstruction_passed': True,
+              'economic_values_inspected': False,
+              'target_relation_computed': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/fresh/verification.json').write_bytes(canonical_json_bytes(verification))
+          PY
+      - id: meta
+        run: echo "name=issue584-spot-flow-prereg-fresh-v3-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final clock-hardened seal audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_NAME: ${{ needs.seal.outputs.artifact_name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_NAME|$SEAL_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in sha256:*) test "$api_digest" = "$digest" ;; *) test "$api_digest" = "sha256:$digest" ;; esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require immutable equality and result-blind boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/protocol.json /tmp/fresh/fresh-protocol.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          raw = Path('/tmp/seal/protocol.json').read_bytes()
+          seal = json.loads(Path('/tmp/seal/seal-index.json').read_bytes())
+          fresh = json.loads(Path('/tmp/fresh/verification.json').read_bytes())
+          assert hashlib.sha256(raw).hexdigest() == os.environ['PROTOCOL_DIGEST']
+          assert seal['target_sha'] == os.environ['TARGET_SHA']
+          assert fresh['target_sha'] == os.environ['TARGET_SHA']
+          assert fresh['protocol_byte_equal'] is True
+          assert fresh['source_test_blob_equal'] is True
+          assert fresh['clock_authority_equal'] is True
+          assert fresh['fresh_reconstruction_passed'] is True
+          for payload in (seal, fresh):
+              for key in ('economic_values_inspected','target_relation_computed','training_relation_executed','evaluation_pnl_inspected','production_eligible','live_trading_authorized'):
+                  assert payload[key] is False
+          print('ISSUE584_PREREG_SEAL_V3_AUDIT=PASS')
+          print('PROTOCOL_DIGEST=' + os.environ['PROTOCOL_DIGEST'])
+          PY

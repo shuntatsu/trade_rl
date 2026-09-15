@@ -1,0 +1,58 @@
+name: Temporary Issue 584 streaming GREEN
+on:
+  push:
+    branches: [automation/issue584-streaming-green]
+    paths: [.github/workflows/tmp-issue584-streaming-green.yml]
+permissions:
+  contents: write
+env:
+  TARGET_SHA: 336528fe8293ece0a9e9206b50bd141f03a47d09
+  RESEARCH_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+  STREAMING_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py
+  CORE_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+  SEMANTIC_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+  AUTHORITY_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+jobs:
+  implement_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Implement shared strict row parser and streaming day aggregation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py")
+          text = path.read_text()
+          start = text.index("def parse_spot_aggtrades_csv(")
+          end = text.index("\ndef parse_usdm_15m_klines_csv(", start)
+          replacement = '''def _parse_spot_row(\n    row: list[str],\n    *,\n    day_start: int,\n    day_end: int,\n    previous_id: int | None,\n    previous_timestamp: int | None,\n) -> tuple[SpotAggTrade | None, int | None, int | None]:\n    if len(row) != 8:\n        raise ValueError("Spot aggTrades row is malformed: expected eight fields")\n    (\n        aggregate_raw,\n        price_raw,\n        quantity_raw,\n        first_raw,\n        last_raw,\n        timestamp_raw,\n        maker_raw,\n        best_raw,\n    ) = row\n    aggregate_id = _parse_int_token(aggregate_raw, field="aggregate trade id")\n    timestamp = _parse_int_token(timestamp_raw, field="event timestamp")\n    if aggregate_id < 0:\n        raise ValueError("aggregate trade id must be non-negative")\n    if timestamp < day_start or timestamp >= day_end:\n        raise ValueError("event timestamp is outside expected_date")\n    if maker_raw not in {"False", "True"} or best_raw not in {"False", "True"}:\n        raise ValueError("Spot aggTrades maker/best-match boolean token is invalid")\n\n    exact_sentinel = (\n        price_raw == "0"\n        and quantity_raw == "0"\n        and first_raw == "-1"\n        and last_raw == "-1"\n    )\n    sentinel_component = (\n        price_raw == "0"\n        or quantity_raw == "0"\n        or first_raw == "-1"\n        or last_raw == "-1"\n    )\n    if exact_sentinel:\n        return None, previous_id, previous_timestamp\n    if sentinel_component:\n        raise ValueError("partial provider sentinel is malformed")\n\n    first_id = _parse_int_token(first_raw, field="first trade id")\n    last_id = _parse_int_token(last_raw, field="last trade id")\n    if first_id < 0 or last_id < 0 or first_id > last_id:\n        raise ValueError("Spot aggTrades trade-id range is malformed")\n    price = _parse_float_token(price_raw, field="price")\n    quantity = _parse_float_token(quantity_raw, field="quantity")\n    if price <= 0.0 or quantity <= 0.0:\n        raise ValueError("Spot aggTrades price and quantity must be positive")\n    if previous_id is not None and aggregate_id <= previous_id:\n        raise ValueError("usable aggregate trade ids must be strictly increasing")\n    if previous_timestamp is not None and timestamp < previous_timestamp:\n        raise ValueError("usable event timestamps must be nondecreasing")\n    return (\n        SpotAggTrade(\n            event_time_ms=timestamp,\n            price=price,\n            quantity=quantity,\n            is_buyer_maker=maker_raw == "True",\n        ),\n        aggregate_id,\n        timestamp,\n    )\n\n\ndef parse_spot_aggtrades_csv(\n    payload: bytes,\n    *,\n    expected_date: str,\n) -> tuple[SpotAggTrade, ...]:\n    """Parse only structurally valid Issue 578 Spot aggTrades rows."""\n\n    rows = _decode_csv(payload)\n    if rows and tuple(rows[0]) == _SPOT_HEADER:\n        rows = rows[1:]\n    day_start, day_end = _day_bounds_ms(expected_date)\n    result: list[SpotAggTrade] = []\n    previous_id: int | None = None\n    previous_timestamp: int | None = None\n    for row in rows:\n        trade, previous_id, previous_timestamp = _parse_spot_row(\n            row,\n            day_start=day_start,\n            day_end=day_end,\n            previous_id=previous_id,\n            previous_timestamp=previous_timestamp,\n        )\n        if trade is not None:\n            result.append(trade)\n    return tuple(result)\n\n\ndef _reduce_imbalance(\n    signed_notionals: Sequence[float], total_notionals: Sequence[float]\n) -> float | None:\n    if not total_notionals:\n        return None\n    try:\n        numerator = math.fsum(signed_notionals)\n        denominator = math.fsum(total_notionals)\n    except OverflowError as error:\n        raise ValueError("Spot interval reduction is non-finite") from error\n    if (\n        not math.isfinite(numerator)\n        or not math.isfinite(denominator)\n        or denominator <= 0.0\n    ):\n        raise ValueError("Spot interval reduction is non-finite")\n    result = numerator / denominator\n    if not math.isfinite(result) or result < -1.0 - 1e-12 or result > 1.0 + 1e-12:\n        raise ValueError("Spot aggressive-flow imbalance lies outside [-1,1]")\n    return result\n\n\ndef aggregate_spot_interval(\n    trades: Sequence[SpotAggTrade],\n    *,\n    decision_time_ms: int,\n) -> float | None:\n    """Compute the frozen [t-15m,t) quote-notional aggressive-flow imbalance."""\n\n    decision = _require_int(decision_time_ms, field="decision_time_ms")\n    if decision % _QUARTER_HOUR_MS != 0:\n        raise ValueError("decision_time_ms must lie on the UTC quarter-hour grid")\n    start = decision - _QUARTER_HOUR_MS\n    if start < 0:\n        raise ValueError("decision_time_ms does not have a complete 15m lookback")\n\n    previous_timestamp: int | None = None\n    signed_notionals: list[float] = []\n    total_notionals: list[float] = []\n    for trade in trades:\n        if not isinstance(trade, SpotAggTrade):\n            raise TypeError("trades must contain SpotAggTrade values")\n        if previous_timestamp is not None and trade.event_time_ms < previous_timestamp:\n            raise ValueError("Spot trades must remain in provider timestamp order")\n        previous_timestamp = trade.event_time_ms\n        if not start <= trade.event_time_ms < decision:\n            continue\n        notional = trade.price * trade.quantity\n        if not math.isfinite(notional) or notional <= 0.0:\n            raise ValueError("Spot trade quote notional must be finite and positive")\n        sign = -1.0 if trade.is_buyer_maker else 1.0\n        signed_notionals.append(sign * notional)\n        total_notionals.append(notional)\n    return _reduce_imbalance(signed_notionals, total_notionals)\n\n\ndef aggregate_spot_day_csv(\n    payload: bytes,\n    *,\n    expected_date: str,\n) -> tuple[float | None, ...]:\n    """Stream one frozen Spot day into the exact 96 quarter-hour signals."""\n\n    if not isinstance(payload, bytes):\n        raise TypeError("CSV payload must be bytes")\n    day_start, day_end = _day_bounds_ms(expected_date)\n    signed_bins: list[list[float]] = [[] for _ in range(96)]\n    total_bins: list[list[float]] = [[] for _ in range(96)]\n    previous_id: int | None = None\n    previous_timestamp: int | None = None\n\n    stream = io.TextIOWrapper(\n        io.BytesIO(payload), encoding="utf-8-sig", newline=""\n    )\n    try:\n        reader = csv.reader(stream)\n        first = next(reader, None)\n        rows = reader if first is not None and tuple(first) == _SPOT_HEADER else None\n\n        def consume(row: list[str]) -> None:\n            nonlocal previous_id, previous_timestamp\n            trade, previous_id, previous_timestamp = _parse_spot_row(\n                row,\n                day_start=day_start,\n                day_end=day_end,\n                previous_id=previous_id,\n                previous_timestamp=previous_timestamp,\n            )\n            if trade is None:\n                return\n            index = (trade.event_time_ms - day_start) // _QUARTER_HOUR_MS\n            if index < 0 or index >= 96:\n                raise ValueError("Spot trade lies outside the frozen daily bins")\n            notional = trade.price * trade.quantity\n            if not math.isfinite(notional) or notional <= 0.0:\n                raise ValueError("Spot trade quote notional must be finite and positive")\n            signed_bins[index].append(\n                (-1.0 if trade.is_buyer_maker else 1.0) * notional\n            )\n            total_bins[index].append(notional)\n\n        if first is not None and rows is None:\n            consume(first)\n        if rows is None:\n            rows = reader\n        for row in rows:\n            consume(row)\n    except UnicodeDecodeError as error:\n        raise ValueError("CSV payload is not UTF-8") from error\n    finally:\n        stream.close()\n\n    return tuple(\n        _reduce_imbalance(signed_bins[index], total_bins[index])\n        for index in range(96)\n    )\n\n'''
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify streaming implementation
+        run: |
+          uv run ruff format "$SOURCE_PATH"
+          uv run ruff check "$SOURCE_PATH" "$STREAMING_TEST" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run ruff format --check "$SOURCE_PATH" "$STREAMING_TEST" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run mypy "$SOURCE_PATH"
+          uv run pytest -q "$STREAMING_TEST" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+      - name: Guard and publish verified streaming implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$SOURCE_PATH"
+          git commit -m "perf: stream frozen Spot daily aggregation"
+          git push origin HEAD:"$RESEARCH_BRANCH"

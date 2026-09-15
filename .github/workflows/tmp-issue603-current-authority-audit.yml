@@ -40,6 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.VALIDATOR_HEAD }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Bind current immutable authorities
         env:
@@ -98,11 +99,10 @@ jobs:
           manifest = json.loads(manifest_raw)
           unsigned = dict(manifest)
           embedded = unsigned.pop('content_digest', None)
-          computed = content_digest(unsigned)
           if embedded == os.environ['MANIFEST_CONTENT_DIGEST']:
               pass
           elif content_digest(manifest) == os.environ['MANIFEST_CONTENT_DIGEST']:
-              computed = content_digest(manifest)
+              pass
           else:
               raise SystemExit('manifest content digest differs')
           if report['status'] != 'PASS_USDM_1H_TARGET_SOURCE':

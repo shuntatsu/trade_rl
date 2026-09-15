@@ -36,7 +36,7 @@ _SENTINEL = {
     "first_trade_id": "-1",
     "last_trade_id": "-1",
 }
-_BOOLEAN_TOKENS = ("true", "false")
+_BOOLEAN_TOKENS = ("False", "True")
 _ALLOWED_REPORT_FIELDS = (
     "symbol",
     "date",

@@ -1,0 +1,64 @@
+name: Temporary Issue 586 target-source validator format and GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue586-target-source-validator-format
+    paths:
+      - .github/workflows/tmp-issue586-target-source-validator-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue586-target-source-validator
+  TARGET_SHA: 6e1147a1359d5163355ec2c6e8642a06edbffc4f
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          module=trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py
+          testfile=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          uv run ruff format "$module" "$testfile"
+          uv run ruff check --fix "$module" "$testfile"
+          uv run ruff check "$module" "$testfile"
+          uv run mypy "$module"
+          uv run pytest -q "$testfile"
+      - name: Guard and publish verified files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py|tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "style: format verified Issue 586 target-source validator"
+          git push origin HEAD:"$TARGET_BRANCH"

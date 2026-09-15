@@ -24,7 +24,10 @@ def test_target_clock_mapping_is_content_addressed() -> None:
     protocol = canonical_spot_flow_continuation_protocol()
 
     assert protocol.target_dataset_timestamp_semantics == "completed_bar_close_boundary"
-    assert protocol.target_dataset_timestamp_formula == "dataset_timestamp=raw_open_time+15m"
+    assert (
+        protocol.target_dataset_timestamp_formula
+        == "dataset_timestamp=raw_open_time+15m"
+    )
     assert protocol.decision_target_row_semantics == (
         "decision_t_equals_target_completed_row_timestamp"
     )

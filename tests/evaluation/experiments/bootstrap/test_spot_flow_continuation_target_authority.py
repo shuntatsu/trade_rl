@@ -101,9 +101,7 @@ def test_result_binds_hardened_target_source_rebind_authority() -> None:
         == TARGET_SOURCE_VALIDATOR_FULL_RUN_ID
     )
     assert result.target_source_rebind_run_id == TARGET_SOURCE_REBIND_RUN_ID
-    assert (
-        result.target_source_rebind_artifact_id == TARGET_SOURCE_REBIND_ARTIFACT_ID
-    )
+    assert result.target_source_rebind_artifact_id == TARGET_SOURCE_REBIND_ARTIFACT_ID
     assert (
         result.target_source_rebind_artifact_api_digest
         == TARGET_SOURCE_REBIND_ARTIFACT_DIGEST

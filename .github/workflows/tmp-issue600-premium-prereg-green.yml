@@ -1,0 +1,47 @@
+name: Temporary Issue 600 premium-pressure prereg GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-green
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-green.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: a0081fdf702854a407352bf1b8b7279937fc3edd
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+      - name: Frozen preregistration suite
+        run: uv run pytest -q "$TEST"
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

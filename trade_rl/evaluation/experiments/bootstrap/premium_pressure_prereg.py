@@ -85,9 +85,9 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "current_funding_formula_backcast_allowed": False,
     "fit_start": datetime(2021, 1, 1, 1, tzinfo=UTC),
     "fit_cutoff": datetime(2023, 1, 1, tzinfo=UTC),
-    "last_candidate_decision": datetime(2022, 12, 30, 22, tzinfo=UTC),
-    "nominal_candidate_decisions_per_symbol": 17_494,
-    "minimum_eligible_observations_per_symbol": 16_620,
+    "last_candidate_decision": datetime(2022, 12, 30, 23, tzinfo=UTC),
+    "nominal_candidate_decisions_per_symbol": 17_495,
+    "minimum_eligible_observations_per_symbol": 16_621,
     "target_source_authority_required": True,
     "target_source_structural_preflight_required": True,
     "target_source_market": "USD_M",
@@ -388,14 +388,16 @@ class PremiumPressureProtocol:
         ):
             raise ValueError("minimum eligible observations exceed nominal decisions")
 
-        endpoint_dataset_offset = timedelta(hours=self.label_endpoint_offset_bars)
+        endpoint_raw_open_offset = timedelta(
+            minutes=self.endpoint_raw_open_time_offset_minutes
+        )
         one_hour = timedelta(hours=1)
         if not (
-            self.last_candidate_decision + endpoint_dataset_offset < self.fit_cutoff
+            self.last_candidate_decision + endpoint_raw_open_offset < self.fit_cutoff
         ):
-            raise ValueError("last candidate endpoint must precede fit cutoff")
+            raise ValueError("last candidate endpoint raw open must precede fit cutoff")
         if (
-            self.last_candidate_decision + endpoint_dataset_offset + one_hour
+            self.last_candidate_decision + endpoint_raw_open_offset + one_hour
             != self.fit_cutoff
         ):
             raise ValueError(

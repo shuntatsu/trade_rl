@@ -24,9 +24,7 @@ TARGET_SYMBOLS = (
     "ADAUSDT",
 )
 TARGET_MONTHS = tuple(
-    f"{year:04d}-{month:02d}"
-    for year in (2021, 2022)
-    for month in range(1, 13)
+    f"{year:04d}-{month:02d}" for year in (2021, 2022) for month in range(1, 13)
 )
 
 _EXPECTED_HEADER = (
@@ -232,7 +230,11 @@ def _parse_checksum(
     return (
         text,
         digest,
-        bool(name == expected_name and actual_digest is not None and digest == actual_digest),
+        bool(
+            name == expected_name
+            and actual_digest is not None
+            and digest == actual_digest
+        ),
     )
 
 
@@ -310,7 +312,9 @@ def validate_target_archive_bytes(
 
     start_ms, end_ms = _month_bounds_ms(month)
     expected_count = expected_rows_in_month(month)
-    expected_grid = tuple(start_ms + index * _HOUR_MS for index in range(expected_count))
+    expected_grid = tuple(
+        start_ms + index * _HOUR_MS for index in range(expected_count)
+    )
     malformed = False
     open_times: list[int] = []
     close_times: list[int] = []
@@ -345,7 +349,9 @@ def validate_target_archive_bytes(
         current > previous for previous, current in zip(open_times, open_times[1:])
     )
     observed = set(open_times)
-    missing_grid = [timestamp for timestamp in expected_grid if timestamp not in observed]
+    missing_grid = [
+        timestamp for timestamp in expected_grid if timestamp not in observed
+    ]
 
     entry["missing_grid_rows"] = len(missing_grid)
     entry["missing_grid_open_times_sha256"] = _missing_digest(missing_grid)
@@ -412,12 +418,17 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
     if not isinstance(month, str) or month not in TARGET_MONTHS:
         return False
     expected_url = _url(symbol, month)
-    if report.get("url") != expected_url or report.get("checksum_url") != expected_url + ".CHECKSUM":
+    if (
+        report.get("url") != expected_url
+        or report.get("checksum_url") != expected_url + ".CHECKSUM"
+    ):
         return False
     if report.get("normalized_schema") != list(_EXPECTED_HEADER):
         return False
     expected_rows = report.get("expected_row_count")
-    if isinstance(expected_rows, bool) or expected_rows != expected_rows_in_month(month):
+    if isinstance(expected_rows, bool) or expected_rows != expected_rows_in_month(
+        month
+    ):
         return False
 
     for field in ("archive_available", "checksum_available", "checksum_verified"):
@@ -440,11 +451,22 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
             isinstance(value, bool) or not isinstance(value, int) or value < 0
         ):
             return False
-    for field in ("first_open_time", "last_open_time", "first_close_time", "last_close_time"):
+    for field in (
+        "first_open_time",
+        "last_open_time",
+        "first_close_time",
+        "last_close_time",
+    ):
         value = report.get(field)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
             return False
-    for field in ("raw_zip_sha256", "checksum_digest", "missing_grid_open_times_sha256"):
+    for field in (
+        "raw_zip_sha256",
+        "checksum_digest",
+        "missing_grid_open_times_sha256",
+    ):
         value = report.get(field)
         if value is not None:
             try:
@@ -495,7 +517,10 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
             return False
 
     if checksum_available is False:
-        if report.get("checksum_text") is not None or report.get("checksum_digest") is not None:
+        if (
+            report.get("checksum_text") is not None
+            or report.get("checksum_digest") is not None
+        ):
             return False
         if checksum_verified is not False:
             return False
@@ -582,7 +607,9 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
     return True
 
 
-def _ordered_entries(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]] | None:
+def _ordered_entries(
+    reports: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]] | None:
     if len(reports) != len(TARGET_SYMBOLS) * len(TARGET_MONTHS):
         return None
     by_pair: dict[tuple[str, str], dict[str, object]] = {}
@@ -597,7 +624,9 @@ def _ordered_entries(reports: Sequence[Mapping[str, object]]) -> list[dict[str, 
         if pair in by_pair:
             return None
         by_pair[pair] = dict(report)
-    expected_pairs = [(symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS]
+    expected_pairs = [
+        (symbol, month) for symbol in TARGET_SYMBOLS for month in TARGET_MONTHS
+    ]
     if set(by_pair) != set(expected_pairs):
         return None
     return [by_pair[pair] for pair in expected_pairs]
@@ -610,12 +639,20 @@ def _window_summary_valid(value: Mapping[str, object]) -> bool:
     present = value.get("structurally_present_windows")
     missing = value.get("structurally_missing_windows")
     digest = value.get("missing_decision_timestamps_sha256")
-    if any(isinstance(item, bool) or not isinstance(item, int) for item in (nominal, present, missing)):
+    if any(
+        isinstance(item, bool) or not isinstance(item, int)
+        for item in (nominal, present, missing)
+    ):
         return False
     assert isinstance(nominal, int)
     assert isinstance(present, int)
     assert isinstance(missing, int)
-    if nominal != _NOMINAL_DECISIONS or present < 0 or missing < 0 or present + missing != nominal:
+    if (
+        nominal != _NOMINAL_DECISIONS
+        or present < 0
+        or missing < 0
+        or present + missing != nominal
+    ):
         return False
     try:
         _hex(digest, length=64, field="missing_decision_timestamps_sha256")
@@ -657,7 +694,11 @@ def decide_target_source_status(
             return "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
         if checksum_available is True and entry.get("checksum_digest") is None:
             return "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
-        if archive_available is True and checksum_available is True and checksum_verified is not True:
+        if (
+            archive_available is True
+            and checksum_available is True
+            and checksum_verified is not True
+        ):
             return "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
         if archive_available is not True or checksum_available is not True:
             partial = True
@@ -667,11 +708,7 @@ def decide_target_source_status(
         for summary in summaries.values()
     ):
         partial = True
-    return (
-        "PARTIAL_USDM_1H_TARGET_SOURCE"
-        if partial
-        else "PASS_USDM_1H_TARGET_SOURCE"
-    )
+    return "PARTIAL_USDM_1H_TARGET_SOURCE" if partial else "PASS_USDM_1H_TARGET_SOURCE"
 
 
 def build_target_source_report(
@@ -689,7 +726,9 @@ def build_target_source_report(
     if entries is None:
         raise ValueError("target archive roster/report semantics are not canonical")
 
-    open_times_by_symbol: dict[str, list[int]] = {symbol: [] for symbol in TARGET_SYMBOLS}
+    open_times_by_symbol: dict[str, list[int]] = {
+        symbol: [] for symbol in TARGET_SYMBOLS
+    }
     seen: set[tuple[str, str]] = set()
     for validation in validations:
         symbol = validation.report.get("symbol")

@@ -1,0 +1,52 @@
+name: Temporary Issue 601 validator RED format
+
+on:
+  push:
+    branches:
+      - automation/issue601-validator-red-format
+    paths:
+      - .github/workflows/tmp-issue601-validator-red-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue601-premium-target-validator
+  TARGET_SHA: 7c3b967537aca5ad87144cbbab3fba7628ccc89d
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_issue601_target_source_validator.py
+
+jobs:
+  format_only:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+      - name: Guard exact research head
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Apply Ruff format only
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST_FILE"
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+          test "$(git diff --name-only)" = "$TEST_FILE"
+      - name: Guard and publish formatting only
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_FILE"
+          git commit -m "style: format Issue 601 validator RED oracle"
+          test "$(git diff --name-only HEAD^ HEAD)" = "$TEST_FILE"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

@@ -1,0 +1,83 @@
+name: Temporary Issue 602 preflight helper no-network verification
+
+on:
+  push:
+    branches:
+      - automation/issue602-preflight-helper-verify
+    paths:
+      - .github/workflows/tmp-issue602-preflight-helper-verify.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue602-usdm-1h-target-preflight
+  TARGET_SHA: ccd57dced18e1e3d341da3ce809f19ab69986097
+  VALIDATOR_SHA: d914d49aca7a30bdbf8ac394dc492b3e19e9d61c
+  VALIDATOR_FULL_RUN_ID: "34961124202"
+  HELPER: tools/tmp_issue602_target_source_preflight.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/issue602_target_source_validator.py
+  TEST: tests/evaluation/experiments/bootstrap/test_issue602_target_source_validator.py
+
+jobs:
+  verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact staged helper head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard helper branch and validator authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git rev-parse "$VALIDATOR_SHA:$MODULE")" = "$(git rev-parse "HEAD:$MODULE")"
+          test "$(git rev-parse "$VALIDATOR_SHA:$TEST")" = "$(git rev-parse "HEAD:$TEST")"
+          changed="$(git diff --name-only "$VALIDATOR_SHA..$TARGET_SHA")"
+          test "$changed" = "$HELPER"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATOR_FULL_RUN_ID)"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = success
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATOR_FULL_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$jobs")" = success
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format type-check and self-check without network
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$HELPER"
+          uv run ruff check --fix "$HELPER"
+          uv run ruff check "$HELPER" "$MODULE" "$TEST"
+          uv run ruff format --check "$HELPER" "$MODULE" "$TEST"
+          uv run mypy "$HELPER" "$MODULE"
+          uv run python "$HELPER" --self-check
+          uv run pytest -q "$TEST"
+      - name: Guard and publish verified helper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$HELPER" || true)"
+          if git diff --quiet -- "$HELPER"; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$HELPER"
+          git commit -m "style: verify Issue 602 structural preflight helper"
+          git push origin HEAD:"$TARGET_BRANCH"

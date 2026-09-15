@@ -1,0 +1,126 @@
+name: Temporary Issue 584 preregistration hardening
+
+on:
+  push:
+    branches:
+      - automation/issue584-prereg-hardening
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue584-spot-flow-prereg
+  TARGET_SHA: 84b055d59c71b86393f1523b017d8893a2af68bc
+
+jobs:
+  harden_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact hardened-test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Add missing immutable protocol fields
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              if old not in text:
+                  raise SystemExit(f'patch target not found: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '_SPOT_SOURCE_RESULT_CONTENT_DIGEST = (\n    "06207c17f997ebd6c99db553cee07881a10e8b54d16af062a47e0fcb0a2cb51a"\n)\n',
+              '_SPOT_SOURCE_RESULT_CONTENT_DIGEST = (\n    "06207c17f997ebd6c99db553cee07881a10e8b54d16af062a47e0fcb0a2cb51a"\n)\n_SPOT_SOURCE_USABLE_ROWS = 13_598_332\n_SPOT_SOURCE_MALFORMED_ROWS = 0\n_SPOT_SOURCE_INVALID_SENTINEL_ROWS = 0\n'
+          )
+          replace_once(
+              '        "spot_source_result_content_digest": _SPOT_SOURCE_RESULT_CONTENT_DIGEST,\n        "feature_name": _FEATURE_NAME,',
+              '        "spot_source_result_content_digest": _SPOT_SOURCE_RESULT_CONTENT_DIGEST,\n        "spot_source_usable_rows": _SPOT_SOURCE_USABLE_ROWS,\n        "spot_source_malformed_rows": _SPOT_SOURCE_MALFORMED_ROWS,\n        "spot_source_invalid_sentinel_rows": _SPOT_SOURCE_INVALID_SENTINEL_ROWS,\n        "feature_name": _FEATURE_NAME,'
+          )
+          replace_once(
+              '        "use_best_price_match": False,\n        "target_market": _TARGET_MARKET,',
+              '        "use_best_price_match": False,\n        "provider_order_required": True,\n        "event_time_strictly_before_decision": True,\n        "archive_publication_time_used_as_market_event_time": False,\n        "clipping_allowed": False,\n        "winsorization_allowed": False,\n        "zscore_allowed": False,\n        "volume_scaling_allowed": False,\n        "volatility_scaling_allowed": False,\n        "funding_combination_allowed": False,\n        "basis_combination_allowed": False,\n        "price_return_input_allowed": False,\n        "cross_sectional_normalization_allowed": False,\n        "rank_transform_allowed": False,\n        "learned_coefficient_allowed": False,\n        "feature_threshold_allowed": False,\n        "target_market": _TARGET_MARKET,'
+          )
+          replace_once(
+              '        "label_formula": _LABEL_FORMULA,\n        "expected_direction": _EXPECTED_DIRECTION,',
+              '        "label_formula": _LABEL_FORMULA,\n        "require_target_rows_present": True,\n        "require_target_rows_contiguous": True,\n        "require_target_rows_information_available": True,\n        "require_target_rows_active": True,\n        "require_target_rows_tradable": True,\n        "require_target_open_finite_positive": True,\n        "target_2023_or_later_allowed": False,\n        "expected_direction": _EXPECTED_DIRECTION,'
+          )
+          replace_once(
+              '        "fixed_reduction": _FIXED_REDUCTION,\n        "alternate_sign_allowed": False,',
+              '        "fixed_reduction": _FIXED_REDUCTION,\n        "weighted_regression_allowed": False,\n        "robust_regression_allowed": False,\n        "require_numerator_finite": True,\n        "require_denominator_finite_positive": True,\n        "require_beta_finite": True,\n        "no_magnitude_threshold_after_results": True,\n        "training_relation_executed": False,\n        "alternate_sign_allowed": False,'
+          )
+          replace_once(
+              '    spot_source_result_content_digest: str = _SPOT_SOURCE_RESULT_CONTENT_DIGEST\n    feature_name: str = _FEATURE_NAME',
+              '    spot_source_result_content_digest: str = _SPOT_SOURCE_RESULT_CONTENT_DIGEST\n    spot_source_usable_rows: int = _SPOT_SOURCE_USABLE_ROWS\n    spot_source_malformed_rows: int = _SPOT_SOURCE_MALFORMED_ROWS\n    spot_source_invalid_sentinel_rows: int = _SPOT_SOURCE_INVALID_SENTINEL_ROWS\n    feature_name: str = _FEATURE_NAME'
+          )
+          replace_once(
+              '    use_best_price_match: bool = False\n    target_market: str = _TARGET_MARKET',
+              '    use_best_price_match: bool = False\n    provider_order_required: bool = True\n    event_time_strictly_before_decision: bool = True\n    archive_publication_time_used_as_market_event_time: bool = False\n    clipping_allowed: bool = False\n    winsorization_allowed: bool = False\n    zscore_allowed: bool = False\n    volume_scaling_allowed: bool = False\n    volatility_scaling_allowed: bool = False\n    funding_combination_allowed: bool = False\n    basis_combination_allowed: bool = False\n    price_return_input_allowed: bool = False\n    cross_sectional_normalization_allowed: bool = False\n    rank_transform_allowed: bool = False\n    learned_coefficient_allowed: bool = False\n    feature_threshold_allowed: bool = False\n    target_market: str = _TARGET_MARKET'
+          )
+          replace_once(
+              '    label_formula: str = _LABEL_FORMULA\n    expected_direction: str = _EXPECTED_DIRECTION',
+              '    label_formula: str = _LABEL_FORMULA\n    require_target_rows_present: bool = True\n    require_target_rows_contiguous: bool = True\n    require_target_rows_information_available: bool = True\n    require_target_rows_active: bool = True\n    require_target_rows_tradable: bool = True\n    require_target_open_finite_positive: bool = True\n    target_2023_or_later_allowed: bool = False\n    expected_direction: str = _EXPECTED_DIRECTION'
+          )
+          replace_once(
+              '    fixed_reduction: str = _FIXED_REDUCTION\n    alternate_sign_allowed: bool = False',
+              '    fixed_reduction: str = _FIXED_REDUCTION\n    weighted_regression_allowed: bool = False\n    robust_regression_allowed: bool = False\n    require_numerator_finite: bool = True\n    require_denominator_finite_positive: bool = True\n    require_beta_finite: bool = True\n    no_magnitude_threshold_after_results: bool = True\n    training_relation_executed: bool = False\n    alternate_sign_allowed: bool = False'
+          )
+          path.write_text(text)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and targeted checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+      - name: Guard and publish complete preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py|tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py|tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py
+          git commit -m "feat: harden sealed Spot flow continuation protocol"
+          git push origin HEAD:"$TARGET_BRANCH"

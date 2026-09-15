@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.evaluation.experiments.bootstrap import spot_flow_continuation_diagnostic as diagnostic
+from trade_rl.evaluation.experiments.bootstrap import (
+    spot_flow_continuation_diagnostic as diagnostic,
+)
 from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import (
     canonical_spot_flow_continuation_protocol,
 )
@@ -19,7 +21,9 @@ FOUR_HOURS_MS = 14_400_000
 
 
 def _day_start_ms(date: str) -> int:
-    return int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
+    return int(
+        datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000
+    )
 
 
 def _trade(
@@ -72,7 +76,9 @@ def _result_inputs(
     result: dict[str, tuple[list[float], list[float]]] = {}
     for index, symbol in enumerate(SYMBOLS):
         result[symbol] = (
-            _positive_observations() if index < positive_symbols else _negative_observations()
+            _positive_observations()
+            if index < positive_symbols
+            else _negative_observations()
         )
     return result
 
@@ -92,7 +98,9 @@ def _build_result(*, positive_symbols: int = 4) -> diagnostic.SpotFlowDiagnostic
     )
 
 
-def test_spot_csv_parser_preserves_provider_semantics_and_excludes_exact_sentinel() -> None:
+def test_spot_csv_parser_preserves_provider_semantics_and_excludes_exact_sentinel() -> (
+    None
+):
     date = "2021-01-15"
     start = _day_start_ms(date)
     payload = (
@@ -126,7 +134,9 @@ def test_spot_csv_parser_rejects_wrong_boolean_and_out_of_day_timestamp() -> Non
         diagnostic.parse_spot_aggtrades_csv(next_day, expected_date=date)
 
 
-def test_interval_signal_uses_left_closed_right_open_quote_notional_and_provider_order() -> None:
+def test_interval_signal_uses_left_closed_right_open_quote_notional_and_provider_order() -> (
+    None
+):
     decision = 10 * QUARTER_HOUR_MS
     start = decision - QUARTER_HOUR_MS
     trades = (
@@ -157,7 +167,9 @@ def test_interval_signal_is_unavailable_for_empty_window_and_prefix_causal() -> 
     )
 
 
-def test_interval_signal_observably_uses_math_fsum(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_interval_signal_observably_uses_math_fsum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     real_fsum = math.fsum
     calls: list[tuple[float, ...]] = []
 
@@ -223,7 +235,10 @@ def test_four_hour_label_fails_closed_on_gap_or_invalid_target_mask() -> None:
         _target_bar(decision + index * QUARTER_HOUR_MS, 100.0 + index)
         for index in range(17)
     ]
-    assert diagnostic.build_four_hour_label(complete, decision_time_ms=decision) is not None
+    assert (
+        diagnostic.build_four_hour_label(complete, decision_time_ms=decision)
+        is not None
+    )
 
     missing = complete[:8] + complete[9:]
     assert diagnostic.build_four_hour_label(missing, decision_time_ms=decision) is None

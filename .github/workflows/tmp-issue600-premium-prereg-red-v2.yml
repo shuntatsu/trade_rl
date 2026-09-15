@@ -1,0 +1,54 @@
+name: Temporary Issue 600 premium-pressure prereg RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-red-v2
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-red-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: cf53b8b09f187464c0df64abcf1ba79460cbb911
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact formatted test-only head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Prove formatted test source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$TEST"
+          uv run ruff check "$TEST"
+      - name: Require missing-production-module semantic RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q "$TEST" > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "ModuleNotFoundError|No module named.*premium_pressure_prereg" /tmp/red.log
+          ! grep -Eq "SyntaxError|IndentationError" /tmp/red.log
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

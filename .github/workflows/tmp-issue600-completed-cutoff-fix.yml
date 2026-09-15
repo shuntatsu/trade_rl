@@ -1,0 +1,95 @@
+name: Temporary Issue 600 completed-endpoint cutoff fix
+
+on:
+  push:
+    branches:
+      - automation/issue600-completed-cutoff-fix
+    paths:
+      - .github/workflows/tmp-issue600-completed-cutoff-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue600-premium-pressure-prereg
+  TARGET_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  fix_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact raw-endpoint oracle head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Restore maintained completed-endpoint cutoff semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py')
+          text = path.read_text()
+          replacements = {
+              'assert protocol.last_candidate_decision == datetime(2022, 12, 30, 23, tzinfo=UTC)':
+                  'assert protocol.last_candidate_decision == datetime(2022, 12, 30, 22, tzinfo=UTC)',
+              'assert protocol.nominal_candidate_decisions_per_symbol == 17_495':
+                  'assert protocol.nominal_candidate_decisions_per_symbol == 17_494',
+              'assert protocol.minimum_eligible_observations_per_symbol == 16_621':
+                  'assert protocol.minimum_eligible_observations_per_symbol == 16_620',
+              'def test_fit_clock_counts_are_derived_from_raw_endpoint_semantics() -> None:':
+                  'def test_fit_clock_counts_are_derived_from_completed_endpoint_semantics() -> None:',
+              'endpoint_offset = timedelta(minutes=protocol.endpoint_raw_open_time_offset_minutes)':
+                  'endpoint_dataset_offset = timedelta(hours=protocol.label_endpoint_offset_bars)',
+              'while decision + endpoint_offset < protocol.fit_cutoff:':
+                  'while decision + endpoint_dataset_offset < protocol.fit_cutoff:',
+              'assert len(decisions) == protocol.nominal_candidate_decisions_per_symbol == 17_495':
+                  'assert len(decisions) == protocol.nominal_candidate_decisions_per_symbol == 17_494',
+              '        == 16_621': '        == 16_620',
+              'assert decisions[-1] + 24 * one_hour < protocol.fit_cutoff':
+                  'assert decisions[-1] + endpoint_dataset_offset < protocol.fit_cutoff',
+              'assert decisions[-1] + 25 * one_hour == protocol.fit_cutoff':
+                  'assert decisions[-1] + endpoint_dataset_offset + one_hour == protocol.fit_cutoff',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one occurrence: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and statically verify corrected oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST"
+          uv run ruff check "$TEST"
+      - name: Guard and publish test-only correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$TEST" || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST"
+          git commit -m "test: enforce completed-endpoint cutoff for Issue 600"
+          git push origin HEAD:"$TARGET_BRANCH"

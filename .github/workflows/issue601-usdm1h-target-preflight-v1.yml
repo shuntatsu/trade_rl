@@ -1,0 +1,382 @@
+name: Issue 601 USD-M 1h target-source structural preflight v1
+
+on:
+  push:
+    branches:
+      - preflight/issue601-usdm1h-target-v1
+    paths:
+      - .github/workflows/issue601-usdm1h-target-preflight-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PREFLIGHT_BRANCH: preflight/issue601-usdm1h-target-v1
+  PREFLIGHT_HELPER_HEAD: 7876ba85adecc200e13d3632e2e6d55355d72544
+  HELPER_VERIFY_RUN_ID: "34962100334"
+  HELPER: tools/tmp_issue601_target_preflight.py
+  HELPER_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_preflight_helper.py
+
+  ISSUE600_BRANCH: research/issue600-premium-pressure-prereg
+  ISSUE600_HEAD: 6ffc414baa10e91f34df258fe5cfabacce65fd77
+  ISSUE600_DIGEST: 18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731
+  ISSUE600_FULL_RUN_ID: "34959430185"
+  ISSUE600_DIGEST_RUN_ID: "34959536569"
+  ISSUE600_SEAL_RUN_ID: "34959849347"
+  ISSUE600_SEAL_ARTIFACT_ID: "10392936042"
+  ISSUE600_SEAL_ARTIFACT_DIGEST: sha256:4b611462f8d4f9bb4d23ab15bb4d8a20525d4093e590c1afb62d1b74ca875e15
+  ISSUE600_FRESH_ARTIFACT_ID: "10391714897"
+  ISSUE600_FRESH_ARTIFACT_DIGEST: sha256:858e930a03e442f047556801c3d9a536fbc89435b5f261cba621988dd8062acd
+
+  VALIDATOR_BRANCH: research/issue601-premium-target-validator
+  VALIDATOR_HEAD: c707be853480e57362f6a3d64f116e4056c3553f
+  VALIDATOR_FULL_RUN_ID: "34961165095"
+  VALIDATOR: trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py
+  VALIDATOR_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_source_validator.py
+
+jobs:
+  publisher:
+    name: Structural 120-archive publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact workflow/preflight authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind all immutable authorities before network access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/$PREFLIGHT_BRANCH | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/$ISSUE600_BRANCH | cut -f1)" = "$ISSUE600_HEAD"
+          test "$(git ls-remote origin refs/heads/$VALIDATOR_BRANCH | cut -f1)" = "$VALIDATOR_HEAD"
+
+          test "$(git rev-parse "$PREFLIGHT_HELPER_HEAD:$HELPER")" = "$(git rev-parse "HEAD:$HELPER")"
+          test "$(git rev-parse "$PREFLIGHT_HELPER_HEAD:$HELPER_TEST")" = "$(git rev-parse "HEAD:$HELPER_TEST")"
+          test "$(git rev-parse "$VALIDATOR_HEAD:$VALIDATOR")" = "$(git rev-parse "HEAD:$VALIDATOR")"
+          test "$(git rev-parse "$VALIDATOR_HEAD:$VALIDATOR_TEST")" = "$(git rev-parse "HEAD:$VALIDATOR_TEST")"
+
+          for run_id in "$ISSUE600_FULL_RUN_ID" "$ISSUE600_DIGEST_RUN_ID" "$ISSUE600_SEAL_RUN_ID" "$VALIDATOR_FULL_RUN_ID" "$HELPER_VERIFY_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .status <<<"$run")" = completed
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+
+          issue600_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ISSUE600_FULL_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$issue600_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$issue600_jobs")" = success
+          validator_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATOR_FULL_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$validator_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$validator_jobs")" = success
+
+          for spec in "$ISSUE600_SEAL_ARTIFACT_ID|$ISSUE600_SEAL_ARTIFACT_DIGEST" "$ISSUE600_FRESH_ARTIFACT_ID|$ISSUE600_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$ISSUE600_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          done
+
+          echo "NETWORK_ACCESS_PERFORMED=false"
+          echo "ECONOMIC_VALUES_INSPECTED=false"
+          echo "TARGET_PRICE_VALUES_INSPECTED=false"
+          echo "TARGET_RETURN_COMPUTED=false"
+          echo "PREMIUM_VALUES_INSPECTED=false"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Reverify exact helper and validator before network access
+        run: |
+          uv run ruff check "$HELPER" "$HELPER_TEST" "$VALIDATOR" "$VALIDATOR_TEST"
+          uv run ruff format --check "$HELPER" "$HELPER_TEST" "$VALIDATOR" "$VALIDATOR_TEST"
+          uv run mypy "$HELPER" "$VALIDATOR"
+          uv run pytest -q "$VALIDATOR_TEST" "$HELPER_TEST"
+          ! grep -F 'STATUS=' "$HELPER"
+
+      - name: Fetch and structurally validate exact frozen 120 archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher
+          uv run python "$HELPER" \
+            --report /tmp/publisher/report.json \
+            --manifest /tmp/publisher/manifest.json
+          test -s /tmp/publisher/report.json
+          test -s /tmp/publisher/manifest.json
+          echo "STRUCTURAL_ACQUISITION_COMPLETED=true"
+          echo "STATUS_INTERPRETED=false"
+
+      - id: meta
+        run: echo "name=issue601-usdm1h-target-publisher-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable result-blind publisher evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/publisher/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent 120-archive reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact workflow/preflight authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: API-bind publisher artifact and code authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.publisher.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/$PREFLIGHT_BRANCH | cut -f1)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/$ISSUE600_BRANCH | cut -f1)" = "$ISSUE600_HEAD"
+          test "$(git ls-remote origin refs/heads/$VALIDATOR_BRANCH | cut -f1)" = "$VALIDATOR_HEAD"
+          test "$(git rev-parse "$PREFLIGHT_HELPER_HEAD:$HELPER")" = "$(git rev-parse "HEAD:$HELPER")"
+          test "$(git rev-parse "$VALIDATOR_HEAD:$VALIDATOR")" = "$(git rev-parse "HEAD:$VALIDATOR")"
+
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+          echo "STATUS_INTERPRETED=false"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/published
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Independently re-fetch exact 120 pairs and require byte equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python "$HELPER" \
+            --report /tmp/fresh/report.json \
+            --manifest /tmp/fresh/manifest.json
+          cmp /tmp/published/report.json /tmp/fresh/report.json
+          cmp /tmp/published/manifest.json /tmp/fresh/manifest.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          report = json.loads(Path('/tmp/fresh/report.json').read_bytes())
+          verification = {
+              'schema_version': 'issue601_usdm_1h_target_fresh_v1',
+              'issue_number': 601,
+              'publisher_report_byte_equal': True,
+              'publisher_manifest_byte_equal': True,
+              'validator_head': report['validator_head'],
+              'validator_verification_run_id': report['validator_verification_run_id'],
+              'issue600_protocol_head': report['issue600_protocol_head'],
+              'issue600_protocol_digest': report['issue600_protocol_digest'],
+              'economic_values_inspected': False,
+              'target_price_values_inspected': False,
+              'target_return_computed': False,
+              'premium_values_inspected': False,
+              'training_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/fresh/verification.json').write_bytes(canonical_json_bytes(verification))
+          PY
+          echo "FRESH_BYTE_EQUALITY=true"
+          echo "STATUS_INTERPRETED=false"
+
+      - id: meta
+        run: echo "name=issue601-usdm1h-target-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload independent reconstruction evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 601 structural-source audit and interpretation
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact workflow/preflight authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: API-bind publisher and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Verify canonical byte identity, exact roster, blind boundaries, then interpret status
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/report.json /tmp/fresh/report.json
+          cmp /tmp/publisher/manifest.json /tmp/fresh/manifest.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.issue601_target_source_validator import (
+              TARGET_MONTHS,
+              TARGET_SYMBOLS,
+              load_target_source_report_bytes,
+          )
+          from tools.tmp_issue601_target_preflight import canonical_manifest_bytes
+
+          report_raw = Path('/tmp/publisher/report.json').read_bytes()
+          manifest_raw = Path('/tmp/publisher/manifest.json').read_bytes()
+          fresh_verification_raw = Path('/tmp/fresh/verification.json').read_bytes()
+          report = load_target_source_report_bytes(report_raw)
+          manifest = json.loads(manifest_raw)
+          if canonical_manifest_bytes(manifest) != manifest_raw:
+              raise SystemExit('manifest canonical validation differs')
+          verification = json.loads(fresh_verification_raw)
+          if canonical_json_bytes(verification) != fresh_verification_raw:
+              raise SystemExit('fresh verification is not canonical')
+
+          if report['issue600_protocol_head'] != '6ffc414baa10e91f34df258fe5cfabacce65fd77':
+              raise SystemExit('Issue 600 protocol head differs')
+          if report['issue600_protocol_digest'] != '18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731':
+              raise SystemExit('Issue 600 protocol digest differs')
+          if report['validator_head'] != 'c707be853480e57362f6a3d64f116e4056c3553f':
+              raise SystemExit('validator head differs')
+          if report['validator_verification_run_id'] != 34961165095:
+              raise SystemExit('validator verification differs')
+          if report['planned_archive_count'] != 120 or len(report['entries']) != 120:
+              raise SystemExit('planned archive count differs')
+          expected_pairs = [(s, m) for s in TARGET_SYMBOLS for m in TARGET_MONTHS]
+          observed_pairs = [(e['symbol'], e['month']) for e in report['entries']]
+          if observed_pairs != expected_pairs:
+              raise SystemExit('archive roster/order differs')
+
+          for payload in (report, manifest, verification):
+              for key in (
+                  'economic_values_inspected',
+                  'target_price_values_inspected',
+                  'target_return_computed',
+                  'premium_values_inspected',
+                  'training_relation_computed',
+                  'evaluation_pnl_inspected',
+                  'final_test_authorized',
+                  'production_eligible',
+                  'live_trading_authorized',
+              ):
+                  if payload.get(key) is not False:
+                      raise SystemExit(f'forbidden boundary crossed: {key}')
+          if verification.get('publisher_report_byte_equal') is not True or verification.get('publisher_manifest_byte_equal') is not True:
+              raise SystemExit('fresh byte-equality proof differs')
+
+          status = report['status']
+          if status not in {
+              'PASS_USDM_1H_TARGET_SOURCE',
+              'PARTIAL_USDM_1H_TARGET_SOURCE',
+              'INCOMPATIBLE_USDM_1H_TARGET_SOURCE',
+          }:
+              raise SystemExit('unexpected structural status')
+          if status == 'PASS_USDM_1H_TARGET_SOURCE':
+              for symbol in TARGET_SYMBOLS:
+                  summary = report['target_windows_by_symbol'][symbol]
+                  if summary['nominal_decisions'] != 17495:
+                      raise SystemExit('nominal decision count differs')
+                  if summary['structurally_present_windows'] < 16621:
+                      raise SystemExit('PASS has insufficient structural coverage')
+          print('ISSUE601_STRUCTURAL_PREFLIGHT_AUDIT=PASS')
+          print(f'STATUS={status}')
+          print(f'PLANNED_ARCHIVES={report["planned_archive_count"]}')
+          for symbol in TARGET_SYMBOLS:
+              summary = report['target_windows_by_symbol'][symbol]
+              print(f'{symbol}_STRUCTURAL_WINDOWS={summary["structurally_present_windows"]}/17495')
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_PRICE_VALUES_INSPECTED=false')
+          print('TARGET_RETURN_COMPUTED=false')
+          print('PREMIUM_VALUES_INSPECTED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          PY

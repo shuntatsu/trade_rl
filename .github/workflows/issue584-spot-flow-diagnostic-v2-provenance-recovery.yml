@@ -1,0 +1,483 @@
+name: Issue 584 Spot-flow diagnostic provenance-only v2 recovery
+
+on:
+  push:
+    branches:
+      - recovery/issue584-spot-flow-diagnostic-v2-provenance
+    paths:
+      - .github/workflows/issue584-spot-flow-diagnostic-v2-provenance-recovery.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CURRENT_SHA: f5540a00d21784373ec28b1c57b9ba00864dfff7
+  CURRENT_FULL_RUN_ID: "34956074341"
+  OLD_IMPL_SHA: 53b005f4dd16de4b4bfe9593714db4d77d8da07f
+  REAL_RUN_ID: "34955237910"
+  REAL_PUBLISHER_ARTIFACT_ID: "10390777484"
+  REAL_PUBLISHER_ARTIFACT_NAME: issue584-spot-flow-diagnostic-v3-34955237910
+  REAL_PUBLISHER_ARTIFACT_DIGEST: sha256:85859e3786daef011b4731ce79a761f2221c2a1f7c5ef2f12519a94c82221e0a
+  REAL_FRESH_ARTIFACT_ID: "10391221327"
+  REAL_FRESH_ARTIFACT_NAME: issue584-spot-flow-diagnostic-fresh-v3-34955237910
+  REAL_FRESH_ARTIFACT_DIGEST: sha256:5ff57f3466cee0a7b60461e5e099591d68f001f11449bacb6a2b4bbc7f4a128a
+  TARGET_SOURCE_STATUS: PASS_USDM_15M_TARGET_SOURCE
+  TARGET_SOURCE_VALIDATOR_HEAD: 12151cb014f62f603fc115b3129d14264eb93683
+  TARGET_SOURCE_VALIDATOR_FULL_RUN_ID: "34951770631"
+  TARGET_SOURCE_REBIND_RUN_ID: "34953161630"
+  TARGET_SOURCE_REBIND_ARTIFACT_ID: "10389544902"
+  TARGET_SOURCE_REBIND_ARTIFACT_NAME: issue586-target-source-prereg-v3-rebind-34953161630
+  TARGET_SOURCE_REBIND_ARTIFACT_DIGEST: sha256:2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2
+  TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID: "10389694422"
+  TARGET_SOURCE_REBIND_FRESH_ARTIFACT_NAME: issue586-target-source-prereg-v3-rebind-fresh-34953161630
+  TARGET_SOURCE_REBIND_FRESH_ARTIFACT_DIGEST: sha256:8b5cbd19abb9517bf4885f3b9432b29024069f0005b8d18e89b82b2471765e3d
+
+jobs:
+  recover:
+    name: Provenance-only recovery publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact hardened loader authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CURRENT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind immutable execution, verification, and target-source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CURRENT_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-diagnostic-v3 | cut -f1)" = "$CURRENT_SHA"
+          for run_id in "$CURRENT_FULL_RUN_ID" "$REAL_RUN_ID" "$TARGET_SOURCE_VALIDATOR_FULL_RUN_ID" "$TARGET_SOURCE_REBIND_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .status <<<"$run")" = completed
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REAL_RUN_ID/jobs?per_page=100")"
+          test "$(jq '[.jobs[] | select(.conclusion != "success")] | length' <<<"$jobs")" = 0
+          test "$(jq '.jobs | length' <<<"$jobs")" -ge 3
+          for spec in \
+            "$REAL_PUBLISHER_ARTIFACT_ID|$REAL_RUN_ID|$REAL_PUBLISHER_ARTIFACT_DIGEST" \
+            "$REAL_FRESH_ARTIFACT_ID|$REAL_RUN_ID|$REAL_FRESH_ARTIFACT_DIGEST" \
+            "$TARGET_SOURCE_REBIND_ARTIFACT_ID|$TARGET_SOURCE_REBIND_RUN_ID|$TARGET_SOURCE_REBIND_ARTIFACT_DIGEST" \
+            "$TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID|$TARGET_SOURCE_REBIND_RUN_ID|$TARGET_SOURCE_REBIND_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run_id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          done
+
+      - name: Download only immutable result and provenance authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/real-publisher /tmp/real-fresh /tmp/rebind /tmp/rebind-fresh
+          gh run download "$REAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$REAL_PUBLISHER_ARTIFACT_NAME" --dir /tmp/real-publisher
+          gh run download "$REAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$REAL_FRESH_ARTIFACT_NAME" --dir /tmp/real-fresh
+          gh run download "$TARGET_SOURCE_REBIND_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_SOURCE_REBIND_ARTIFACT_NAME" --dir /tmp/rebind
+          gh run download "$TARGET_SOURCE_REBIND_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_SOURCE_REBIND_FRESH_ARTIFACT_NAME" --dir /tmp/rebind-fresh
+          cmp /tmp/real-publisher/result.json /tmp/real-fresh/result.json
+          cmp /tmp/real-publisher/evidence.json /tmp/real-fresh/evidence.json
+          echo "MARKET_DATA_NETWORK_ACCESS_PERFORMED=false"
+          echo "ECONOMIC_RECOMPUTATION_PERFORMED=false"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Validate original v1 with exact old loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/old-impl "$OLD_IMPL_SHA"
+          cd /tmp/old-impl
+          OLD_RESULT=/tmp/real-publisher/result.json "$GITHUB_WORKSPACE/.venv/bin/python" - <<'PY'
+          import os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_diagnostic import load_spot_flow_result_bytes
+
+          result = load_spot_flow_result_bytes(Path(os.environ['OLD_RESULT']).read_bytes())
+          if result.schema_version != 'spot_flow_continuation_diagnostic_v1':
+              raise SystemExit('original result is not v1')
+          if result.execution_run_id != int(os.environ['REAL_RUN_ID']):
+              raise SystemExit('original execution run id differs')
+          if result.implementation_head != os.environ['OLD_IMPL_SHA']:
+              raise SystemExit('original implementation authority differs')
+          print('ORIGINAL_V1_LOADER_VALIDATION=PASS')
+          PY
+
+      - name: Add provenance only and prove exact legacy projection equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recovery
+          cp /tmp/real-publisher/result.json /tmp/recovery/original_result.json
+          cp /tmp/real-publisher/evidence.json /tmp/recovery/original_evidence.json
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_diagnostic import load_spot_flow_result_bytes
+
+          original_raw = Path('/tmp/recovery/original_result.json').read_bytes()
+          original = json.loads(original_raw)
+          if canonical_json_bytes(original) != original_raw:
+              raise SystemExit('original result is not canonical JSON')
+          original_unsigned = dict(original)
+          original_content_digest = original_unsigned.pop('content_digest', None)
+          if not isinstance(original_content_digest, str) or content_digest(original_unsigned) != original_content_digest:
+              raise SystemExit('original result content digest mismatch')
+          if original_unsigned.get('schema_version') != 'spot_flow_continuation_diagnostic_v1':
+              raise SystemExit('original schema differs')
+          if original_unsigned.get('implementation_head') != os.environ['OLD_IMPL_SHA']:
+              raise SystemExit('original implementation head differs')
+          if original_unsigned.get('execution_run_id') != int(os.environ['REAL_RUN_ID']):
+              raise SystemExit('original execution run differs')
+
+          added = {
+              'target_source_status': os.environ['TARGET_SOURCE_STATUS'],
+              'target_source_validator_head': os.environ['TARGET_SOURCE_VALIDATOR_HEAD'],
+              'target_source_validator_full_verify_run_id': int(os.environ['TARGET_SOURCE_VALIDATOR_FULL_RUN_ID']),
+              'target_source_rebind_run_id': int(os.environ['TARGET_SOURCE_REBIND_RUN_ID']),
+              'target_source_rebind_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_ARTIFACT_ID']),
+              'target_source_rebind_artifact_api_digest': os.environ['TARGET_SOURCE_REBIND_ARTIFACT_DIGEST'].removeprefix('sha256:'),
+              'target_source_rebind_fresh_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID']),
+              'target_source_rebind_fresh_artifact_api_digest': os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_DIGEST'].removeprefix('sha256:'),
+          }
+          recovered_unsigned = dict(original_unsigned)
+          recovered_unsigned['schema_version'] = 'spot_flow_continuation_diagnostic_v2'
+          recovered_unsigned.update(added)
+          recovered = dict(recovered_unsigned)
+          recovered['content_digest'] = content_digest(recovered_unsigned)
+          recovered_raw = canonical_json_bytes(recovered)
+          Path('/tmp/recovery/result_v2.json').write_bytes(recovered_raw)
+
+          projection = dict(recovered_unsigned)
+          for field in added:
+              projection.pop(field)
+          projection['schema_version'] = 'spot_flow_continuation_diagnostic_v1'
+          if projection != original_unsigned:
+              raise SystemExit('recovered result changes legacy/economic projection')
+
+          loaded = load_spot_flow_result_bytes(recovered_raw)
+          if loaded.execution_run_id != int(os.environ['REAL_RUN_ID']):
+              raise SystemExit('recovered execution run differs')
+          if loaded.implementation_head != os.environ['OLD_IMPL_SHA']:
+              raise SystemExit('recovered result falsely changes computation authority')
+          if loaded.status != original_unsigned.get('status'):
+              raise SystemExit('recovered status differs')
+          if loaded.positive_slope_count != original_unsigned.get('positive_slope_count'):
+              raise SystemExit('recovered positive-slope count differs')
+          if loaded.training_relation_executed is not True:
+              raise SystemExit('recovered result lost training execution fact')
+          if any((loaded.evaluation_pnl_inspected, loaded.evaluation_execution_authorized, loaded.final_test_authorized, loaded.shared_cash_profitability_established, loaded.production_eligible, loaded.live_trading_authorized)):
+              raise SystemExit('recovery crossed forbidden boundary')
+
+          original_evidence_raw = Path('/tmp/recovery/original_evidence.json').read_bytes()
+          recovery_unsigned = {
+              'schema_version': 'issue584_spot_flow_provenance_recovery_v1',
+              'issue_number': 584,
+              'recovery_workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'original_execution_run_id': int(os.environ['REAL_RUN_ID']),
+              'original_implementation_head': os.environ['OLD_IMPL_SHA'],
+              'hardened_loader_head': os.environ['CURRENT_SHA'],
+              'hardened_loader_full_verify_run_id': int(os.environ['CURRENT_FULL_RUN_ID']),
+              'original_publisher_artifact_id': int(os.environ['REAL_PUBLISHER_ARTIFACT_ID']),
+              'original_publisher_artifact_digest': os.environ['REAL_PUBLISHER_ARTIFACT_DIGEST'],
+              'original_fresh_artifact_id': int(os.environ['REAL_FRESH_ARTIFACT_ID']),
+              'original_fresh_artifact_digest': os.environ['REAL_FRESH_ARTIFACT_DIGEST'],
+              'target_source_rebind_run_id': int(os.environ['TARGET_SOURCE_REBIND_RUN_ID']),
+              'target_source_rebind_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_ARTIFACT_ID']),
+              'target_source_rebind_artifact_digest': os.environ['TARGET_SOURCE_REBIND_ARTIFACT_DIGEST'],
+              'target_source_rebind_fresh_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID']),
+              'target_source_rebind_fresh_artifact_digest': os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_DIGEST'],
+              'original_result_sha256': hashlib.sha256(original_raw).hexdigest(),
+              'original_result_content_digest': original_content_digest,
+              'recovered_result_sha256': hashlib.sha256(recovered_raw).hexdigest(),
+              'recovered_result_content_digest': recovered['content_digest'],
+              'original_evidence_sha256': hashlib.sha256(original_evidence_raw).hexdigest(),
+              'legacy_projection_exact_equal': True,
+              'status_unchanged': True,
+              'positive_slope_count_unchanged': True,
+              'economic_recomputation_performed': False,
+              'market_data_network_access_performed': False,
+              'source_replacement_performed': False,
+              'stop_rule_active': original_unsigned.get('status') == 'REJECT_SPOT_FLOW_HYPOTHESIS',
+              'evaluation_pnl_inspected': False,
+              'final_test_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          recovery = dict(recovery_unsigned)
+          recovery['content_digest'] = content_digest(recovery_unsigned)
+          Path('/tmp/recovery/recovery.json').write_bytes(canonical_json_bytes(recovery))
+          print('PROVENANCE_ONLY_RECOVERY=PASS')
+          print('LEGACY_PROJECTION_EXACT_EQUAL=true')
+          print('ECONOMIC_RECOMPUTATION_PERFORMED=false')
+          print('MARKET_DATA_NETWORK_ACCESS_PERFORMED=false')
+          PY
+
+      - id: meta
+        run: echo "name=issue584-spot-flow-provenance-v2-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable provenance recovery
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/recovery/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Independent provenance-only reconstruction
+    needs: recover
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact hardened loader authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CURRENT_SHA }}
+          persist-credentials: false
+      - name: API-bind recovery publisher and original authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REC_ID: ${{ needs.recover.outputs.artifact_id }}
+          REC_NAME: ${{ needs.recover.outputs.artifact_name }}
+          REC_DIGEST: ${{ needs.recover.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CURRENT_SHA"
+          rec="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$REC_ID)"
+          test "$(jq -r .name <<<"$rec")" = "$REC_NAME"
+          test "$(jq -r .workflow_run.id <<<"$rec")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$rec")" = false
+          rec_api="$(jq -r .digest <<<"$rec")"
+          case "$REC_DIGEST" in sha256:*) test "$rec_api" = "$REC_DIGEST" ;; *) test "$rec_api" = "sha256:$REC_DIGEST" ;; esac
+          for spec in "$REAL_PUBLISHER_ARTIFACT_ID|$REAL_RUN_ID|$REAL_PUBLISHER_ARTIFACT_DIGEST" "$REAL_FRESH_ARTIFACT_ID|$REAL_RUN_ID|$REAL_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run_id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+            test "$(jq -r .expired <<<"$artifact")" = false
+          done
+      - name: Download recovery publisher and original byte-identical pair
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.recover.outputs.artifact_name }}
+          path: /tmp/published-recovery
+      - name: Download original execution artifacts only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/original-publisher /tmp/original-fresh /tmp/fresh-recovery
+          gh run download "$REAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$REAL_PUBLISHER_ARTIFACT_NAME" --dir /tmp/original-publisher
+          gh run download "$REAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$REAL_FRESH_ARTIFACT_NAME" --dir /tmp/original-fresh
+          cmp /tmp/original-publisher/result.json /tmp/original-fresh/result.json
+          cmp /tmp/original-publisher/evidence.json /tmp/original-fresh/evidence.json
+          cmp /tmp/original-publisher/result.json /tmp/published-recovery/original_result.json
+          cmp /tmp/original-publisher/evidence.json /tmp/published-recovery/original_evidence.json
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct v2 bytes without economic computation
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_diagnostic import load_spot_flow_result_bytes
+
+          raw = Path('/tmp/original-publisher/result.json').read_bytes()
+          payload = json.loads(raw)
+          unsigned = dict(payload)
+          digest = unsigned.pop('content_digest', None)
+          if content_digest(unsigned) != digest:
+              raise SystemExit('original digest mismatch')
+          added = {
+              'target_source_status': os.environ['TARGET_SOURCE_STATUS'],
+              'target_source_validator_head': os.environ['TARGET_SOURCE_VALIDATOR_HEAD'],
+              'target_source_validator_full_verify_run_id': int(os.environ['TARGET_SOURCE_VALIDATOR_FULL_RUN_ID']),
+              'target_source_rebind_run_id': int(os.environ['TARGET_SOURCE_REBIND_RUN_ID']),
+              'target_source_rebind_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_ARTIFACT_ID']),
+              'target_source_rebind_artifact_api_digest': os.environ['TARGET_SOURCE_REBIND_ARTIFACT_DIGEST'].removeprefix('sha256:'),
+              'target_source_rebind_fresh_artifact_id': int(os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID']),
+              'target_source_rebind_fresh_artifact_api_digest': os.environ['TARGET_SOURCE_REBIND_FRESH_ARTIFACT_DIGEST'].removeprefix('sha256:'),
+          }
+          recovered_unsigned = dict(unsigned)
+          recovered_unsigned['schema_version'] = 'spot_flow_continuation_diagnostic_v2'
+          recovered_unsigned.update(added)
+          recovered = dict(recovered_unsigned)
+          recovered['content_digest'] = content_digest(recovered_unsigned)
+          recovered_raw = canonical_json_bytes(recovered)
+          projection = dict(recovered_unsigned)
+          for field in added:
+              projection.pop(field)
+          projection['schema_version'] = 'spot_flow_continuation_diagnostic_v1'
+          if projection != unsigned:
+              raise SystemExit('fresh reconstruction changes legacy projection')
+          load_spot_flow_result_bytes(recovered_raw)
+          Path('/tmp/fresh-recovery/original_result.json').write_bytes(raw)
+          Path('/tmp/fresh-recovery/original_evidence.json').write_bytes(Path('/tmp/original-publisher/evidence.json').read_bytes())
+          Path('/tmp/fresh-recovery/result_v2.json').write_bytes(recovered_raw)
+          Path('/tmp/fresh-recovery/recovery.json').write_bytes(Path('/tmp/published-recovery/recovery.json').read_bytes())
+          if recovered_raw != Path('/tmp/published-recovery/result_v2.json').read_bytes():
+              raise SystemExit('fresh recovered result is not byte-identical')
+          print('FRESH_PROVENANCE_RECOVERY=PASS')
+          print('ECONOMIC_RECOMPUTATION_PERFORMED=false')
+          print('MARKET_DATA_NETWORK_ACCESS_PERFORMED=false')
+          PY
+          cmp /tmp/fresh-recovery/result_v2.json /tmp/published-recovery/result_v2.json
+      - id: meta
+        run: echo "name=issue584-spot-flow-provenance-v2-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload independent provenance reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh-recovery/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final provenance-only recovery audit
+    needs: [recover, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact hardened loader authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CURRENT_SHA }}
+          persist-credentials: false
+      - name: API-bind recovery artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.recover.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.recover.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.recover.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in sha256:*) test "$api_digest" = "$digest" ;; *) test "$api_digest" = "sha256:$digest" ;; esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.recover.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Require byte identity, unchanged legacy projection, and stop-rule boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in original_result.json original_evidence.json result_v2.json recovery.json; do
+            cmp "/tmp/publisher/$file" "/tmp/fresh/$file"
+          done
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_diagnostic import load_spot_flow_result_bytes
+
+          original = json.loads(Path('/tmp/publisher/original_result.json').read_bytes())
+          recovered_raw = Path('/tmp/publisher/result_v2.json').read_bytes()
+          recovered = json.loads(recovered_raw)
+          evidence_raw = Path('/tmp/publisher/recovery.json').read_bytes()
+          evidence = json.loads(evidence_raw)
+          if canonical_json_bytes(evidence) != evidence_raw:
+              raise SystemExit('recovery evidence is not canonical')
+          unsigned_evidence = dict(evidence)
+          evidence_digest = unsigned_evidence.pop('content_digest', None)
+          if content_digest(unsigned_evidence) != evidence_digest:
+              raise SystemExit('recovery evidence digest mismatch')
+          result = load_spot_flow_result_bytes(recovered_raw)
+          added = {
+              'target_source_status',
+              'target_source_validator_head',
+              'target_source_validator_full_verify_run_id',
+              'target_source_rebind_run_id',
+              'target_source_rebind_artifact_id',
+              'target_source_rebind_artifact_api_digest',
+              'target_source_rebind_fresh_artifact_id',
+              'target_source_rebind_fresh_artifact_api_digest',
+          }
+          original_unsigned = dict(original)
+          original_unsigned.pop('content_digest')
+          recovered_unsigned = dict(recovered)
+          recovered_unsigned.pop('content_digest')
+          for field in added:
+              recovered_unsigned.pop(field)
+          recovered_unsigned['schema_version'] = 'spot_flow_continuation_diagnostic_v1'
+          if recovered_unsigned != original_unsigned:
+              raise SystemExit('final audit found economic/legacy mutation')
+          if result.status != 'REJECT_SPOT_FLOW_HYPOTHESIS' or result.positive_slope_count != 0:
+              raise SystemExit('frozen interpretation differs during provenance recovery')
+          if evidence.get('economic_recomputation_performed') is not False or evidence.get('market_data_network_access_performed') is not False:
+              raise SystemExit('recovery evidence claims forbidden recomputation/network access')
+          if evidence.get('legacy_projection_exact_equal') is not True or evidence.get('stop_rule_active') is not True:
+              raise SystemExit('recovery did not preserve stop-rule proof')
+          if any((result.evaluation_pnl_inspected, result.evaluation_execution_authorized, result.final_test_authorized, result.shared_cash_profitability_established, result.production_eligible, result.live_trading_authorized)):
+              raise SystemExit('post-training boundary crossed')
+          print('ISSUE584_PROVENANCE_RECOVERY_AUDIT=PASS')
+          print('STATUS=REJECT_SPOT_FLOW_HYPOTHESIS')
+          print('POSITIVE_SLOPE_COUNT=0')
+          print('LEGACY_PROJECTION_EXACT_EQUAL=true')
+          print('ECONOMIC_RECOMPUTATION_PERFORMED=false')
+          print('MARKET_DATA_NETWORK_ACCESS_PERFORMED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          PY

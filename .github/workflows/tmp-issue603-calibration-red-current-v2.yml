@@ -1,0 +1,51 @@
+name: Temporary Issue 603 corrected semantic RED current authority
+
+on:
+  push:
+    branches:
+      - verify/issue603-calibration-red-current-run-v2
+    paths:
+      - .github/workflows/tmp-issue603-calibration-red-current-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 5ba0c595a424621f4f960f16123836467b5506a5
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+
+jobs:
+  semantic_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact corrected test-only target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test ! -e trade_rl/evaluation/experiments/bootstrap/premium_pressure_calibration.py
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates
+        run: |
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+      - name: Require semantic RED only from missing implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST_FILE" > /tmp/pytest.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/pytest.out
+          test "$rc" -ne 0
+          grep -F 'ModuleNotFoundError' /tmp/pytest.out
+          grep -F 'premium_pressure_calibration' /tmp/pytest.out
+          if grep -E 'SyntaxError|IndentationError' /tmp/pytest.out; then exit 1; fi
+          echo 'ISSUE603_CORRECTED_SEMANTIC_RED=PASS'

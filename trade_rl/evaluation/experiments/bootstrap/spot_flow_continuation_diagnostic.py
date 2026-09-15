@@ -18,7 +18,7 @@ from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg imp
     canonical_spot_flow_continuation_protocol,
 )
 
-_SCHEMA_VERSION = "spot_flow_continuation_diagnostic_v1"
+_SCHEMA_VERSION = "spot_flow_continuation_diagnostic_v2"
 _PREREG_HEAD = "41a403bda4252f15d8c059166dd6716110a4bc37"
 _PREREG_FULL_VERIFY_RUN_ID = 34952378700
 _PREREG_SEAL_RUN_ID = 34952843190
@@ -51,6 +51,18 @@ _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST = (
 )
 _TARGET_MANIFEST_DIGEST = (
     "69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b"
+)
+_TARGET_SOURCE_STATUS = "PASS_USDM_15M_TARGET_SOURCE"
+_TARGET_SOURCE_VALIDATOR_HEAD = "12151cb014f62f603fc115b3129d14264eb93683"
+_TARGET_SOURCE_VALIDATOR_FULL_VERIFY_RUN_ID = 34951770631
+_TARGET_SOURCE_REBIND_RUN_ID = 34953161630
+_TARGET_SOURCE_REBIND_ARTIFACT_ID = 10389544902
+_TARGET_SOURCE_REBIND_ARTIFACT_API_DIGEST = (
+    "2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2"
+)
+_TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID = 10389694422
+_TARGET_SOURCE_REBIND_FRESH_ARTIFACT_API_DIGEST = (
+    "8b5cbd19abb9517bf4885f3b9432b29024069f0005b8d18e89b82b2471765e3d"
 )
 _QUARTER_HOUR_MS = 15 * 60 * 1_000
 _FOUR_HOURS_MS = 4 * 60 * 60 * 1_000
@@ -688,6 +700,22 @@ class SpotFlowDiagnosticResult:
     target_preflight_report_content_digest: str = (
         _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST
     )
+    target_source_status: str = _TARGET_SOURCE_STATUS
+    target_source_validator_head: str = _TARGET_SOURCE_VALIDATOR_HEAD
+    target_source_validator_full_verify_run_id: int = (
+        _TARGET_SOURCE_VALIDATOR_FULL_VERIFY_RUN_ID
+    )
+    target_source_rebind_run_id: int = _TARGET_SOURCE_REBIND_RUN_ID
+    target_source_rebind_artifact_id: int = _TARGET_SOURCE_REBIND_ARTIFACT_ID
+    target_source_rebind_artifact_api_digest: str = (
+        _TARGET_SOURCE_REBIND_ARTIFACT_API_DIGEST
+    )
+    target_source_rebind_fresh_artifact_id: int = (
+        _TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID
+    )
+    target_source_rebind_fresh_artifact_api_digest: str = (
+        _TARGET_SOURCE_REBIND_FRESH_ARTIFACT_API_DIGEST
+    )
     prereg_head: str = _PREREG_HEAD
     prereg_full_verify_run_id: int = _PREREG_FULL_VERIFY_RUN_ID
     prereg_seal_run_id: int = _PREREG_SEAL_RUN_ID
@@ -782,6 +810,22 @@ class SpotFlowDiagnosticResult:
             "target_preflight_report_content_digest": (
                 _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST
             ),
+            "target_source_status": _TARGET_SOURCE_STATUS,
+            "target_source_validator_head": _TARGET_SOURCE_VALIDATOR_HEAD,
+            "target_source_validator_full_verify_run_id": (
+                _TARGET_SOURCE_VALIDATOR_FULL_VERIFY_RUN_ID
+            ),
+            "target_source_rebind_run_id": _TARGET_SOURCE_REBIND_RUN_ID,
+            "target_source_rebind_artifact_id": (_TARGET_SOURCE_REBIND_ARTIFACT_ID),
+            "target_source_rebind_artifact_api_digest": (
+                _TARGET_SOURCE_REBIND_ARTIFACT_API_DIGEST
+            ),
+            "target_source_rebind_fresh_artifact_id": (
+                _TARGET_SOURCE_REBIND_FRESH_ARTIFACT_ID
+            ),
+            "target_source_rebind_fresh_artifact_api_digest": (
+                _TARGET_SOURCE_REBIND_FRESH_ARTIFACT_API_DIGEST
+            ),
             "prereg_head": _PREREG_HEAD,
             "prereg_full_verify_run_id": _PREREG_FULL_VERIFY_RUN_ID,
             "prereg_seal_run_id": _PREREG_SEAL_RUN_ID,
@@ -849,6 +893,22 @@ class SpotFlowDiagnosticResult:
             "target_preflight_report_sha256": self.target_preflight_report_sha256,
             "target_preflight_report_content_digest": (
                 self.target_preflight_report_content_digest
+            ),
+            "target_source_status": self.target_source_status,
+            "target_source_validator_head": self.target_source_validator_head,
+            "target_source_validator_full_verify_run_id": (
+                self.target_source_validator_full_verify_run_id
+            ),
+            "target_source_rebind_run_id": self.target_source_rebind_run_id,
+            "target_source_rebind_artifact_id": (self.target_source_rebind_artifact_id),
+            "target_source_rebind_artifact_api_digest": (
+                self.target_source_rebind_artifact_api_digest
+            ),
+            "target_source_rebind_fresh_artifact_id": (
+                self.target_source_rebind_fresh_artifact_id
+            ),
+            "target_source_rebind_fresh_artifact_api_digest": (
+                self.target_source_rebind_fresh_artifact_api_digest
             ),
             "execution_run_id": self.execution_run_id,
             "symbols": list(self.symbols),
@@ -1021,6 +1081,14 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
         "target_preflight_fresh_artifact_api_digest",
         "target_preflight_report_sha256",
         "target_preflight_report_content_digest",
+        "target_source_status",
+        "target_source_validator_head",
+        "target_source_validator_full_verify_run_id",
+        "target_source_rebind_run_id",
+        "target_source_rebind_artifact_id",
+        "target_source_rebind_artifact_api_digest",
+        "target_source_rebind_fresh_artifact_id",
+        "target_source_rebind_fresh_artifact_api_digest",
         "execution_run_id",
         "symbols",
         "symbol_results",
@@ -1140,6 +1208,44 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
             decoded["target_preflight_report_content_digest"],
             length=64,
             field="target_preflight_report_content_digest",
+        ),
+        target_source_status=_require_string(
+            decoded["target_source_status"], field="target_source_status"
+        ),
+        target_source_validator_head=_require_hex(
+            decoded["target_source_validator_head"],
+            length=40,
+            field="target_source_validator_head",
+        ),
+        target_source_validator_full_verify_run_id=_require_int(
+            decoded["target_source_validator_full_verify_run_id"],
+            field="target_source_validator_full_verify_run_id",
+            minimum=1,
+        ),
+        target_source_rebind_run_id=_require_int(
+            decoded["target_source_rebind_run_id"],
+            field="target_source_rebind_run_id",
+            minimum=1,
+        ),
+        target_source_rebind_artifact_id=_require_int(
+            decoded["target_source_rebind_artifact_id"],
+            field="target_source_rebind_artifact_id",
+            minimum=1,
+        ),
+        target_source_rebind_artifact_api_digest=_require_hex(
+            decoded["target_source_rebind_artifact_api_digest"],
+            length=64,
+            field="target_source_rebind_artifact_api_digest",
+        ),
+        target_source_rebind_fresh_artifact_id=_require_int(
+            decoded["target_source_rebind_fresh_artifact_id"],
+            field="target_source_rebind_fresh_artifact_id",
+            minimum=1,
+        ),
+        target_source_rebind_fresh_artifact_api_digest=_require_hex(
+            decoded["target_source_rebind_fresh_artifact_api_digest"],
+            length=64,
+            field="target_source_rebind_fresh_artifact_api_digest",
         ),
         execution_run_id=_require_int(
             decoded["execution_run_id"], field="execution_run_id", minimum=1

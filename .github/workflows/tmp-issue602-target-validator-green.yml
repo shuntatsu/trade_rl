@@ -1,0 +1,45 @@
+name: Temporary Issue 602 target-source validator GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue602-target-validator-green
+    paths:
+      - .github/workflows/tmp-issue602-target-validator-green.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 3226464fb47eb3a7bcb1b90fad3e7f2b1a52cfcc
+  MODULE: trade_rl/evaluation/experiments/bootstrap/issue602_target_source_validator.py
+  TEST: tests/evaluation/experiments/bootstrap/test_issue602_target_source_validator.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+      - name: Synthetic target-source suite
+        run: uv run pytest -q "$TEST"
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

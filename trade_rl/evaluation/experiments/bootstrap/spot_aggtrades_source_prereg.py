@@ -237,7 +237,9 @@ class SpotAggTradesSourceProtocol:
             "strict_boolean_tokens",
             "allowed_archive_report_fields",
         ):
-            kwargs[field_name] = _require_str_tuple(kwargs[field_name], field=field_name)
+            kwargs[field_name] = _require_str_tuple(
+                kwargs[field_name], field=field_name
+            )
         return cls(**kwargs)
 
 

@@ -1,0 +1,51 @@
+name: Temporary Issue 601 exact preflight helper verification 7876
+
+on:
+  push:
+    branches:
+      - verify/issue601-preflight-helper-7876
+    paths:
+      - .github/workflows/tmp-issue601-preflight-helper-7876.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 7876ba85adecc200e13d3632e2e6d55355d72544
+  HELPER: tools/tmp_issue601_target_preflight.py
+  HELPER_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_preflight_helper.py
+  VALIDATOR: trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py
+  VALIDATOR_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_source_validator.py
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Exact current helper and validator verification
+        run: |
+          uv run ruff check "$HELPER" "$HELPER_TEST" "$VALIDATOR" "$VALIDATOR_TEST"
+          uv run ruff format --check "$HELPER" "$HELPER_TEST" "$VALIDATOR" "$VALIDATOR_TEST"
+          uv run mypy "$HELPER" "$VALIDATOR"
+          uv run pytest -q "$VALIDATOR_TEST" "$HELPER_TEST"
+      - name: Require publisher log path is result blind
+        run: |
+          ! grep -F 'STATUS=' "$HELPER"
+          grep -F 'ECONOMIC_VALUES_INSPECTED=false' "$HELPER"
+          grep -F 'TARGET_PRICE_VALUES_INSPECTED=false' "$HELPER"
+          grep -F 'TARGET_RETURN_COMPUTED=false' "$HELPER"
+          grep -F 'PREMIUM_VALUES_INSPECTED=false' "$HELPER"
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

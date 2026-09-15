@@ -1,0 +1,52 @@
+name: Temporary Issue 578 source probe test formatter
+
+on:
+  push:
+    branches:
+      - automation/issue578-source-probe-test-format
+    paths:
+      - .github/workflows/tmp-issue578-source-probe-test-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue578-spot-aggtrades-source-probe
+          fetch-depth: 0
+      - name: Assert expected starting head
+        run: test "$(git rev-parse HEAD)" = "46c147b6d54294f4e17f3b876347aa9335c50efc"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Canonically format only the probe test
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=tests/evaluation/experiments/bootstrap/test_issue578_spot_aggtrades_source_probe.py
+          uv run ruff check --fix "$file"
+          uv run ruff format "$file"
+          uv run ruff check "$file"
+          uv run ruff format --check "$file"
+          git diff --check
+      - name: Guard and publish formatting-only repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=46c147b6d54294f4e17f3b876347aa9335c50efc
+          remote="$(git ls-remote origin refs/heads/research/issue578-spot-aggtrades-source-probe | cut -f1)"
+          test "$remote" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_issue578_spot_aggtrades_source_probe.py
+          git commit -m "style: format Spot source probe test"
+          git push origin HEAD:research/issue578-spot-aggtrades-source-probe

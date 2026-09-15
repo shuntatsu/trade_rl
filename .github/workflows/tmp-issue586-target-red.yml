@@ -1,0 +1,32 @@
+name: Temporary Issue 586 target-source validator RED
+on:
+  push:
+    branches: [verify/issue586-target-source-validator-red]
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3cbb854729c4fa496bea8acb0cf66b0b1881d174
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "3cbb854729c4fa496bea8acb0cf66b0b1881d174"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff format --check tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+      - run: uv run ruff check tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+      - name: Require missing-module RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "ModuleNotFoundError|issue586_target_source_validator" /tmp/red.log

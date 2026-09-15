@@ -1,0 +1,37 @@
+name: Temporary Issue 584 streaming RED
+on:
+  push:
+    branches: [verify/issue584-streaming-red]
+    paths: [.github/workflows/tmp-issue584-streaming-red.yml]
+permissions:
+  contents: read
+env:
+  TARGET_SHA: 336528fe8293ece0a9e9206b50bd141f03a47d09
+  EXISTING: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+  STREAMING: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: |
+          uv run ruff format --check "$STREAMING"
+          uv run ruff check "$STREAMING"
+          uv run pytest -q "$EXISTING"
+      - shell: bash
+        run: |
+          set +e
+          uv run pytest -q "$STREAMING" > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "AttributeError|aggregate_spot_day_csv" /tmp/red.log

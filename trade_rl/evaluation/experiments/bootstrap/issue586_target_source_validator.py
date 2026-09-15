@@ -204,8 +204,14 @@ def _parse_checksum(
         _hex(digest, length=64, field="checksum digest")
     except ValueError:
         return text, None, False
-    return text, digest, bool(
-        name == expected_name and actual_digest is not None and digest == actual_digest
+    return (
+        text,
+        digest,
+        bool(
+            name == expected_name
+            and actual_digest is not None
+            and digest == actual_digest
+        ),
     )
 
 
@@ -320,11 +326,17 @@ def validate_target_archive_bytes(
         current > previous for previous, current in zip(open_times, open_times[1:])
     )
     observed_grid = set(open_times)
-    missing_grid = [timestamp for timestamp in expected_grid if timestamp not in observed_grid]
-    missing_encoded = ",".join(str(timestamp) for timestamp in missing_grid).encode("ascii")
+    missing_grid = [
+        timestamp for timestamp in expected_grid if timestamp not in observed_grid
+    ]
+    missing_encoded = ",".join(str(timestamp) for timestamp in missing_grid).encode(
+        "ascii"
+    )
 
     entry["missing_grid_rows"] = len(missing_grid)
-    entry["missing_grid_open_times_sha256"] = hashlib.sha256(missing_encoded).hexdigest()
+    entry["missing_grid_open_times_sha256"] = hashlib.sha256(
+        missing_encoded
+    ).hexdigest()
     entry["first_open_time"] = open_times[0] if open_times else None
     entry["last_open_time"] = open_times[-1] if open_times else None
     entry["first_close_time"] = close_times[0] if close_times else None
@@ -406,9 +418,7 @@ def decide_target_source_status(reports: Sequence[Mapping[str, object]]) -> str:
             partial = True
 
     return (
-        "PARTIAL_USDM_15M_TARGET_SOURCE"
-        if partial
-        else "PASS_USDM_15M_TARGET_SOURCE"
+        "PARTIAL_USDM_15M_TARGET_SOURCE" if partial else "PASS_USDM_15M_TARGET_SOURCE"
     )
 
 
@@ -422,7 +432,9 @@ def build_target_source_report(
 
     entries = _ordered_entries(reports)
     if entries is None:
-        raise ValueError("target-source report roster is not the frozen 40 archive roster")
+        raise ValueError(
+            "target-source report roster is not the frozen 40 archive roster"
+        )
     validator = _hex(validator_head, length=40, field="validator_head")
     validator_run = _positive_int(
         validator_verification_run_id,
@@ -449,10 +461,18 @@ def build_target_source_report(
         "validator_head": validator,
         "validator_verification_run_id": validator_run,
         "planned_archive_count": 40,
-        "available_archive_count": sum(entry["archive_available"] is True for entry in entries),
-        "available_checksum_count": sum(entry["checksum_available"] is True for entry in entries),
-        "checksum_verified_count": sum(entry["checksum_verified"] is True for entry in entries),
-        "structurally_valid_archive_count": sum(entry["schema_valid"] is True for entry in entries),
+        "available_archive_count": sum(
+            entry["archive_available"] is True for entry in entries
+        ),
+        "available_checksum_count": sum(
+            entry["checksum_available"] is True for entry in entries
+        ),
+        "checksum_verified_count": sum(
+            entry["checksum_verified"] is True for entry in entries
+        ),
+        "structurally_valid_archive_count": sum(
+            entry["schema_valid"] is True for entry in entries
+        ),
         "complete_96_row_archive_count": sum(
             entry["schema_valid"] is True
             and entry["row_count"] == _EXPECTED_ROWS

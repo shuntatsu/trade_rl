@@ -1,0 +1,97 @@
+name: Temporary Issue 603 target-manifest helper fix
+
+on:
+  push:
+    branches:
+      - automation/issue603-helper-target-manifest-fix
+    paths:
+      - .github/workflows/tmp-issue603-helper-target-manifest-fix.yml
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue603-premium-pressure-calibration
+  TARGET_SHA: 147170edf63f0b34e9dafbabd15cfce6b97a86a0
+  HELPER: tools/tmp_issue603_premium_pressure_real.py
+  TARGET_RUN_ID: "34962227821"
+  TARGET_ARTIFACT_NAME: issue601-usdm1h-target-publisher-v1-34962227821
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Checkout exact helper target and apply manifest-authority fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tools/tmp_issue603_premium_pressure_real.py')
+          text = path.read_text()
+          old = '''    if manifest.get("target_source_family") != "binance_vision_contract_klines":\n        raise ValueError("target source family differs")\n    if manifest.get("target_interval") != "1h":\n'''
+          new = '''    if manifest.get("target_source_family") != "klines":\n        raise ValueError("target source family differs")\n    if manifest.get("target_source_market") != "USD_M":\n        raise ValueError("target source market differs")\n    if manifest.get("target_interval") != "1h":\n'''
+          if text.count(old) != 1:
+              raise SystemExit('target manifest authority anchor not found exactly once')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Download immutable target manifest only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/target-authority
+          gh run download "$TARGET_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_ARTIFACT_NAME" --dir /tmp/target-authority
+          test -f /tmp/target-authority/manifest.json
+      - name: Verify helper statics self-test and actual manifest contract without raw-source fetch
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$HELPER"
+          uv run ruff check "$HELPER"
+          uv run ruff format --check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python "$HELPER" --self-test
+          uv run python - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('issue603_helper', 'tools/tmp_issue603_premium_pressure_real.py')
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          manifest = json.loads(Path('/tmp/target-authority/manifest.json').read_bytes())
+          records = module._validate_target_manifest(manifest)
+          assert len(records) == 120
+          assert manifest['target_source_family'] == 'klines'
+          assert manifest['target_source_market'] == 'USD_M'
+          print('ISSUE603_TARGET_MANIFEST_CONTRACT=PASS')
+          PY
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+          changed="$(git diff HEAD --name-only)"
+          test "$changed" = "$HELPER"
+      - name: Guard and publish helper-only fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$HELPER"
+          git commit -m "fix: bind Issue 603 target manifest authority"
+          git push origin HEAD:"$TARGET_BRANCH"

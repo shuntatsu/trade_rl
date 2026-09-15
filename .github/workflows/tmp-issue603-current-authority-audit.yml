@@ -1,0 +1,131 @@
+name: Temporary Issue 603 current authority audit
+
+on:
+  push:
+    branches:
+      - audit/issue603-current-authority
+    paths:
+      - .github/workflows/tmp-issue603-current-authority-audit.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  ISSUE600_HEAD: 6ffc414baa10e91f34df258fe5cfabacce65fd77
+  ISSUE600_DIGEST: 18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731
+  ISSUE600_RUN_ID: "34959849347"
+  ISSUE600_SEAL_ID: "10392936042"
+  ISSUE600_SEAL_DIGEST: sha256:4b611462f8d4f9bb4d23ab15bb4d8a20525d4093e590c1afb62d1b74ca875e15
+  ISSUE600_FRESH_ID: "10391714897"
+  ISSUE600_FRESH_DIGEST: sha256:858e930a03e442f047556801c3d9a536fbc89435b5f261cba621988dd8062acd
+  VALIDATOR_HEAD: c707be853480e57362f6a3d64f116e4056c3553f
+  VALIDATOR_FULL_RUN_ID: "34961165095"
+  PREFLIGHT_RUN_ID: "34962227821"
+  PUBLISHER_ID: "10393693240"
+  PUBLISHER_NAME: issue601-usdm1h-target-publisher-v1-34962227821
+  PUBLISHER_API_DIGEST: sha256:0c7f240390a35174329890fa83e9615e304de5f1a84114007ead1fddaaaf37ff
+  FRESH_ID: "10393379932"
+  FRESH_NAME: issue601-usdm1h-target-fresh-v1-34962227821
+  FRESH_API_DIGEST: sha256:0c0c05b8f5256c918b90ae709ff05ce0f05f8e88a929f1820387cf60a12dfeff
+  REPORT_SHA256: 3289e3d2de7f873df09883b9817e1789163345022827a78634d875f8f2ad3c50
+  REPORT_CONTENT_DIGEST: 1d5b69576e9d80d878b26e7acf071ca73799af20a8d6883d15bb235783bcb8a9
+  MANIFEST_SHA256: c5e118662301dd4ed5dc2b75b3b8a0e2365c342c78706957c8364399651294a8
+  MANIFEST_CONTENT_DIGEST: 4123411b6b505ce6a8211f1f97465dd4d87ed699968b4b33ee71847475f985bc
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_HEAD }}
+          persist-credentials: false
+      - name: Bind current immutable authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_HEAD"
+          for run_id in "$ISSUE600_RUN_ID" "$VALIDATOR_FULL_RUN_ID" "$PREFLIGHT_RUN_ID"; do
+            test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id --jq .conclusion)" = success
+          done
+          for spec in \
+            "$ISSUE600_SEAL_ID|$ISSUE600_RUN_ID|$ISSUE600_SEAL_DIGEST" \
+            "$ISSUE600_FRESH_ID|$ISSUE600_RUN_ID|$ISSUE600_FRESH_DIGEST" \
+            "$PUBLISHER_ID|$PREFLIGHT_RUN_ID|$PUBLISHER_API_DIGEST" \
+            "$FRESH_ID|$PREFLIGHT_RUN_ID|$FRESH_API_DIGEST"; do
+            IFS='|' read -r id run_id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+          test "$(git rev-parse "$ISSUE600_HEAD:trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py")" = "$(git rev-parse "HEAD:trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py")"
+      - name: Download publisher and fresh structural artifacts only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher /tmp/fresh
+          gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PUBLISHER_NAME" --dir /tmp/publisher
+          gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$FRESH_NAME" --dir /tmp/fresh
+      - name: Verify structural bytes and inner digests without inspecting values
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/report.json /tmp/fresh/report.json
+          cmp /tmp/publisher/manifest.json /tmp/fresh/manifest.json
+          PYTHONPATH=. python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.issue601_target_source_validator import load_target_source_report_bytes
+
+          report_raw = Path('/tmp/publisher/report.json').read_bytes()
+          manifest_raw = Path('/tmp/publisher/manifest.json').read_bytes()
+          if hashlib.sha256(report_raw).hexdigest() != os.environ['REPORT_SHA256']:
+              raise SystemExit('report sha differs')
+          if hashlib.sha256(manifest_raw).hexdigest() != os.environ['MANIFEST_SHA256']:
+              raise SystemExit('manifest sha differs')
+          report = load_target_source_report_bytes(report_raw)
+          if report['content_digest'] != os.environ['REPORT_CONTENT_DIGEST']:
+              raise SystemExit('report content digest differs')
+          manifest = json.loads(manifest_raw)
+          unsigned = dict(manifest)
+          embedded = unsigned.pop('content_digest', None)
+          computed = content_digest(unsigned)
+          if embedded == os.environ['MANIFEST_CONTENT_DIGEST']:
+              pass
+          elif content_digest(manifest) == os.environ['MANIFEST_CONTENT_DIGEST']:
+              computed = content_digest(manifest)
+          else:
+              raise SystemExit('manifest content digest differs')
+          if report['status'] != 'PASS_USDM_1H_TARGET_SOURCE':
+              raise SystemExit('target status differs')
+          if report['validator_head'] != os.environ['VALIDATOR_HEAD']:
+              raise SystemExit('validator head differs')
+          if report['validator_verification_run_id'] != int(os.environ['VALIDATOR_FULL_RUN_ID']):
+              raise SystemExit('validator verification differs')
+          if report['issue600_protocol_head'] != os.environ['ISSUE600_HEAD']:
+              raise SystemExit('Issue600 head differs')
+          if report['issue600_protocol_digest'] != os.environ['ISSUE600_DIGEST']:
+              raise SystemExit('Issue600 digest differs')
+          for key in ('economic_values_inspected','target_price_values_inspected','target_return_computed','premium_values_inspected','training_relation_computed','evaluation_pnl_inspected','final_test_authorized','production_eligible','live_trading_authorized'):
+              if report.get(key) is not False:
+                  raise SystemExit(f'blind boundary crossed: {key}')
+          print('ISSUE603_AUTHORITY_AUDIT=PASS')
+          print('REPORT_SHA256=' + hashlib.sha256(report_raw).hexdigest())
+          print('REPORT_CONTENT_DIGEST=' + report['content_digest'])
+          print('MANIFEST_SHA256=' + hashlib.sha256(manifest_raw).hexdigest())
+          print('MANIFEST_CONTENT_DIGEST=' + os.environ['MANIFEST_CONTENT_DIGEST'])
+          print('PUBLISHER_API_DIGEST=' + os.environ['PUBLISHER_API_DIGEST'])
+          print('FRESH_API_DIGEST=' + os.environ['FRESH_API_DIGEST'])
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_PRICE_VALUES_INSPECTED=false')
+          print('PREMIUM_VALUES_INSPECTED=false')
+          PY

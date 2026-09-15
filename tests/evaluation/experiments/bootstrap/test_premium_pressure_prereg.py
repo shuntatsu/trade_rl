@@ -103,9 +103,7 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
 def test_fit_clock_counts_are_derived_from_raw_endpoint_semantics() -> None:
     protocol = canonical_premium_pressure_protocol()
     one_hour = timedelta(hours=1)
-    endpoint_offset = timedelta(
-        minutes=protocol.endpoint_raw_open_time_offset_minutes
-    )
+    endpoint_offset = timedelta(minutes=protocol.endpoint_raw_open_time_offset_minutes)
     decisions: list[datetime] = []
     decision = protocol.fit_start
     while decision + endpoint_offset < protocol.fit_cutoff:
@@ -247,7 +245,9 @@ def test_loader_rejects_missing_unknown_tampered_and_noncanonical_payloads() -> 
     }
     with pytest.raises(ValueError):
         load_premium_pressure_protocol_bytes(
-            json.dumps(calibration_drift, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(
+                calibration_drift, sort_keys=True, separators=(",", ":")
+            ).encode()
         )
 
     canonical = canonical_premium_pressure_protocol_bytes(protocol)

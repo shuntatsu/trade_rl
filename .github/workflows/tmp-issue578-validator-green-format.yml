@@ -1,0 +1,68 @@
+name: Temporary Issue 578 validator format and verify
+
+on:
+  push:
+    branches:
+      - automation/issue578-validator-green-format
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: verify/issue578-spot-validator-green-v2
+  TARGET_SHA: 2e4d60b9aef313a03dd99c1999a2a7f3384112a4
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+      - name: Guard and publish verified formatter changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py|tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "style: format verified Spot structural validator"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -1,0 +1,56 @@
+name: Temporary Issue 586 checksum boundary RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue586-checksum-boundary-red-v2
+    paths:
+      - .github/workflows/tmp-issue586-checksum-boundary-red-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 0ccadeb12490ad4b51d0596ab87dbc70c6762221
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact formatted checksum-boundary RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run ruff format --check "$file"
+          uv run ruff check "$file"
+      - name: Require checksum-boundary RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py \
+            -k 'missing_checksum_keeps_structure_valid_and_is_partial or checksum_mismatch_keeps_structure_valid_but_is_incompatible' \
+            > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "missing_checksum_keeps_structure_valid|checksum_mismatch_keeps_structure_valid" /tmp/red.log
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

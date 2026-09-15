@@ -1,0 +1,54 @@
+name: Temporary Issue 584 preregistration RED format
+
+on:
+  push:
+    branches:
+      - automation/issue584-prereg-red-format
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue584-spot-flow-prereg
+  TARGET_SHA: bb1103194ca34cd82bccd6f00037ac4568b899ff
+
+jobs:
+  format_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format RED test only
+        run: |
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+          uv run ruff check --fix tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+      - name: Guard and publish formatted test only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test -z "$(git diff --name-only | grep -v '^tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+          git commit -m "test: format Spot flow preregistration RED"
+          git push origin HEAD:"$TARGET_BRANCH"

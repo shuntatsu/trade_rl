@@ -248,7 +248,6 @@ def main() -> None:
     args.manifest.write_bytes(manifest_bytes)
 
     report = json.loads(report_bytes)
-    print(f"STATUS={report['status']}")
     print(f"PLANNED_ARCHIVES={report['planned_archive_count']}")
     print("ECONOMIC_VALUES_INSPECTED=false")
     print("TARGET_PRICE_VALUES_INSPECTED=false")

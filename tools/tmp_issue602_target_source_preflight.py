@@ -33,7 +33,9 @@ def _download_optional(url: str) -> bytes | None:
         try:
             with urllib.request.urlopen(request, timeout=90) as response:
                 if response.status != 200:
-                    raise ValueError(f"unexpected HTTP status {response.status} for {url}")
+                    raise ValueError(
+                        f"unexpected HTTP status {response.status} for {url}"
+                    )
                 return response.read()
         except urllib.error.HTTPError as error:
             if error.code == 404:
@@ -43,7 +45,9 @@ def _download_optional(url: str) -> bytes | None:
             last_error = error
         if attempt + 1 < _MAX_ATTEMPTS:
             time.sleep(2**attempt)
-    raise ValueError(f"target-source transport failed after retries: {url}") from last_error
+    raise ValueError(
+        f"target-source transport failed after retries: {url}"
+    ) from last_error
 
 
 def build_report() -> dict[str, object]:
@@ -116,7 +120,9 @@ def self_check() -> None:
         ]
         for index in range(31 * 24)
     ]
-    body = ("\n".join(",".join(str(value) for value in row) for row in rows) + "\n").encode()
+    body = (
+        "\n".join(",".join(str(value) for value in row) for row in rows) + "\n"
+    ).encode()
     stream = io.BytesIO()
     member = f"{symbol}-1h-{month}.csv"
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:

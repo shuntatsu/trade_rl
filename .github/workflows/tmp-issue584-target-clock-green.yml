@@ -1,0 +1,133 @@
+name: Temporary Issue 584 target clock GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue584-target-clock-green
+    paths:
+      - .github/workflows/tmp-issue584-target-clock-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: 169fd8b744caa68a5ffe9c88148e4ded5bcdb5c7
+  RESEARCH_BRANCH: research/issue584-spot-flow-prereg
+  MODULE: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+
+jobs:
+  repair_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact semantic RED authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+      - name: Assert exact target and unchanged remote branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$TARGET_SHA"
+      - name: Add only frozen completed-bar clock semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py")
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '_TARGET_TRANSPORT_MODE = "VISION"\n_EXECUTION_OFFSET = 1\n',
+                  '_TARGET_TRANSPORT_MODE = "VISION"\n'
+                  '_TARGET_DATASET_TIMESTAMP_SEMANTICS = "completed_bar_close_boundary"\n'
+                  '_TARGET_DATASET_TIMESTAMP_FORMULA = "dataset_timestamp=raw_open_time+15m"\n'
+                  '_DECISION_TARGET_ROW_SEMANTICS = (\n'
+                  '    "decision_t_equals_target_completed_row_timestamp"\n'
+                  ')\n'
+                  '_DECISION_ROW_RAW_OPEN_OFFSET_MINUTES = -15\n'
+                  '_EXECUTION_RAW_OPEN_OFFSET_MINUTES = 0\n'
+                  '_ENDPOINT_RAW_OPEN_OFFSET_MINUTES = 240\n'
+                  '_EXECUTION_OFFSET = 1\n',
+              ),
+              (
+                  '        "target_source_structural_preflight_required": True,\n'
+                  '        "execution_open_offset_bars": _EXECUTION_OFFSET,\n',
+                  '        "target_source_structural_preflight_required": True,\n'
+                  '        "target_dataset_timestamp_semantics": (\n'
+                  '            _TARGET_DATASET_TIMESTAMP_SEMANTICS\n'
+                  '        ),\n'
+                  '        "target_dataset_timestamp_formula": _TARGET_DATASET_TIMESTAMP_FORMULA,\n'
+                  '        "decision_target_row_semantics": _DECISION_TARGET_ROW_SEMANTICS,\n'
+                  '        "decision_row_raw_open_offset_minutes": (\n'
+                  '            _DECISION_ROW_RAW_OPEN_OFFSET_MINUTES\n'
+                  '        ),\n'
+                  '        "execution_raw_open_offset_minutes": _EXECUTION_RAW_OPEN_OFFSET_MINUTES,\n'
+                  '        "endpoint_raw_open_offset_minutes": _ENDPOINT_RAW_OPEN_OFFSET_MINUTES,\n'
+                  '        "execution_open_offset_bars": _EXECUTION_OFFSET,\n',
+              ),
+              (
+                  '    target_source_structural_preflight_required: bool = True\n'
+                  '    execution_open_offset_bars: int = _EXECUTION_OFFSET\n',
+                  '    target_source_structural_preflight_required: bool = True\n'
+                  '    target_dataset_timestamp_semantics: str = (\n'
+                  '        _TARGET_DATASET_TIMESTAMP_SEMANTICS\n'
+                  '    )\n'
+                  '    target_dataset_timestamp_formula: str = _TARGET_DATASET_TIMESTAMP_FORMULA\n'
+                  '    decision_target_row_semantics: str = _DECISION_TARGET_ROW_SEMANTICS\n'
+                  '    decision_row_raw_open_offset_minutes: int = (\n'
+                  '        _DECISION_ROW_RAW_OPEN_OFFSET_MINUTES\n'
+                  '    )\n'
+                  '    execution_raw_open_offset_minutes: int = _EXECUTION_RAW_OPEN_OFFSET_MINUTES\n'
+                  '    endpoint_raw_open_offset_minutes: int = _ENDPOINT_RAW_OPEN_OFFSET_MINUTES\n'
+                  '    execution_open_offset_bars: int = _EXECUTION_OFFSET\n',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one patch anchor, found {text.count(old)}")
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$MODULE"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and targeted GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          uv run ruff check "$MODULE" \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          uv run ruff format --check "$MODULE" \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          uv run mypy "$MODULE"
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          test "$(git diff --name-only)" = "$MODULE"
+      - name: Guard remote and fast-forward publish verified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          git commit -m "fix: freeze Spot-flow completed-bar clock semantics"
+          test "$(git diff --name-only HEAD^ HEAD)" = "$MODULE"
+          git push origin HEAD:refs/heads/$RESEARCH_BRANCH

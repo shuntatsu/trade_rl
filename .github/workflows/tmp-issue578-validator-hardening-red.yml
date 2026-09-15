@@ -28,9 +28,9 @@ jobs:
           version: "0.10.0"
           python-version: "3.12"
       - run: uv sync --extra dev
-      - name: Test source quality
+      - name: Normalize RED test source then lint
         run: |
-          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
           uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
       - name: Require closure-tampering RED
         shell: bash

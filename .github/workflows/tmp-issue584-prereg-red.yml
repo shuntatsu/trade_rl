@@ -9,13 +9,13 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: a2f3032c220a5f7d6ba93d1bd59cdb851fbd4e04
+  TARGET_SHA: 84b055d59c71b86393f1523b017d8893a2af68bc
 
 jobs:
   red:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact RED head
+      - name: Checkout exact hardened RED head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -29,17 +29,22 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev
       - name: Test source quality
+        shell: bash
         run: |
-          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
-          uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
-      - name: Require missing-production RED
+          set -euo pipefail
+          files="tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py"
+          uv run ruff format --check $files
+          uv run ruff check $files
+      - name: Require original preregistration GREEN
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+      - name: Require hardened-field RED only
         shell: bash
         run: |
           set +e
-          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py > /tmp/red.log 2>&1
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py > /tmp/red.log 2>&1
           status=$?
           set -e
           cat /tmp/red.log
           test "$status" -ne 0
-          grep -Eq "ModuleNotFoundError|No module named.*spot_flow_continuation_prereg" /tmp/red.log
-          ! grep -q "SyntaxError" /tmp/red.log
+          grep -Eq "spot_source_usable_rows|provider_order_required|require_target_rows_present" /tmp/red.log
+          ! grep -Eq "ModuleNotFoundError|SyntaxError|ImportError" /tmp/red.log

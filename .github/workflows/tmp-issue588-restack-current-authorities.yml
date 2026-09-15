@@ -1,0 +1,209 @@
+name: Temporary Issue 588 restack current authorities
+
+on:
+  push:
+    branches:
+      - automation/issue588-restack-current-authorities
+    paths:
+      - .github/workflows/tmp-issue588-restack-current-authorities.yml
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  OLD_IMPL_SHA: 1b8c1000a56e37cbb512f3496be647e8e217c1cd
+  IMPL_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  NEW_PREREG_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  NEW_PREREG_DIGEST: 9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76
+  NEW_PREREG_FULL_RUN_ID: "34952378700"
+  NEW_PREREG_SEAL_RUN_ID: "34952843190"
+  NEW_PREREG_SEAL_ARTIFACT_ID: "10390380265"
+  NEW_PREREG_SEAL_ARTIFACT_DIGEST: sha256:bd80fe0ae93ad95c5106eacc9f9b99c85164da65f5fc7ae8d290f45a03e84646
+  NEW_PREREG_FRESH_ARTIFACT_ID: "10390415743"
+  NEW_PREREG_FRESH_ARTIFACT_DIGEST: sha256:014cc3fc01b34a40086efe776717dfff15ffed1c5874afcc5e0aa907a9fd7115
+  TARGET_REBIND_RUN_ID: "34953161630"
+  TARGET_REBIND_ARTIFACT_ID: "10389544902"
+  TARGET_REBIND_ARTIFACT_DIGEST: sha256:2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2
+  TARGET_REBIND_FRESH_ARTIFACT_ID: "10389694422"
+  TARGET_REBIND_FRESH_ARTIFACT_DIGEST: sha256:8b5cbd19abb9517bf4885f3b9432b29024069f0005b8d18e89b82b2471765e3d
+  TARGET_REBIND_JSON_SHA256: 721c785ddac113f7d6be2b5af3e1aa10df34ae9a16b9656e02a64c874f4526ea
+  TARGET_REBIND_CONTENT_DIGEST: bd32c2e8fb9b4b80680fdfb0b26ca4b7fd6f01104597cba8c81990faa4f312d1
+  TARGET_MANIFEST_DIGEST: 69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b
+
+jobs:
+  restack_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.OLD_IMPL_SHA }}
+          fetch-depth: 0
+      - name: Bind current authorities and unchanged implementation branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$OLD_IMPL_SHA"
+          test "$(git ls-remote origin refs/heads/$IMPL_BRANCH | cut -f1)" = "$OLD_IMPL_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)" = "$NEW_PREREG_SHA"
+          for run_id in "$NEW_PREREG_FULL_RUN_ID" "$NEW_PREREG_SEAL_RUN_ID" "$TARGET_REBIND_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+          for spec in \
+            "$NEW_PREREG_SEAL_ARTIFACT_ID|$NEW_PREREG_SEAL_RUN_ID|$NEW_PREREG_SEAL_ARTIFACT_DIGEST" \
+            "$NEW_PREREG_FRESH_ARTIFACT_ID|$NEW_PREREG_SEAL_RUN_ID|$NEW_PREREG_FRESH_ARTIFACT_DIGEST" \
+            "$TARGET_REBIND_ARTIFACT_ID|$TARGET_REBIND_RUN_ID|$TARGET_REBIND_ARTIFACT_DIGEST" \
+            "$TARGET_REBIND_FRESH_ARTIFACT_ID|$TARGET_REBIND_RUN_ID|$TARGET_REBIND_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run_id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          done
+      - name: Non-force merge clock-hardened preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$NEW_PREREG_SHA" --no-tags
+          git merge --no-ff "$NEW_PREREG_SHA" -m "merge: restack Spot-flow diagnostic on clock-hardened preregistration"
+          git merge-base --is-ancestor "$OLD_IMPL_SHA" HEAD
+          git merge-base --is-ancestor "$NEW_PREREG_SHA" HEAD
+      - name: Rebind diagnostic result authority without changing economics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py'),
+          ]
+          replacements = {
+              '89ec1092e438d69657840567e684739ca0c4e3d5': '41a403bda4252f15d8c059166dd6716110a4bc37',
+              '34932104475': '34952378700',
+              '34932424904': '34952843190',
+              '10381763665': '10390380265',
+              'f0a7de4e5b477f86d773793f3d4a154ac307c68a88b4eee4cf10a48190fd0f02': 'bd80fe0ae93ad95c5106eacc9f9b99c85164da65f5fc7ae8d290f45a03e84646',
+              '10381379452': '10390415743',
+              '012126c32a0d65c0164624dff9b9657a4a8ff208bf24397256048f65ea0f89b8': '014cc3fc01b34a40086efe776717dfff15ffed1c5874afcc5e0aa907a9fd7115',
+              'bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3': '9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76',
+              'PASS_TARGET_SOURCE_PREFLIGHT': 'PASS_USDM_15M_TARGET_SOURCE',
+              '34941447564': '34953161630',
+              '10385451448': '10389544902',
+              '07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb': '2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2',
+              '10385516382': '10389694422',
+              '7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d': '8b5cbd19abb9517bf4885f3b9432b29024069f0005b8d18e89b82b2471765e3d',
+              'c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d': '721c785ddac113f7d6be2b5af3e1aa10df34ae9a16b9656e02a64c874f4526ea',
+              '5a7af640640b23894f857726944a306aef522799ca8c983757e864d76262d54d': 'bd32c2e8fb9b4b80680fdfb0b26ca4b7fd6f01104597cba8c81990faa4f312d1',
+          }
+          total = {old: 0 for old in replacements}
+          for path in files:
+              text = path.read_text()
+              for old, new in replacements.items():
+                  count = text.count(old)
+                  total[old] += count
+                  text = text.replace(old, new)
+              path.write_text(text)
+          required = [
+              '89ec1092e438d69657840567e684739ca0c4e3d5',
+              '34932424904',
+              'bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3',
+              '34941447564',
+              '10385451448',
+              'c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d',
+          ]
+          for key in required:
+              if total[key] < 1:
+                  raise SystemExit(f'expected old authority token not found: {key}')
+          for path in files:
+              text = path.read_text()
+              for old in replacements:
+                  if old in text:
+                      raise SystemExit(f'old authority remains in {path}: {old}')
+          PY
+          cat > tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_clock_binding.py <<'PY'
+          from __future__ import annotations
+
+          import math
+          from datetime import UTC, datetime
+
+          import pytest
+
+          from trade_rl.evaluation.experiments.bootstrap import (
+              spot_flow_continuation_diagnostic as diagnostic,
+          )
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import (
+              canonical_spot_flow_continuation_protocol,
+          )
+
+          QUARTER_HOUR_MS = 900_000
+
+
+          def test_label_builder_matches_sealed_completed_bar_clock() -> None:
+              protocol = canonical_spot_flow_continuation_protocol()
+              decision = int(
+                  datetime(2021, 1, 15, 0, 15, tzinfo=UTC).timestamp() * 1000
+              )
+              execution = decision + protocol.execution_raw_open_time_offset_minutes * 60_000
+              endpoint = decision + protocol.endpoint_raw_open_time_offset_minutes * 60_000
+              assert execution == decision
+              assert endpoint == decision + 16 * QUARTER_HOUR_MS
+              bars = tuple(
+                  diagnostic.TargetBar(
+                      open_time_ms=execution + index * QUARTER_HOUR_MS,
+                      open_price=100.0 + index,
+                  )
+                  for index in range(17)
+              )
+              label = diagnostic.build_four_hour_label(bars, decision_time_ms=decision)
+              assert label == pytest.approx(math.log(116.0 / 100.0))
+
+
+          def test_decision_row_is_previous_raw_kline_under_sealed_clock() -> None:
+              protocol = canonical_spot_flow_continuation_protocol()
+              assert protocol.target_dataset_timestamp_semantics == "completed_bar_close_boundary"
+              assert protocol.target_dataset_timestamp_formula == "dataset_timestamp=raw_open_time+15m"
+              assert protocol.decision_target_row_semantics == "decision_t_equals_target_completed_row_timestamp"
+              assert protocol.decision_row_raw_open_time_offset_minutes == -15
+              assert protocol.execution_raw_open_time_offset_minutes == 0
+              assert protocol.endpoint_raw_open_time_offset_minutes == 240
+          PY
+          git add trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+          git commit -m "fix: rebind Spot-flow diagnostic to current sealed authorities"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+          if ! git diff --quiet; then
+            git add trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+            git commit -m "style: format restacked Spot-flow diagnostic"
+          fi
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation*.py
+      - name: Guard branch and non-force publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin refs/heads/$IMPL_BRANCH | cut -f1)"
+          test "$remote" = "$OLD_IMPL_SHA"
+          git merge-base --is-ancestor "$OLD_IMPL_SHA" HEAD
+          git merge-base --is-ancestor "$NEW_PREREG_SHA" HEAD
+          test -z "$(git status --porcelain --untracked-files=no)"
+          git push origin HEAD:refs/heads/$IMPL_BRANCH

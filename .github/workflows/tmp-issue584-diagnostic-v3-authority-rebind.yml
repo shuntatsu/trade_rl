@@ -1,0 +1,134 @@
+name: Temporary Issue 584 diagnostic v3 authority rebind
+
+on:
+  push:
+    branches:
+      - automation/issue584-diagnostic-v3-authority-rebind
+    paths:
+      - .github/workflows/tmp-issue584-diagnostic-v3-authority-rebind.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue584-spot-flow-diagnostic-v3
+  TARGET_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  OLD_IMPL_SHA: 1b8c1000a56e37cbb512f3496be647e8e217c1cd
+
+jobs:
+  rebind_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact v3 preregistration base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard target and overlay previously verified diagnostic files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$OLD_IMPL_SHA" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git checkout "$OLD_IMPL_SHA" -- \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+      - name: Rebind only preregistration authority constants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py'),
+              Path('tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py'),
+          ]
+          replacements = {
+              '89ec1092e438d69657840567e684739ca0c4e3d5': '41a403bda4252f15d8c059166dd6716110a4bc37',
+              '34932104475': '34952378700',
+              '34932424904': '34952843190',
+              '10381763665': '10390380265',
+              'f0a7de4e5b477f86d773793f3d4a154ac307c68a88b4eee4cf10a48190fd0f02': 'bd80fe0ae93ad95c5106eacc9f9b99c85164da65f5fc7ae8d290f45a03e84646',
+              '10381379452': '10390415743',
+              '012126c32a0d65c0164624dff9b9657a4a8ff208bf24397256048f65ea0f89b8': '014cc3fc01b34a40086efe776717dfff15ffed1c5874afcc5e0aa907a9fd7115',
+              'bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3': '9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76',
+          }
+          counts = {old: 0 for old in replacements}
+          for path in paths:
+              text = path.read_text()
+              for old, new in replacements.items():
+                  n = text.count(old)
+                  counts[old] += n
+                  text = text.replace(old, new)
+              path.write_text(text)
+          required = {
+              '89ec1092e438d69657840567e684739ca0c4e3d5',
+              '34932104475',
+              '34932424904',
+              '10381763665',
+              'f0a7de4e5b477f86d773793f3d4a154ac307c68a88b4eee4cf10a48190fd0f02',
+              '10381379452',
+              '012126c32a0d65c0164624dff9b9657a4a8ff208bf24397256048f65ea0f89b8',
+              'bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3',
+          }
+          missing = [old for old in required if counts[old] == 0]
+          if missing:
+              raise SystemExit(f'expected authority token not found: {missing}')
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify v3 rebinding without changing diagnostic semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py"
+          uv run ruff format --check $files
+          uv run ruff check $files
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+      - name: Guard and publish exactly five diagnostic files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only "$TARGET_SHA")"
+          expected="$(cat <<'EOF'
+          tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+          tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+          tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py
+          tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+          trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+          EOF
+          )"
+          test "$(printf '%s\n' "$changed" | sort)" = "$(printf '%s\n' "$expected" | sed 's/^          //' | sort)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+          git commit -m "fix: rebind Spot-flow diagnostic to prereg v3"
+          git push origin HEAD:"$TARGET_BRANCH"

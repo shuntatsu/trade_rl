@@ -388,6 +388,8 @@ def build_structural_report(
     protocol_seal_artifact_api_digest: str,
     protocol_fresh_artifact_id: int,
     protocol_fresh_artifact_api_digest: str,
+    validator_head: str,
+    validator_verification_run_id: int,
 ) -> dict[str, object]:
     """Build a content-addressed structural-only result with sealed authority binding."""
 
@@ -402,6 +404,11 @@ def build_structural_report(
         protocol_fresh_artifact_api_digest,
         length=64,
         field="protocol_fresh_artifact_api_digest",
+    )
+    validator = _hex(validator_head, length=40, field="validator_head")
+    validator_run = _positive_int(
+        validator_verification_run_id,
+        field="validator_verification_run_id",
     )
     archive_reports = [dict(report) for report in reports]
     status = decide_source_status(protocol, archive_reports)
@@ -421,6 +428,8 @@ def build_structural_report(
             protocol_fresh_artifact_id, field="protocol_fresh_artifact_id"
         ),
         "protocol_fresh_artifact_api_digest": fresh_digest,
+        "validator_head": validator,
+        "validator_verification_run_id": validator_run,
         "planned_archive_count": protocol.planned_archive_count,
         "available_archive_count": sum(
             report["archive_available"] is True for report in archive_reports
@@ -462,6 +471,8 @@ def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
         "protocol_seal_artifact_api_digest",
         "protocol_fresh_artifact_id",
         "protocol_fresh_artifact_api_digest",
+        "validator_head",
+        "validator_verification_run_id",
         "planned_archive_count",
         "available_archive_count",
         "available_checksum_count",
@@ -505,6 +516,11 @@ def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
         report.get("protocol_fresh_artifact_api_digest"),
         length=64,
         field="protocol_fresh_artifact_api_digest",
+    )
+    _hex(report.get("validator_head"), length=40, field="validator_head")
+    _positive_int(
+        report.get("validator_verification_run_id"),
+        field="validator_verification_run_id",
     )
     if report.get("planned_archive_count") != protocol.planned_archive_count:
         raise ValueError("planned_archive_count is not canonical")

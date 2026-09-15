@@ -300,6 +300,8 @@ def test_canonical_report_is_structural_only_and_content_addressed() -> None:
         protocol_seal_artifact_api_digest="a" * 64,
         protocol_fresh_artifact_id=789,
         protocol_fresh_artifact_api_digest="b" * 64,
+        validator_head="8" * 40,
+        validator_verification_run_id=4,
     )
     encoded = canonical_structural_report_bytes(report)
 

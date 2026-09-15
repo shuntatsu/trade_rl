@@ -48,14 +48,15 @@ _SPOT_SOURCE_RESULT_SHA256 = (
 _SPOT_SOURCE_RESULT_CONTENT_DIGEST = (
     "06207c17f997ebd6c99db553cee07881a10e8b54d16af062a47e0fcb0a2cb51a"
 )
+_SPOT_SOURCE_USABLE_ROWS = 13_598_332
+_SPOT_SOURCE_MALFORMED_ROWS = 0
+_SPOT_SOURCE_INVALID_SENTINEL_ROWS = 0
 
 _FEATURE_NAME = "15m__spot_aggressive_notional_imbalance"
 _SIGNAL_WINDOW_MINUTES = 15
 _WEIGHTING = "quote_notional_price_times_quantity"
 _INTERVAL_SEMANTICS = "left_closed_right_open"
-_FEATURE_FORMULA = (
-    "math.fsum(sign_j*price_j*quantity_j)/math.fsum(price_j*quantity_j)"
-)
+_FEATURE_FORMULA = "math.fsum(sign_j*price_j*quantity_j)/math.fsum(price_j*quantity_j)"
 _BUYER_TOKEN = "False"
 _SELLER_TOKEN = "True"
 _BUYER_SIGN = 1
@@ -110,6 +111,9 @@ def _canonical_values() -> dict[str, object]:
         "spot_source_fresh_artifact_api_digest": _SPOT_SOURCE_FRESH_ARTIFACT_API_DIGEST,
         "spot_source_result_sha256": _SPOT_SOURCE_RESULT_SHA256,
         "spot_source_result_content_digest": _SPOT_SOURCE_RESULT_CONTENT_DIGEST,
+        "spot_source_usable_rows": _SPOT_SOURCE_USABLE_ROWS,
+        "spot_source_malformed_rows": _SPOT_SOURCE_MALFORMED_ROWS,
+        "spot_source_invalid_sentinel_rows": _SPOT_SOURCE_INVALID_SENTINEL_ROWS,
         "feature_name": _FEATURE_NAME,
         "signal_window_minutes": _SIGNAL_WINDOW_MINUTES,
         "candidate_intervals_per_day": 96,
@@ -125,6 +129,21 @@ def _canonical_values() -> dict[str, object]:
         "empty_interval_is_unavailable": True,
         "sentinel_rows_are_feature_events": False,
         "use_best_price_match": False,
+        "provider_order_required": True,
+        "event_time_strictly_before_decision": True,
+        "archive_publication_time_used_as_market_event_time": False,
+        "clipping_allowed": False,
+        "winsorization_allowed": False,
+        "zscore_allowed": False,
+        "volume_scaling_allowed": False,
+        "volatility_scaling_allowed": False,
+        "funding_combination_allowed": False,
+        "basis_combination_allowed": False,
+        "price_return_input_allowed": False,
+        "cross_sectional_normalization_allowed": False,
+        "rank_transform_allowed": False,
+        "learned_coefficient_allowed": False,
+        "feature_threshold_allowed": False,
         "target_market": _TARGET_MARKET,
         "target_timeframe": _TARGET_TIMEFRAME,
         "execution_open_offset_bars": _EXECUTION_OFFSET,
@@ -132,6 +151,13 @@ def _canonical_values() -> dict[str, object]:
         "horizon_bars": _HORIZON_BARS,
         "horizon_minutes": _HORIZON_MINUTES,
         "label_formula": _LABEL_FORMULA,
+        "require_target_rows_present": True,
+        "require_target_rows_contiguous": True,
+        "require_target_rows_information_available": True,
+        "require_target_rows_active": True,
+        "require_target_rows_tradable": True,
+        "require_target_open_finite_positive": True,
+        "target_2023_or_later_allowed": False,
         "expected_direction": _EXPECTED_DIRECTION,
         "minimum_eligible_observations_per_symbol": _MIN_OBSERVATIONS,
         "required_positive_symbol_slopes": _REQUIRED_POSITIVE,
@@ -140,6 +166,13 @@ def _canonical_values() -> dict[str, object]:
         "invalid_coverage_status": _INVALID_STATUS,
         "no_intercept": True,
         "fixed_reduction": _FIXED_REDUCTION,
+        "weighted_regression_allowed": False,
+        "robust_regression_allowed": False,
+        "require_numerator_finite": True,
+        "require_denominator_finite_positive": True,
+        "require_beta_finite": True,
+        "no_magnitude_threshold_after_results": True,
+        "training_relation_executed": False,
         "alternate_sign_allowed": False,
         "alternate_window_allowed": False,
         "alternate_horizon_allowed": False,
@@ -175,7 +208,9 @@ class SpotFlowContinuationProtocol:
     spot_source_protocol_seal_artifact_api_digest: str = (
         _SPOT_SOURCE_PROTOCOL_SEAL_ARTIFACT_API_DIGEST
     )
-    spot_source_protocol_fresh_artifact_id: int = _SPOT_SOURCE_PROTOCOL_FRESH_ARTIFACT_ID
+    spot_source_protocol_fresh_artifact_id: int = (
+        _SPOT_SOURCE_PROTOCOL_FRESH_ARTIFACT_ID
+    )
     spot_source_protocol_fresh_artifact_api_digest: str = (
         _SPOT_SOURCE_PROTOCOL_FRESH_ARTIFACT_API_DIGEST
     )
@@ -192,6 +227,9 @@ class SpotFlowContinuationProtocol:
     spot_source_fresh_artifact_api_digest: str = _SPOT_SOURCE_FRESH_ARTIFACT_API_DIGEST
     spot_source_result_sha256: str = _SPOT_SOURCE_RESULT_SHA256
     spot_source_result_content_digest: str = _SPOT_SOURCE_RESULT_CONTENT_DIGEST
+    spot_source_usable_rows: int = _SPOT_SOURCE_USABLE_ROWS
+    spot_source_malformed_rows: int = _SPOT_SOURCE_MALFORMED_ROWS
+    spot_source_invalid_sentinel_rows: int = _SPOT_SOURCE_INVALID_SENTINEL_ROWS
     feature_name: str = _FEATURE_NAME
     signal_window_minutes: int = _SIGNAL_WINDOW_MINUTES
     candidate_intervals_per_day: int = 96
@@ -207,6 +245,21 @@ class SpotFlowContinuationProtocol:
     empty_interval_is_unavailable: bool = True
     sentinel_rows_are_feature_events: bool = False
     use_best_price_match: bool = False
+    provider_order_required: bool = True
+    event_time_strictly_before_decision: bool = True
+    archive_publication_time_used_as_market_event_time: bool = False
+    clipping_allowed: bool = False
+    winsorization_allowed: bool = False
+    zscore_allowed: bool = False
+    volume_scaling_allowed: bool = False
+    volatility_scaling_allowed: bool = False
+    funding_combination_allowed: bool = False
+    basis_combination_allowed: bool = False
+    price_return_input_allowed: bool = False
+    cross_sectional_normalization_allowed: bool = False
+    rank_transform_allowed: bool = False
+    learned_coefficient_allowed: bool = False
+    feature_threshold_allowed: bool = False
     target_market: str = _TARGET_MARKET
     target_timeframe: str = _TARGET_TIMEFRAME
     execution_open_offset_bars: int = _EXECUTION_OFFSET
@@ -214,6 +267,13 @@ class SpotFlowContinuationProtocol:
     horizon_bars: int = _HORIZON_BARS
     horizon_minutes: int = _HORIZON_MINUTES
     label_formula: str = _LABEL_FORMULA
+    require_target_rows_present: bool = True
+    require_target_rows_contiguous: bool = True
+    require_target_rows_information_available: bool = True
+    require_target_rows_active: bool = True
+    require_target_rows_tradable: bool = True
+    require_target_open_finite_positive: bool = True
+    target_2023_or_later_allowed: bool = False
     expected_direction: str = _EXPECTED_DIRECTION
     minimum_eligible_observations_per_symbol: int = _MIN_OBSERVATIONS
     required_positive_symbol_slopes: int = _REQUIRED_POSITIVE
@@ -222,6 +282,13 @@ class SpotFlowContinuationProtocol:
     invalid_coverage_status: str = _INVALID_STATUS
     no_intercept: bool = True
     fixed_reduction: str = _FIXED_REDUCTION
+    weighted_regression_allowed: bool = False
+    robust_regression_allowed: bool = False
+    require_numerator_finite: bool = True
+    require_denominator_finite_positive: bool = True
+    require_beta_finite: bool = True
+    no_magnitude_threshold_after_results: bool = True
+    training_relation_executed: bool = False
     alternate_sign_allowed: bool = False
     alternate_window_allowed: bool = False
     alternate_horizon_allowed: bool = False
@@ -282,7 +349,9 @@ def canonical_spot_flow_continuation_protocol() -> SpotFlowContinuationProtocol:
     return SpotFlowContinuationProtocol()
 
 
-def load_spot_flow_continuation_protocol_bytes(payload: bytes) -> SpotFlowContinuationProtocol:
+def load_spot_flow_continuation_protocol_bytes(
+    payload: bytes,
+) -> SpotFlowContinuationProtocol:
     """Load only exact canonical JSON bytes; formatting drift fails closed."""
 
     try:

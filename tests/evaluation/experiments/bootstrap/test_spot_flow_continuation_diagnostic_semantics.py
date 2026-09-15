@@ -6,7 +6,9 @@ import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.experiments.bootstrap import spot_flow_continuation_diagnostic as diagnostic
+from trade_rl.evaluation.experiments.bootstrap import (
+    spot_flow_continuation_diagnostic as diagnostic,
+)
 from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import (
     canonical_spot_flow_continuation_protocol,
 )
@@ -16,9 +18,7 @@ SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 
 def _artifact_payload() -> dict[str, object]:
     protocol = canonical_spot_flow_continuation_protocol()
-    observations = {
-        symbol: ([1.0] * 360, [0.01] * 360) for symbol in SYMBOLS
-    }
+    observations = {symbol: ([1.0] * 360, [0.01] * 360) for symbol in SYMBOLS}
     result = diagnostic.build_spot_flow_diagnostic_result(
         observations,
         protocol,
@@ -40,7 +40,9 @@ def _resign(payload: dict[str, object]) -> bytes:
     return canonical_json_bytes(unsigned)
 
 
-def test_loader_rejects_beta_not_equal_to_published_numerator_over_denominator() -> None:
+def test_loader_rejects_beta_not_equal_to_published_numerator_over_denominator() -> (
+    None
+):
     payload = _artifact_payload()
     symbol_results = payload["symbol_results"]
     assert isinstance(symbol_results, list)
@@ -65,7 +67,9 @@ def test_loader_rejects_coverage_forgery_even_with_self_consistent_digest() -> N
         diagnostic.load_spot_flow_result_bytes(_resign(payload))
 
 
-def test_symbol_result_rejects_failure_list_that_does_not_match_numeric_semantics() -> None:
+def test_symbol_result_rejects_failure_list_that_does_not_match_numeric_semantics() -> (
+    None
+):
     with pytest.raises(ValueError, match="failure|coverage|semantic"):
         diagnostic.SpotFlowSymbolCalibration(
             symbol="BTCUSDT",

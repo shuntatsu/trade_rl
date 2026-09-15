@@ -18,7 +18,7 @@ jobs:
           version: "0.10.0"
           python-version: "3.12"
       - run: uv sync --extra dev
-      - run: uv run ruff format --check tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+      - run: uv run ruff format tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
       - run: uv run ruff check tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
       - name: Require missing-module RED
         shell: bash
@@ -30,3 +30,4 @@ jobs:
           cat /tmp/red.log
           test "$status" -ne 0
           grep -Eq "ModuleNotFoundError|issue586_target_source_validator" /tmp/red.log
+          ! grep -q "SyntaxError" /tmp/red.log

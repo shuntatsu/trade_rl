@@ -1,0 +1,383 @@
+name: Temporary Issue 577 exactly-once basis training v2
+
+on:
+  push:
+    branches:
+      - run/issue577-basis-training-v2
+    paths:
+      - .github/workflows/tmp-issue577-real-training-v2.yml
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue577-basis-training-v2-exactly-once
+  cancel-in-progress: false
+
+env:
+  HELPER_HEAD: b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4
+  HELPER_VERIFY_RUN_ID: "34908341106"
+  CLI_VERIFY_RUN_ID: "34926496042"
+  PREEXEC_FAILED_RUN_ID: "34926427203"
+  PREEXEC_FAILED_PUBLISHER_JOB_ID: "104245364591"
+  SOURCE_PREFLIGHT_RUN_ID: "34908073064"
+  SOURCE_PREFLIGHT_ARTIFACT_ID: "10373058552"
+  SOURCE_PREFLIGHT_ARTIFACT_NAME: issue577-source-preflight-publisher-34908073064
+  SOURCE_PREFLIGHT_ARTIFACT_DIGEST: sha256:d6f5e6eaa7aa46b21b0f41dd75a0dec9022cebc839df881c4d8c5307dc89ab8d
+  SOURCE_PREFLIGHT_FRESH_ARTIFACT_ID: "10373388372"
+  SOURCE_PREFLIGHT_FRESH_ARTIFACT_NAME: issue577-source-preflight-fresh-34908073064
+  SOURCE_PREFLIGHT_FRESH_ARTIFACT_DIGEST: sha256:513e183bdc23ef823f29cfc5a93f2803c997d51b1eb243e1fbefb1381378b407
+  SOURCE_MANIFEST_SHA256: 834d4ab7b02ac0c97a0dadcb75c4c485e5892d0e9d66c13cfb998dbfea045706
+  SOURCE_MANIFEST_CONTENT_DIGEST: 92948941feb1edd8f561b3f505c8e3b30e529caeb0b48cf62d6aaa621334ee51
+  INDEX_PREFLIGHT_RUN_ID: "34868358617"
+  INDEX_PREFLIGHT_ARTIFACT_ID: "10358261087"
+  INDEX_PREFLIGHT_ARTIFACT_NAME: issue571-full-index-preflight-v2-publisher-34868358617
+  INDEX_PREFLIGHT_ARTIFACT_DIGEST: sha256:63eaa8135aa42330809a5dceb00905e141a18594d6a61edc699e7a6e02d2dae6
+  PREREG_SEAL_RUN_ID: "34867687158"
+  PREREG_SEAL_ARTIFACT_ID: "10357004799"
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:e4b156b66d273bebe012b664ed0f72ef551d46cb48ca0a8fddb04ba5ff61c96b
+  PREREG_FRESH_ARTIFACT_ID: "10357836707"
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:ff4ce128b2b2103c309d94f2731505bd2c5e0029df99c47d9783b6e566c548f4
+  SOURCE_VERIFY_RUN_ID: "34905791445"
+  CALIBRATION_VERIFY_RUN_ID: "34906099963"
+
+jobs:
+  publisher:
+    name: Exactly-once training publisher v2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first execution and bind transport recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          failed_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREEXEC_FAILED_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$failed_run")" = failure
+          failed_job="$(gh api repos/$GITHUB_REPOSITORY/actions/jobs/$PREEXEC_FAILED_PUBLISHER_JOB_ID)"
+          test "$(jq -r .conclusion <<<"$failed_job")" = failure
+          failed_artifacts="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREEXEC_FAILED_RUN_ID/artifacts?per_page=100)"
+          test "$(jq -r .total_count <<<"$failed_artifacts")" = "0"
+          cli_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$CLI_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$cli_run")" = success
+          cli_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$CLI_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="cli") | .conclusion' <<<"$cli_jobs")" = success
+      - name: Checkout exact verified helper authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          persist-credentials: false
+      - name: Bind all frozen pre-training authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_HEAD"
+          for run_id in "$HELPER_VERIFY_RUN_ID" "$SOURCE_PREFLIGHT_RUN_ID" "$SOURCE_VERIFY_RUN_ID" "$CALIBRATION_VERIFY_RUN_ID"; do
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .conclusion <<<"$payload")" = success
+            jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100)"
+            test "$(jq -r '[.jobs[].conclusion] | all(. == "success")' <<<"$jobs")" = true
+          done
+          for spec in \
+            "$SOURCE_PREFLIGHT_ARTIFACT_ID|$SOURCE_PREFLIGHT_ARTIFACT_NAME|$SOURCE_PREFLIGHT_ARTIFACT_DIGEST|$SOURCE_PREFLIGHT_RUN_ID" \
+            "$SOURCE_PREFLIGHT_FRESH_ARTIFACT_ID|$SOURCE_PREFLIGHT_FRESH_ARTIFACT_NAME|$SOURCE_PREFLIGHT_FRESH_ARTIFACT_DIGEST|$SOURCE_PREFLIGHT_RUN_ID" \
+            "$INDEX_PREFLIGHT_ARTIFACT_ID|$INDEX_PREFLIGHT_ARTIFACT_NAME|$INDEX_PREFLIGHT_ARTIFACT_DIGEST|$INDEX_PREFLIGHT_RUN_ID"; do
+            IFS='|' read -r id name digest run_id <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+          done
+          for spec in "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_DIGEST" "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+          done
+      - name: Download frozen combined source manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_PREFLIGHT_ARTIFACT_NAME }}
+          path: /tmp/frozen-source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_PREFLIGHT_RUN_ID }}
+      - name: Download frozen index preflight
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.INDEX_PREFLIGHT_ARTIFACT_NAME }}
+          path: /tmp/index-preflight
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INDEX_PREFLIGHT_RUN_ID }}
+      - name: Verify frozen source bytes before any relation computation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum /tmp/frozen-source/source-manifest.json | cut -d' ' -f1)" = "$SOURCE_MANIFEST_SHA256"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/frozen-source/source-manifest.json').read_bytes())
+          if payload.get('content_digest') != os.environ['SOURCE_MANIFEST_CONTENT_DIGEST']:
+              raise SystemExit('combined source content digest differs')
+          if payload.get('planned_archives') != 240:
+              raise SystemExit('combined source archive roster differs')
+          for key in ('replacement_source_used', 'rest_or_auto_fallback_used', 'evaluation_or_final_data_accessed', 'evaluation_pnl_computed'):
+              if payload.get(key) is not False:
+                  raise SystemExit(f'forbidden frozen source flag differs: {key}')
+          print('FROZEN_COMBINED_SOURCE_AUTHORITY_VERIFIED=true')
+          print('TRAINING_RELATION_COMPUTED=false')
+          PY
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Execute first real frozen training relation without interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          rm -rf /tmp/issue577-published
+          uv run python -m tools.tmp_issue577_basis_publisher \
+            --output-dir /tmp/issue577-published \
+            --preflight-path /tmp/index-preflight/full-index-preflight.json \
+            --expected-source-manifest /tmp/frozen-source/source-manifest.json \
+            --workflow-run-id "$GITHUB_RUN_ID"
+          test "$(find /tmp/issue577-published -maxdepth 1 -type f | wc -l)" -eq 3
+      - id: meta
+        if: always()
+        run: echo "name=issue577-basis-training-v2-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload publisher bytes if created
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/issue577-published/
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 90
+
+  verifier:
+    name: Fresh independent raw reconstruction v2
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first execution only
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - name: Checkout exact helper authority independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          persist-credentials: false
+      - name: API-bind publisher artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PUB_ID"
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$PUB_ID)"
+          test "$(jq -r .name <<<"$payload")" = "$PUB_NAME"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false
+          api_digest="$(jq -r .digest <<<"$payload")"
+          case "$PUB_DIGEST" in
+            sha256:*) test "$api_digest" = "$PUB_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PUB_DIGEST" ;;
+          esac
+      - name: Download publisher result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/issue577-published
+      - name: Download frozen index preflight independently
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.INDEX_PREFLIGHT_ARTIFACT_NAME }}
+          path: /tmp/index-preflight
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INDEX_PREFLIGHT_RUN_ID }}
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Fresh re-fetch all 240 archives and reconstruct before interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          rm -rf /tmp/issue577-verified
+          uv run python -m tools.tmp_issue577_basis_verifier \
+            --published-dir /tmp/issue577-published \
+            --verified-dir /tmp/issue577-verified \
+            --preflight-path /tmp/index-preflight/full-index-preflight.json
+      - id: meta
+        if: always()
+        run: echo "name=issue577-basis-training-v2-verified-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction bytes if created
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/issue577-verified/
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 90
+
+  interpret:
+    name: Interpret frozen training gate after reconstruction v2
+    needs: [publisher, verifier]
+    runs-on: ubuntu-24.04
+    outputs:
+      status: ${{ steps.interpret.outputs.status }}
+      result_digest: ${{ steps.interpret.outputs.result_digest }}
+    steps:
+      - name: Enforce first execution only
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - name: Checkout exact helper authority for strict loader
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          persist-credentials: false
+      - name: API-bind both result artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          VER_ID: ${{ needs.verifier.outputs.artifact_id }}
+          VER_NAME: ${{ needs.verifier.outputs.artifact_name }}
+          VER_DIGEST: ${{ needs.verifier.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$VER_ID|$VER_NAME|$VER_DIGEST"; do
+            IFS='|' read -r id name output_digest <<<"$spec"
+            test -n "$id"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+            api_digest="$(jq -r .digest <<<"$payload")"
+            case "$output_digest" in
+              sha256:*) test "$api_digest" = "$output_digest" ;;
+              *) test "$api_digest" = "sha256:$output_digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/published
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.verifier.outputs.artifact_name }}
+          path: /tmp/verified
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: First allowed interpretation
+        id: interpret
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/published/result.json /tmp/verified/fresh-result.json
+          cmp /tmp/published/source-manifest.json /tmp/verified/fresh-source-manifest.json
+          mkdir -p /tmp/interpretation
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.perp_index_basis_calibration import load_perp_index_basis_calibration_result
+
+          result = load_perp_index_basis_calibration_result(Path('/tmp/published/result.json'))
+          fresh = load_perp_index_basis_calibration_result(Path('/tmp/verified/fresh-result.json'))
+          verification = json.loads(Path('/tmp/verified/verification.json').read_bytes())
+          if result.digest != fresh.digest:
+              raise SystemExit('fresh strict result digest differs')
+          for key in ('source_manifest_byte_equal', 'result_byte_equal', 'dataset_id_equal', 'fresh_raw_refetch_completed', 'fresh_reconstruction_passed'):
+              if verification.get(key) is not True:
+                  raise SystemExit(f'fresh verification flag differs: {key}')
+          if any((result.evaluation_pnl_inspected, result.evaluation_execution_authorized, result.final_test_authorized, result.shared_cash_profitability_established, result.production_eligible, result.live_trading_authorized)):
+              raise SystemExit('forbidden evaluation/production boundary crossed')
+          evidence = {
+              'schema_version': 'issue577_basis_training_interpretation_v1',
+              'issue_number': 577,
+              'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'dataset_id': result.dataset_id,
+              'source_manifest_digest': result.source_manifest_digest,
+              'result_content_digest': result.digest,
+              'status': result.status,
+              'negative_slope_count': result.negative_slope_count,
+              'failures': list(result.failures),
+              'symbol_results': [item.to_payload() for item in result.symbol_results],
+              'fresh_reconstruction_passed': True,
+              'evaluation_pnl_inspected': False,
+              'final_test_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/interpretation/interpretation.json').write_bytes(canonical_json_bytes(evidence))
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              handle.write(f"status={result.status}\n")
+              handle.write(f"result_digest={result.digest}\n")
+          print(f"FROZEN_STATUS={result.status}")
+          print(f"NEGATIVE_SLOPE_COUNT={result.negative_slope_count}/5")
+          for item in result.symbol_results:
+              print(f"{item.symbol}: eligible={item.eligible_observations} beta={item.beta!r} negative={item.negative_slope}")
+          print('FAILURES=' + (','.join(result.failures) if result.failures else 'NONE'))
+          print('FRESH_RECONSTRUCTION_PASSED=true')
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('FINAL_TEST_AUTHORIZED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          PY
+      - name: Upload immutable interpretation evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue577-basis-training-v2-interpretation-${{ github.run_id }}
+          path: /tmp/interpretation/interpretation.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

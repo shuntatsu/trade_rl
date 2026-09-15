@@ -25,9 +25,9 @@ _EXPECTED_HEADER = (
     "quantity",
     "first_trade_id",
     "last_trade_id",
-    "timestamp",
-    "buyer_is_maker",
-    "best_price_match",
+    "transact_time",
+    "is_buyer_maker",
+    "is_best_match",
 )
 _FIELD_COUNT = 8
 _SENTINEL = {

@@ -1,0 +1,125 @@
+name: Temporary Issue 600 raw-endpoint contract GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue600-raw-endpoint-green
+    paths:
+      - .github/workflows/tmp-issue600-raw-endpoint-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue600-premium-pressure-prereg
+  TARGET_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  CORRECT_ORACLE_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+      - name: Guard current research head and restore frozen oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git fetch origin "$CORRECT_ORACLE_SHA" --depth=1 --no-tags
+          git show "$CORRECT_ORACLE_SHA:$TEST_FILE" > "$TEST_FILE"
+      - name: Correct production clock invariant to endpoint raw-open semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py')
+          text = path.read_text()
+          replacements = [
+              (
+                  '    "last_candidate_decision": datetime(2022, 12, 30, 22, tzinfo=UTC),\n'
+                  '    "nominal_candidate_decisions_per_symbol": 17_494,\n'
+                  '    "minimum_eligible_observations_per_symbol": 16_620,\n',
+                  '    "last_candidate_decision": datetime(2022, 12, 30, 23, tzinfo=UTC),\n'
+                  '    "nominal_candidate_decisions_per_symbol": 17_495,\n'
+                  '    "minimum_eligible_observations_per_symbol": 16_621,\n',
+              ),
+              (
+                  '        endpoint_dataset_offset = timedelta(hours=self.label_endpoint_offset_bars)\n'
+                  '        one_hour = timedelta(hours=1)\n'
+                  '        if not (\n'
+                  '            self.last_candidate_decision + endpoint_dataset_offset < self.fit_cutoff\n'
+                  '        ):\n'
+                  '            raise ValueError("last candidate endpoint must precede fit cutoff")\n'
+                  '        if (\n'
+                  '            self.last_candidate_decision + endpoint_dataset_offset + one_hour\n'
+                  '            != self.fit_cutoff\n'
+                  '        ):\n'
+                  '            raise ValueError(\n'
+                  '                "last candidate is not the maximal eligible hourly decision"\n'
+                  '            )\n',
+                  '        endpoint_raw_open_offset = timedelta(\n'
+                  '            minutes=self.endpoint_raw_open_time_offset_minutes\n'
+                  '        )\n'
+                  '        one_hour = timedelta(hours=1)\n'
+                  '        if not (\n'
+                  '            self.last_candidate_decision + endpoint_raw_open_offset\n'
+                  '            < self.fit_cutoff\n'
+                  '        ):\n'
+                  '            raise ValueError(\n'
+                  '                "last candidate endpoint raw open must precede fit cutoff"\n'
+                  '            )\n'
+                  '        if (\n'
+                  '            self.last_candidate_decision + endpoint_raw_open_offset + one_hour\n'
+                  '            != self.fit_cutoff\n'
+                  '        ):\n'
+                  '            raise ValueError(\n'
+                  '                "last candidate is not the maximal eligible hourly decision"\n'
+                  '            )\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one patch anchor, found {count}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          changed="$(git diff HEAD --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST_FILE" | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Targeted GREEN
+        run: |
+          uv run ruff format "$MODULE" "$TEST_FILE"
+          uv run ruff check "$MODULE" "$TEST_FILE"
+          uv run ruff format --check "$MODULE" "$TEST_FILE"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST_FILE"
+          changed="$(git diff HEAD --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST_FILE" | sort)"
+          test "$changed" = "$expected"
+      - name: Guard and publish exactly two verified files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE" "$TEST_FILE"
+          git commit -m "fix: restore Issue 600 raw-endpoint cutoff contract"
+          changed="$(git diff --name-only HEAD^ HEAD | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST_FILE" | sort)"
+          test "$changed" = "$expected"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

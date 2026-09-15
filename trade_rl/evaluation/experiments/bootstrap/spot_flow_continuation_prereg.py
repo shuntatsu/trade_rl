@@ -64,6 +64,8 @@ _SELLER_SIGN = -1
 
 _TARGET_MARKET = "binance_usdm_perpetual"
 _TARGET_TIMEFRAME = "15m"
+_TARGET_SOURCE_FAMILY = "binance_vision_contract_klines"
+_TARGET_TRANSPORT_MODE = "VISION"
 _EXECUTION_OFFSET = 1
 _ENDPOINT_OFFSET = 17
 _HORIZON_BARS = 16
@@ -146,6 +148,13 @@ def _canonical_values() -> dict[str, object]:
         "feature_threshold_allowed": False,
         "target_market": _TARGET_MARKET,
         "target_timeframe": _TARGET_TIMEFRAME,
+        "target_source_family": _TARGET_SOURCE_FAMILY,
+        "target_transport_mode": _TARGET_TRANSPORT_MODE,
+        "target_source_fallback_allowed": False,
+        "target_source_replacement_allowed": False,
+        "target_source_checksum_required": True,
+        "target_source_manifest_binding_required": True,
+        "target_source_structural_preflight_required": True,
         "execution_open_offset_bars": _EXECUTION_OFFSET,
         "endpoint_open_offset_bars": _ENDPOINT_OFFSET,
         "horizon_bars": _HORIZON_BARS,
@@ -262,6 +271,13 @@ class SpotFlowContinuationProtocol:
     feature_threshold_allowed: bool = False
     target_market: str = _TARGET_MARKET
     target_timeframe: str = _TARGET_TIMEFRAME
+    target_source_family: str = _TARGET_SOURCE_FAMILY
+    target_transport_mode: str = _TARGET_TRANSPORT_MODE
+    target_source_fallback_allowed: bool = False
+    target_source_replacement_allowed: bool = False
+    target_source_checksum_required: bool = True
+    target_source_manifest_binding_required: bool = True
+    target_source_structural_preflight_required: bool = True
     execution_open_offset_bars: int = _EXECUTION_OFFSET
     endpoint_open_offset_bars: int = _ENDPOINT_OFFSET
     horizon_bars: int = _HORIZON_BARS

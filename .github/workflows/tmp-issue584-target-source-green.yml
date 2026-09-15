@@ -1,0 +1,104 @@
+name: Temporary Issue 584 target source authority GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue584-target-source-green
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue584-spot-flow-prereg
+  TARGET_SHA: 69055013442fe0f344d033754b3a2b6d4fee6c78
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Add deterministic target-source authority
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              if old not in text:
+                  raise SystemExit(f'patch target not found: {old[:90]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '_TARGET_MARKET = "binance_usdm_perpetual"\n_TARGET_TIMEFRAME = "15m"\n',
+              '_TARGET_MARKET = "binance_usdm_perpetual"\n_TARGET_TIMEFRAME = "15m"\n_TARGET_SOURCE_FAMILY = "binance_vision_contract_klines"\n_TARGET_TRANSPORT_MODE = "VISION"\n'
+          )
+          replace_once(
+              '        "target_market": _TARGET_MARKET,\n        "target_timeframe": _TARGET_TIMEFRAME,\n',
+              '        "target_market": _TARGET_MARKET,\n        "target_timeframe": _TARGET_TIMEFRAME,\n        "target_source_family": _TARGET_SOURCE_FAMILY,\n        "target_transport_mode": _TARGET_TRANSPORT_MODE,\n        "target_source_fallback_allowed": False,\n        "target_source_replacement_allowed": False,\n        "target_source_checksum_required": True,\n        "target_source_manifest_binding_required": True,\n        "target_source_structural_preflight_required": True,\n'
+          )
+          replace_once(
+              '    target_market: str = _TARGET_MARKET\n    target_timeframe: str = _TARGET_TIMEFRAME\n',
+              '    target_market: str = _TARGET_MARKET\n    target_timeframe: str = _TARGET_TIMEFRAME\n    target_source_family: str = _TARGET_SOURCE_FAMILY\n    target_transport_mode: str = _TARGET_TRANSPORT_MODE\n    target_source_fallback_allowed: bool = False\n    target_source_replacement_allowed: bool = False\n    target_source_checksum_required: bool = True\n    target_source_manifest_binding_required: bool = True\n    target_source_structural_preflight_required: bool = True\n'
+          )
+          path.write_text(text)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and targeted verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+      - name: Guard and publish complete protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg_target_source.py
+          git commit -m "fix: freeze deterministic Spot-flow target source"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -74,7 +74,7 @@ def test_canonical_protocol_freezes_complete_result_blind_contract() -> None:
         "first_trade_id": "-1",
         "last_trade_id": "-1",
     }
-    assert protocol.strict_boolean_tokens == ("true", "false")
+    assert protocol.strict_boolean_tokens == ("False", "True")
     assert protocol.allowed_archive_report_fields == EXPECTED_REPORT_FIELDS
     assert protocol.pass_status == "PASS_SPOT_AGGTRADES_SOURCE"
     assert protocol.partial_status == "PARTIAL_SPOT_AGGTRADES_SOURCE"
@@ -123,6 +123,7 @@ def test_protocol_rejects_post_inspection_mutation() -> None:
     mutations: list[tuple[str, object]] = [
         ("dates", ["2021-01-16", *list(EXPECTED_DATES[1:])]),
         ("field_count", 7),
+        ("strict_boolean_tokens", ["true", "false"]),
         ("strict_boolean_tokens", ["1", "0"]),
         ("replacement_sources_allowed", True),
         ("economic_values_allowed_in_report", True),

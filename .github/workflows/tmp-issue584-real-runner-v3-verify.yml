@@ -1,0 +1,79 @@
+name: Temporary Issue 584 real-runner v3 synthetic verification
+
+on:
+  push:
+    branches:
+      - automation/issue584-real-runner-v3-verify
+    paths:
+      - .github/workflows/tmp-issue584-real-runner-v3-verify.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue584-spot-flow-diagnostic-v3
+  TARGET_SHA: bc94f2fe53392a1eacb879044ff3cc90d368595a
+  IMPLEMENTATION_SHA: 53b005f4dd16de4b4bfe9593714db4d77d8da07f
+  HELPER: tools/tmp_issue584_spot_flow_real_v3.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+
+jobs:
+  verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact staged runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard staged branch and implementation bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git rev-parse "$IMPLEMENTATION_SHA:$MODULE")" = "$(git rev-parse "HEAD:$MODULE")"
+          changed="$(git diff --name-only "$IMPLEMENTATION_SHA..$TARGET_SHA")"
+          test "$changed" = "$HELPER"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format, type-check, and self-check runner without real data
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$HELPER"
+          uv run ruff check --fix "$HELPER"
+          uv run ruff check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python "$HELPER" --self-check
+      - name: Re-run frozen v3 diagnostic oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+      - name: Guard and publish verified helper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$HELPER" || true)"
+          if git diff --quiet -- "$HELPER"; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$HELPER"
+          git commit -m "style: verify Issue 584 v3 real diagnostic runner"
+          git push origin HEAD:"$TARGET_BRANCH"

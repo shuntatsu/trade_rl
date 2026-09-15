@@ -19,9 +19,9 @@ EXPECTED_HEADER = (
     "quantity",
     "first_trade_id",
     "last_trade_id",
-    "timestamp",
-    "buyer_is_maker",
-    "best_price_match",
+    "transact_time",
+    "is_buyer_maker",
+    "is_best_match",
 )
 EXPECTED_REPORT_FIELDS = (
     "symbol",
@@ -123,6 +123,19 @@ def test_protocol_rejects_post_inspection_mutation() -> None:
     mutations: list[tuple[str, object]] = [
         ("dates", ["2021-01-16", *list(EXPECTED_DATES[1:])]),
         ("field_count", 7),
+        (
+            "expected_header",
+            [
+                "agg_trade_id",
+                "price",
+                "quantity",
+                "first_trade_id",
+                "last_trade_id",
+                "timestamp",
+                "buyer_is_maker",
+                "best_price_match",
+            ],
+        ),
         ("strict_boolean_tokens", ["true", "false"]),
         ("strict_boolean_tokens", ["1", "0"]),
         ("replacement_sources_allowed", True),

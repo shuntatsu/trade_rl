@@ -55,7 +55,9 @@ def test_canonical_protocol_freezes_exact_one_slot_contract() -> None:
     assert protocol.source_family == "premiumIndexKlines"
     assert protocol.source_interval == "1h"
     assert protocol.source_market == "USD_M"
-    assert protocol.premium_dataset_timestamp_semantics == "completed_bar_close_boundary"
+    assert (
+        protocol.premium_dataset_timestamp_semantics == "completed_bar_close_boundary"
+    )
     assert (
         protocol.premium_dataset_timestamp_formula
         == "dataset_timestamp=raw_open_time+1h"
@@ -220,7 +222,9 @@ def test_loader_rejects_missing_unknown_tampered_and_noncanonical_payloads() -> 
     }
     with pytest.raises(ValueError):
         load_premium_pressure_protocol_bytes(
-            json.dumps(calibration_drift, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(
+                calibration_drift, sort_keys=True, separators=(",", ":")
+            ).encode()
         )
 
     canonical = canonical_premium_pressure_protocol_bytes(protocol)

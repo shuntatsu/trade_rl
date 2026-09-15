@@ -204,6 +204,73 @@ class TargetBar:
         _require_bool(self.tradable, field="tradable")
 
 
+def _parse_spot_row(
+    row: list[str],
+    *,
+    day_start: int,
+    day_end: int,
+    previous_id: int | None,
+    previous_timestamp: int | None,
+) -> tuple[SpotAggTrade | None, int | None, int | None]:
+    if len(row) != 8:
+        raise ValueError("Spot aggTrades row is malformed: expected eight fields")
+    (
+        aggregate_raw,
+        price_raw,
+        quantity_raw,
+        first_raw,
+        last_raw,
+        timestamp_raw,
+        maker_raw,
+        best_raw,
+    ) = row
+    aggregate_id = _parse_int_token(aggregate_raw, field="aggregate trade id")
+    timestamp = _parse_int_token(timestamp_raw, field="event timestamp")
+    if aggregate_id < 0:
+        raise ValueError("aggregate trade id must be non-negative")
+    if timestamp < day_start or timestamp >= day_end:
+        raise ValueError("event timestamp is outside expected_date")
+    if maker_raw not in {"False", "True"} or best_raw not in {"False", "True"}:
+        raise ValueError("Spot aggTrades maker/best-match boolean token is invalid")
+
+    exact_sentinel = (
+        price_raw == "0"
+        and quantity_raw == "0"
+        and first_raw == "-1"
+        and last_raw == "-1"
+    )
+    sentinel_component = (
+        price_raw == "0" or quantity_raw == "0" or first_raw == "-1" or last_raw == "-1"
+    )
+    if exact_sentinel:
+        return None, previous_id, previous_timestamp
+    if sentinel_component:
+        raise ValueError("partial provider sentinel is malformed")
+
+    first_id = _parse_int_token(first_raw, field="first trade id")
+    last_id = _parse_int_token(last_raw, field="last trade id")
+    if first_id < 0 or last_id < 0 or first_id > last_id:
+        raise ValueError("Spot aggTrades trade-id range is malformed")
+    price = _parse_float_token(price_raw, field="price")
+    quantity = _parse_float_token(quantity_raw, field="quantity")
+    if price <= 0.0 or quantity <= 0.0:
+        raise ValueError("Spot aggTrades price and quantity must be positive")
+    if previous_id is not None and aggregate_id <= previous_id:
+        raise ValueError("usable aggregate trade ids must be strictly increasing")
+    if previous_timestamp is not None and timestamp < previous_timestamp:
+        raise ValueError("usable event timestamps must be nondecreasing")
+    return (
+        SpotAggTrade(
+            event_time_ms=timestamp,
+            price=price,
+            quantity=quantity,
+            is_buyer_maker=maker_raw == "True",
+        ),
+        aggregate_id,
+        timestamp,
+    )
+
+
 def parse_spot_aggtrades_csv(
     payload: bytes,
     *,
@@ -219,67 +286,38 @@ def parse_spot_aggtrades_csv(
     previous_id: int | None = None
     previous_timestamp: int | None = None
     for row in rows:
-        if len(row) != 8:
-            raise ValueError("Spot aggTrades row is malformed: expected eight fields")
-        (
-            aggregate_raw,
-            price_raw,
-            quantity_raw,
-            first_raw,
-            last_raw,
-            timestamp_raw,
-            maker_raw,
-            best_raw,
-        ) = row
-        aggregate_id = _parse_int_token(aggregate_raw, field="aggregate trade id")
-        timestamp = _parse_int_token(timestamp_raw, field="event timestamp")
-        if aggregate_id < 0:
-            raise ValueError("aggregate trade id must be non-negative")
-        if timestamp < day_start or timestamp >= day_end:
-            raise ValueError("event timestamp is outside expected_date")
-        if maker_raw not in {"False", "True"} or best_raw not in {"False", "True"}:
-            raise ValueError("Spot aggTrades maker/best-match boolean token is invalid")
-
-        exact_sentinel = (
-            price_raw == "0"
-            and quantity_raw == "0"
-            and first_raw == "-1"
-            and last_raw == "-1"
+        trade, previous_id, previous_timestamp = _parse_spot_row(
+            row,
+            day_start=day_start,
+            day_end=day_end,
+            previous_id=previous_id,
+            previous_timestamp=previous_timestamp,
         )
-        sentinel_component = (
-            price_raw == "0"
-            or quantity_raw == "0"
-            or first_raw == "-1"
-            or last_raw == "-1"
-        )
-        if exact_sentinel:
-            continue
-        if sentinel_component:
-            raise ValueError("partial provider sentinel is malformed")
-
-        first_id = _parse_int_token(first_raw, field="first trade id")
-        last_id = _parse_int_token(last_raw, field="last trade id")
-        if first_id < 0 or last_id < 0 or first_id > last_id:
-            raise ValueError("Spot aggTrades trade-id range is malformed")
-        price = _parse_float_token(price_raw, field="price")
-        quantity = _parse_float_token(quantity_raw, field="quantity")
-        if price <= 0.0 or quantity <= 0.0:
-            raise ValueError("Spot aggTrades price and quantity must be positive")
-        if previous_id is not None and aggregate_id <= previous_id:
-            raise ValueError("usable aggregate trade ids must be strictly increasing")
-        if previous_timestamp is not None and timestamp < previous_timestamp:
-            raise ValueError("usable event timestamps must be nondecreasing")
-        previous_id = aggregate_id
-        previous_timestamp = timestamp
-        result.append(
-            SpotAggTrade(
-                event_time_ms=timestamp,
-                price=price,
-                quantity=quantity,
-                is_buyer_maker=maker_raw == "True",
-            )
-        )
+        if trade is not None:
+            result.append(trade)
     return tuple(result)
+
+
+def _reduce_imbalance(
+    signed_notionals: Sequence[float], total_notionals: Sequence[float]
+) -> float | None:
+    if not total_notionals:
+        return None
+    try:
+        numerator = math.fsum(signed_notionals)
+        denominator = math.fsum(total_notionals)
+    except OverflowError as error:
+        raise ValueError("Spot interval reduction is non-finite") from error
+    if (
+        not math.isfinite(numerator)
+        or not math.isfinite(denominator)
+        or denominator <= 0.0
+    ):
+        raise ValueError("Spot interval reduction is non-finite")
+    result = numerator / denominator
+    if not math.isfinite(result) or result < -1.0 - 1e-12 or result > 1.0 + 1e-12:
+        raise ValueError("Spot aggressive-flow imbalance lies outside [-1,1]")
+    return result
 
 
 def aggregate_spot_interval(
@@ -313,23 +351,68 @@ def aggregate_spot_interval(
         sign = -1.0 if trade.is_buyer_maker else 1.0
         signed_notionals.append(sign * notional)
         total_notionals.append(notional)
-    if not total_notionals:
-        return None
+    return _reduce_imbalance(signed_notionals, total_notionals)
+
+
+def aggregate_spot_day_csv(
+    payload: bytes,
+    *,
+    expected_date: str,
+) -> tuple[float | None, ...]:
+    """Stream one frozen Spot day into the exact 96 quarter-hour signals."""
+
+    if not isinstance(payload, bytes):
+        raise TypeError("CSV payload must be bytes")
+    day_start, day_end = _day_bounds_ms(expected_date)
+    signed_bins: list[list[float]] = [[] for _ in range(96)]
+    total_bins: list[list[float]] = [[] for _ in range(96)]
+    previous_id: int | None = None
+    previous_timestamp: int | None = None
+
+    stream = io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8-sig", newline="")
     try:
-        numerator = math.fsum(signed_notionals)
-        denominator = math.fsum(total_notionals)
-    except OverflowError as error:
-        raise ValueError("Spot interval reduction is non-finite") from error
-    if (
-        not math.isfinite(numerator)
-        or not math.isfinite(denominator)
-        or denominator <= 0.0
-    ):
-        raise ValueError("Spot interval reduction is non-finite")
-    result = numerator / denominator
-    if not math.isfinite(result) or result < -1.0 - 1e-12 or result > 1.0 + 1e-12:
-        raise ValueError("Spot aggressive-flow imbalance lies outside [-1,1]")
-    return result
+        reader = csv.reader(stream)
+        first = next(reader, None)
+        rows = reader if first is not None and tuple(first) == _SPOT_HEADER else None
+
+        def consume(row: list[str]) -> None:
+            nonlocal previous_id, previous_timestamp
+            trade, previous_id, previous_timestamp = _parse_spot_row(
+                row,
+                day_start=day_start,
+                day_end=day_end,
+                previous_id=previous_id,
+                previous_timestamp=previous_timestamp,
+            )
+            if trade is None:
+                return
+            index = (trade.event_time_ms - day_start) // _QUARTER_HOUR_MS
+            if index < 0 or index >= 96:
+                raise ValueError("Spot trade lies outside the frozen daily bins")
+            notional = trade.price * trade.quantity
+            if not math.isfinite(notional) or notional <= 0.0:
+                raise ValueError(
+                    "Spot trade quote notional must be finite and positive"
+                )
+            signed_bins[index].append(
+                (-1.0 if trade.is_buyer_maker else 1.0) * notional
+            )
+            total_bins[index].append(notional)
+
+        if first is not None and rows is None:
+            consume(first)
+        if rows is None:
+            rows = reader
+        for row in rows:
+            consume(row)
+    except UnicodeDecodeError as error:
+        raise ValueError("CSV payload is not UTF-8") from error
+    finally:
+        stream.close()
+
+    return tuple(
+        _reduce_imbalance(signed_bins[index], total_bins[index]) for index in range(96)
+    )
 
 
 def parse_usdm_15m_klines_csv(

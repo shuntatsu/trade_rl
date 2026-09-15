@@ -1,0 +1,286 @@
+name: Issue 578 Spot aggTrades source preregistration seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue578-spot-aggtrades-source-prereg-v1
+    paths:
+      - .github/workflows/issue578-spot-aggtrades-source-prereg-seal-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 9932775127c79a85d81fb304850c3349460e4a2a
+  FULL_VERIFY_RUN_ID: "34928199081"
+  FULL_VERIFY_WORKFLOW: .github/workflows/tmp-issue578-integrated-993277.yml
+  PROTOCOL_DIGEST: 808f999915815259762067aaff381a88589a7c28ceb0383d8aa0626d5c67e8d4
+
+jobs:
+  seal:
+    name: Immutable protocol publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact preregistration authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact head and full verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue578-spot-aggtrades-source-prereg | cut -f1)" = "$TARGET_SHA"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+          test "$(jq -r .path <<<"$run")" = "$FULL_VERIFY_WORKFLOW"
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$jobs")" = success
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Reprove preregistration contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_source_prereg.py tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg_hardening.py"
+          uv run ruff check $files
+          uv run ruff format --check $files
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_source_prereg.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg_hardening.py
+      - name: Materialize canonical protocol without economic inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_source_prereg import canonical_spot_aggtrades_source_protocol, load_spot_aggtrades_source_protocol_bytes
+
+          protocol = canonical_spot_aggtrades_source_protocol()
+          raw = protocol.canonical_json_bytes
+          expected = os.environ['PROTOCOL_DIGEST']
+          if protocol.digest != expected or hashlib.sha256(raw).hexdigest() != expected:
+              raise SystemExit('protocol digest/bytes authority differs')
+          loaded = load_spot_aggtrades_source_protocol_bytes(raw)
+          if loaded.digest != expected:
+              raise SystemExit('strict protocol reload differs')
+          payload = protocol.to_payload()
+          for key in ('replacement_sources_allowed','economic_values_allowed_in_report','target_relation_allowed','evaluation_pnl_inspected','feature_hypothesis_selected','production_eligible','live_trading_authorized','archive_publication_time_is_market_event_time','post_2025_microsecond_semantics_allowed'):
+              if payload.get(key) is not False:
+                  raise SystemExit(f'forbidden preregistration flag differs: {key}')
+          if protocol.planned_archive_count != 20:
+              raise SystemExit('planned archive roster differs')
+          Path('/tmp/seal/protocol.json').write_bytes(raw)
+          index = {
+              'schema_version': 'issue578_spot_aggtrades_source_prereg_seal_v1',
+              'issue_number': 578,
+              'target_sha': os.environ['TARGET_SHA'],
+              'full_verify_run_id': int(os.environ['FULL_VERIFY_RUN_ID']),
+              'protocol_digest': expected,
+              'protocol_json_sha256': expected,
+              'planned_archive_count': 20,
+              'economic_values_inspected': False,
+              'target_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'feature_hypothesis_selected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/seal/seal-index.json').write_bytes(canonical_json_bytes(index))
+          print('PROTOCOL_DIGEST=' + expected)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_RELATION_COMPUTED=false')
+          PY
+      - id: meta
+        run: echo "name=issue578-spot-aggtrades-source-prereg-seal-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable seal artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent protocol reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact authority independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: API-bind seal artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.seal.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$payload")" = false
+          api_digest="$(jq -r .digest <<<"$payload")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+      - name: Download publisher seal
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/published
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Independently reconstruct exact canonical bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_source_prereg import canonical_spot_aggtrades_source_protocol, load_spot_aggtrades_source_protocol_bytes
+
+          published = Path('/tmp/published/protocol.json').read_bytes()
+          protocol = canonical_spot_aggtrades_source_protocol()
+          fresh = protocol.canonical_json_bytes
+          expected = os.environ['PROTOCOL_DIGEST']
+          if fresh != published:
+              raise SystemExit('fresh protocol bytes differ from publisher')
+          if hashlib.sha256(fresh).hexdigest() != expected or protocol.digest != expected:
+              raise SystemExit('fresh protocol digest differs')
+          if load_spot_aggtrades_source_protocol_bytes(published).digest != expected:
+              raise SystemExit('published strict-loader digest differs')
+          Path('/tmp/fresh/fresh-protocol.json').write_bytes(fresh)
+          verification = {
+              'schema_version': 'issue578_spot_aggtrades_source_prereg_fresh_v1',
+              'issue_number': 578,
+              'target_sha': os.environ['TARGET_SHA'],
+              'protocol_digest': expected,
+              'protocol_byte_equal': True,
+              'fresh_reconstruction_passed': True,
+              'economic_values_inspected': False,
+              'target_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'feature_hypothesis_selected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/fresh/verification.json').write_bytes(canonical_json_bytes(verification))
+          print('FRESH_PROTOCOL_BYTE_EQUAL=true')
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+      - id: meta
+        run: echo "name=issue578-spot-aggtrades-source-prereg-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final preregistration seal audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_NAME: ${{ needs.seal.outputs.artifact_name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_NAME|$SEAL_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name output_digest <<<"$spec"
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$payload")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$payload")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$payload")" = false
+            api_digest="$(jq -r .digest <<<"$payload")"
+            case "$output_digest" in
+              sha256:*) test "$api_digest" = "$output_digest" ;;
+              *) test "$api_digest" = "sha256:$output_digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require immutable byte equality and result-blind flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/protocol.json /tmp/fresh/fresh-protocol.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          raw = Path('/tmp/seal/protocol.json').read_bytes()
+          if hashlib.sha256(raw).hexdigest() != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('audited protocol digest differs')
+          seal = json.loads(Path('/tmp/seal/seal-index.json').read_bytes())
+          fresh = json.loads(Path('/tmp/fresh/verification.json').read_bytes())
+          if seal.get('target_sha') != os.environ['TARGET_SHA'] or fresh.get('target_sha') != os.environ['TARGET_SHA']:
+              raise SystemExit('audited target differs')
+          if fresh.get('protocol_byte_equal') is not True or fresh.get('fresh_reconstruction_passed') is not True:
+              raise SystemExit('fresh verification did not pass')
+          for payload in (seal, fresh):
+              for key in ('economic_values_inspected','target_relation_computed','evaluation_pnl_inspected','feature_hypothesis_selected','production_eligible','live_trading_authorized'):
+                  if payload.get(key) is not False:
+                      raise SystemExit(f'audited forbidden flag differs: {key}')
+          print('ISSUE578_PREREG_SEAL_AUDIT=PASS')
+          print('PROTOCOL_DIGEST=' + os.environ['PROTOCOL_DIGEST'])
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY

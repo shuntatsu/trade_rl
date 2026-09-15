@@ -1,0 +1,78 @@
+name: Temporary Issue 584 clock-hardened preregistration digest
+
+on:
+  push:
+    branches:
+      - verify/issue584-prereg-digest-41a4
+    paths:
+      - .github/workflows/tmp-issue584-prereg-digest-41a4.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  FULL_VERIFY_RUN_ID: "34952378700"
+
+jobs:
+  digest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact head and full verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)" = "$TARGET_SHA"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '[.jobs[].conclusion] | all(. == "success")' <<<"$jobs")" = true
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Derive canonical digest without economic data
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol, load_spot_flow_continuation_protocol_bytes
+          protocol = canonical_spot_flow_continuation_protocol()
+          raw = protocol.canonical_json_bytes
+          sha = hashlib.sha256(raw).hexdigest()
+          if protocol.digest != sha:
+              raise SystemExit('content digest and canonical JSON SHA differ')
+          if load_spot_flow_continuation_protocol_bytes(raw).digest != sha:
+              raise SystemExit('strict reload digest differs')
+          payload = protocol.to_payload()
+          expected = {
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_formula': 'dataset_timestamp=raw_open_time+15m',
+              'decision_target_row_semantics': 'decision_t_equals_target_completed_row_timestamp',
+              'decision_row_raw_open_time_offset_minutes': -15,
+              'execution_raw_open_time_offset_minutes': 0,
+              'endpoint_raw_open_time_offset_minutes': 240,
+          }
+          for key, value in expected.items():
+              if payload.get(key) != value or type(payload.get(key)) is not type(value):
+                  raise SystemExit(f'clock authority differs: {key}')
+          for key in ('economic_values_inspected','target_relation_computed','training_relation_executed','evaluation_pnl_inspected','evaluation_execution_authorized','final_test_authorized','shared_cash_profitability_established','production_eligible','live_trading_authorized'):
+              if payload.get(key) is not False:
+                  raise SystemExit(f'forbidden flag differs: {key}')
+          print('PROTOCOL_DIGEST=' + sha)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_RELATION_COMPUTED=false')
+          PY
+      - run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

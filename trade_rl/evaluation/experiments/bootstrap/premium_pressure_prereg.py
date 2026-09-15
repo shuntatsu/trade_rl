@@ -336,8 +336,7 @@ class PremiumPressureProtocol:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            field.name: _json_value(getattr(self, field.name))
-            for field in fields(self)
+            field.name: _json_value(getattr(self, field.name)) for field in fields(self)
         }
 
     @property
@@ -348,7 +347,9 @@ class PremiumPressureProtocol:
     def from_dict(cls, payload: dict[str, object]) -> PremiumPressureProtocol:
         expected_fields = {field.name for field in fields(cls)}
         if set(payload) != expected_fields:
-            raise ValueError("premium-pressure protocol fields differ from frozen schema")
+            raise ValueError(
+                "premium-pressure protocol fields differ from frozen schema"
+            )
         resolved = dict(payload)
         resolved["fit_start"] = _datetime_from_text(
             resolved["fit_start"], field="fit_start"
@@ -365,7 +366,9 @@ class PremiumPressureProtocol:
         try:
             return cls(**resolved)  # type: ignore[arg-type]
         except TypeError as error:
-            raise ValueError("premium-pressure protocol payload is malformed") from error
+            raise ValueError(
+                "premium-pressure protocol payload is malformed"
+            ) from error
 
 
 def canonical_premium_pressure_protocol() -> PremiumPressureProtocol:

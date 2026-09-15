@@ -1,0 +1,45 @@
+name: Temporary Issue 578 synthetic structural validator GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue578-spot-validator-green
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 2e4d60b9aef313a03dd99c1999a2a7f3384112a4
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+      - name: Synthetic validator tests
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

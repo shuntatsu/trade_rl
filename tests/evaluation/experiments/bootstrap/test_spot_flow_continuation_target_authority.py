@@ -14,20 +14,20 @@ from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg imp
 )
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
-TARGET_PREFLIGHT_RUN_ID = 34941447564
-TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID = 10385451448
+TARGET_PREFLIGHT_RUN_ID = 34953161630
+TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID = 10389544902
 TARGET_PREFLIGHT_PUBLISHER_DIGEST = (
-    "07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb"
+    "2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2"
 )
-TARGET_PREFLIGHT_FRESH_ARTIFACT_ID = 10385516382
+TARGET_PREFLIGHT_FRESH_ARTIFACT_ID = 10389694422
 TARGET_PREFLIGHT_FRESH_DIGEST = (
-    "7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d"
+    "8b5cbd19abb9517bf4885f3b9432b29024069f0005b8d18e89b82b2471765e3d"
 )
 TARGET_PREFLIGHT_REPORT_SHA256 = (
-    "c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d"
+    "721c785ddac113f7d6be2b5af3e1aa10df34ae9a16b9656e02a64c874f4526ea"
 )
 TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST = (
-    "5a7af640640b23894f857726944a306aef522799ca8c983757e864d76262d54d"
+    "bd32c2e8fb9b4b80680fdfb0b26ca4b7fd6f01104597cba8c81990faa4f312d1"
 )
 TARGET_MANIFEST_DIGEST = (
     "69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b"
@@ -53,7 +53,7 @@ def _build() -> diagnostic.SpotFlowDiagnosticResult:
 def test_result_binds_complete_target_preflight_authority() -> None:
     result = _build()
 
-    assert result.target_preflight_status == "PASS_TARGET_SOURCE_PREFLIGHT"
+    assert result.target_preflight_status == "PASS_USDM_15M_TARGET_SOURCE"
     assert result.target_preflight_run_id == TARGET_PREFLIGHT_RUN_ID
     assert (
         result.target_preflight_publisher_artifact_id

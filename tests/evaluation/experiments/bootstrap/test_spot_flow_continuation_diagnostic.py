@@ -91,9 +91,9 @@ def _build_result(*, positive_symbols: int = 4) -> diagnostic.SpotFlowDiagnostic
         implementation_head="1" * 40,
         source_manifest_digest="2" * 64,
         target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b",
-        target_preflight_run_id=34941447564,
-        target_preflight_artifact_id=10385451448,
-        target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb",
+        target_preflight_run_id=34953161630,
+        target_preflight_artifact_id=10389544902,
+        target_preflight_artifact_api_digest="2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2",
         execution_run_id=789,
     )
 
@@ -280,9 +280,9 @@ def test_frozen_four_of_five_positive_gate_and_coverage_gate() -> None:
         implementation_head="1" * 40,
         source_manifest_digest="2" * 64,
         target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b",
-        target_preflight_run_id=34941447564,
-        target_preflight_artifact_id=10385451448,
-        target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb",
+        target_preflight_run_id=34953161630,
+        target_preflight_artifact_id=10389544902,
+        target_preflight_artifact_api_digest="2a1f1d7d700fc662862ebab5b41ff692d154dbfef793fb505ce7e1ea5647e2c2",
         execution_run_id=789,
     )
     assert invalid.status == "INVALID_SPOT_FLOW_COVERAGE"
@@ -305,11 +305,11 @@ def test_result_artifact_is_strict_canonical_and_authority_bound() -> None:
     loaded = diagnostic.load_spot_flow_result_bytes(raw)
     assert loaded == result
     assert result.protocol_digest == canonical_spot_flow_continuation_protocol().digest
-    assert result.prereg_head == "89ec1092e438d69657840567e684739ca0c4e3d5"
-    assert result.prereg_full_verify_run_id == 34932104475
-    assert result.prereg_seal_run_id == 34932424904
-    assert result.prereg_seal_artifact_id == 10381763665
-    assert result.prereg_fresh_artifact_id == 10381379452
+    assert result.prereg_head == "41a403bda4252f15d8c059166dd6716110a4bc37"
+    assert result.prereg_full_verify_run_id == 34952378700
+    assert result.prereg_seal_run_id == 34952843190
+    assert result.prereg_seal_artifact_id == 10390380265
+    assert result.prereg_fresh_artifact_id == 10390415743
     assert result.training_relation_executed is True
     assert result.evaluation_pnl_inspected is False
     assert result.final_test_authorized is False

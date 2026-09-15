@@ -1,0 +1,80 @@
+name: Temporary Issue 578 validator type fix
+
+on:
+  push:
+    branches:
+      - automation/issue578-validator-type-fix
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: verify/issue578-spot-validator-green-v2
+  TARGET_SHA: 2e4d60b9aef313a03dd99c1999a2a7f3384112a4
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Apply minimal typing repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py')
+          text = path.read_text()
+          old = 'expected_name=report["url"].rsplit("/", 1)[-1],'
+          new = 'expected_name=str(report["url"]).rsplit("/", 1)[-1],'
+          if old not in text:
+              raise SystemExit('expected typing target not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+      - name: Guard and publish only Green validator changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py|tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py
+          git commit -m "fix: type-check Spot structural validator"
+          git push origin HEAD:"$TARGET_BRANCH"

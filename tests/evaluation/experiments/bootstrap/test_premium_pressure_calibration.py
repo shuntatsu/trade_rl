@@ -306,7 +306,7 @@ def test_endpoint_at_fit_cutoff_is_excluded_but_last_frozen_decision_is_eligible
 
     too_late = last + timedelta(hours=1)
     target = _target_window(too_late)
-    assert target[-1].dataset_time_ms == _ms(protocol.fit_cutoff)
+    assert target[-1].raw_open_time_ms == _ms(protocol.fit_cutoff)
     assert build_training_pairs((_premium_point(too_late),), target) == ()
 
 

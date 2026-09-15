@@ -76,7 +76,9 @@ def _require_bool(value: object, *, field: str) -> bool:
 def _require_hex(value: object, *, length: int, field: str) -> str:
     if not isinstance(value, str) or len(value) != length:
         raise ValueError(f"{field} must be {length} lowercase hexadecimal characters")
-    if value.lower() != value or any(character not in "0123456789abcdef" for character in value):
+    if value.lower() != value or any(
+        character not in "0123456789abcdef" for character in value
+    ):
         raise ValueError(f"{field} must be {length} lowercase hexadecimal characters")
     return value
 
@@ -87,7 +89,9 @@ def _require_string(value: object, *, field: str) -> str:
     return value
 
 
-def _require_finite_float(value: object, *, field: str, positive: bool = False) -> float:
+def _require_finite_float(
+    value: object, *, field: str, positive: bool = False
+) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be finite")
     resolved = float(value)
@@ -198,7 +202,16 @@ def parse_spot_aggtrades_csv(
     for row in rows:
         if len(row) != 8:
             raise ValueError("Spot aggTrades row is malformed: expected eight fields")
-        aggregate_raw, price_raw, quantity_raw, first_raw, last_raw, timestamp_raw, maker_raw, best_raw = row
+        (
+            aggregate_raw,
+            price_raw,
+            quantity_raw,
+            first_raw,
+            last_raw,
+            timestamp_raw,
+            maker_raw,
+            best_raw,
+        ) = row
         aggregate_id = _parse_int_token(aggregate_raw, field="aggregate trade id")
         timestamp = _parse_int_token(timestamp_raw, field="event timestamp")
         if aggregate_id < 0:
@@ -288,7 +301,11 @@ def aggregate_spot_interval(
         denominator = math.fsum(total_notionals)
     except OverflowError as error:
         raise ValueError("Spot interval reduction is non-finite") from error
-    if not math.isfinite(numerator) or not math.isfinite(denominator) or denominator <= 0.0:
+    if (
+        not math.isfinite(numerator)
+        or not math.isfinite(denominator)
+        or denominator <= 0.0
+    ):
         raise ValueError("Spot interval reduction is non-finite")
     result = numerator / denominator
     if not math.isfinite(result) or result < -1.0 - 1e-12 or result > 1.0 + 1e-12:
@@ -524,7 +541,9 @@ class SpotFlowDiagnosticResult:
     def __post_init__(self) -> None:
         protocol = canonical_spot_flow_continuation_protocol()
         if protocol.digest != _PREREG_PROTOCOL_DIGEST:
-            raise ValueError("runtime preregistration digest differs from sealed authority")
+            raise ValueError(
+                "runtime preregistration digest differs from sealed authority"
+            )
         if self.schema_version != _SCHEMA_VERSION:
             raise ValueError("diagnostic schema_version is not canonical")
         if self.protocol_digest != _PREREG_PROTOCOL_DIGEST:
@@ -684,9 +703,7 @@ def build_spot_flow_diagnostic_result(
         )
         for symbol in protocol.symbols
     )
-    failures = tuple(
-        failure for item in symbol_results for failure in item.failures
-    )
+    failures = tuple(failure for item in symbol_results for failure in item.failures)
     positive_count = sum(item.positive_slope for item in symbol_results)
     if failures:
         status = protocol.invalid_coverage_status
@@ -817,11 +834,15 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
         raise ValueError("failures are malformed")
 
     result = SpotFlowDiagnosticResult(
-        schema_version=_require_string(decoded["schema_version"], field="schema_version"),
+        schema_version=_require_string(
+            decoded["schema_version"], field="schema_version"
+        ),
         protocol_digest=_require_hex(
             decoded["protocol_digest"], length=64, field="protocol_digest"
         ),
-        prereg_head=_require_hex(decoded["prereg_head"], length=40, field="prereg_head"),
+        prereg_head=_require_hex(
+            decoded["prereg_head"], length=40, field="prereg_head"
+        ),
         prereg_full_verify_run_id=_require_int(
             decoded["prereg_full_verify_run_id"],
             field="prereg_full_verify_run_id",
@@ -914,9 +935,9 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
             decoded["live_trading_authorized"], field="live_trading_authorized"
         ),
     )
-    content = _require_hex(
-        decoded["content_digest"], length=64, field="content_digest"
-    )
+    content = _require_hex(decoded["content_digest"], length=64, field="content_digest")
     if content != result.digest:
-        raise ValueError("Spot-flow result content digest does not match canonical payload")
+        raise ValueError(
+            "Spot-flow result content digest does not match canonical payload"
+        )
     return result

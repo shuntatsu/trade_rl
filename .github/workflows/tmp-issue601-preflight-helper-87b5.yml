@@ -1,0 +1,43 @@
+name: Temporary Issue 601 structural preflight helper verification 87b5
+
+on:
+  push:
+    branches:
+      - verify/issue601-preflight-helper-87b5
+    paths:
+      - .github/workflows/tmp-issue601-preflight-helper-87b5.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 87b55cc49d68f336ac6e80a12b0d63017159b90c
+  HELPER: tools/tmp_issue601_target_preflight.py
+  HELPER_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_preflight_helper.py
+  VALIDATOR_TEST: tests/evaluation/experiments/bootstrap/test_issue601_target_source_validator.py
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and synthetic helper verification
+        run: |
+          uv run ruff check "$HELPER" "$HELPER_TEST" "$VALIDATOR_TEST"
+          uv run ruff format --check "$HELPER" "$HELPER_TEST" "$VALIDATOR_TEST"
+          uv run mypy "$HELPER"
+          uv run pytest -q "$VALIDATOR_TEST" "$HELPER_TEST"
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

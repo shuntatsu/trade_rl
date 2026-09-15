@@ -36,24 +36,25 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          path = Path('trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py')
+          path = Path("trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py")
           text = path.read_text()
-          old = '''    if any(
-        summary["structurally_present_windows"] < _MIN_TARGET_WINDOWS
-        for summary in summaries.values()
-    ):
-        partial = True
-'''
-          new = '''    for summary in summaries.values():
-        present = summary["structurally_present_windows"]
-        if isinstance(present, bool) or not isinstance(present, int):
-            return "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
-        if present < _MIN_TARGET_WINDOWS:
-            partial = True
-'''
+          old = (
+              "    if any(\n"
+              "        summary[\"structurally_present_windows\"] < _MIN_TARGET_WINDOWS\n"
+              "        for summary in summaries.values()\n"
+              "    ):\n"
+              "        partial = True\n"
+          )
+          new = (
+              "    for summary in summaries.values():\n"
+              "        present = summary[\"structurally_present_windows\"]\n"
+              "        if isinstance(present, bool) or not isinstance(present, int):\n"
+              "            return \"INCOMPATIBLE_USDM_1H_TARGET_SOURCE\"\n"
+              "        if present < _MIN_TARGET_WINDOWS:\n"
+              "            partial = True\n"
+          )
           if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one mypy patch anchor, found {text.count(old)}')
+              raise SystemExit(f"expected exactly one mypy patch anchor, found {text.count(old)}")
           path.write_text(text.replace(old, new))
           PY
           test "$(git diff --name-only)" = "$MODULE"

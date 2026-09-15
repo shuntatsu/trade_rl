@@ -20,7 +20,7 @@ jobs:
           ref: research/issue578-spot-aggtrades-source-probe
           fetch-depth: 0
       - name: Assert expected starting head
-        run: test "$(git rev-parse HEAD)" = "354fbb5ba763df7c8164732428c19175c11825e5"
+        run: test "$(git rev-parse HEAD)" = "664c5a3fd1fa3aebfab988ff698b545b7685d518"
       - name: Setup Python
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -42,11 +42,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=354fbb5ba763df7c8164732428c19175c11825e5
+          expected=664c5a3fd1fa3aebfab988ff698b545b7685d518
           remote="$(git ls-remote origin refs/heads/research/issue578-spot-aggtrades-source-probe | cut -f1)"
           test "$remote" = "$expected"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add tests/evaluation/experiments/bootstrap/test_issue578_spot_aggtrades_source_probe.py
-          git commit -m "style: format Spot source probe test after explicit import"
+          git commit -m "style: format revised Spot source probe test"
           git push origin HEAD:research/issue578-spot-aggtrades-source-probe

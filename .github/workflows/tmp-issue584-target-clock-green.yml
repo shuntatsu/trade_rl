@@ -49,9 +49,9 @@ jobs:
                   '_DECISION_TARGET_ROW_SEMANTICS = (\n'
                   '    "decision_t_equals_target_completed_row_timestamp"\n'
                   ')\n'
-                  '_DECISION_ROW_RAW_OPEN_OFFSET_MINUTES = -15\n'
-                  '_EXECUTION_RAW_OPEN_OFFSET_MINUTES = 0\n'
-                  '_ENDPOINT_RAW_OPEN_OFFSET_MINUTES = 240\n'
+                  '_DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES = -15\n'
+                  '_EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES = 0\n'
+                  '_ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES = 240\n'
                   '_EXECUTION_OFFSET = 1\n',
               ),
               (
@@ -63,11 +63,15 @@ jobs:
                   '        ),\n'
                   '        "target_dataset_timestamp_formula": _TARGET_DATASET_TIMESTAMP_FORMULA,\n'
                   '        "decision_target_row_semantics": _DECISION_TARGET_ROW_SEMANTICS,\n'
-                  '        "decision_row_raw_open_offset_minutes": (\n'
-                  '            _DECISION_ROW_RAW_OPEN_OFFSET_MINUTES\n'
+                  '        "decision_row_raw_open_time_offset_minutes": (\n'
+                  '            _DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES\n'
                   '        ),\n'
-                  '        "execution_raw_open_offset_minutes": _EXECUTION_RAW_OPEN_OFFSET_MINUTES,\n'
-                  '        "endpoint_raw_open_offset_minutes": _ENDPOINT_RAW_OPEN_OFFSET_MINUTES,\n'
+                  '        "execution_raw_open_time_offset_minutes": (\n'
+                  '            _EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES\n'
+                  '        ),\n'
+                  '        "endpoint_raw_open_time_offset_minutes": (\n'
+                  '            _ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES\n'
+                  '        ),\n'
                   '        "execution_open_offset_bars": _EXECUTION_OFFSET,\n',
               ),
               (
@@ -79,11 +83,15 @@ jobs:
                   '    )\n'
                   '    target_dataset_timestamp_formula: str = _TARGET_DATASET_TIMESTAMP_FORMULA\n'
                   '    decision_target_row_semantics: str = _DECISION_TARGET_ROW_SEMANTICS\n'
-                  '    decision_row_raw_open_offset_minutes: int = (\n'
-                  '        _DECISION_ROW_RAW_OPEN_OFFSET_MINUTES\n'
+                  '    decision_row_raw_open_time_offset_minutes: int = (\n'
+                  '        _DECISION_ROW_RAW_OPEN_TIME_OFFSET_MINUTES\n'
                   '    )\n'
-                  '    execution_raw_open_offset_minutes: int = _EXECUTION_RAW_OPEN_OFFSET_MINUTES\n'
-                  '    endpoint_raw_open_offset_minutes: int = _ENDPOINT_RAW_OPEN_OFFSET_MINUTES\n'
+                  '    execution_raw_open_time_offset_minutes: int = (\n'
+                  '        _EXECUTION_RAW_OPEN_TIME_OFFSET_MINUTES\n'
+                  '    )\n'
+                  '    endpoint_raw_open_time_offset_minutes: int = (\n'
+                  '        _ENDPOINT_RAW_OPEN_TIME_OFFSET_MINUTES\n'
+                  '    )\n'
                   '    execution_open_offset_bars: int = _EXECUTION_OFFSET\n',
               ),
           ]

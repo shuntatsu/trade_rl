@@ -1,0 +1,481 @@
+name: Issue 600 premium reversal preregistration seal v2
+
+on:
+  push:
+    branches:
+      - seal/issue600-premium-prereg-v2
+    paths:
+      - .github/workflows/issue600-premium-prereg-seal-v2.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  FULL_VERIFY_RUN_ID: "34958973042"
+  DIGEST_VERIFY_RUN_ID: "34959535015"
+  PROTOCOL_DIGEST: c78d556f94e247d5bdc1c0e9a891d160e4c48c4f0b62cd5be7600874b3017d22
+  SOURCE_RUN_ID: "34863522941"
+  SOURCE_ARTIFACT_ID: "10355913123"
+  SOURCE_ARTIFACT_DIGEST: sha256:0076698414d3ac8197a676aecc0155853befc3828a2a9c62e92b76576ad2dc04
+  SOURCE_FRESH_ARTIFACT_ID: "10355333076"
+  SOURCE_FRESH_ARTIFACT_DIGEST: sha256:2212693404afefedc041b869a03dbe664d3b5cb1e25e28c6c3cdc04a89c1bd3f
+  SOURCE_REPORT_SHA256: 059987f3692c0f249f2db5ef2e14f8cbaaefa5ca24dccf4c45bae009ca19ebe4
+  SOURCE_REPORT_CONTENT_DIGEST: fc756962aa997cfb8beafdafe06e70e02602e23e09a5dce5a36d229ddb558f88
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+  SUPERSEDED_RAW_ENDPOINT_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+  SUPERSEDED_SEAL_V1_HEAD: 75af3306b62a1180726ef1262cb9826c8d5414fb
+
+jobs:
+  seal:
+    name: Immutable completed-endpoint premium protocol publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact immutable prereg authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind exact code, verification, digest, and unused source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+
+          require_success_run() {
+            local run_id="$1"
+            local run
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            test "$(jq -r .status <<<"$run")" = completed
+            test "$(jq -r .conclusion <<<"$run")" = success
+          }
+          bind_artifact() {
+            local id="$1" expected="$2" run_id="$3"
+            local artifact
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          }
+
+          require_success_run "$FULL_VERIFY_RUN_ID"
+          full_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$full_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$full_jobs")" = success
+
+          require_success_run "$DIGEST_VERIFY_RUN_ID"
+          digest_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DIGEST_VERIFY_RUN_ID/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="digest") | .conclusion' <<<"$digest_jobs")" = success
+
+          require_success_run "$SOURCE_RUN_ID"
+          bind_artifact "$SOURCE_ARTIFACT_ID" "$SOURCE_ARTIFACT_DIGEST" "$SOURCE_RUN_ID"
+          bind_artifact "$SOURCE_FRESH_ARTIFACT_ID" "$SOURCE_FRESH_ARTIFACT_DIGEST" "$SOURCE_RUN_ID"
+
+          echo "COMPLETED_ENDPOINT_AUTHORITY_BOUND=true"
+          echo "SUPERSEDED_RAW_ENDPOINT_AUTHORITY_USED=false"
+          echo "ECONOMIC_VALUES_INSPECTED=false"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Reprove exact result-blind prereg contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST_FILE"
+          uv run ruff format --check "$MODULE" "$TEST_FILE"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST_FILE"
+
+      - name: Materialize canonical protocol and seal index
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - <<'PY'
+          import hashlib
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              canonical_premium_pressure_protocol,
+              canonical_premium_pressure_protocol_bytes,
+              load_premium_pressure_protocol_bytes,
+          )
+
+          protocol = canonical_premium_pressure_protocol()
+          raw = canonical_premium_pressure_protocol_bytes(protocol)
+          expected = os.environ['PROTOCOL_DIGEST']
+          raw_sha = hashlib.sha256(raw).hexdigest()
+          if protocol.digest != expected or raw_sha != expected:
+              raise SystemExit('protocol identity differs from verified authority')
+          if load_premium_pressure_protocol_bytes(raw) != protocol:
+              raise SystemExit('strict protocol reload differs')
+
+          payload = protocol.to_dict()
+          required = {
+              'last_candidate_decision': '2022-12-30T22:00:00Z',
+              'nominal_candidate_decisions_per_symbol': 17494,
+              'minimum_eligible_observations_per_symbol': 16620,
+              'feature_name': '1h__premium_index_close_bps',
+              'feature_formula': '10000*premium_index_close(raw_open_time=t-1h)',
+              'premium_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'label_execution_offset_bars': 1,
+              'label_endpoint_offset_bars': 25,
+              'label_horizon_bars': 24,
+              'calibration_method': 'per_symbol_ols_intercept_fixed_order_fsum',
+              'expected_effect_direction': 'REVERSAL',
+              'required_negative_symbol_slopes': 4,
+          }
+          for key, value in required.items():
+              if payload.get(key) != value or type(payload.get(key)) is not type(value):
+                  raise SystemExit(f'frozen prereg field differs: {key}')
+
+          forbidden = (
+              'source_premium_value_distribution_inspected',
+              'source_target_relation_computed',
+              'source_strategy_pnl_computed',
+              'training_relation_executed',
+              'evaluation_pnl_inspected',
+              'evaluation_execution_authorized',
+              'final_test_authorized',
+              'shared_cash_profitability_established',
+              'production_eligible',
+              'live_trading_authorized',
+          )
+          if any(payload.get(key) is not False for key in forbidden):
+              raise SystemExit('result-blind boundary differs')
+
+          paths = [os.environ['MODULE'], os.environ['TEST_FILE']]
+          blobs = {
+              path: subprocess.check_output(
+                  ['git', 'rev-parse', f'HEAD:{path}'], text=True
+              ).strip()
+              for path in paths
+          }
+          index = {
+              'schema_version': 'issue600_premium_pressure_prereg_seal_v2',
+              'issue_number': 600,
+              'multiplicity_issue': 599,
+              'target_sha': os.environ['TARGET_SHA'],
+              'full_verify_run_id': int(os.environ['FULL_VERIFY_RUN_ID']),
+              'digest_verify_run_id': int(os.environ['DIGEST_VERIFY_RUN_ID']),
+              'seal_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'protocol_digest': expected,
+              'protocol_json_sha256': raw_sha,
+              'blob_shas': blobs,
+              'source_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'source_artifact_id': int(os.environ['SOURCE_ARTIFACT_ID']),
+              'source_artifact_digest': os.environ['SOURCE_ARTIFACT_DIGEST'],
+              'source_fresh_artifact_id': int(os.environ['SOURCE_FRESH_ARTIFACT_ID']),
+              'source_fresh_artifact_digest': os.environ['SOURCE_FRESH_ARTIFACT_DIGEST'],
+              'source_report_sha256': os.environ['SOURCE_REPORT_SHA256'],
+              'source_report_content_digest': os.environ['SOURCE_REPORT_CONTENT_DIGEST'],
+              'completed_endpoint_authority': True,
+              'supersedes_raw_endpoint_sha': os.environ['SUPERSEDED_RAW_ENDPOINT_SHA'],
+              'supersedes_seal_v1_head': os.environ['SUPERSEDED_SEAL_V1_HEAD'],
+              'selection_frozen_before_economic_inspection': True,
+              'economic_values_inspected': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/seal/protocol.json').write_bytes(raw)
+          Path('/tmp/seal/seal-index.json').write_bytes(canonical_json_bytes(index))
+          print('ISSUE600_PREREG_SEAL_V2=PASS')
+          print('PROTOCOL_DIGEST=' + expected)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+
+      - id: meta
+        run: echo "name=issue600-premium-prereg-seal-v2-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable v2 seal evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent completed-endpoint prereg reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact immutable prereg authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: API-bind publisher artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.seal.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/published
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Independently reconstruct canonical protocol and seal index
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              canonical_premium_pressure_protocol,
+              canonical_premium_pressure_protocol_bytes,
+              load_premium_pressure_protocol_bytes,
+          )
+
+          published_protocol = Path('/tmp/published/protocol.json').read_bytes()
+          published_index_raw = Path('/tmp/published/seal-index.json').read_bytes()
+          published_index = json.loads(published_index_raw)
+          if canonical_json_bytes(published_index) != published_index_raw:
+              raise SystemExit('published seal index is not canonical')
+
+          protocol = canonical_premium_pressure_protocol()
+          fresh_protocol = canonical_premium_pressure_protocol_bytes(protocol)
+          expected = os.environ['PROTOCOL_DIGEST']
+          if fresh_protocol != published_protocol:
+              raise SystemExit('fresh protocol bytes differ from publisher')
+          if protocol.digest != expected or hashlib.sha256(fresh_protocol).hexdigest() != expected:
+              raise SystemExit('fresh protocol identity differs')
+          if load_premium_pressure_protocol_bytes(fresh_protocol) != protocol:
+              raise SystemExit('fresh strict-loader roundtrip differs')
+
+          paths = [os.environ['MODULE'], os.environ['TEST_FILE']]
+          blobs = {
+              path: subprocess.check_output(
+                  ['git', 'rev-parse', f'HEAD:{path}'], text=True
+              ).strip()
+              for path in paths
+          }
+          fresh_index = {
+              'schema_version': 'issue600_premium_pressure_prereg_seal_v2',
+              'issue_number': 600,
+              'multiplicity_issue': 599,
+              'target_sha': os.environ['TARGET_SHA'],
+              'full_verify_run_id': int(os.environ['FULL_VERIFY_RUN_ID']),
+              'digest_verify_run_id': int(os.environ['DIGEST_VERIFY_RUN_ID']),
+              'seal_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'protocol_digest': expected,
+              'protocol_json_sha256': hashlib.sha256(fresh_protocol).hexdigest(),
+              'blob_shas': blobs,
+              'source_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'source_artifact_id': int(os.environ['SOURCE_ARTIFACT_ID']),
+              'source_artifact_digest': os.environ['SOURCE_ARTIFACT_DIGEST'],
+              'source_fresh_artifact_id': int(os.environ['SOURCE_FRESH_ARTIFACT_ID']),
+              'source_fresh_artifact_digest': os.environ['SOURCE_FRESH_ARTIFACT_DIGEST'],
+              'source_report_sha256': os.environ['SOURCE_REPORT_SHA256'],
+              'source_report_content_digest': os.environ['SOURCE_REPORT_CONTENT_DIGEST'],
+              'completed_endpoint_authority': True,
+              'supersedes_raw_endpoint_sha': os.environ['SUPERSEDED_RAW_ENDPOINT_SHA'],
+              'supersedes_seal_v1_head': os.environ['SUPERSEDED_SEAL_V1_HEAD'],
+              'selection_frozen_before_economic_inspection': True,
+              'economic_values_inspected': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          fresh_index_raw = canonical_json_bytes(fresh_index)
+          if fresh_index_raw != published_index_raw:
+              raise SystemExit('fresh seal index differs from publisher')
+
+          Path('/tmp/fresh/protocol.json').write_bytes(fresh_protocol)
+          Path('/tmp/fresh/seal-index.json').write_bytes(fresh_index_raw)
+          verification = {
+              'schema_version': 'issue600_premium_pressure_prereg_fresh_v2',
+              'issue_number': 600,
+              'target_sha': os.environ['TARGET_SHA'],
+              'protocol_digest': expected,
+              'protocol_byte_equal': True,
+              'seal_index_byte_equal': True,
+              'source_test_blob_equal': published_index.get('blob_shas') == blobs,
+              'completed_endpoint_authority': True,
+              'fresh_reconstruction_passed': True,
+              'economic_values_inspected': False,
+              'training_relation_executed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          if verification['source_test_blob_equal'] is not True:
+              raise SystemExit('source/test blob authority differs')
+          Path('/tmp/fresh/verification.json').write_bytes(canonical_json_bytes(verification))
+          print('ISSUE600_PREREG_FRESH_V2=PASS')
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY
+
+      - id: meta
+        run: echo "name=issue600-premium-prereg-fresh-v2-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh v2 reconstruction evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final completed-endpoint premium prereg seal audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind seal and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_NAME: ${{ needs.seal.outputs.artifact_name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_NAME|$SEAL_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Require byte equality, strict reload, and result-blind boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/protocol.json /tmp/fresh/protocol.json
+          cmp /tmp/seal/seal-index.json /tmp/fresh/seal-index.json
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import (
+              load_premium_pressure_protocol_bytes,
+          )
+
+          raw = Path('/tmp/seal/protocol.json').read_bytes()
+          protocol = load_premium_pressure_protocol_bytes(raw)
+          if protocol.digest != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('audited protocol digest differs')
+          if hashlib.sha256(raw).hexdigest() != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('audited protocol byte SHA differs')
+          index_raw = Path('/tmp/seal/seal-index.json').read_bytes()
+          index = json.loads(index_raw)
+          if canonical_json_bytes(index) != index_raw:
+              raise SystemExit('seal index is not canonical')
+          if index.get('completed_endpoint_authority') is not True:
+              raise SystemExit('completed-endpoint authority flag differs')
+          if index.get('target_sha') != os.environ['TARGET_SHA']:
+              raise SystemExit('sealed target SHA differs')
+          if index.get('supersedes_raw_endpoint_sha') != os.environ['SUPERSEDED_RAW_ENDPOINT_SHA']:
+              raise SystemExit('superseded raw-endpoint SHA differs')
+          if index.get('selection_frozen_before_economic_inspection') is not True:
+              raise SystemExit('selection-freeze boundary differs')
+          for key in (
+              'economic_values_inspected',
+              'training_relation_executed',
+              'evaluation_pnl_inspected',
+              'production_eligible',
+              'live_trading_authorized',
+          ):
+              if index.get(key) is not False:
+                  raise SystemExit(f'forbidden seal flag differs: {key}')
+          verification = json.loads(Path('/tmp/fresh/verification.json').read_bytes())
+          if verification.get('fresh_reconstruction_passed') is not True:
+              raise SystemExit('fresh reconstruction did not pass')
+          if verification.get('protocol_byte_equal') is not True:
+              raise SystemExit('fresh protocol bytes differ')
+          if verification.get('seal_index_byte_equal') is not True:
+              raise SystemExit('fresh seal index bytes differ')
+          print('ISSUE600_PREMIUM_PREREG_SEAL_V2_AUDIT=PASS')
+          print('PROTOCOL_DIGEST=' + protocol.digest)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TRAINING_RELATION_EXECUTED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY

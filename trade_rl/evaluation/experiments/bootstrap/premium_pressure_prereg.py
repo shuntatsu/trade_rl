@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, fields
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
@@ -85,9 +85,9 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "current_funding_formula_backcast_allowed": False,
     "fit_start": datetime(2021, 1, 1, 1, tzinfo=UTC),
     "fit_cutoff": datetime(2023, 1, 1, tzinfo=UTC),
-    "last_candidate_decision": datetime(2022, 12, 30, 23, tzinfo=UTC),
-    "nominal_candidate_decisions_per_symbol": 17_495,
-    "minimum_eligible_observations_per_symbol": 16_621,
+    "last_candidate_decision": datetime(2022, 12, 30, 22, tzinfo=UTC),
+    "nominal_candidate_decisions_per_symbol": 17_494,
+    "minimum_eligible_observations_per_symbol": 16_620,
     "target_source_authority_required": True,
     "target_source_structural_preflight_required": True,
     "target_source_market": "USD_M",
@@ -387,6 +387,29 @@ class PremiumPressureProtocol:
             self.nominal_candidate_decisions_per_symbol
         ):
             raise ValueError("minimum eligible observations exceed nominal decisions")
+
+        endpoint_dataset_offset = timedelta(hours=self.label_endpoint_offset_bars)
+        one_hour = timedelta(hours=1)
+        if not (
+            self.last_candidate_decision + endpoint_dataset_offset < self.fit_cutoff
+        ):
+            raise ValueError("last candidate endpoint must precede fit cutoff")
+        if (
+            self.last_candidate_decision + endpoint_dataset_offset + one_hour
+            != self.fit_cutoff
+        ):
+            raise ValueError(
+                "last candidate is not the maximal eligible hourly decision"
+            )
+        span = self.last_candidate_decision - self.fit_start
+        if span.total_seconds() < 0 or span.total_seconds() % 3600 != 0:
+            raise ValueError("candidate clock must be an exact hourly grid")
+        expected_nominal = int(span.total_seconds() // 3600) + 1
+        if self.nominal_candidate_decisions_per_symbol != expected_nominal:
+            raise ValueError("nominal candidate count differs from frozen clock")
+        expected_minimum = math.ceil(0.95 * expected_nominal)
+        if self.minimum_eligible_observations_per_symbol != expected_minimum:
+            raise ValueError("minimum eligible count differs from frozen 95% gate")
 
         for field_name, expected in _CANONICAL_FIELD_VALUES.items():
             if not _strict_equal(getattr(self, field_name), expected):

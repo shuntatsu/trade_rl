@@ -1,0 +1,71 @@
+name: Temporary Issue 586 validator combined fix
+
+on:
+  push:
+    branches:
+      - automation/issue586-validator-combined-fix
+    paths:
+      - .github/workflows/tmp-issue586-validator-combined-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue586-target-source-validator
+  TARGET_SHA: 0ccadeb12490ad4b51d0596ab87dbc70c6762221
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout automation head and preserve patch helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Preserve helper then checkout exact research target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/tmp_issue586_apply_validator_fixes.py /tmp/patch.py
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Apply semantic-closure and checksum-boundary fixes
+        run: python3 /tmp/patch.py
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and complete synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          module=trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py
+          base=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py
+          hard=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run ruff format "$module" "$base" "$hard"
+          uv run ruff check --fix "$module" "$base" "$hard"
+          uv run ruff check "$module" "$base" "$hard"
+          uv run mypy "$module"
+          uv run pytest -q "$base" "$hard"
+      - name: Guard and publish verified code and tests only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py|tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py|tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py \
+            tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py \
+            tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          git commit -m "fix: close Issue 586 validator semantic boundaries"
+          git push origin HEAD:"$TARGET_BRANCH"

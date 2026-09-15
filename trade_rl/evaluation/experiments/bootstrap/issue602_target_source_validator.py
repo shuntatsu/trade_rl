@@ -231,7 +231,9 @@ def _parse_checksum(
         _hex(digest, length=64, field="checksum_digest")
     except ValueError:
         return text, None, False
-    verified = actual_digest is not None and name == expected_name and digest == actual_digest
+    verified = (
+        actual_digest is not None and name == expected_name and digest == actual_digest
+    )
     return text, digest, verified
 
 
@@ -312,7 +314,9 @@ def validate_target_archive_bytes(
 
     start_ms, end_ms = _month_bounds_ms(month)
     expected_rows = expected_month_row_count(month)
-    expected_grid = tuple(start_ms + index * _INTERVAL_MS for index in range(expected_rows))
+    expected_grid = tuple(
+        start_ms + index * _INTERVAL_MS for index in range(expected_rows)
+    )
     malformed = False
     grid_valid = True
     close_valid = True
@@ -356,11 +360,17 @@ def validate_target_archive_bytes(
         current > previous for previous, current in zip(open_times, open_times[1:])
     )
     observed = set(open_times)
-    missing_grid = [timestamp for timestamp in expected_grid if timestamp not in observed]
-    missing_encoded = ",".join(str(timestamp) for timestamp in missing_grid).encode("ascii")
+    missing_grid = [
+        timestamp for timestamp in expected_grid if timestamp not in observed
+    ]
+    missing_encoded = ",".join(str(timestamp) for timestamp in missing_grid).encode(
+        "ascii"
+    )
 
     entry["missing_grid_rows"] = len(missing_grid)
-    entry["missing_grid_open_times_sha256"] = hashlib.sha256(missing_encoded).hexdigest()
+    entry["missing_grid_open_times_sha256"] = hashlib.sha256(
+        missing_encoded
+    ).hexdigest()
     entry["first_open_time"] = open_times[0] if open_times else None
     entry["last_open_time"] = open_times[-1] if open_times else None
     entry["first_close_time"] = close_times[0] if close_times else None
@@ -393,7 +403,10 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
     if symbol not in TARGET_SYMBOLS or month not in TARGET_MONTHS:
         return False
     expected_url = _url(symbol, month)
-    if report.get("url") != expected_url or report.get("checksum_url") != expected_url + ".CHECKSUM":
+    if (
+        report.get("url") != expected_url
+        or report.get("checksum_url") != expected_url + ".CHECKSUM"
+    ):
         return False
     if report.get("normalized_schema") != list(_EXPECTED_HEADER):
         return False
@@ -437,10 +450,16 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
         "last_close_time",
     ):
         value = report.get(field)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
             return False
 
-    for field in ("raw_zip_sha256", "checksum_digest", "missing_grid_open_times_sha256"):
+    for field in (
+        "raw_zip_sha256",
+        "checksum_digest",
+        "missing_grid_open_times_sha256",
+    ):
         value = report.get(field)
         if value is not None:
             try:
@@ -487,7 +506,10 @@ def _entry_semantics_valid(report: Mapping[str, object]) -> bool:
             return False
 
     if checksum_available is False:
-        if report.get("checksum_text") is not None or report.get("checksum_digest") is not None:
+        if (
+            report.get("checksum_text") is not None
+            or report.get("checksum_digest") is not None
+        ):
             return False
         if checksum_verified is not False:
             return False
@@ -618,7 +640,9 @@ def build_target_source_report(
 
     entries = _ordered_entries(reports)
     if entries is None:
-        raise ValueError("target-source report roster/semantics differ from frozen Issue 602")
+        raise ValueError(
+            "target-source report roster/semantics differ from frozen Issue 602"
+        )
     validator = _hex(validator_head, length=40, field="validator_head")
     validator_run = _positive_int(
         validator_verification_run_id, field="validator_verification_run_id"

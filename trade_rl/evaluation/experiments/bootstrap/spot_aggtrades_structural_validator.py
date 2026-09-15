@@ -24,7 +24,9 @@ _REPORT_SCHEMA = "issue578_spot_aggtrades_structural_report_v1"
 def _canonical_protocol(protocol: SpotAggTradesSourceProtocol) -> None:
     canonical = canonical_spot_aggtrades_source_protocol()
     if protocol != canonical or protocol.digest != canonical.digest:
-        raise ValueError("Spot aggTrades protocol is not the sealed canonical authority")
+        raise ValueError(
+            "Spot aggTrades protocol is not the sealed canonical authority"
+        )
 
 
 def _hex(value: object, *, length: int, field: str) -> str:
@@ -73,7 +75,9 @@ def _day_bounds_ms(date: str) -> tuple[int, int]:
         raise ValueError("date must use YYYY-MM-DD") from error
     if start.strftime("%Y-%m-%d") != date:
         raise ValueError("date must use YYYY-MM-DD")
-    return int(start.timestamp() * 1_000), int((start + timedelta(days=1)).timestamp() * 1_000)
+    return int(start.timestamp() * 1_000), int(
+        (start + timedelta(days=1)).timestamp() * 1_000
+    )
 
 
 def _blank_archive_report(
@@ -164,7 +168,7 @@ def validate_archive_bytes(
             report["checksum_available"] = True
             text, digest, _ = _parse_checksum(
                 checksum_bytes,
-                expected_name=report["url"].rsplit("/", 1)[-1],
+                expected_name=str(report["url"]).rsplit("/", 1)[-1],
                 actual_archive_digest=None,
             )
             report["checksum_text"] = text
@@ -234,7 +238,16 @@ def validate_archive_bytes(
             timestamps_inside = False
             continue
 
-        aggregate_raw, price_raw, quantity_raw, first_raw, last_raw, timestamp_raw, buyer_raw, best_raw = row
+        (
+            aggregate_raw,
+            price_raw,
+            quantity_raw,
+            first_raw,
+            last_raw,
+            timestamp_raw,
+            buyer_raw,
+            best_raw,
+        ) = row
         timestamp = _parse_integer(timestamp_raw)
         common_valid = (
             timestamp is not None
@@ -322,7 +335,9 @@ def _require_archive_report_fields(
     report: Mapping[str, object],
 ) -> None:
     if set(report) != set(protocol.allowed_archive_report_fields):
-        raise ValueError("archive report contains missing or forbidden structural fields")
+        raise ValueError(
+            "archive report contains missing or forbidden structural fields"
+        )
 
 
 def decide_source_status(
@@ -463,7 +478,10 @@ def canonical_structural_report_bytes(report: Mapping[str, Any]) -> bytes:
     }
     if set(report) != expected_fields:
         raise ValueError("structural report fields are not canonical")
-    if report.get("schema_version") != _REPORT_SCHEMA or report.get("issue_number") != 578:
+    if (
+        report.get("schema_version") != _REPORT_SCHEMA
+        or report.get("issue_number") != 578
+    ):
         raise ValueError("structural report schema authority differs")
     for field in (
         "economic_values_inspected",

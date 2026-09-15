@@ -1,0 +1,137 @@
+name: Temporary Issue 578 validator authority binding
+
+on:
+  push:
+    branches:
+      - automation/issue578-validator-authority-fix
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: verify/issue578-validator-authority-green
+  TARGET_SHA: 10c6af3c0f771bc612123e7cb3fd948608a0677a
+  AUTHORITY_RED_BRANCH: verify/issue578-validator-authority-red
+  HARDENING_RED_BRANCH: verify/issue578-validator-hardening-red
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact hardened validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target and load permanent regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" "$AUTHORITY_RED_BRANCH" "$HARDENING_RED_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git show origin/$AUTHORITY_RED_BRANCH:tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py \
+            > tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+          git show origin/$HARDENING_RED_BRANCH:tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            > tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py
+      - name: Apply validator authority binding
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          module = Path("trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py")
+          text = module.read_text()
+          old = '''    protocol_fresh_artifact_id: int,\n    protocol_fresh_artifact_api_digest: str,\n) -> dict[str, object]:'''
+          new = '''    protocol_fresh_artifact_id: int,\n    protocol_fresh_artifact_api_digest: str,\n    validator_head: str,\n    validator_verification_run_id: int,\n) -> dict[str, object]:'''
+          if old not in text:
+              raise SystemExit("builder signature target not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    fresh_digest = _hex(\n        protocol_fresh_artifact_api_digest,\n        length=64,\n        field="protocol_fresh_artifact_api_digest",\n    )\n    archive_reports = [dict(report) for report in reports]'''
+          new = '''    fresh_digest = _hex(\n        protocol_fresh_artifact_api_digest,\n        length=64,\n        field="protocol_fresh_artifact_api_digest",\n    )\n    validator = _hex(validator_head, length=40, field="validator_head")\n    validator_run = _positive_int(\n        validator_verification_run_id,\n        field="validator_verification_run_id",\n    )\n    archive_reports = [dict(report) for report in reports]'''
+          if old not in text:
+              raise SystemExit("builder authority target not found")
+          text = text.replace(old, new, 1)
+
+          old = '''        "protocol_fresh_artifact_api_digest": fresh_digest,\n        "planned_archive_count": protocol.planned_archive_count,'''
+          new = '''        "protocol_fresh_artifact_api_digest": fresh_digest,\n        "validator_head": validator,\n        "validator_verification_run_id": validator_run,\n        "planned_archive_count": protocol.planned_archive_count,'''
+          if old not in text:
+              raise SystemExit("payload authority target not found")
+          text = text.replace(old, new, 1)
+
+          old = '''        "protocol_fresh_artifact_id",\n        "protocol_fresh_artifact_api_digest",\n        "planned_archive_count",'''
+          new = '''        "protocol_fresh_artifact_id",\n        "protocol_fresh_artifact_api_digest",\n        "validator_head",\n        "validator_verification_run_id",\n        "planned_archive_count",'''
+          if old not in text:
+              raise SystemExit("canonical field target not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    _hex(\n        report.get("protocol_fresh_artifact_api_digest"),\n        length=64,\n        field="protocol_fresh_artifact_api_digest",\n    )\n    if report.get("planned_archive_count") != protocol.planned_archive_count:'''
+          new = '''    _hex(\n        report.get("protocol_fresh_artifact_api_digest"),\n        length=64,\n        field="protocol_fresh_artifact_api_digest",\n    )\n    _hex(report.get("validator_head"), length=40, field="validator_head")\n    _positive_int(\n        report.get("validator_verification_run_id"),\n        field="validator_verification_run_id",\n    )\n    if report.get("planned_archive_count") != protocol.planned_archive_count:'''
+          if old not in text:
+              raise SystemExit("canonical authority validation target not found")
+          text = text.replace(old, new, 1)
+          module.write_text(text)
+
+          for path_text in (
+              "tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py",
+              "tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py",
+          ):
+              path = Path(path_text)
+              text = path.read_text()
+              old = '''        protocol_fresh_artifact_id=789,\n        protocol_fresh_artifact_api_digest="b" * 64,\n    )'''
+              if path_text.endswith("hardening.py"):
+                  old = '''        protocol_fresh_artifact_id=3,\n        protocol_fresh_artifact_api_digest="b" * 64,\n    )'''
+                  new = '''        protocol_fresh_artifact_id=3,\n        protocol_fresh_artifact_api_digest="b" * 64,\n        validator_head="8" * 40,\n        validator_verification_run_id=4,\n    )'''
+              else:
+                  new = '''        protocol_fresh_artifact_id=789,\n        protocol_fresh_artifact_api_digest="b" * 64,\n        validator_head="8" * 40,\n        validator_verification_run_id=4,\n    )'''
+              if old not in text:
+                  raise SystemExit(f"test builder call target not found: {path_text}")
+              path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and full synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+      - name: Guard and publish complete validator authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_hardening.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_structural_validator_authority.py
+          git commit -m "fix: bind Spot validator authority in structural reports"
+          git push origin HEAD:"$TARGET_BRANCH"

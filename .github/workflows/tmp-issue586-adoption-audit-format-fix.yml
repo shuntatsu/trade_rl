@@ -1,0 +1,76 @@
+name: Temporary Issue 586 adoption audit format and digest fix
+
+on:
+  push:
+    branches:
+      - automation/issue586-adoption-audit-format-fix
+    paths:
+      - .github/workflows/tmp-issue586-adoption-audit-format-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: audit/issue586-adopt-existing-preflight
+  TARGET_SHA: 80463387df8e71fe7f72e7e129e104afdf9c72e5
+  TOOL: tools/tmp_issue586_adopt_existing_preflight.py
+  AUDIT_WORKFLOW: .github/workflows/tmp-issue586-adopt-existing-preflight.yml
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Fix canonical digest expression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/tmp-issue586-adopt-existing-preflight.yml')
+          text = path.read_text()
+          old = "          canonical = _json.dumps(check, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode() + b'\\n'\n"
+          new = "          canonical = _json.dumps(check, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()\n"
+          if text.count(old) != 1:
+              raise SystemExit('canonical digest expression not found exactly once')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and statically verify audit tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TOOL"
+          uv run ruff check --fix "$TOOL"
+          uv run ruff check "$TOOL"
+          uv run mypy "$TOOL"
+      - name: Guard and publish only audit tool/workflow changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(tools/tmp_issue586_adopt_existing_preflight.py|.github/workflows/tmp-issue586-adopt-existing-preflight.yml)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TOOL" "$AUDIT_WORKFLOW"
+          git commit -m "fix: verify Issue 586 offline adoption audit"
+          git push origin HEAD:"$TARGET_BRANCH"

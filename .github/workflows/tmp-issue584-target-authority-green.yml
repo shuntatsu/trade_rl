@@ -1,0 +1,121 @@
+name: Temporary Issue 584 target authority GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue584-target-authority-green
+    paths:
+      - .github/workflows/tmp-issue584-target-authority-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: 2bd4ed78f1935691ca0df41fe61282aaa8d88d95
+  RESEARCH_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+  CORE_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+  SEMANTIC_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+  AUTHORITY_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+
+jobs:
+  harden_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Bind complete target-preflight authority in result schema
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py")
+          text = source.read_text()
+
+          anchor = '''_PREREG_PROTOCOL_DIGEST = (\n    "bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3"\n)\n'''
+          addition = anchor + '''_TARGET_PREFLIGHT_STATUS = "PASS_TARGET_SOURCE_PREFLIGHT"\n_TARGET_PREFLIGHT_RUN_ID = 34941447564\n_TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID = 10385451448\n_TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_API_DIGEST = (\n    "07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb"\n)\n_TARGET_PREFLIGHT_FRESH_ARTIFACT_ID = 10385516382\n_TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST = (\n    "7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d"\n)\n_TARGET_PREFLIGHT_REPORT_SHA256 = (\n    "c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d"\n)\n_TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST = (\n    "5a7af640640b23894f857726944a306aef522799ca8c983757e864d76262d54d"\n)\n_TARGET_MANIFEST_DIGEST = (\n    "69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b"\n)\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("prereg digest anchor not found exactly once")
+          text = text.replace(anchor, addition, 1)
+
+          fields_anchor = '''    status: str\n    failures: tuple[str, ...]\n    prereg_head: str = _PREREG_HEAD\n'''
+          fields_replacement = '''    status: str\n    failures: tuple[str, ...]\n    target_preflight_status: str = _TARGET_PREFLIGHT_STATUS\n    target_preflight_fresh_artifact_id: int = _TARGET_PREFLIGHT_FRESH_ARTIFACT_ID\n    target_preflight_fresh_artifact_api_digest: str = (\n        _TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST\n    )\n    target_preflight_report_sha256: str = _TARGET_PREFLIGHT_REPORT_SHA256\n    target_preflight_report_content_digest: str = (\n        _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST\n    )\n    prereg_head: str = _PREREG_HEAD\n'''
+          if text.count(fields_anchor) != 1:
+              raise SystemExit("result field anchor not found exactly once")
+          text = text.replace(fields_anchor, fields_replacement, 1)
+
+          fixed_anchor = '''        fixed_authority: dict[str, object] = {\n            "prereg_head": _PREREG_HEAD,\n'''
+          fixed_replacement = '''        fixed_authority: dict[str, object] = {\n            "target_manifest_digest": _TARGET_MANIFEST_DIGEST,\n            "target_preflight_run_id": _TARGET_PREFLIGHT_RUN_ID,\n            "target_preflight_artifact_id": _TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID,\n            "target_preflight_artifact_api_digest": (\n                _TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_API_DIGEST\n            ),\n            "target_preflight_status": _TARGET_PREFLIGHT_STATUS,\n            "target_preflight_fresh_artifact_id": _TARGET_PREFLIGHT_FRESH_ARTIFACT_ID,\n            "target_preflight_fresh_artifact_api_digest": (\n                _TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST\n            ),\n            "target_preflight_report_sha256": _TARGET_PREFLIGHT_REPORT_SHA256,\n            "target_preflight_report_content_digest": (\n                _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST\n            ),\n            "prereg_head": _PREREG_HEAD,\n'''
+          if text.count(fixed_anchor) != 1:
+              raise SystemExit("fixed authority anchor not found exactly once")
+          text = text.replace(fixed_anchor, fixed_replacement, 1)
+
+          payload_anchor = '''            "target_manifest_digest": self.target_manifest_digest,\n            "target_preflight_run_id": self.target_preflight_run_id,\n            "target_preflight_artifact_id": self.target_preflight_artifact_id,\n            "target_preflight_artifact_api_digest": (\n                self.target_preflight_artifact_api_digest\n            ),\n            "execution_run_id": self.execution_run_id,\n'''
+          payload_replacement = '''            "target_manifest_digest": self.target_manifest_digest,\n            "target_preflight_status": self.target_preflight_status,\n            "target_preflight_run_id": self.target_preflight_run_id,\n            "target_preflight_publisher_artifact_id": (\n                self.target_preflight_artifact_id\n            ),\n            "target_preflight_publisher_artifact_api_digest": (\n                self.target_preflight_artifact_api_digest\n            ),\n            "target_preflight_fresh_artifact_id": (\n                self.target_preflight_fresh_artifact_id\n            ),\n            "target_preflight_fresh_artifact_api_digest": (\n                self.target_preflight_fresh_artifact_api_digest\n            ),\n            "target_preflight_report_sha256": self.target_preflight_report_sha256,\n            "target_preflight_report_content_digest": (\n                self.target_preflight_report_content_digest\n            ),\n            "execution_run_id": self.execution_run_id,\n'''
+          if text.count(payload_anchor) != 1:
+              raise SystemExit("payload target authority block not found exactly once")
+          text = text.replace(payload_anchor, payload_replacement, 1)
+
+          property_anchor = '''    @property\n    def digest(self) -> str:\n        return content_digest(self.to_payload())\n'''
+          property_replacement = '''    @property\n    def target_preflight_publisher_artifact_id(self) -> int:\n        return self.target_preflight_artifact_id\n\n    @property\n    def target_preflight_publisher_artifact_api_digest(self) -> str:\n        return self.target_preflight_artifact_api_digest\n\n    @property\n    def digest(self) -> str:\n        return content_digest(self.to_payload())\n'''
+          if text.count(property_anchor) != 1:
+              raise SystemExit("digest property anchor not found exactly once")
+          text = text.replace(property_anchor, property_replacement, 1)
+
+          expected_anchor = '''        "target_manifest_digest",\n        "target_preflight_run_id",\n        "target_preflight_artifact_id",\n        "target_preflight_artifact_api_digest",\n        "execution_run_id",\n'''
+          expected_replacement = '''        "target_manifest_digest",\n        "target_preflight_status",\n        "target_preflight_run_id",\n        "target_preflight_publisher_artifact_id",\n        "target_preflight_publisher_artifact_api_digest",\n        "target_preflight_fresh_artifact_id",\n        "target_preflight_fresh_artifact_api_digest",\n        "target_preflight_report_sha256",\n        "target_preflight_report_content_digest",\n        "execution_run_id",\n'''
+          if text.count(expected_anchor) != 1:
+              raise SystemExit("loader expected-field anchor not found exactly once")
+          text = text.replace(expected_anchor, expected_replacement, 1)
+
+          constructor_anchor = '''        target_preflight_run_id=_require_int(\n            decoded["target_preflight_run_id"],\n            field="target_preflight_run_id",\n            minimum=1,\n        ),\n        target_preflight_artifact_id=_require_int(\n            decoded["target_preflight_artifact_id"],\n            field="target_preflight_artifact_id",\n            minimum=1,\n        ),\n        target_preflight_artifact_api_digest=_require_hex(\n            decoded["target_preflight_artifact_api_digest"],\n            length=64,\n            field="target_preflight_artifact_api_digest",\n        ),\n        execution_run_id=_require_int(\n'''
+          constructor_replacement = '''        target_preflight_status=_require_string(\n            decoded["target_preflight_status"], field="target_preflight_status"\n        ),\n        target_preflight_run_id=_require_int(\n            decoded["target_preflight_run_id"],\n            field="target_preflight_run_id",\n            minimum=1,\n        ),\n        target_preflight_artifact_id=_require_int(\n            decoded["target_preflight_publisher_artifact_id"],\n            field="target_preflight_publisher_artifact_id",\n            minimum=1,\n        ),\n        target_preflight_artifact_api_digest=_require_hex(\n            decoded["target_preflight_publisher_artifact_api_digest"],\n            length=64,\n            field="target_preflight_publisher_artifact_api_digest",\n        ),\n        target_preflight_fresh_artifact_id=_require_int(\n            decoded["target_preflight_fresh_artifact_id"],\n            field="target_preflight_fresh_artifact_id",\n            minimum=1,\n        ),\n        target_preflight_fresh_artifact_api_digest=_require_hex(\n            decoded["target_preflight_fresh_artifact_api_digest"],\n            length=64,\n            field="target_preflight_fresh_artifact_api_digest",\n        ),\n        target_preflight_report_sha256=_require_hex(\n            decoded["target_preflight_report_sha256"],\n            length=64,\n            field="target_preflight_report_sha256",\n        ),\n        target_preflight_report_content_digest=_require_hex(\n            decoded["target_preflight_report_content_digest"],\n            length=64,\n            field="target_preflight_report_content_digest",\n        ),\n        execution_run_id=_require_int(\n'''
+          if text.count(constructor_anchor) != 1:
+              raise SystemExit("loader target constructor anchor not found exactly once")
+          text = text.replace(constructor_anchor, constructor_replacement, 1)
+
+          source.write_text(text)
+
+          replacements = {
+              'target_manifest_digest="3" * 64': 'target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b"',
+              'target_preflight_run_id=123': 'target_preflight_run_id=34941447564',
+              'target_preflight_artifact_id=456': 'target_preflight_artifact_id=10385451448',
+              'target_preflight_artifact_api_digest="4" * 64': 'target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb"',
+          }
+          for test_name in (
+              "tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py",
+              "tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py",
+          ):
+              path = Path(test_name)
+              value = path.read_text()
+              for old, new in replacements.items():
+                  value = value.replace(old, new)
+              path.write_text(value)
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify hardened target authority
+        run: |
+          uv run ruff format "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run ruff check "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run ruff format --check "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run mypy "$SOURCE_PATH"
+          uv run pytest -q "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+      - name: Guard and publish verified hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST"
+          git commit -m "fix: bind complete Issue 584 target authority"
+          git push origin HEAD:"$RESEARCH_BRANCH"

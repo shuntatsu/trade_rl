@@ -1,0 +1,275 @@
+name: Issue 586 existing target-preflight offline adoption audit
+
+on:
+  push:
+    branches:
+      - audit/issue586-adopt-existing-preflight
+    paths:
+      - .github/workflows/tmp-issue586-adopt-existing-preflight.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  VALIDATOR_SHA: 12151cb014f62f603fc115b3129d14264eb93683
+  VALIDATOR_FULL_RUN_ID: "34951770631"
+  LEGACY_PREFLIGHT_RUN_ID: "34941447564"
+  LEGACY_PREFLIGHT_HEAD: a3fc104ba25ceae55a637b075e3b0cbd24ebf2d6
+  LEGACY_IMPLEMENTATION_SHA: 1a7a1ae12ebeb7d104f3278fcc0a0dbd6ac64ac8
+  LEGACY_HELPER_COMMIT: b6ba8ab97b87b960c98be75768a64b10fac37819
+  LEGACY_TARGETED_VERIFY_RUN_ID: "34940742164"
+  PUBLISHER_ARTIFACT_ID: "10385451448"
+  PUBLISHER_ARTIFACT_NAME: issue584-target-source-preflight-v2-34941447564
+  PUBLISHER_ARTIFACT_DIGEST: sha256:07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb
+  FRESH_ARTIFACT_ID: "10385516382"
+  FRESH_ARTIFACT_NAME: issue584-target-source-fresh-v2-34941447564
+  FRESH_ARTIFACT_DIGEST: sha256:7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d
+  TOOL: tools/tmp_issue586_adopt_existing_preflight.py
+  VALIDATOR: trade_rl/evaluation/experiments/bootstrap/issue586_target_source_validator.py
+
+jobs:
+  adopt:
+    name: Offline adoption publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout audit lineage
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind current validator and immutable legacy evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$VALIDATOR_SHA" "$LEGACY_PREFLIGHT_HEAD" "$LEGACY_IMPLEMENTATION_SHA" "$LEGACY_HELPER_COMMIT" --no-tags
+          git merge-base --is-ancestor "$VALIDATOR_SHA" "$GITHUB_SHA"
+          test "$(git rev-parse "$VALIDATOR_SHA:$VALIDATOR")" = "$(git rev-parse "HEAD:$VALIDATOR")"
+          changed="$(git diff --name-only "$VALIDATOR_SHA..$GITHUB_SHA")"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(.github/workflows/tmp-issue586-adopt-existing-preflight.yml|tools/tmp_issue586_adopt_existing_preflight.py)$' || true)"
+
+          validator_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATOR_FULL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$validator_run")" = success
+          validator_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATOR_FULL_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$validator_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$validator_jobs")" = success
+
+          legacy_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$LEGACY_PREFLIGHT_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$legacy_run")" = success
+          test "$(jq -r .head_sha <<<"$legacy_run")" = "$LEGACY_PREFLIGHT_HEAD"
+          test "$(jq -r .path <<<"$legacy_run")" = ".github/workflows/issue584-target-source-preflight-v2.yml"
+          legacy_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$LEGACY_PREFLIGHT_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Structural target-source publisher v2") | .conclusion' <<<"$legacy_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Fresh independent 40-archive reconstruction v2") | .conclusion' <<<"$legacy_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Final target-source preflight audit v2") | .conclusion' <<<"$legacy_jobs")" = success
+          targeted="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$LEGACY_TARGETED_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$targeted")" = success
+
+          for spec in "$PUBLISHER_ARTIFACT_ID|$PUBLISHER_ARTIFACT_NAME|$PUBLISHER_ARTIFACT_DIGEST" "$FRESH_ARTIFACT_ID|$FRESH_ARTIFACT_NAME|$FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$LEGACY_PREFLIGHT_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - name: Download immutable legacy publisher and fresh evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/legacy-publisher /tmp/legacy-fresh
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PUBLISHER_ARTIFACT_NAME" --dir /tmp/legacy-publisher
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$FRESH_ARTIFACT_NAME" --dir /tmp/legacy-fresh
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove hardened validator and audit tool quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$TOOL" "$VALIDATOR" tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run ruff check "$TOOL" "$VALIDATOR" tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run mypy "$TOOL" "$VALIDATOR"
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator.py tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+      - name: Build no-network adoption report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/adoption
+          uv run python "$TOOL" --publisher-dir /tmp/legacy-publisher --fresh-dir /tmp/legacy-fresh --output /tmp/adoption/adoption.json
+      - id: meta
+        run: echo "name=issue586-existing-preflight-adoption-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable offline adoption evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/adoption/adoption.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent offline adoption reconstruction
+    needs: adopt
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact hardened validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recover audit tool and legacy git authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$GITHUB_SHA" "$LEGACY_PREFLIGHT_HEAD" "$LEGACY_IMPLEMENTATION_SHA" "$LEGACY_HELPER_COMMIT" --no-tags
+          git show "$GITHUB_SHA:$TOOL" > /tmp/adopt.py
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
+      - name: API-bind current adoption artifact and immutable legacy evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADOPT_ID: ${{ needs.adopt.outputs.artifact_id }}
+          ADOPT_NAME: ${{ needs.adopt.outputs.artifact_name }}
+          ADOPT_DIGEST: ${{ needs.adopt.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          adoption="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ADOPT_ID)"
+          test "$(jq -r .name <<<"$adoption")" = "$ADOPT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$adoption")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$adoption")" = false
+          api_digest="$(jq -r .digest <<<"$adoption")"
+          case "$ADOPT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ADOPT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ADOPT_DIGEST" ;;
+          esac
+          for spec in "$PUBLISHER_ARTIFACT_ID|$PUBLISHER_ARTIFACT_NAME|$PUBLISHER_ARTIFACT_DIGEST" "$FRESH_ARTIFACT_ID|$FRESH_ARTIFACT_NAME|$FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$LEGACY_PREFLIGHT_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - name: Download old publisher/fresh and current adoption artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/legacy-publisher /tmp/legacy-fresh /tmp/published-adoption
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PUBLISHER_ARTIFACT_NAME" --dir /tmp/legacy-publisher
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$FRESH_ARTIFACT_NAME" --dir /tmp/legacy-fresh
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "${{ needs.adopt.outputs.artifact_name }}" --dir /tmp/published-adoption
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct adoption bytes without Binance access
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh-adoption
+          uv run python /tmp/adopt.py --publisher-dir /tmp/legacy-publisher --fresh-dir /tmp/legacy-fresh --output /tmp/fresh-adoption/adoption.json
+          cmp /tmp/published-adoption/adoption.json /tmp/fresh-adoption/adoption.json
+      - id: meta
+        run: echo "name=issue586-existing-preflight-adoption-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh offline reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh-adoption/adoption.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 586 offline adoption audit
+    needs: [adopt, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both adoption artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADOPT_ID: ${{ needs.adopt.outputs.artifact_id }}
+          ADOPT_NAME: ${{ needs.adopt.outputs.artifact_name }}
+          ADOPT_DIGEST: ${{ needs.adopt.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$ADOPT_ID|$ADOPT_NAME|$ADOPT_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+      - name: Download publisher and fresh adoption evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue586-existing-preflight-adoption-*
+          path: /tmp/adoption-artifacts
+      - name: Require byte equality and frozen PASS decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          pub="$(find /tmp/adoption-artifacts -path '*/adoption.json' | sort | head -1)"
+          fresh="$(find /tmp/adoption-artifacts -path '*/adoption.json' | sort | tail -1)"
+          cmp "$pub" "$fresh"
+          python3 - "$pub" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          payload = json.loads(raw)
+          assert payload['status'] == 'PASS_USDM_15M_TARGET_SOURCE'
+          assert payload['decision_equivalent_to_frozen_pass_gate'] is True
+          assert payload['planned_archive_count'] == 40
+          assert payload['available_archive_count'] == 40
+          assert payload['available_checksum_count'] == 40
+          assert payload['checksum_verified_count'] == 40
+          assert payload['structurally_valid_archive_count'] == 40
+          assert payload['complete_96_row_archive_count'] == 40
+          assert payload['legacy_preflight_run_id'] == 34941447564
+          assert payload['validator_head'] == '12151cb014f62f603fc115b3129d14264eb93683'
+          assert payload['validator_full_verify_run_id'] == 34951770631
+          assert payload['header_contract_verified_by_legacy_parser'] is True
+          assert payload['header_presence_individually_recorded'] is False
+          assert payload['network_fetch_performed_by_this_adoption'] is False
+          for key in ('economic_values_reported','target_return_computed','spot_flow_computed','training_relation_computed','evaluation_pnl_inspected','production_eligible','live_trading_authorized'):
+              assert payload[key] is False
+          check = dict(payload)
+          digest = check.pop('content_digest')
+          import json as _json
+          canonical = _json.dumps(check, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode() + b'\n'
+          assert hashlib.sha256(canonical).hexdigest() == digest
+          PY

@@ -1,0 +1,60 @@
+name: Temporary Issue 603 test format
+
+on:
+  push:
+    branches:
+      - automation/issue603-test-format
+    paths:
+      - .github/workflows/tmp-issue603-test-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue603-premium-pressure-calibration
+  TARGET_SHA: 2522812b2aebb2707915bcf2b1fcd219f9726b72
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+
+jobs:
+  format_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact test-only head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format test source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST"
+          uv run ruff check "$TEST"
+      - name: Guard and publish formatted test only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$TEST" || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "test: format Issue 603 calibration contract"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -1,0 +1,282 @@
+name: Issue 603 premium-pressure pre-execution recovery
+
+on:
+  push:
+    branches:
+      - recovery/issue603-premium-pressure-calibration
+    paths:
+      - .github/workflows/issue603-premium-pressure-recovery.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMPLEMENTATION_BRANCH: research/issue603-premium-pressure-calibration-v2
+  IMPLEMENTATION_HEAD: 9751445fb98a5c99156b23afeb2bfcc445be1acd
+  IMPLEMENTATION_VERIFY_RUN_ID: "34968108264"
+  HELPER_PARENT: a28e02778f68c693b8b90c0ce3313c0e936d7851
+  HELPER_VERIFY_RUN_ID: "34969174172"
+  PREVIOUS_FAILED_RUN_ID: "34968947415"
+  HELPER: tools/tmp_issue603_premium_pressure_real.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_calibration.py
+  PROTOCOL_SEAL_RUN_ID: "34959849347"
+  PROTOCOL_SEAL_ARTIFACT_ID: "10392936042"
+  PROTOCOL_SEAL_ARTIFACT_DIGEST: sha256:4b611462f8d4f9bb4d23ab15bb4d8a20525d4093e590c1afb62d1b74ca875e15
+  PROTOCOL_FRESH_ARTIFACT_ID: "10391714897"
+  PROTOCOL_FRESH_ARTIFACT_DIGEST: sha256:858e930a03e442f047556801c3d9a536fbc89435b5f261cba621988dd8062acd
+  PREMIUM_RUN_ID: "34863522941"
+  PREMIUM_ARTIFACT_ID: "10355913123"
+  PREMIUM_ARTIFACT_NAME: issue570-premium-sparse-source-v2-34863522941
+  PREMIUM_ARTIFACT_DIGEST: sha256:0076698414d3ac8197a676aecc0155853befc3828a2a9c62e92b76576ad2dc04
+  TARGET_RUN_ID: "34962227821"
+  TARGET_ARTIFACT_ID: "10393693240"
+  TARGET_ARTIFACT_NAME: issue601-usdm1h-target-publisher-v1-34962227821
+  TARGET_ARTIFACT_DIGEST: sha256:0c7f240390a35174329890fa83e9615e304de5f1a84114007ead1fddaaaf37ff
+
+jobs:
+  publisher:
+    name: Recovered first economic-relation publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind recovery implementation helper and all immutable authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$HELPER_PARENT"
+          test "$(git rev-parse "$HELPER_PARENT:$HELPER")" = "$(git rev-parse "HEAD:$HELPER")"
+          test "$(git ls-remote origin refs/heads/$IMPLEMENTATION_BRANCH | cut -f1)" = "$IMPLEMENTATION_HEAD"
+          test "$(git rev-parse "$IMPLEMENTATION_HEAD:$MODULE")" = "$(git rev-parse "HEAD:$MODULE")"
+
+          previous="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_FAILED_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$previous")" = failure
+          previous_artifacts="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_FAILED_RUN_ID/artifacts)"
+          test "$(jq -r .total_count <<<"$previous_artifacts")" = 0
+
+          for run in "$IMPLEMENTATION_VERIFY_RUN_ID" "$HELPER_VERIFY_RUN_ID" "$PROTOCOL_SEAL_RUN_ID"; do
+            payload="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run)"
+            test "$(jq -r .conclusion <<<"$payload")" = success
+          done
+          impl_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$IMPLEMENTATION_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core exact target") | .conclusion' <<<"$impl_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide exact target") | .conclusion' <<<"$impl_jobs")" = success
+
+          for spec in "$PROTOCOL_SEAL_ARTIFACT_ID|$PROTOCOL_SEAL_RUN_ID|$PROTOCOL_SEAL_ARTIFACT_DIGEST" "$PROTOCOL_FRESH_ARTIFACT_ID|$PROTOCOL_SEAL_RUN_ID|$PROTOCOL_FRESH_ARTIFACT_DIGEST" "$PREMIUM_ARTIFACT_ID|$PREMIUM_RUN_ID|$PREMIUM_ARTIFACT_DIGEST" "$TARGET_ARTIFACT_ID|$TARGET_RUN_ID|$TARGET_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+          echo "PREVIOUS_RELATION_EXECUTED=false"
+          echo "ECONOMIC_VALUES_LOGGED=false"
+          echo "EVALUATION_PNL_INSPECTED=false"
+      - name: Download immutable structural authority artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/premium-authority /tmp/target-authority
+          gh run download "$PREMIUM_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PREMIUM_ARTIFACT_NAME" --dir /tmp/premium-authority
+          gh run download "$TARGET_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_ARTIFACT_NAME" --dir /tmp/target-authority
+          test -f /tmp/premium-authority/source-report.json
+          test -f /tmp/target-authority/manifest.json
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove helper and implementation before economic relation
+        run: |
+          uv run ruff format --check "$HELPER"
+          uv run ruff check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python "$HELPER" --self-test
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+      - name: Execute frozen relation for the first time
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher
+          uv run python "$HELPER" \
+            --premium-report /tmp/premium-authority/source-report.json \
+            --target-manifest /tmp/target-authority/manifest.json \
+            --result /tmp/publisher/result.json \
+            --evidence /tmp/publisher/evidence.json \
+            --execution-run-id "$GITHUB_RUN_ID"
+          test -s /tmp/publisher/result.json
+          test -s /tmp/publisher/evidence.json
+      - id: meta
+        run: echo "name=issue603-premium-pressure-recovery-publisher-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable publisher result
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/publisher/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent recovery reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: API-bind publisher and immutable upstream artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$HELPER_PARENT"
+          pub="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$PUB_ID)"
+          test "$(jq -r .name <<<"$pub")" = "$PUB_NAME"
+          test "$(jq -r .workflow_run.id <<<"$pub")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$pub")" = false
+          case "$PUB_DIGEST" in
+            sha256:*) test "$(jq -r .digest <<<"$pub")" = "$PUB_DIGEST" ;;
+            *) test "$(jq -r .digest <<<"$pub")" = "sha256:$PUB_DIGEST" ;;
+          esac
+          for spec in "$PREMIUM_ARTIFACT_ID|$PREMIUM_RUN_ID|$PREMIUM_ARTIFACT_DIGEST" "$TARGET_ARTIFACT_ID|$TARGET_RUN_ID|$TARGET_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - name: Download publisher and source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p /tmp/published /tmp/premium-authority /tmp/target-authority
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "${{ needs.publisher.outputs.artifact_name }}" --dir /tmp/published
+          gh run download "$PREMIUM_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PREMIUM_ARTIFACT_NAME" --dir /tmp/premium-authority
+          gh run download "$TARGET_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$TARGET_ARTIFACT_NAME" --dir /tmp/target-authority
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently re-fetch all raw sources and reconstruct bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python "$HELPER" \
+            --premium-report /tmp/premium-authority/source-report.json \
+            --target-manifest /tmp/target-authority/manifest.json \
+            --result /tmp/fresh/result.json \
+            --evidence /tmp/fresh/evidence.json \
+            --execution-run-id "$GITHUB_RUN_ID"
+          cmp /tmp/published/result.json /tmp/fresh/result.json
+          cmp /tmp/published/evidence.json /tmp/fresh/evidence.json
+      - id: meta
+        run: echo "name=issue603-premium-pressure-recovery-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final recovered premium-pressure audit
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind publisher and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.publisher.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            case "$digest" in
+              sha256:*) test "$(jq -r .digest <<<"$artifact")" = "$digest" ;;
+              *) test "$(jq -r .digest <<<"$artifact")" = "sha256:$digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_HEAD }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Require byte equality semantic closure and forbidden-boundary closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/result.json /tmp/fresh/result.json
+          cmp /tmp/publisher/evidence.json /tmp/fresh/evidence.json
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_calibration import load_premium_pressure_result_bytes
+          result = load_premium_pressure_result_bytes(Path('/tmp/publisher/result.json').read_bytes())
+          evidence = json.loads(Path('/tmp/publisher/evidence.json').read_bytes())
+          assert result.execution_run_id == int(sys.argv[1])
+          assert result.implementation_head == '9751445fb98a5c99156b23afeb2bfcc445be1acd'
+          assert result.implementation_verification_run_id == 34968108264
+          assert result.training_relation_executed is True
+          assert result.evaluation_pnl_inspected is False
+          assert result.final_test_authorized is False
+          assert result.production_eligible is False
+          assert result.live_trading_authorized is False
+          assert evidence['execution_run_id'] == int(sys.argv[1])
+          assert evidence['economic_values_logged'] is False
+          assert evidence['evaluation_pnl_inspected'] is False
+          print('ISSUE603_RECOVERY_AUDIT=PASS')
+          print('ECONOMIC_VALUES_LOGGED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY

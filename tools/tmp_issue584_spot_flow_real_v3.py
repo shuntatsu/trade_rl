@@ -76,8 +76,7 @@ def _next_date(value: str) -> str:
 
 def _day_start_ms(value: str) -> int:
     return int(
-        datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
-        * 1000
+        datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000
     )
 
 
@@ -138,7 +137,10 @@ def _validate_spot_source_result(path: Path) -> list[dict[str, Any]]:
         raise ValueError("Spot source result SHA-256 differs from frozen authority")
     if payload.get("content_digest") != SPOT_SOURCE_RESULT_CONTENT_DIGEST:
         raise ValueError("Spot source result content digest differs")
-    if content_digest(_without_content_digest(payload)) != SPOT_SOURCE_RESULT_CONTENT_DIGEST:
+    if (
+        content_digest(_without_content_digest(payload))
+        != SPOT_SOURCE_RESULT_CONTENT_DIGEST
+    ):
         raise ValueError("Spot source result content digest does not verify")
     if payload.get("status") != protocol.spot_source_status:
         raise ValueError("Spot source result status differs from preregistration")
@@ -194,7 +196,10 @@ def _validate_target_preflight(
         raise ValueError("target preflight report SHA-256 differs")
     if report.get("content_digest") != TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST:
         raise ValueError("target preflight report content digest differs")
-    if content_digest(_without_content_digest(report)) != TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST:
+    if (
+        content_digest(_without_content_digest(report))
+        != TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST
+    ):
         raise ValueError("target preflight report content digest does not verify")
     if report.get("status") != "PASS_TARGET_SOURCE_PREFLIGHT":
         raise ValueError("target preflight did not PASS")

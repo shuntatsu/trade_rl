@@ -46,9 +46,12 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "feature_name": "1h__premium_index_close_bps",
     "feature_kind": "premium_index_close_bps",
     "premium_price_field": "close",
-    "feature_formula": "10000*premium_index_close[t]",
+    "feature_formula": "10000*premium_index_close(raw_open_time=t-1h)",
     "feature_scale_bps": 10_000.0,
     "feature_transform": "fixed_scale_only",
+    "premium_dataset_timestamp_semantics": "completed_bar_close_boundary",
+    "premium_dataset_timestamp_formula": "dataset_timestamp=raw_open_time+1h",
+    "premium_decision_raw_open_time_offset_minutes": -60,
     "require_exact_native_timestamp_match": True,
     "require_premium_row_present": True,
     "require_premium_information_available": True,
@@ -63,8 +66,8 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "future_feature_rows_forbidden": True,
     "prefix_causality_required": True,
     "rolling_window_allowed": False,
-    "centering_allowed": False,
-    "fitted_normalization_allowed": False,
+    "feature_centering_allowed": False,
+    "fitted_feature_normalization_allowed": False,
     "zscore_allowed": False,
     "clipping_allowed": False,
     "winsorization_allowed": False,
@@ -77,21 +80,29 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "alternate_feature_field_allowed": False,
     "alternate_feature_formula_allowed": False,
     "alternate_horizon_allowed": False,
+    "alternate_sign_allowed": False,
     "funding_reconstruction_allowed": False,
     "current_funding_formula_backcast_allowed": False,
     "fit_start": datetime(2021, 1, 1, 1, tzinfo=UTC),
     "fit_cutoff": datetime(2023, 1, 1, tzinfo=UTC),
-    "nominal_candidate_decisions_per_symbol": 17_510,
-    "minimum_eligible_observations_per_symbol": 16_635,
+    "last_candidate_decision": datetime(2022, 12, 30, 23, tzinfo=UTC),
+    "nominal_candidate_decisions_per_symbol": 17_495,
+    "minimum_eligible_observations_per_symbol": 16_621,
     "target_source_authority_required": True,
+    "target_source_structural_preflight_required": True,
     "target_source_market": "USD_M",
     "target_source_family": "klines",
     "target_interval": "1h",
     "target_source_replacement_allowed": False,
+    "target_dataset_timestamp_semantics": "completed_bar_close_boundary",
+    "target_dataset_timestamp_formula": "dataset_timestamp=raw_open_time+1h",
+    "target_decision_raw_open_time_offset_minutes": -60,
+    "execution_raw_open_time_offset_minutes": 0,
+    "endpoint_raw_open_time_offset_minutes": 1_440,
     "label_execution_offset_bars": 1,
-    "label_endpoint_offset_bars": 9,
-    "label_horizon_bars": 8,
-    "label_formula": "log(open[t+9] / open[t+1])",
+    "label_endpoint_offset_bars": 25,
+    "label_horizon_bars": 24,
+    "label_formula": "log(open[t+25] / open[t+1])",
     "require_label_end_strictly_before_fit_cutoff": True,
     "require_execution_and_label_rows_present": True,
     "require_execution_and_label_rows_contiguous": True,
@@ -99,17 +110,27 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "require_execution_and_label_rows_tradable": True,
     "require_execution_and_label_rows_active": True,
     "require_label_open_finite_positive": True,
-    "calibration_method": "per_symbol_no_intercept_fixed_order_fsum",
-    "calibration_formula": "beta_i = fsum(x_t*y_t) / fsum(x_t*x_t)",
+    "calibration_method": "per_symbol_ols_intercept_fixed_order_fsum",
+    "calibration_formula": (
+        "x_bar=fsum(x)/n;y_bar=fsum(y)/n;"
+        "beta=fsum((x-x_bar)*(y-y_bar))/fsum((x-x_bar)^2);"
+        "alpha=y_bar-beta*x_bar"
+    ),
     "weighted_regression_allowed": False,
     "robust_regression_fallback_allowed": False,
+    "no_intercept_regression_allowed": False,
+    "require_calibration_x_mean_finite": True,
+    "require_calibration_y_mean_finite": True,
     "require_calibration_numerator_finite": True,
     "require_calibration_denominator_finite_positive": True,
+    "require_calibration_alpha_finite": True,
     "require_calibration_beta_finite": True,
+    "calibration_intercept_required": True,
+    "calibration_centering_required": True,
     "portable_fixed_order_reduction_required": True,
-    "expected_effect_direction": "CONTINUATION",
-    "required_positive_symbol_slopes": 4,
-    "valid_status": "VALID_PREMIUM_PRESSURE_CONTINUATION",
+    "expected_effect_direction": "REVERSAL",
+    "required_negative_symbol_slopes": 4,
+    "valid_status": "VALID_PREMIUM_PRESSURE_REVERSAL",
     "reject_status": "REJECT_PREMIUM_PRESSURE_HYPOTHESIS",
     "invalid_coverage_status": "INVALID_PREMIUM_PRESSURE_COVERAGE",
     "no_sign_flip_fallback": True,
@@ -202,6 +223,9 @@ class PremiumPressureProtocol:
     feature_formula: str
     feature_scale_bps: float
     feature_transform: str
+    premium_dataset_timestamp_semantics: str
+    premium_dataset_timestamp_formula: str
+    premium_decision_raw_open_time_offset_minutes: int
     require_exact_native_timestamp_match: bool
     require_premium_row_present: bool
     require_premium_information_available: bool
@@ -216,8 +240,8 @@ class PremiumPressureProtocol:
     future_feature_rows_forbidden: bool
     prefix_causality_required: bool
     rolling_window_allowed: bool
-    centering_allowed: bool
-    fitted_normalization_allowed: bool
+    feature_centering_allowed: bool
+    fitted_feature_normalization_allowed: bool
     zscore_allowed: bool
     clipping_allowed: bool
     winsorization_allowed: bool
@@ -230,17 +254,25 @@ class PremiumPressureProtocol:
     alternate_feature_field_allowed: bool
     alternate_feature_formula_allowed: bool
     alternate_horizon_allowed: bool
+    alternate_sign_allowed: bool
     funding_reconstruction_allowed: bool
     current_funding_formula_backcast_allowed: bool
     fit_start: datetime
     fit_cutoff: datetime
+    last_candidate_decision: datetime
     nominal_candidate_decisions_per_symbol: int
     minimum_eligible_observations_per_symbol: int
     target_source_authority_required: bool
+    target_source_structural_preflight_required: bool
     target_source_market: str
     target_source_family: str
     target_interval: str
     target_source_replacement_allowed: bool
+    target_dataset_timestamp_semantics: str
+    target_dataset_timestamp_formula: str
+    target_decision_raw_open_time_offset_minutes: int
+    execution_raw_open_time_offset_minutes: int
+    endpoint_raw_open_time_offset_minutes: int
     label_execution_offset_bars: int
     label_endpoint_offset_bars: int
     label_horizon_bars: int
@@ -256,12 +288,18 @@ class PremiumPressureProtocol:
     calibration_formula: str
     weighted_regression_allowed: bool
     robust_regression_fallback_allowed: bool
+    no_intercept_regression_allowed: bool
+    require_calibration_x_mean_finite: bool
+    require_calibration_y_mean_finite: bool
     require_calibration_numerator_finite: bool
     require_calibration_denominator_finite_positive: bool
+    require_calibration_alpha_finite: bool
     require_calibration_beta_finite: bool
+    calibration_intercept_required: bool
+    calibration_centering_required: bool
     portable_fixed_order_reduction_required: bool
     expected_effect_direction: str
-    required_positive_symbol_slopes: int
+    required_negative_symbol_slopes: int
     valid_status: str
     reject_status: str
     invalid_coverage_status: str
@@ -278,9 +316,9 @@ class PremiumPressureProtocol:
     live_trading_authorized: bool
 
     def __post_init__(self) -> None:
-        _require_aware(self.fit_start, field="fit_start")
-        _require_aware(self.fit_cutoff, field="fit_cutoff")
-        if not self.fit_start < self.fit_cutoff:
+        for field_name in ("fit_start", "fit_cutoff", "last_candidate_decision"):
+            _require_aware(getattr(self, field_name), field=field_name)
+        if not self.fit_start < self.last_candidate_decision < self.fit_cutoff:
             raise ValueError("preregistered training clock is invalid")
         if (
             isinstance(self.feature_scale_bps, bool)
@@ -297,25 +335,54 @@ class PremiumPressureProtocol:
             "source_publisher_run_id",
             "source_artifact_id",
             "source_fresh_artifact_id",
+            "premium_decision_raw_open_time_offset_minutes",
+            "nominal_candidate_decisions_per_symbol",
+            "minimum_eligible_observations_per_symbol",
+            "target_decision_raw_open_time_offset_minutes",
+            "execution_raw_open_time_offset_minutes",
+            "endpoint_raw_open_time_offset_minutes",
+            "label_execution_offset_bars",
+            "label_endpoint_offset_bars",
+            "label_horizon_bars",
+            "required_negative_symbol_slopes",
+        )
+        for field_name in integer_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{field_name} must be an integer")
+        for field_name in (
+            "issue_number",
+            "multiplicity_issue",
+            "source_issue",
+            "source_publisher_run_id",
+            "source_artifact_id",
+            "source_fresh_artifact_id",
             "nominal_candidate_decisions_per_symbol",
             "minimum_eligible_observations_per_symbol",
             "label_execution_offset_bars",
             "label_endpoint_offset_bars",
             "label_horizon_bars",
-            "required_positive_symbol_slopes",
-        )
-        for field_name in integer_fields:
-            value = getattr(self, field_name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"{field_name} must be a non-negative integer")
-        if not 1 <= self.required_positive_symbol_slopes <= len(self.symbols):
-            raise ValueError("positive-slope gate is invalid")
+            "required_negative_symbol_slopes",
+        ):
+            if getattr(self, field_name) < 0:
+                raise ValueError(f"{field_name} must be non-negative")
+
+        if not 1 <= self.required_negative_symbol_slopes <= len(self.symbols):
+            raise ValueError("negative-slope gate is invalid")
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError("symbol roster must be unique")
         if self.label_endpoint_offset_bars - self.label_execution_offset_bars != (
             self.label_horizon_bars
         ):
             raise ValueError("label offsets do not match frozen horizon")
+        if self.endpoint_raw_open_time_offset_minutes != self.label_horizon_bars * 60:
+            raise ValueError("endpoint raw-open offset does not match frozen horizon")
+        if self.execution_raw_open_time_offset_minutes != 0:
+            raise ValueError("execution raw-open offset must be the decision boundary")
+        if self.premium_decision_raw_open_time_offset_minutes != -60:
+            raise ValueError("premium decision row must be the completed prior hour")
+        if self.target_decision_raw_open_time_offset_minutes != -60:
+            raise ValueError("target decision row must be the completed prior hour")
         if self.minimum_eligible_observations_per_symbol > (
             self.nominal_candidate_decisions_per_symbol
         ):
@@ -351,12 +418,10 @@ class PremiumPressureProtocol:
                 "premium-pressure protocol fields differ from frozen schema"
             )
         resolved = dict(payload)
-        resolved["fit_start"] = _datetime_from_text(
-            resolved["fit_start"], field="fit_start"
-        )
-        resolved["fit_cutoff"] = _datetime_from_text(
-            resolved["fit_cutoff"], field="fit_cutoff"
-        )
+        for field_name in ("fit_start", "fit_cutoff", "last_candidate_decision"):
+            resolved[field_name] = _datetime_from_text(
+                resolved[field_name], field=field_name
+            )
         symbols = resolved["symbols"]
         if not isinstance(symbols, list) or any(
             not isinstance(item, str) for item in symbols
@@ -390,20 +455,10 @@ def load_premium_pressure_protocol_bytes(payload: bytes) -> PremiumPressureProto
     try:
         raw: Any = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("premium-pressure protocol is not valid UTF-8 JSON") from error
-    if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
+        raise ValueError("premium-pressure protocol is not valid JSON") from error
+    if not isinstance(raw, dict):
         raise ValueError("premium-pressure protocol must be a JSON object")
-    if canonical_json_bytes(raw) != payload:
-        raise ValueError("premium-pressure protocol bytes are not canonical JSON")
     protocol = PremiumPressureProtocol.from_dict(raw)
-    if protocol != canonical_premium_pressure_protocol():
-        raise ValueError("premium-pressure protocol differs from frozen authority")
+    if payload != canonical_premium_pressure_protocol_bytes(protocol):
+        raise ValueError("premium-pressure protocol bytes are not canonical")
     return protocol
-
-
-__all__ = [
-    "PremiumPressureProtocol",
-    "canonical_premium_pressure_protocol",
-    "canonical_premium_pressure_protocol_bytes",
-    "load_premium_pressure_protocol_bytes",
-]

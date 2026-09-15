@@ -1,0 +1,104 @@
+name: Temporary Issue 584 semantic-forgery fix
+
+on:
+  push:
+    branches:
+      - automation/issue584-semantic-forgery-fix
+    paths:
+      - .github/workflows/tmp-issue584-semantic-forgery-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: c38becdb23ae07ac914736cc97bb5e372a68e371
+  RESEARCH_BRANCH: research/issue584-spot-flow-diagnostic-impl
+  SOURCE_PATH: trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+  CORE_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+  SEMANTIC_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+
+jobs:
+  repair_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Add semantic calibration invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py")
+          text = path.read_text()
+
+          marker = '''@dataclass(frozen=True, slots=True)\nclass SpotFlowSymbolCalibration:\n'''
+          helper = '''def _expected_symbol_semantics(\n    *,\n    symbol: str,\n    eligible_observations: int,\n    numerator: float | None,\n    denominator: float | None,\n    beta: float | None,\n    minimum_observations: int,\n) -> tuple[tuple[str, ...], float | None]:\n    failures: list[str] = []\n    if eligible_observations < minimum_observations:\n        failures.append(\n            f"{symbol}:eligible_observations<{minimum_observations}"\n        )\n    if numerator is None:\n        failures.append(f"{symbol}:numerator_not_finite")\n    if denominator is None or denominator <= 0.0:\n        failures.append(f"{symbol}:denominator_not_finite_positive")\n\n    expected_beta: float | None = None\n    if not failures:\n        assert numerator is not None and denominator is not None\n        candidate = numerator / denominator\n        if math.isfinite(candidate):\n            expected_beta = candidate\n        else:\n            failures.append(f"{symbol}:beta_not_finite")\n\n    if failures:\n        if beta is not None:\n            raise ValueError("beta must be null when symbol semantic failures exist")\n    elif beta is None or beta != expected_beta:\n        raise ValueError("beta does not equal numerator / denominator semantic authority")\n    return tuple(failures), expected_beta\n\n\n@dataclass(frozen=True, slots=True)\nclass SpotFlowSymbolCalibration:\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("calibration class marker not found exactly once")
+          text = text.replace(marker, helper, 1)
+
+          old_fields = '''    positive_slope: bool\n    failures: tuple[str, ...]\n\n    def __post_init__(self) -> None:\n        _require_string(self.symbol, field="symbol")\n        _require_int(self.eligible_observations, field="eligible_observations")\n        numerator = _require_optional_finite(self.numerator, field="numerator")\n        denominator = _require_optional_finite(self.denominator, field="denominator")\n        beta = _require_optional_finite(self.beta, field="beta")\n        _require_bool(self.positive_slope, field="positive_slope")\n        if denominator is not None and denominator < 0.0:\n            raise ValueError("denominator must be non-negative when present")\n        if self.positive_slope is not (beta is not None and beta > 0.0):\n            raise ValueError("positive_slope does not match beta sign")\n        if beta is not None and (\n            numerator is None or denominator is None or denominator <= 0.0\n        ):\n            raise ValueError("beta requires finite numerator and positive denominator")\n        if any(not isinstance(item, str) or not item for item in self.failures):\n            raise ValueError("symbol failures must be non-empty strings")\n'''
+          new_fields = '''    positive_slope: bool\n    failures: tuple[str, ...]\n    minimum_observations: int = 360\n\n    def __post_init__(self) -> None:\n        _require_string(self.symbol, field="symbol")\n        eligible = _require_int(\n            self.eligible_observations, field="eligible_observations"\n        )\n        minimum = _require_int(\n            self.minimum_observations, field="minimum_observations", minimum=1\n        )\n        numerator = _require_optional_finite(self.numerator, field="numerator")\n        denominator = _require_optional_finite(self.denominator, field="denominator")\n        beta = _require_optional_finite(self.beta, field="beta")\n        _require_bool(self.positive_slope, field="positive_slope")\n        if denominator is not None and denominator < 0.0:\n            raise ValueError("denominator must be non-negative when present")\n        if any(not isinstance(item, str) or not item for item in self.failures):\n            raise ValueError("symbol failures must be non-empty strings")\n\n        expected_failures, expected_beta = _expected_symbol_semantics(\n            symbol=self.symbol,\n            eligible_observations=eligible,\n            numerator=numerator,\n            denominator=denominator,\n            beta=beta,\n            minimum_observations=minimum,\n        )\n        if self.failures != expected_failures:\n            raise ValueError("symbol failure list does not match semantic authority")\n        if self.positive_slope is not (\n            expected_beta is not None and expected_beta > 0.0\n        ):\n            raise ValueError("positive_slope does not match semantic beta sign")\n'''
+          if text.count(old_fields) != 1:
+              raise SystemExit("old symbol semantic block not found exactly once")
+          text = text.replace(old_fields, new_fields, 1)
+
+          old_payload = '''            "positive_slope": self.positive_slope,\n            "failures": list(self.failures),\n        }\n'''
+          new_payload = '''            "positive_slope": self.positive_slope,\n            "failures": list(self.failures),\n            "minimum_observations": self.minimum_observations,\n        }\n'''
+          if text.count(old_payload) != 1:
+              raise SystemExit("symbol payload block not found exactly once")
+          text = text.replace(old_payload, new_payload, 1)
+
+          old_return = '''        positive_slope=beta is not None and beta > 0.0,\n        failures=tuple(failures),\n    )\n'''
+          new_return = '''        positive_slope=beta is not None and beta > 0.0,\n        failures=tuple(failures),\n        minimum_observations=minimum,\n    )\n'''
+          if text.count(old_return) != 1:
+              raise SystemExit("calibration return block not found exactly once")
+          text = text.replace(old_return, new_return, 1)
+
+          old_roster = '''        if tuple(item.symbol for item in self.symbol_results) != self.symbols:\n            raise ValueError("symbol result roster does not match canonical symbols")\n        _require_int(self.positive_slope_count, field="positive_slope_count")\n'''
+          new_roster = '''        if tuple(item.symbol for item in self.symbol_results) != self.symbols:\n            raise ValueError("symbol result roster does not match canonical symbols")\n        if any(\n            item.minimum_observations\n            != protocol.minimum_eligible_observations_per_symbol\n            for item in self.symbol_results\n        ):\n            raise ValueError("symbol minimum coverage differs from preregistration")\n        _require_int(self.positive_slope_count, field="positive_slope_count")\n'''
+          if text.count(old_roster) != 1:
+              raise SystemExit("result roster block not found exactly once")
+          text = text.replace(old_roster, new_roster, 1)
+
+          old_expected = '''        "positive_slope",\n        "failures",\n    }\n'''
+          new_expected = '''        "positive_slope",\n        "failures",\n        "minimum_observations",\n    }\n'''
+          if text.count(old_expected) != 1:
+              raise SystemExit("symbol loader field set not found exactly once")
+          text = text.replace(old_expected, new_expected, 1)
+
+          old_loader = '''        positive_slope=_require_bool(raw["positive_slope"], field="positive_slope"),\n        failures=tuple(failures_raw),\n    )\n'''
+          new_loader = '''        positive_slope=_require_bool(raw["positive_slope"], field="positive_slope"),\n        failures=tuple(failures_raw),\n        minimum_observations=_require_int(\n            raw["minimum_observations"],\n            field="minimum_observations",\n            minimum=1,\n        ),\n    )\n'''
+          if text.count(old_loader) != 1:
+              raise SystemExit("symbol loader constructor not found exactly once")
+          text = text.replace(old_loader, new_loader, 1)
+
+          path.write_text(text)
+          PY
+          test "$(git status --porcelain | cut -c4- | sort -u)" = "$SOURCE_PATH"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Verify semantic repair
+        run: |
+          uv run ruff format "$SOURCE_PATH"
+          uv run ruff check "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST"
+          uv run ruff format --check "$SOURCE_PATH" "$CORE_TEST" "$SEMANTIC_TEST"
+          uv run mypy "$SOURCE_PATH"
+          uv run pytest -q "$CORE_TEST" "$SEMANTIC_TEST"
+      - name: Guard and publish verified semantic repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)"
+          test "$remote" = "$TARGET_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$SOURCE_PATH"
+          git commit -m "fix: reject semantically forged Spot flow results"
+          git push origin HEAD:"$RESEARCH_BRANCH"

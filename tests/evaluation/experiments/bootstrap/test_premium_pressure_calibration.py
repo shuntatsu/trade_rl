@@ -339,12 +339,16 @@ def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator(
 ):
     protocol = canonical_premium_pressure_protocol()
     n = protocol.minimum_eligible_observations_per_symbol
-    x_values = [1e16, 1.0, -1e16] + [0.0] * (n - 3)
+    x_values = [
+        0.05843888312600577,
+        -7.274351982346268e-59,
+        0.07076126508662547,
+    ] + [0.0] * (n - 3)
     pairs = tuple(
         TrainingPair(
             decision_time_ms=index * _HOUR_MS,
             x=x,
-            y=-x * 1e-16 + 3.0,
+            y=-2.0 * x + 3.0,
         )
         for index, x in enumerate(x_values)
     )

@@ -280,9 +280,12 @@ def test_status_gate_distinguishes_pass_partial_incompatible_and_missing_source(
     assert decide_target_source_status(partial) == "PARTIAL_USDM_15M_TARGET_SOURCE"
 
     missing = [dict(item) for item in reports]
-    missing[0]["archive_available"] = False
-    missing[0]["checksum_available"] = False
-    missing[0]["checksum_verified"] = False
+    missing[0] = validate_target_archive_bytes(
+        symbol=TARGET_SYMBOLS[0],
+        date=TARGET_DATES[0],
+        archive_bytes=None,
+        checksum_bytes=None,
+    )
     assert decide_target_source_status(missing) == "PARTIAL_USDM_15M_TARGET_SOURCE"
 
     incompatible = [dict(item) for item in reports]

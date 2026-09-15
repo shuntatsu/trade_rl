@@ -1,0 +1,54 @@
+name: Temporary Issue 586 target-source semantic-closure RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue586-target-source-validator-hardening-red-v2
+    paths:
+      - .github/workflows/tmp-issue586-target-hardening-red-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: d9f23e2ac8becc1630716cfd13468c92cbf7dcc0
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact formatted hardening RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Hardening test source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py
+          uv run ruff format --check "$file"
+          uv run ruff check "$file"
+      - name: Require semantic-closure RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue586_target_source_validator_hardening.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "test_builder_rejects_impossible_grid_count_semantics" /tmp/red.log
+          grep -q "test_builder_rejects_bool_int_spoofing_in_nested_entry" /tmp/red.log
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

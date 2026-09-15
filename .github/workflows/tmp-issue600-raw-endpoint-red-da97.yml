@@ -1,0 +1,53 @@
+name: Temporary Issue 600 raw-endpoint contract semantic RED
+
+on:
+  push:
+    branches:
+      - verify/issue600-raw-endpoint-red-da97
+    paths:
+      - .github/workflows/tmp-issue600-raw-endpoint-red-da97.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: da97eb59b08ef042a96ebea4aaa645af02b450e9
+  CORRECT_ORACLE_SHA: 9e0345a9f51f56cd84efcb856be810f97a4b8ca1
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Overlay frozen raw-endpoint oracle only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin "$CORRECT_ORACLE_SHA" --depth=1 --no-tags
+          git show "$CORRECT_ORACLE_SHA:$TEST_FILE" > "$TEST_FILE"
+          test "$(git diff HEAD --name-only)" = "$TEST_FILE"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates then require semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+          set +e
+          uv run pytest -q "$TEST_FILE" > /tmp/red.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/red.log
+          test "$code" -ne 0
+          grep -E "17495|17_495|2022, 12, 30, 23|last_candidate_decision|nominal_candidate_decisions" /tmp/red.log
+          echo "RAW_ENDPOINT_SEMANTIC_RED=PASS"

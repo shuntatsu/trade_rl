@@ -1,0 +1,54 @@
+name: Temporary Issue 578 preregistration RED format
+
+on:
+  push:
+    branches:
+      - automation/issue578-prereg-red-format
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue578-spot-aggtrades-source-prereg
+  TARGET_SHA: d9ab601a96187eff0de7eb03a919622376f90bdb
+
+jobs:
+  format_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Fix test source quality only
+        run: |
+          uv run ruff check --fix tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+      - name: Guard and publish formatted test only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test -z "$(git diff --name-only | grep -v '^tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+          git commit -m "test: format Spot aggTrades preregistration RED"
+          git push origin HEAD:"$TARGET_BRANCH"

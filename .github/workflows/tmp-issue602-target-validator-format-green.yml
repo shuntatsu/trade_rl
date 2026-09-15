@@ -1,0 +1,65 @@
+name: Temporary Issue 602 target validator format and GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue602-target-validator-format-green
+    paths:
+      - .github/workflows/tmp-issue602-target-validator-format-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue602-usdm-1h-target-validator
+  TARGET_SHA: 3226464fb47eb3a7bcb1b90fad3e7f2b1a52cfcc
+  MODULE: trade_rl/evaluation/experiments/bootstrap/issue602_target_source_validator.py
+  TEST: tests/evaluation/experiments/bootstrap/test_issue602_target_source_validator.py
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact validator head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and synthetic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          uv run ruff check --fix "$MODULE"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+      - name: Guard and publish verified module only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$MODULE" || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "style: format verified Issue 602 target validator"
+          git push origin HEAD:"$TARGET_BRANCH"

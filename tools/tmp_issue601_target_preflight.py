@@ -87,7 +87,9 @@ def fetch_optional(url: str) -> bytes | None:
             last_error = error
         if attempt + 1 < _DOWNLOAD_ATTEMPTS:
             time.sleep(attempt + 1)
-    raise RuntimeError(f"transport failed for frozen URL after {_DOWNLOAD_ATTEMPTS} attempts") from last_error
+    raise RuntimeError(
+        f"transport failed for frozen URL after {_DOWNLOAD_ATTEMPTS} attempts"
+    ) from last_error
 
 
 def retrieve_validations() -> list[TargetArchiveValidation]:
@@ -216,7 +218,9 @@ def assert_result_blind(payload: object) -> None:
             assert_result_blind(value)
 
 
-def build_outputs(validations: Sequence[TargetArchiveValidation]) -> tuple[bytes, bytes]:
+def build_outputs(
+    validations: Sequence[TargetArchiveValidation],
+) -> tuple[bytes, bytes]:
     report = build_target_source_report(
         validations,
         validator_head=_VALIDATOR_HEAD,
@@ -225,7 +229,9 @@ def build_outputs(validations: Sequence[TargetArchiveValidation]) -> tuple[bytes
     manifest = build_manifest(validations)
     assert_result_blind(report)
     assert_result_blind(manifest)
-    return canonical_target_source_report_bytes(report), canonical_manifest_bytes(manifest)
+    return canonical_target_source_report_bytes(report), canonical_manifest_bytes(
+        manifest
+    )
 
 
 def main() -> None:

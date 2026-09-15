@@ -703,11 +703,12 @@ def decide_target_source_status(
         if archive_available is not True or checksum_available is not True:
             partial = True
 
-    if any(
-        summary["structurally_present_windows"] < _MIN_TARGET_WINDOWS
-        for summary in summaries.values()
-    ):
-        partial = True
+    for summary in summaries.values():
+        present = summary["structurally_present_windows"]
+        if isinstance(present, bool) or not isinstance(present, int):
+            return "INCOMPATIBLE_USDM_1H_TARGET_SOURCE"
+        if present < _MIN_TARGET_WINDOWS:
+            partial = True
     return "PARTIAL_USDM_1H_TARGET_SOURCE" if partial else "PASS_USDM_1H_TARGET_SOURCE"
 
 

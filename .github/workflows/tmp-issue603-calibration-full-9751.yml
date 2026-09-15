@@ -1,0 +1,128 @@
+name: Temporary Issue 603 calibration exact-head verification
+
+on:
+  push:
+    branches:
+      - verify/issue603-calibration-full-9751
+    paths:
+      - .github/workflows/tmp-issue603-calibration-full-9751.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 9751445fb98a5c99156b23afeb2bfcc445be1acd
+
+jobs:
+  core:
+    name: Lean Core exact target
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Targeted Issue 603 calibration suite
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+  guide:
+    name: Human Guide exact target
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: 9751445fb98a5c99156b23afeb2bfcc445be1acd
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

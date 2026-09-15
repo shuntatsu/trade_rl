@@ -1,0 +1,447 @@
+name: Issue 586 target-source prereg v3 offline rebind
+
+on:
+  push:
+    branches:
+      - rebind/issue586-target-source-prereg-v3
+    paths:
+      - .github/workflows/issue586-target-source-prereg-v3-rebind.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NEW_PREREG_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  NEW_PREREG_DIGEST: 9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76
+  NEW_PREREG_FULL_RUN_ID: "34952378700"
+  NEW_PREREG_SEAL_RUN_ID: "34952843190"
+  NEW_PREREG_SEAL_ARTIFACT_ID: "10390380265"
+  NEW_PREREG_SEAL_ARTIFACT_NAME: issue584-spot-flow-prereg-seal-v3-34952843190
+  NEW_PREREG_SEAL_ARTIFACT_DIGEST: sha256:bd80fe0ae93ad95c5106eacc9f9b99c85164da65f5fc7ae8d290f45a03e84646
+  NEW_PREREG_FRESH_ARTIFACT_ID: "10390415743"
+  NEW_PREREG_FRESH_ARTIFACT_NAME: issue584-spot-flow-prereg-fresh-v3-34952843190
+  NEW_PREREG_FRESH_ARTIFACT_DIGEST: sha256:014cc3fc01b34a40086efe776717dfff15ffed1c5874afcc5e0aa907a9fd7115
+  OLD_PREREG_SHA: 89ec1092e438d69657840567e684739ca0c4e3d5
+  OLD_PREREG_DIGEST: bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3
+  VALIDATOR_SHA: 12151cb014f62f603fc115b3129d14264eb93683
+  VALIDATOR_FULL_RUN_ID: "34951770631"
+  ADOPTION_RUN_ID: "34952526725"
+  ADOPTION_ARTIFACT_ID: "10389971187"
+  ADOPTION_ARTIFACT_NAME: issue586-existing-preflight-adoption-v2-34952526725
+  ADOPTION_ARTIFACT_DIGEST: sha256:599c2770d4f8ebffc1976d0ff84f12627f7b47f0a81b3cbf875cf096737fd071
+  ADOPTION_FRESH_ARTIFACT_ID: "10390001155"
+  ADOPTION_FRESH_ARTIFACT_NAME: issue586-existing-preflight-adoption-fresh-v2-34952526725
+  ADOPTION_FRESH_ARTIFACT_DIGEST: sha256:c5652f11b3f9404bfb80cdaa5202b49b41d686f09f4fbbedfb234878eeaa3fd9
+  LEGACY_PREFLIGHT_RUN_ID: "34941447564"
+  LEGACY_PUBLISHER_ARTIFACT_ID: "10385451448"
+  LEGACY_PUBLISHER_ARTIFACT_NAME: issue584-target-source-preflight-v2-34941447564
+  LEGACY_PUBLISHER_ARTIFACT_DIGEST: sha256:07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb
+  LEGACY_FRESH_ARTIFACT_ID: "10385516382"
+  LEGACY_FRESH_ARTIFACT_NAME: issue584-target-source-fresh-v2-34941447564
+  LEGACY_FRESH_ARTIFACT_DIGEST: sha256:7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d
+  LEGACY_MANIFEST_SHA256: 69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b
+  LEGACY_REPORT_SHA256: c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d
+  LEGACY_REPORT_CONTENT_DIGEST: 5a7af640640b23894f857726944a306aef522799ca8c983757e864d76262d54d
+  ADOPTION_CONTENT_DIGEST: 50cf317dc1bf21e9a297912380293c86fb0f2bc34e54497473868cafd82c7a53
+
+jobs:
+  rebind:
+    name: Offline prereg v3 rebind publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.NEW_PREREG_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind all immutable authorities before reading evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$NEW_PREREG_SHA"
+          test "$(git ls-remote origin refs/heads/research/issue584-spot-flow-prereg | cut -f1)" = "$NEW_PREREG_SHA"
+          for run_id in "$NEW_PREREG_FULL_RUN_ID" "$NEW_PREREG_SEAL_RUN_ID" "$VALIDATOR_FULL_RUN_ID" "$ADOPTION_RUN_ID" "$LEGACY_PREFLIGHT_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+          for spec in \
+            "$NEW_PREREG_SEAL_ARTIFACT_ID|$NEW_PREREG_SEAL_RUN_ID|$NEW_PREREG_SEAL_ARTIFACT_DIGEST" \
+            "$NEW_PREREG_FRESH_ARTIFACT_ID|$NEW_PREREG_SEAL_RUN_ID|$NEW_PREREG_FRESH_ARTIFACT_DIGEST" \
+            "$ADOPTION_ARTIFACT_ID|$ADOPTION_RUN_ID|$ADOPTION_ARTIFACT_DIGEST" \
+            "$ADOPTION_FRESH_ARTIFACT_ID|$ADOPTION_RUN_ID|$ADOPTION_FRESH_ARTIFACT_DIGEST" \
+            "$LEGACY_PUBLISHER_ARTIFACT_ID|$LEGACY_PREFLIGHT_RUN_ID|$LEGACY_PUBLISHER_ARTIFACT_DIGEST" \
+            "$LEGACY_FRESH_ARTIFACT_ID|$LEGACY_PREFLIGHT_RUN_ID|$LEGACY_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run_id expected <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$expected"
+          done
+      - name: Download old immutable evidence, adoption, and new seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/legacy-publisher /tmp/legacy-fresh /tmp/adoption /tmp/adoption-fresh /tmp/new-seal /tmp/new-fresh
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$LEGACY_PUBLISHER_ARTIFACT_NAME" --dir /tmp/legacy-publisher
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$LEGACY_FRESH_ARTIFACT_NAME" --dir /tmp/legacy-fresh
+          gh run download "$ADOPTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ADOPTION_ARTIFACT_NAME" --dir /tmp/adoption
+          gh run download "$ADOPTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ADOPTION_FRESH_ARTIFACT_NAME" --dir /tmp/adoption-fresh
+          gh run download "$NEW_PREREG_SEAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NEW_PREREG_SEAL_ARTIFACT_NAME" --dir /tmp/new-seal
+          gh run download "$NEW_PREREG_SEAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NEW_PREREG_FRESH_ARTIFACT_NAME" --dir /tmp/new-fresh
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Prove clock hardening is additive and target roster/source unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/old-prereg "$OLD_PREREG_SHA"
+          "$GITHUB_WORKSPACE/.venv/bin/python" - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol
+
+          new = canonical_spot_flow_continuation_protocol().to_payload()
+          code = "from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol; import json; print(json.dumps(canonical_spot_flow_continuation_protocol().to_payload(), sort_keys=True, separators=(',',':')))"
+          env = dict(os.environ)
+          env['PYTHONPATH'] = '/tmp/old-prereg'
+          raw = subprocess.check_output([str(Path(os.environ['GITHUB_WORKSPACE'])/'.venv/bin/python'), '-c', code], cwd='/tmp/old-prereg', env=env, text=True)
+          old = json.loads(raw)
+          added = {
+              'target_dataset_timestamp_semantics': 'completed_bar_close_boundary',
+              'target_dataset_timestamp_formula': 'dataset_timestamp=raw_open_time+15m',
+              'decision_target_row_semantics': 'decision_t_equals_target_completed_row_timestamp',
+              'decision_row_raw_open_time_offset_minutes': -15,
+              'execution_raw_open_time_offset_minutes': 0,
+              'endpoint_raw_open_time_offset_minutes': 240,
+          }
+          if set(new) != set(old) | set(added):
+              raise SystemExit('new prereg field set differs beyond clock hardening')
+          for key, value in old.items():
+              if new.get(key) != value or type(new.get(key)) is not type(value):
+                  raise SystemExit(f'existing prereg field changed: {key}')
+          for key, value in added.items():
+              if new.get(key) != value or type(new.get(key)) is not type(value):
+                  raise SystemExit(f'new clock field differs: {key}')
+          for key in ('symbols','spot_dates','target_source_family','target_transport_mode','target_timeframe','execution_open_offset_bars','endpoint_open_offset_bars','horizon_bars','horizon_minutes'):
+              if new[key] != old[key]:
+                  raise SystemExit(f'target roster/source semantic changed: {key}')
+          print('PREREG_CLOCK_HARDENING_ADDITIVE=true')
+          print('TARGET_ARCHIVE_ROSTER_UNCHANGED=true')
+          PY
+      - name: Revalidate immutable evidence and publish rebound authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rebind
+          cmp /tmp/legacy-publisher/report.json /tmp/legacy-fresh/report.json
+          cmp /tmp/legacy-publisher/manifest.json /tmp/legacy-fresh/manifest.json
+          cmp /tmp/adoption/adoption.json /tmp/adoption-fresh/adoption.json
+          cmp /tmp/new-seal/protocol.json /tmp/new-fresh/fresh-protocol.json
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol
+
+          report_raw = Path('/tmp/legacy-publisher/report.json').read_bytes()
+          manifest_raw = Path('/tmp/legacy-publisher/manifest.json').read_bytes()
+          adoption_raw = Path('/tmp/adoption/adoption.json').read_bytes()
+          seal_protocol = Path('/tmp/new-seal/protocol.json').read_bytes()
+          if hashlib.sha256(report_raw).hexdigest() != os.environ['LEGACY_REPORT_SHA256']:
+              raise SystemExit('legacy report bytes differ')
+          if hashlib.sha256(manifest_raw).hexdigest() != os.environ['LEGACY_MANIFEST_SHA256']:
+              raise SystemExit('legacy manifest bytes differ')
+          if hashlib.sha256(seal_protocol).hexdigest() != os.environ['NEW_PREREG_DIGEST']:
+              raise SystemExit('new sealed protocol bytes differ')
+          report = json.loads(report_raw)
+          adoption = json.loads(adoption_raw)
+          if report.get('content_digest') != os.environ['LEGACY_REPORT_CONTENT_DIGEST']:
+              raise SystemExit('legacy report content digest differs')
+          if adoption.get('content_digest') != os.environ['ADOPTION_CONTENT_DIGEST']:
+              raise SystemExit('adoption content digest differs')
+          if adoption.get('status') != 'PASS_USDM_15M_TARGET_SOURCE':
+              raise SystemExit('hardened adoption did not preserve PASS')
+          if adoption.get('validator_head') != os.environ['VALIDATOR_SHA'] or adoption.get('validator_full_verify_run_id') != int(os.environ['VALIDATOR_FULL_RUN_ID']):
+              raise SystemExit('validator authority differs')
+          for key in ('planned_archive_count','available_archive_count','available_checksum_count','checksum_verified_count','structurally_valid_archive_count','complete_96_row_archive_count'):
+              if adoption.get(key) != 40:
+                  raise SystemExit(f'adoption count differs: {key}')
+          if adoption.get('legacy_manifest_sha256') != os.environ['LEGACY_MANIFEST_SHA256']:
+              raise SystemExit('adoption manifest binding differs')
+          protocol = canonical_spot_flow_continuation_protocol()
+          if protocol.digest != os.environ['NEW_PREREG_DIGEST'] or protocol.canonical_json_bytes != seal_protocol:
+              raise SystemExit('runtime prereg differs from seal v3')
+          payload = {
+              'schema_version': 'issue586_target_source_prereg_v3_rebind_v1',
+              'issue_number': 586,
+              'status': 'PASS_USDM_15M_TARGET_SOURCE',
+              'new_prereg_head': os.environ['NEW_PREREG_SHA'],
+              'new_prereg_digest': os.environ['NEW_PREREG_DIGEST'],
+              'new_prereg_seal_run_id': int(os.environ['NEW_PREREG_SEAL_RUN_ID']),
+              'new_prereg_seal_artifact_id': int(os.environ['NEW_PREREG_SEAL_ARTIFACT_ID']),
+              'new_prereg_seal_artifact_digest': os.environ['NEW_PREREG_SEAL_ARTIFACT_DIGEST'],
+              'new_prereg_fresh_artifact_id': int(os.environ['NEW_PREREG_FRESH_ARTIFACT_ID']),
+              'new_prereg_fresh_artifact_digest': os.environ['NEW_PREREG_FRESH_ARTIFACT_DIGEST'],
+              'superseded_prereg_head': os.environ['OLD_PREREG_SHA'],
+              'superseded_prereg_digest': os.environ['OLD_PREREG_DIGEST'],
+              'validator_head': os.environ['VALIDATOR_SHA'],
+              'validator_full_verify_run_id': int(os.environ['VALIDATOR_FULL_RUN_ID']),
+              'adoption_run_id': int(os.environ['ADOPTION_RUN_ID']),
+              'adoption_artifact_id': int(os.environ['ADOPTION_ARTIFACT_ID']),
+              'adoption_artifact_digest': os.environ['ADOPTION_ARTIFACT_DIGEST'],
+              'adoption_fresh_artifact_id': int(os.environ['ADOPTION_FRESH_ARTIFACT_ID']),
+              'adoption_fresh_artifact_digest': os.environ['ADOPTION_FRESH_ARTIFACT_DIGEST'],
+              'legacy_preflight_run_id': int(os.environ['LEGACY_PREFLIGHT_RUN_ID']),
+              'legacy_manifest_sha256': os.environ['LEGACY_MANIFEST_SHA256'],
+              'legacy_report_sha256': os.environ['LEGACY_REPORT_SHA256'],
+              'legacy_report_content_digest': os.environ['LEGACY_REPORT_CONTENT_DIGEST'],
+              'target_archive_roster_unchanged': True,
+              'target_source_authority_unchanged': True,
+              'clock_hardening_additive_only': True,
+              'planned_archive_count': 40,
+              'available_archive_count': 40,
+              'checksum_verified_count': 40,
+              'structurally_valid_archive_count': 40,
+              'complete_96_row_archive_count': 40,
+              'network_fetch_performed_by_this_rebind': False,
+              'economic_values_reported': False,
+              'target_return_computed': False,
+              'spot_flow_computed': False,
+              'training_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          rebound = {**payload, 'content_digest': content_digest(payload)}
+          Path('/tmp/rebind/rebind.json').write_bytes(canonical_json_bytes(rebound))
+          Path('/tmp/rebind/manifest.json').write_bytes(manifest_raw)
+          Path('/tmp/rebind/legacy-report.json').write_bytes(report_raw)
+          print('ISSUE586_PREREG_V3_REBIND=PASS')
+          print('TARGET_SOURCE_STATUS=PASS_USDM_15M_TARGET_SOURCE')
+          print('NETWORK_FETCH_PERFORMED=false')
+          PY
+      - id: meta
+        run: echo "name=issue586-target-source-prereg-v3-rebind-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/rebind/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent prereg v3 rebind reconstruction
+    needs: rebind
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.NEW_PREREG_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind rebound and source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REBIND_ID: ${{ needs.rebind.outputs.artifact_id }}
+          REBIND_NAME: ${{ needs.rebind.outputs.artifact_name }}
+          REBIND_DIGEST: ${{ needs.rebind.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$REBIND_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$REBIND_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$REBIND_DIGEST" in sha256:*) test "$api_digest" = "$REBIND_DIGEST" ;; *) test "$api_digest" = "sha256:$REBIND_DIGEST" ;; esac
+          for spec in "$ADOPTION_ARTIFACT_ID|$ADOPTION_RUN_ID|$ADOPTION_ARTIFACT_DIGEST" "$LEGACY_PUBLISHER_ARTIFACT_ID|$LEGACY_PREFLIGHT_RUN_ID|$LEGACY_PUBLISHER_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id run_id expected <<<"$spec"
+            source="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$source")" = "$run_id"
+            test "$(jq -r .expired <<<"$source")" = false
+            test "$(jq -r .digest <<<"$source")" = "$expected"
+          done
+      - name: Download published rebound and immutable sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/published /tmp/legacy-publisher /tmp/adoption /tmp/new-seal /tmp/fresh
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "${{ needs.rebind.outputs.artifact_name }}" --dir /tmp/published
+          gh run download "$LEGACY_PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$LEGACY_PUBLISHER_ARTIFACT_NAME" --dir /tmp/legacy-publisher
+          gh run download "$ADOPTION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ADOPTION_ARTIFACT_NAME" --dir /tmp/adoption
+          gh run download "$NEW_PREREG_SEAL_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NEW_PREREG_SEAL_ARTIFACT_NAME" --dir /tmp/new-seal
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct exact rebound bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol
+          manifest_raw = Path('/tmp/legacy-publisher/manifest.json').read_bytes()
+          report_raw = Path('/tmp/legacy-publisher/report.json').read_bytes()
+          adoption = json.loads(Path('/tmp/adoption/adoption.json').read_bytes())
+          seal_protocol = Path('/tmp/new-seal/protocol.json').read_bytes()
+          if hashlib.sha256(manifest_raw).hexdigest() != os.environ['LEGACY_MANIFEST_SHA256']:
+              raise SystemExit('manifest differs')
+          if hashlib.sha256(report_raw).hexdigest() != os.environ['LEGACY_REPORT_SHA256']:
+              raise SystemExit('legacy report differs')
+          if adoption.get('content_digest') != os.environ['ADOPTION_CONTENT_DIGEST'] or adoption.get('status') != 'PASS_USDM_15M_TARGET_SOURCE':
+              raise SystemExit('adoption differs')
+          protocol = canonical_spot_flow_continuation_protocol()
+          if protocol.digest != os.environ['NEW_PREREG_DIGEST'] or protocol.canonical_json_bytes != seal_protocol:
+              raise SystemExit('new prereg differs')
+          payload = {
+              'schema_version': 'issue586_target_source_prereg_v3_rebind_v1',
+              'issue_number': 586,
+              'status': 'PASS_USDM_15M_TARGET_SOURCE',
+              'new_prereg_head': os.environ['NEW_PREREG_SHA'],
+              'new_prereg_digest': os.environ['NEW_PREREG_DIGEST'],
+              'new_prereg_seal_run_id': int(os.environ['NEW_PREREG_SEAL_RUN_ID']),
+              'new_prereg_seal_artifact_id': int(os.environ['NEW_PREREG_SEAL_ARTIFACT_ID']),
+              'new_prereg_seal_artifact_digest': os.environ['NEW_PREREG_SEAL_ARTIFACT_DIGEST'],
+              'new_prereg_fresh_artifact_id': int(os.environ['NEW_PREREG_FRESH_ARTIFACT_ID']),
+              'new_prereg_fresh_artifact_digest': os.environ['NEW_PREREG_FRESH_ARTIFACT_DIGEST'],
+              'superseded_prereg_head': os.environ['OLD_PREREG_SHA'],
+              'superseded_prereg_digest': os.environ['OLD_PREREG_DIGEST'],
+              'validator_head': os.environ['VALIDATOR_SHA'],
+              'validator_full_verify_run_id': int(os.environ['VALIDATOR_FULL_RUN_ID']),
+              'adoption_run_id': int(os.environ['ADOPTION_RUN_ID']),
+              'adoption_artifact_id': int(os.environ['ADOPTION_ARTIFACT_ID']),
+              'adoption_artifact_digest': os.environ['ADOPTION_ARTIFACT_DIGEST'],
+              'adoption_fresh_artifact_id': int(os.environ['ADOPTION_FRESH_ARTIFACT_ID']),
+              'adoption_fresh_artifact_digest': os.environ['ADOPTION_FRESH_ARTIFACT_DIGEST'],
+              'legacy_preflight_run_id': int(os.environ['LEGACY_PREFLIGHT_RUN_ID']),
+              'legacy_manifest_sha256': os.environ['LEGACY_MANIFEST_SHA256'],
+              'legacy_report_sha256': os.environ['LEGACY_REPORT_SHA256'],
+              'legacy_report_content_digest': os.environ['LEGACY_REPORT_CONTENT_DIGEST'],
+              'target_archive_roster_unchanged': True,
+              'target_source_authority_unchanged': True,
+              'clock_hardening_additive_only': True,
+              'planned_archive_count': 40,
+              'available_archive_count': 40,
+              'checksum_verified_count': 40,
+              'structurally_valid_archive_count': 40,
+              'complete_96_row_archive_count': 40,
+              'network_fetch_performed_by_this_rebind': False,
+              'economic_values_reported': False,
+              'target_return_computed': False,
+              'spot_flow_computed': False,
+              'training_relation_computed': False,
+              'evaluation_pnl_inspected': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          rebound = {**payload, 'content_digest': content_digest(payload)}
+          Path('/tmp/fresh/rebind.json').write_bytes(canonical_json_bytes(rebound))
+          Path('/tmp/fresh/manifest.json').write_bytes(manifest_raw)
+          Path('/tmp/fresh/legacy-report.json').write_bytes(report_raw)
+          PY
+          cmp /tmp/published/rebind.json /tmp/fresh/rebind.json
+          cmp /tmp/published/manifest.json /tmp/fresh/manifest.json
+          cmp /tmp/published/legacy-report.json /tmp/fresh/legacy-report.json
+      - id: meta
+        run: echo "name=issue586-target-source-prereg-v3-rebind-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final target-source prereg v3 rebind audit
+    needs: [rebind, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind rebound artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.rebind.outputs.artifact_id }}
+          PUB_NAME: ${{ needs.rebind.outputs.artifact_name }}
+          PUB_DIGEST: ${{ needs.rebind.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_NAME|$PUB_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in sha256:*) test "$api_digest" = "$digest" ;; *) test "$api_digest" = "sha256:$digest" ;; esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.rebind.outputs.artifact_name }}
+          path: /tmp/rebind
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require byte equality and rebound PASS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/rebind/rebind.json /tmp/fresh/rebind.json
+          cmp /tmp/rebind/manifest.json /tmp/fresh/manifest.json
+          cmp /tmp/rebind/legacy-report.json /tmp/fresh/legacy-report.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/rebind/rebind.json').read_bytes())
+          assert payload['status'] == 'PASS_USDM_15M_TARGET_SOURCE'
+          assert payload['new_prereg_head'] == '41a403bda4252f15d8c059166dd6716110a4bc37'
+          assert payload['new_prereg_digest'] == '9824daffb6fbd77ab8994082cb058d8be981cc331a54434123c34b8890e94b76'
+          assert payload['validator_head'] == '12151cb014f62f603fc115b3129d14264eb93683'
+          assert payload['target_archive_roster_unchanged'] is True
+          assert payload['target_source_authority_unchanged'] is True
+          assert payload['clock_hardening_additive_only'] is True
+          assert payload['network_fetch_performed_by_this_rebind'] is False
+          for key in ('planned_archive_count','available_archive_count','checksum_verified_count','structurally_valid_archive_count','complete_96_row_archive_count'):
+              assert payload[key] == 40
+          for key in ('economic_values_reported','target_return_computed','spot_flow_computed','training_relation_computed','evaluation_pnl_inspected','production_eligible','live_trading_authorized'):
+              assert payload[key] is False
+          print('ISSUE586_PREREG_V3_REBIND_AUDIT=PASS')
+          PY

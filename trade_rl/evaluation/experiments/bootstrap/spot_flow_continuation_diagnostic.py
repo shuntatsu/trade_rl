@@ -33,6 +33,25 @@ _PREREG_FRESH_ARTIFACT_API_DIGEST = (
 _PREREG_PROTOCOL_DIGEST = (
     "bf0aa2db248e9dcab745e92e6bde54de6b48276a785eec74670e0dedba8cb5e3"
 )
+_TARGET_PREFLIGHT_STATUS = "PASS_TARGET_SOURCE_PREFLIGHT"
+_TARGET_PREFLIGHT_RUN_ID = 34941447564
+_TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID = 10385451448
+_TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_API_DIGEST = (
+    "07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb"
+)
+_TARGET_PREFLIGHT_FRESH_ARTIFACT_ID = 10385516382
+_TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST = (
+    "7d02df596647ad109f3f049ec884757f50689f82f65b27f9de795ecfa88f5e7d"
+)
+_TARGET_PREFLIGHT_REPORT_SHA256 = (
+    "c8c1c33704a72b9a8bb1ca96d143bf7883ff4ebf1aeeab3d30f7fe8568ae4b6d"
+)
+_TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST = (
+    "5a7af640640b23894f857726944a306aef522799ca8c983757e864d76262d54d"
+)
+_TARGET_MANIFEST_DIGEST = (
+    "69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b"
+)
 _QUARTER_HOUR_MS = 15 * 60 * 1_000
 _FOUR_HOURS_MS = 4 * 60 * 60 * 1_000
 _SPOT_HEADER = (
@@ -577,6 +596,15 @@ class SpotFlowDiagnosticResult:
     positive_slope_count: int
     status: str
     failures: tuple[str, ...]
+    target_preflight_status: str = _TARGET_PREFLIGHT_STATUS
+    target_preflight_fresh_artifact_id: int = _TARGET_PREFLIGHT_FRESH_ARTIFACT_ID
+    target_preflight_fresh_artifact_api_digest: str = (
+        _TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST
+    )
+    target_preflight_report_sha256: str = _TARGET_PREFLIGHT_REPORT_SHA256
+    target_preflight_report_content_digest: str = (
+        _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST
+    )
     prereg_head: str = _PREREG_HEAD
     prereg_full_verify_run_id: int = _PREREG_FULL_VERIFY_RUN_ID
     prereg_seal_run_id: int = _PREREG_SEAL_RUN_ID
@@ -656,6 +684,21 @@ class SpotFlowDiagnosticResult:
             raise ValueError("diagnostic status does not match frozen decision rule")
 
         fixed_authority: dict[str, object] = {
+            "target_manifest_digest": _TARGET_MANIFEST_DIGEST,
+            "target_preflight_run_id": _TARGET_PREFLIGHT_RUN_ID,
+            "target_preflight_artifact_id": _TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_ID,
+            "target_preflight_artifact_api_digest": (
+                _TARGET_PREFLIGHT_PUBLISHER_ARTIFACT_API_DIGEST
+            ),
+            "target_preflight_status": _TARGET_PREFLIGHT_STATUS,
+            "target_preflight_fresh_artifact_id": _TARGET_PREFLIGHT_FRESH_ARTIFACT_ID,
+            "target_preflight_fresh_artifact_api_digest": (
+                _TARGET_PREFLIGHT_FRESH_ARTIFACT_API_DIGEST
+            ),
+            "target_preflight_report_sha256": _TARGET_PREFLIGHT_REPORT_SHA256,
+            "target_preflight_report_content_digest": (
+                _TARGET_PREFLIGHT_REPORT_CONTENT_DIGEST
+            ),
             "prereg_head": _PREREG_HEAD,
             "prereg_full_verify_run_id": _PREREG_FULL_VERIFY_RUN_ID,
             "prereg_seal_run_id": _PREREG_SEAL_RUN_ID,
@@ -706,10 +749,23 @@ class SpotFlowDiagnosticResult:
             "implementation_head": self.implementation_head,
             "source_manifest_digest": self.source_manifest_digest,
             "target_manifest_digest": self.target_manifest_digest,
+            "target_preflight_status": self.target_preflight_status,
             "target_preflight_run_id": self.target_preflight_run_id,
-            "target_preflight_artifact_id": self.target_preflight_artifact_id,
-            "target_preflight_artifact_api_digest": (
+            "target_preflight_publisher_artifact_id": (
+                self.target_preflight_artifact_id
+            ),
+            "target_preflight_publisher_artifact_api_digest": (
                 self.target_preflight_artifact_api_digest
+            ),
+            "target_preflight_fresh_artifact_id": (
+                self.target_preflight_fresh_artifact_id
+            ),
+            "target_preflight_fresh_artifact_api_digest": (
+                self.target_preflight_fresh_artifact_api_digest
+            ),
+            "target_preflight_report_sha256": self.target_preflight_report_sha256,
+            "target_preflight_report_content_digest": (
+                self.target_preflight_report_content_digest
             ),
             "execution_run_id": self.execution_run_id,
             "symbols": list(self.symbols),
@@ -727,6 +783,14 @@ class SpotFlowDiagnosticResult:
             "production_eligible": self.production_eligible,
             "live_trading_authorized": self.live_trading_authorized,
         }
+
+    @property
+    def target_preflight_publisher_artifact_id(self) -> int:
+        return self.target_preflight_artifact_id
+
+    @property
+    def target_preflight_publisher_artifact_api_digest(self) -> str:
+        return self.target_preflight_artifact_api_digest
 
     @property
     def digest(self) -> str:
@@ -866,9 +930,14 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
         "implementation_head",
         "source_manifest_digest",
         "target_manifest_digest",
+        "target_preflight_status",
         "target_preflight_run_id",
-        "target_preflight_artifact_id",
-        "target_preflight_artifact_api_digest",
+        "target_preflight_publisher_artifact_id",
+        "target_preflight_publisher_artifact_api_digest",
+        "target_preflight_fresh_artifact_id",
+        "target_preflight_fresh_artifact_api_digest",
+        "target_preflight_report_sha256",
+        "target_preflight_report_content_digest",
         "execution_run_id",
         "symbols",
         "symbol_results",
@@ -951,20 +1020,43 @@ def load_spot_flow_result_bytes(payload: bytes) -> SpotFlowDiagnosticResult:
             length=64,
             field="target_manifest_digest",
         ),
+        target_preflight_status=_require_string(
+            decoded["target_preflight_status"], field="target_preflight_status"
+        ),
         target_preflight_run_id=_require_int(
             decoded["target_preflight_run_id"],
             field="target_preflight_run_id",
             minimum=1,
         ),
         target_preflight_artifact_id=_require_int(
-            decoded["target_preflight_artifact_id"],
-            field="target_preflight_artifact_id",
+            decoded["target_preflight_publisher_artifact_id"],
+            field="target_preflight_publisher_artifact_id",
             minimum=1,
         ),
         target_preflight_artifact_api_digest=_require_hex(
-            decoded["target_preflight_artifact_api_digest"],
+            decoded["target_preflight_publisher_artifact_api_digest"],
             length=64,
-            field="target_preflight_artifact_api_digest",
+            field="target_preflight_publisher_artifact_api_digest",
+        ),
+        target_preflight_fresh_artifact_id=_require_int(
+            decoded["target_preflight_fresh_artifact_id"],
+            field="target_preflight_fresh_artifact_id",
+            minimum=1,
+        ),
+        target_preflight_fresh_artifact_api_digest=_require_hex(
+            decoded["target_preflight_fresh_artifact_api_digest"],
+            length=64,
+            field="target_preflight_fresh_artifact_api_digest",
+        ),
+        target_preflight_report_sha256=_require_hex(
+            decoded["target_preflight_report_sha256"],
+            length=64,
+            field="target_preflight_report_sha256",
+        ),
+        target_preflight_report_content_digest=_require_hex(
+            decoded["target_preflight_report_content_digest"],
+            length=64,
+            field="target_preflight_report_content_digest",
         ),
         execution_run_id=_require_int(
             decoded["execution_run_id"], field="execution_run_id", minimum=1

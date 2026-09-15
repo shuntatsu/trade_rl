@@ -24,10 +24,10 @@ def _artifact_payload() -> dict[str, object]:
         protocol,
         implementation_head="1" * 40,
         source_manifest_digest="2" * 64,
-        target_manifest_digest="3" * 64,
-        target_preflight_run_id=123,
-        target_preflight_artifact_id=456,
-        target_preflight_artifact_api_digest="4" * 64,
+        target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b",
+        target_preflight_run_id=34941447564,
+        target_preflight_artifact_id=10385451448,
+        target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb",
         execution_run_id=789,
     )
     return json.loads(diagnostic.canonical_spot_flow_result_bytes(result))

@@ -90,10 +90,10 @@ def _build_result(*, positive_symbols: int = 4) -> diagnostic.SpotFlowDiagnostic
         protocol,
         implementation_head="1" * 40,
         source_manifest_digest="2" * 64,
-        target_manifest_digest="3" * 64,
-        target_preflight_run_id=123,
-        target_preflight_artifact_id=456,
-        target_preflight_artifact_api_digest="4" * 64,
+        target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b",
+        target_preflight_run_id=34941447564,
+        target_preflight_artifact_id=10385451448,
+        target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb",
         execution_run_id=789,
     )
 
@@ -279,10 +279,10 @@ def test_frozen_four_of_five_positive_gate_and_coverage_gate() -> None:
         protocol,
         implementation_head="1" * 40,
         source_manifest_digest="2" * 64,
-        target_manifest_digest="3" * 64,
-        target_preflight_run_id=123,
-        target_preflight_artifact_id=456,
-        target_preflight_artifact_api_digest="4" * 64,
+        target_manifest_digest="69a4105e8839d38972a034b49c9a3d019d3bc330981fce7cb860276e9ca0b25b",
+        target_preflight_run_id=34941447564,
+        target_preflight_artifact_id=10385451448,
+        target_preflight_artifact_api_digest="07ee6cbaee5ae36d5c564d8559f174e95e2fe63a2e68c7938fe84190e3b03ebb",
         execution_run_id=789,
     )
     assert invalid.status == "INVALID_SPOT_FLOW_COVERAGE"

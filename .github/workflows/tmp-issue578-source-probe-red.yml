@@ -1,0 +1,51 @@
+name: Temporary Issue 578 Spot source probe RED
+
+on:
+  push:
+    branches:
+      - verify/issue578-source-probe-red
+    paths:
+      - .github/workflows/tmp-issue578-source-probe-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 46c147b6d54294f4e17f3b876347aa9335c50efc
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact RED target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Verify test source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=tests/evaluation/experiments/bootstrap/test_issue578_spot_aggtrades_source_probe.py
+          uv run ruff check "$file"
+          uv run ruff format --check "$file"
+      - name: Require intended missing-helper RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue578_spot_aggtrades_source_probe.py >/tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "ModuleNotFoundError.*tmp_issue578_spot_aggtrades_source_probe" /tmp/red.log
+          ! grep -q "SyntaxError" /tmp/red.log

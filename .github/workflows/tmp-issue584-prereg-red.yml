@@ -1,0 +1,45 @@
+name: Temporary Issue 584 preregistration RED
+
+on:
+  push:
+    branches:
+      - verify/issue584-prereg-red
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: bb1103194ca34cd82bccd6f00037ac4568b899ff
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        run: |
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py
+      - name: Require missing-production RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_prereg.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "ModuleNotFoundError|No module named.*spot_flow_continuation_prereg" /tmp/red.log
+          ! grep -q "SyntaxError" /tmp/red.log

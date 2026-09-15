@@ -1,0 +1,39 @@
+name: Temporary Issue 584 diagnostic target rebind RED
+
+on:
+  push:
+    branches:
+      - verify/issue584-diagnostic-target-rebind-red-run
+    paths:
+      - .github/workflows/tmp-issue584-diagnostic-target-rebind-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 5ff3b40dcea3d0d1aadb20ea7b4cadde630c3ca0
+
+jobs:
+  semantic_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED oracle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Assert exact RED target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates before semantic RED
+        run: |
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+          uv run ruff format --check tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+      - name: Semantic RED oracle
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py

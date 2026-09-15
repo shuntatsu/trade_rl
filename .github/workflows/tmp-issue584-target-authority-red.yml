@@ -1,0 +1,48 @@
+name: Temporary Issue 584 target authority RED
+
+on:
+  push:
+    branches:
+      - verify/issue584-target-authority-red
+    paths:
+      - .github/workflows/tmp-issue584-target-authority-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 2bd4ed78f1935691ca0df41fe61282aaa8d88d95
+  CORE_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py
+  SEMANTIC_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py
+  AUTHORITY_TEST: tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        run: |
+          uv run ruff format --check "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+          uv run ruff check "$CORE_TEST" "$SEMANTIC_TEST" "$AUTHORITY_TEST"
+      - name: Require existing diagnostic GREEN
+        run: uv run pytest -q "$CORE_TEST" "$SEMANTIC_TEST"
+      - name: Require target-authority RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q "$AUTHORITY_TEST" > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq "AttributeError|DID NOT RAISE|unexpected keyword|has no attribute" /tmp/red.log

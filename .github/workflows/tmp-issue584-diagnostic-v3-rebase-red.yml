@@ -1,0 +1,71 @@
+name: Temporary Issue 584 diagnostic v3 authority rebase RED
+
+on:
+  push:
+    branches:
+      - verify/issue584-diagnostic-v3-rebase-red
+    paths:
+      - .github/workflows/tmp-issue584-diagnostic-v3-rebase-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 41a403bda4252f15d8c059166dd6716110a4bc37
+  OLD_IMPL_SHA: 1b8c1000a56e37cbb512f3496be647e8e217c1cd
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact clock-hardened preregistration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Overlay previously verified diagnostic implementation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin "$OLD_IMPL_SHA" --no-tags
+          git checkout "$OLD_IMPL_SHA" -- \
+            trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Prove overlaid source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_diagnostic_semantics.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_streaming.py tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py"
+          uv run ruff format --check $files
+          uv run ruff check $files
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/spot_flow_continuation_diagnostic.py
+      - name: Require old authority to fail closed against v3 protocol
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_flow_continuation_target_authority.py \
+            -k result_binds_complete_target_preflight_authority \
+            > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "runtime preregistration digest differs from sealed authority" /tmp/red.log
+      - name: Confirm v3 preregistration itself remains clean
+        shell: bash
+        run: |
+          git reset --hard "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

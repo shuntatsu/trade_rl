@@ -1,0 +1,212 @@
+name: Issue 578 sealed Spot aggTrades structural probe
+
+on:
+  push:
+    branches:
+      - run/issue578-spot-aggtrades-structural
+    paths:
+      - .github/workflows/tmp-issue578-real-spot-structural.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  VALIDATOR_SHA: a8234444cb4306c37d80c47832200f8303f8928c
+  VALIDATOR_VERIFICATION_RUN_ID: "34930082702"
+  HELPER_SHA: 2a0c25b16a70ac45bcc0f8d65184b2dc0aa3aef4
+  PROTOCOL_SHA: 9932775127c79a85d81fb304850c3349460e4a2a
+  PROTOCOL_DIGEST: 808f999915815259762067aaff381a88589a7c28ceb0383d8aa0626d5c67e8d4
+
+jobs:
+  publisher:
+    name: Exactly-once structural publisher
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact verified validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Bind workflow commit and exact helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
+          git fetch origin "$GITHUB_SHA" "$HELPER_SHA" --no-tags
+          test "$(git rev-parse "$GITHUB_SHA^")" = "$HELPER_SHA"
+          git show "$HELPER_SHA:tools/tmp_issue578_run_spot_structural_probe.py" > /tmp/probe.py
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reverify helper synthetically before network
+        run: uv run python /tmp/probe.py --self-test
+      - name: Fetch exact frozen 20 archives and build structural report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publisher
+          uv run python /tmp/probe.py --output /tmp/publisher/result.json
+      - name: Validate canonical result without interpreting status
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_structural_validator import canonical_structural_report_bytes
+          path = Path('/tmp/publisher/result.json')
+          raw = path.read_bytes()
+          payload = json.loads(raw)
+          assert canonical_structural_report_bytes(payload) == raw
+          assert payload['protocol_digest'] == '808f999915815259762067aaff381a88589a7c28ceb0383d8aa0626d5c67e8d4'
+          assert payload['validator_head'] == 'a8234444cb4306c37d80c47832200f8303f8928c'
+          assert payload['validator_verification_run_id'] == 34930082702
+          assert payload['economic_values_inspected'] is False
+          assert payload['target_relation_computed'] is False
+          assert payload['evaluation_pnl_inspected'] is False
+          assert payload['feature_hypothesis_selected'] is False
+          assert payload['production_eligible'] is False
+          assert payload['live_trading_authorized'] is False
+          PY
+      - name: Upload immutable publisher artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue578-spot-structural-publisher-${{ github.run_id }}
+          path: /tmp/publisher/result.json
+          if-no-files-found: error
+          retention-days: 14
+
+  fresh_verify:
+    name: Fresh independent raw-source reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact verified validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Bind workflow commit and exact helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
+          git fetch origin "$GITHUB_SHA" "$HELPER_SHA" --no-tags
+          test "$(git rev-parse "$GITHUB_SHA^")" = "$HELPER_SHA"
+          git show "$HELPER_SHA:tools/tmp_issue578_run_spot_structural_probe.py" > /tmp/probe.py
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reverify helper synthetically
+        run: uv run python /tmp/probe.py --self-test
+      - name: Independently re-fetch exact frozen 20 archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python /tmp/probe.py --output /tmp/fresh/result.json
+      - name: Download publisher artifact from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/published
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "issue578-spot-structural-publisher-$GITHUB_RUN_ID" \
+            --dir /tmp/published
+      - name: Require canonical byte-identical reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/published/result.json /tmp/fresh/result.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_structural_validator import canonical_structural_report_bytes
+          for path in (Path('/tmp/published/result.json'), Path('/tmp/fresh/result.json')):
+              raw = path.read_bytes()
+              payload = json.loads(raw)
+              assert canonical_structural_report_bytes(payload) == raw
+              assert payload['validator_head'] == 'a8234444cb4306c37d80c47832200f8303f8928c'
+              assert payload['validator_verification_run_id'] == 34930082702
+              assert payload['economic_values_inspected'] is False
+              assert payload['target_relation_computed'] is False
+              assert payload['evaluation_pnl_inspected'] is False
+              assert payload['feature_hypothesis_selected'] is False
+              assert payload['production_eligible'] is False
+              assert payload['live_trading_authorized'] is False
+          PY
+      - name: Upload immutable fresh-verification artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue578-spot-structural-fresh-${{ github.run_id }}
+          path: /tmp/fresh/result.json
+          if-no-files-found: error
+          retention-days: 14
+
+  final_audit:
+    name: Final structural evidence audit
+    needs: fresh_verify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact verified validator authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VALIDATOR_SHA }}
+          persist-credentials: false
+      - name: Assert exact validator authority
+        run: test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Download publisher and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/published /tmp/fresh
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "issue578-spot-structural-publisher-$GITHUB_RUN_ID" --dir /tmp/published
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "issue578-spot-structural-fresh-$GITHUB_RUN_ID" --dir /tmp/fresh
+      - name: Final byte and boundary audit without interpreting status
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/published/result.json /tmp/fresh/result.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.spot_aggtrades_structural_validator import canonical_structural_report_bytes
+          raw = Path('/tmp/published/result.json').read_bytes()
+          payload = json.loads(raw)
+          assert canonical_structural_report_bytes(payload) == raw
+          assert payload['protocol_digest'] == '808f999915815259762067aaff381a88589a7c28ceb0383d8aa0626d5c67e8d4'
+          assert payload['protocol_head'] == '9932775127c79a85d81fb304850c3349460e4a2a'
+          assert payload['validator_head'] == 'a8234444cb4306c37d80c47832200f8303f8928c'
+          assert payload['validator_verification_run_id'] == 34930082702
+          assert payload['planned_archive_count'] == 20
+          for field in (
+              'economic_values_inspected',
+              'target_relation_computed',
+              'evaluation_pnl_inspected',
+              'feature_hypothesis_selected',
+              'production_eligible',
+              'live_trading_authorized',
+          ):
+              assert payload[field] is False
+          PY

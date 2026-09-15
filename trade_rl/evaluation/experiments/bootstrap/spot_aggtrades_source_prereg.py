@@ -37,6 +37,7 @@ _SENTINEL = {
     "last_trade_id": "-1",
 }
 _BOOLEAN_TOKENS = ("False", "True")
+_HEADER_POLICY = "headerless_or_exact_expected_header"
 _ALLOWED_REPORT_FIELDS = (
     "symbol",
     "date",
@@ -100,10 +101,28 @@ class SpotAggTradesSourceProtocol:
     expected_header: tuple[str, ...] = _EXPECTED_HEADER
     field_count: int = _FIELD_COUNT
     strict_boolean_tokens: tuple[str, ...] = _BOOLEAN_TOKENS
+    header_policy: str = _HEADER_POLICY
     allowed_archive_report_fields: tuple[str, ...] = _ALLOWED_REPORT_FIELDS
     pass_status: str = _PASS_STATUS
     partial_status: str = _PARTIAL_STATUS
     incompatible_status: str = _INCOMPATIBLE_STATUS
+
+    checksum_must_name_exact_archive: bool = True
+    zip_exact_single_regular_csv_member: bool = True
+    member_name_must_match_planned_csv: bool = True
+    usable_aggregate_id_nonnegative_integer: bool = True
+    usable_price_quantity_finite_strictly_positive: bool = True
+    usable_trade_ids_nonnegative_first_le_last: bool = True
+    event_timestamp_nonnegative_millisecond_inside_requested_date: bool = True
+    provider_sentinel_requires_exact_four_field_match: bool = True
+    provider_sentinel_is_never_usable: bool = True
+    partial_or_near_sentinel_is_malformed: bool = True
+    usable_aggregate_ids_strictly_increasing_unique: bool = True
+    usable_timestamps_nondecreasing: bool = True
+    pass_requires_all_20_archives_and_checksums: bool = True
+    partial_requires_missing_only_with_all_available_structurally_valid: bool = True
+    incompatible_on_any_malformed_or_ambiguous_archive: bool = True
+
     replacement_sources_allowed: bool = False
     economic_values_allowed_in_report: bool = False
     target_relation_allowed: bool = False
@@ -129,6 +148,7 @@ class SpotAggTradesSourceProtocol:
             ("expected_header", _EXPECTED_HEADER),
             ("field_count", _FIELD_COUNT),
             ("strict_boolean_tokens", _BOOLEAN_TOKENS),
+            ("header_policy", _HEADER_POLICY),
             ("allowed_archive_report_fields", _ALLOWED_REPORT_FIELDS),
             ("pass_status", _PASS_STATUS),
             ("partial_status", _PARTIAL_STATUS),
@@ -139,6 +159,21 @@ class SpotAggTradesSourceProtocol:
                 raise ValueError(f"{field_name} is not canonical")
 
         expected_flags = {
+            "checksum_must_name_exact_archive": True,
+            "zip_exact_single_regular_csv_member": True,
+            "member_name_must_match_planned_csv": True,
+            "usable_aggregate_id_nonnegative_integer": True,
+            "usable_price_quantity_finite_strictly_positive": True,
+            "usable_trade_ids_nonnegative_first_le_last": True,
+            "event_timestamp_nonnegative_millisecond_inside_requested_date": True,
+            "provider_sentinel_requires_exact_four_field_match": True,
+            "provider_sentinel_is_never_usable": True,
+            "partial_or_near_sentinel_is_malformed": True,
+            "usable_aggregate_ids_strictly_increasing_unique": True,
+            "usable_timestamps_nondecreasing": True,
+            "pass_requires_all_20_archives_and_checksums": True,
+            "partial_requires_missing_only_with_all_available_structurally_valid": True,
+            "incompatible_on_any_malformed_or_ambiguous_archive": True,
             "replacement_sources_allowed": False,
             "economic_values_allowed_in_report": False,
             "target_relation_allowed": False,
@@ -186,10 +221,50 @@ class SpotAggTradesSourceProtocol:
             "field_count": self.field_count,
             "provider_invalid_sentinel": self.provider_invalid_sentinel,
             "strict_boolean_tokens": list(self.strict_boolean_tokens),
+            "header_policy": self.header_policy,
             "allowed_archive_report_fields": list(self.allowed_archive_report_fields),
             "pass_status": self.pass_status,
             "partial_status": self.partial_status,
             "incompatible_status": self.incompatible_status,
+            "checksum_must_name_exact_archive": self.checksum_must_name_exact_archive,
+            "zip_exact_single_regular_csv_member": (
+                self.zip_exact_single_regular_csv_member
+            ),
+            "member_name_must_match_planned_csv": (
+                self.member_name_must_match_planned_csv
+            ),
+            "usable_aggregate_id_nonnegative_integer": (
+                self.usable_aggregate_id_nonnegative_integer
+            ),
+            "usable_price_quantity_finite_strictly_positive": (
+                self.usable_price_quantity_finite_strictly_positive
+            ),
+            "usable_trade_ids_nonnegative_first_le_last": (
+                self.usable_trade_ids_nonnegative_first_le_last
+            ),
+            "event_timestamp_nonnegative_millisecond_inside_requested_date": (
+                self.event_timestamp_nonnegative_millisecond_inside_requested_date
+            ),
+            "provider_sentinel_requires_exact_four_field_match": (
+                self.provider_sentinel_requires_exact_four_field_match
+            ),
+            "provider_sentinel_is_never_usable": self.provider_sentinel_is_never_usable,
+            "partial_or_near_sentinel_is_malformed": (
+                self.partial_or_near_sentinel_is_malformed
+            ),
+            "usable_aggregate_ids_strictly_increasing_unique": (
+                self.usable_aggregate_ids_strictly_increasing_unique
+            ),
+            "usable_timestamps_nondecreasing": self.usable_timestamps_nondecreasing,
+            "pass_requires_all_20_archives_and_checksums": (
+                self.pass_requires_all_20_archives_and_checksums
+            ),
+            "partial_requires_missing_only_with_all_available_structurally_valid": (
+                self.partial_requires_missing_only_with_all_available_structurally_valid
+            ),
+            "incompatible_on_any_malformed_or_ambiguous_archive": (
+                self.incompatible_on_any_malformed_or_ambiguous_archive
+            ),
             "replacement_sources_allowed": self.replacement_sources_allowed,
             "economic_values_allowed_in_report": self.economic_values_allowed_in_report,
             "target_relation_allowed": self.target_relation_allowed,

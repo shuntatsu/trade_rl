@@ -1,0 +1,94 @@
+name: Temporary Issue 600 final prereg GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue600-prereg-final-green
+    paths:
+      - .github/workflows/tmp-issue600-prereg-final-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue600-premium-pressure-prereg
+  TARGET_SHA: c40a9927e7af1fcd724dade207ed65ac46d13605
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  fix_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact semantic RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Enforce completed-endpoint cutoff semantics in production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py')
+          text = path.read_text()
+          replacements = {
+              'from datetime import UTC, datetime': 'from datetime import UTC, datetime, timedelta',
+              '"last_candidate_decision": datetime(2022, 12, 30, 23, tzinfo=UTC),':
+                  '"last_candidate_decision": datetime(2022, 12, 30, 22, tzinfo=UTC),',
+              '"nominal_candidate_decisions_per_symbol": 17_495,':
+                  '"nominal_candidate_decisions_per_symbol": 17_494,',
+              '"minimum_eligible_observations_per_symbol": 16_621,':
+                  '"minimum_eligible_observations_per_symbol": 16_620,',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one occurrence: {old}')
+              text = text.replace(old, new, 1)
+
+          anchor = '''        if self.minimum_eligible_observations_per_symbol > (\n            self.nominal_candidate_decisions_per_symbol\n        ):\n            raise ValueError("minimum eligible observations exceed nominal decisions")\n'''
+          insert = '''        endpoint_dataset_offset = timedelta(\n            hours=self.label_endpoint_offset_bars\n        )\n        one_hour = timedelta(hours=1)\n        if not (\n            self.last_candidate_decision + endpoint_dataset_offset < self.fit_cutoff\n        ):\n            raise ValueError("last candidate endpoint must precede fit cutoff")\n        if (\n            self.last_candidate_decision + endpoint_dataset_offset + one_hour\n            != self.fit_cutoff\n        ):\n            raise ValueError("last candidate is not the maximal eligible hourly decision")\n        span = self.last_candidate_decision - self.fit_start\n        if span.total_seconds() < 0 or span.total_seconds() % 3600 != 0:\n            raise ValueError("candidate clock must be an exact hourly grid")\n        expected_nominal = int(span.total_seconds() // 3600) + 1\n        if self.nominal_candidate_decisions_per_symbol != expected_nominal:\n            raise ValueError("nominal candidate count differs from frozen clock")\n        expected_minimum = math.ceil(0.95 * expected_nominal)\n        if self.minimum_eligible_observations_per_symbol != expected_minimum:\n            raise ValueError("minimum eligible count differs from frozen 95% gate")\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('coverage anchor missing or duplicated')
+          text = text.replace(anchor, anchor + '\n' + insert, 1)
+          path.write_text(text)
+          PY
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format static and frozen contract verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          uv run ruff check --fix "$MODULE"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+      - name: Guard and publish production module only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -z "$(printf '%s\n' "$changed" | grep -v -Fx "$MODULE" || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          git commit -m "fix: finalize Issue 600 completed-bar preregistration"
+          git push origin HEAD:"$TARGET_BRANCH"

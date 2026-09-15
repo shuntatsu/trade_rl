@@ -1,0 +1,54 @@
+name: Temporary Issue 600 premium reversal prereg semantic RED v4
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-red-v4
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-red-v4.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: ac28a6cc6e822e70261681695468d7dd16921abc
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_prereg.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact corrected formatted test-only authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Assert exact test-only target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates before semantic RED
+        run: |
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+      - name: Require missing-production-module semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST_FILE" > /tmp/red.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/red.log
+          test "$code" -ne 0
+          grep -F "No module named 'trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg'" /tmp/red.log
+          echo "SEMANTIC_RED=PASS"
+      - name: Reassert clean exact target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

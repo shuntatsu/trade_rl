@@ -1,0 +1,55 @@
+name: Temporary Issue 600 final prereg digest
+
+on:
+  push:
+    branches:
+      - verify/issue600-premium-prereg-digest-6ffc
+    paths:
+      - .github/workflows/tmp-issue600-premium-prereg-digest-6ffc.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 6ffc414baa10e91f34df258fe5cfabacce65fd77
+
+jobs:
+  derive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Derive canonical bytes
+        run: |
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import canonical_premium_pressure_protocol, canonical_premium_pressure_protocol_bytes, load_premium_pressure_protocol_bytes
+          protocol = canonical_premium_pressure_protocol()
+          raw = canonical_premium_pressure_protocol_bytes(protocol)
+          assert load_premium_pressure_protocol_bytes(raw) == protocol
+          payload = json.loads(raw)
+          assert payload['last_candidate_decision'] == '2022-12-30T23:00:00Z'
+          assert payload['nominal_candidate_decisions_per_symbol'] == 17495
+          assert payload['minimum_eligible_observations_per_symbol'] == 16621
+          assert payload['endpoint_raw_open_time_offset_minutes'] == 1440
+          assert payload['label_endpoint_offset_bars'] == 25
+          assert payload['expected_effect_direction'] == 'REVERSAL'
+          assert payload['calibration_intercept_required'] is True
+          for key in ('source_premium_value_distribution_inspected','source_target_relation_computed','source_strategy_pnl_computed','training_relation_executed','evaluation_pnl_inspected','production_eligible','live_trading_authorized'):
+              assert payload[key] is False
+          digest = protocol.digest
+          assert hashlib.sha256(raw).hexdigest() == digest
+          print(f'PROTOCOL_SHA256={digest}')
+          print(f'PROTOCOL_CONTENT_DIGEST={digest}')
+          print(f'PROTOCOL_BYTES={len(raw)}')
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          PY

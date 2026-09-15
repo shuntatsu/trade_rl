@@ -1,0 +1,52 @@
+name: Temporary Issue 578 provider Spot header naming RED
+
+on:
+  push:
+    branches:
+      - verify/issue578-header-red
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 794d7db4dcda34b23c8062e03e86cb1b9365ea0f
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        run: |
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_source_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/spot_aggtrades_source_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py
+      - name: Require provider-header RED only
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py::test_canonical_protocol_freezes_complete_result_blind_contract \
+            tests/evaluation/experiments/bootstrap/test_spot_aggtrades_source_prereg.py::test_protocol_rejects_post_inspection_mutation \
+            > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q 'expected_header' /tmp/red.log
+          ! grep -q 'SyntaxError' /tmp/red.log

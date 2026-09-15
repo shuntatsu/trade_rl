@@ -22,16 +22,14 @@ env:
   VALIDATOR_HEAD: c707be853480e57362f6a3d64f116e4056c3553f
   VALIDATOR_FULL_RUN_ID: "34961165095"
   PREFLIGHT_RUN_ID: "34962227821"
+  PREFLIGHT_HEAD: e64256dd40e76d9606edfbdebe1c37b86668d467
+  PREFLIGHT_HELPER: tools/tmp_issue601_target_preflight.py
   PUBLISHER_ID: "10393693240"
   PUBLISHER_NAME: issue601-usdm1h-target-publisher-v1-34962227821
   PUBLISHER_API_DIGEST: sha256:0c7f240390a35174329890fa83e9615e304de5f1a84114007ead1fddaaaf37ff
   FRESH_ID: "10393379932"
   FRESH_NAME: issue601-usdm1h-target-fresh-v1-34962227821
   FRESH_API_DIGEST: sha256:0c0c05b8f5256c918b90ae709ff05ce0f05f8e88a929f1820387cf60a12dfeff
-  REPORT_SHA256: 3289e3d2de7f873df09883b9817e1789163345022827a78634d875f8f2ad3c50
-  REPORT_CONTENT_DIGEST: 1d5b69576e9d80d878b26e7acf071ca73799af20a8d6883d15bb235783bcb8a9
-  MANIFEST_SHA256: c5e118662301dd4ed5dc2b75b3b8a0e2365c342c78706957c8364399651294a8
-  MANIFEST_CONTENT_DIGEST: 4123411b6b505ce6a8211f1f97465dd4d87ed699968b4b33ee71847475f985bc
 
 jobs:
   audit:
@@ -64,6 +62,7 @@ jobs:
             test "$(jq -r .digest <<<"$artifact")" = "$digest"
           done
           test "$(git rev-parse "$ISSUE600_HEAD:trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py")" = "$(git rev-parse "HEAD:trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py")"
+          test "$(git rev-parse "$PREFLIGHT_HEAD:$PREFLIGHT_HELPER")" = "$(git rev-parse "origin/preflight/issue601-usdm1h-target-v1:$PREFLIGHT_HELPER")"
       - name: Download publisher and fresh structural artifacts only
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,7 +79,13 @@ jobs:
           python-version: "3.12"
       - name: Install audit dependencies
         run: uv sync --extra dev
-      - name: Verify structural bytes and inner digests without inspecting values
+      - name: Recover exact preflight helper for manifest validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$PREFLIGHT_HEAD:$PREFLIGHT_HELPER" > /tmp/issue601_preflight_helper.py
+          test "$(git hash-object /tmp/issue601_preflight_helper.py)" = "$(git rev-parse "$PREFLIGHT_HEAD:$PREFLIGHT_HELPER")"
+      - name: Derive current inner authority from immutable equal artifacts
         shell: bash
         run: |
           set -euo pipefail
@@ -88,30 +93,25 @@ jobs:
           cmp /tmp/publisher/manifest.json /tmp/fresh/manifest.json
           uv run python - <<'PY'
           import hashlib
+          import importlib.util
           import json
           import os
           from pathlib import Path
-          from trade_rl.artifacts.hashing import content_digest
           from trade_rl.evaluation.experiments.bootstrap.issue601_target_source_validator import load_target_source_report_bytes
 
           report_raw = Path('/tmp/publisher/report.json').read_bytes()
           manifest_raw = Path('/tmp/publisher/manifest.json').read_bytes()
-          if hashlib.sha256(report_raw).hexdigest() != os.environ['REPORT_SHA256']:
-              raise SystemExit('report sha differs')
-          if hashlib.sha256(manifest_raw).hexdigest() != os.environ['MANIFEST_SHA256']:
-              raise SystemExit('manifest sha differs')
           report = load_target_source_report_bytes(report_raw)
-          if report['content_digest'] != os.environ['REPORT_CONTENT_DIGEST']:
-              raise SystemExit('report content digest differs')
+
+          spec = importlib.util.spec_from_file_location('issue601_preflight_helper', '/tmp/issue601_preflight_helper.py')
+          if spec is None or spec.loader is None:
+              raise SystemExit('cannot load exact Issue 601 helper')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
           manifest = json.loads(manifest_raw)
-          unsigned = dict(manifest)
-          embedded = unsigned.pop('content_digest', None)
-          if embedded == os.environ['MANIFEST_CONTENT_DIGEST']:
-              pass
-          elif content_digest(manifest) == os.environ['MANIFEST_CONTENT_DIGEST']:
-              pass
-          else:
-              raise SystemExit('manifest content digest differs')
+          if module.canonical_manifest_bytes(manifest) != manifest_raw:
+              raise SystemExit('manifest bytes are not canonical under exact helper')
+
           if report['status'] != 'PASS_USDM_1H_TARGET_SOURCE':
               raise SystemExit('target status differs')
           if report['validator_head'] != os.environ['VALIDATOR_HEAD']:
@@ -122,14 +122,24 @@ jobs:
               raise SystemExit('Issue600 head differs')
           if report['issue600_protocol_digest'] != os.environ['ISSUE600_DIGEST']:
               raise SystemExit('Issue600 digest differs')
-          for key in ('economic_values_inspected','target_price_values_inspected','target_return_computed','premium_values_inspected','training_relation_computed','evaluation_pnl_inspected','final_test_authorized','production_eligible','live_trading_authorized'):
-              if report.get(key) is not False:
-                  raise SystemExit(f'blind boundary crossed: {key}')
+          if manifest.get('validator_head') != os.environ['VALIDATOR_HEAD']:
+              raise SystemExit('manifest validator head differs')
+          if manifest.get('validator_full_verification_run_id') != int(os.environ['VALIDATOR_FULL_RUN_ID']):
+              raise SystemExit('manifest validator verification differs')
+          for payload in (report, manifest):
+              for key in ('economic_values_inspected','target_price_values_inspected','target_return_computed','premium_values_inspected','training_relation_computed','evaluation_pnl_inspected','final_test_authorized','production_eligible','live_trading_authorized'):
+                  if payload.get(key) is not False:
+                      raise SystemExit(f'blind boundary crossed: {key}')
+
+          report_sha = hashlib.sha256(report_raw).hexdigest()
+          manifest_sha = hashlib.sha256(manifest_raw).hexdigest()
+          report_content = report['content_digest']
+          manifest_content = manifest['content_digest']
           print('ISSUE603_AUTHORITY_AUDIT=PASS')
-          print('REPORT_SHA256=' + hashlib.sha256(report_raw).hexdigest())
-          print('REPORT_CONTENT_DIGEST=' + report['content_digest'])
-          print('MANIFEST_SHA256=' + hashlib.sha256(manifest_raw).hexdigest())
-          print('MANIFEST_CONTENT_DIGEST=' + os.environ['MANIFEST_CONTENT_DIGEST'])
+          print('REPORT_SHA256=' + report_sha)
+          print('REPORT_CONTENT_DIGEST=' + report_content)
+          print('MANIFEST_SHA256=' + manifest_sha)
+          print('MANIFEST_CONTENT_DIGEST=' + manifest_content)
           print('PUBLISHER_API_DIGEST=' + os.environ['PUBLISHER_API_DIGEST'])
           print('FRESH_API_DIGEST=' + os.environ['FRESH_API_DIGEST'])
           print('ECONOMIC_VALUES_INSPECTED=false')

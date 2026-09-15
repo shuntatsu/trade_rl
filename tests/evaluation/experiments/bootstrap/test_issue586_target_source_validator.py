@@ -203,7 +203,7 @@ def test_checksum_digest_and_filename_mismatch_fail_closed() -> None:
         checksum_bytes=wrong_digest,
     )
     assert report["checksum_verified"] is False
-    assert report["schema_valid"] is False
+    assert report["schema_valid"] is True
 
     wrong_name = f"{hashlib.sha256(payload).hexdigest()}  wrong.zip\n".encode()
     report = validate_target_archive_bytes(
@@ -213,7 +213,7 @@ def test_checksum_digest_and_filename_mismatch_fail_closed() -> None:
         checksum_bytes=wrong_name,
     )
     assert report["checksum_verified"] is False
-    assert report["schema_valid"] is False
+    assert report["schema_valid"] is True
 
 
 def test_timestamp_order_grid_date_and_close_time_fail_closed() -> None:

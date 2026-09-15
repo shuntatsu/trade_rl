@@ -1,0 +1,59 @@
+name: Temporary Issue 584 preregistration digest derivation
+
+on:
+  push:
+    branches:
+      - verify/issue584-prereg-digest-d48b
+    paths:
+      - .github/workflows/tmp-issue584-prereg-digest-d48b.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: d48bcb5b17f67ae7de0f9656346230f78ef1a278
+
+jobs:
+  digest:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Assert exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Derive canonical digest without economic data
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          from trade_rl.evaluation.experiments.bootstrap.spot_flow_continuation_prereg import canonical_spot_flow_continuation_protocol, load_spot_flow_continuation_protocol_bytes
+
+          protocol = canonical_spot_flow_continuation_protocol()
+          raw = protocol.canonical_json_bytes
+          sha = hashlib.sha256(raw).hexdigest()
+          if protocol.digest != sha:
+              raise SystemExit('content digest and canonical JSON SHA differ')
+          if load_spot_flow_continuation_protocol_bytes(raw).digest != sha:
+              raise SystemExit('strict reload digest differs')
+          for key in ('economic_values_inspected','target_relation_computed','training_relation_executed','evaluation_pnl_inspected','evaluation_execution_authorized','final_test_authorized','shared_cash_profitability_established','production_eligible','live_trading_authorized'):
+              if protocol.to_payload().get(key) is not False:
+                  raise SystemExit(f'forbidden preregistration flag differs: {key}')
+          print('PROTOCOL_DIGEST=' + sha)
+          print('ECONOMIC_VALUES_INSPECTED=false')
+          print('TARGET_RELATION_COMPUTED=false')
+          print('TRAINING_RELATION_EXECUTED=false')
+          PY
+      - name: Reassert exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

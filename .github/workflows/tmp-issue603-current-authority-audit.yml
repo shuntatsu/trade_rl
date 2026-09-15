@@ -73,13 +73,20 @@ jobs:
           mkdir -p /tmp/publisher /tmp/fresh
           gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PUBLISHER_NAME" --dir /tmp/publisher
           gh run download "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$FRESH_NAME" --dir /tmp/fresh
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install audit dependencies
+        run: uv sync --extra dev
       - name: Verify structural bytes and inner digests without inspecting values
         shell: bash
         run: |
           set -euo pipefail
           cmp /tmp/publisher/report.json /tmp/fresh/report.json
           cmp /tmp/publisher/manifest.json /tmp/fresh/manifest.json
-          PYTHONPATH=. python3 - <<'PY'
+          uv run python - <<'PY'
           import hashlib
           import json
           import os

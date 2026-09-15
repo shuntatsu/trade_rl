@@ -1,0 +1,52 @@
+name: Temporary Issue 577 module CLI transport verification
+
+on:
+  push:
+    branches:
+      - verify/issue577-cli-transport-b1f9
+    paths:
+      - .github/workflows/tmp-issue577-cli-transport-b1f9.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4
+          persist-credentials: false
+      - name: Assert exact helper head
+        run: test "$(git rev-parse HEAD)" = "b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4"
+      - name: Setup Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Prove module invocation works without network
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tools.tmp_issue577_basis_publisher --help
+          uv run python -m tools.tmp_issue577_basis_verifier --help
+          uv run python - <<'PY'
+          import tools.tmp_issue577_basis_common as common
+          import tools.tmp_issue577_basis_publisher as publisher
+          import tools.tmp_issue577_basis_verifier as verifier
+          assert common.ISSUE_NUMBER == 577
+          assert callable(publisher.execute)
+          assert callable(verifier.execute)
+          print('ISSUE577_MODULE_CLI_TRANSPORT=PASS')
+          PY
+      - name: Re-run source-gate oracle
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_issue577_publisher_source_gate.py
+      - name: Re-assert clean exact target
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "b1f9f7fe2cc4a8038c76105e5a0b86b1dc1d3bf4"
+          test -z "$(git status --porcelain --untracked-files=no)"

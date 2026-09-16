@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: abdf03a048e9ce6f76b6967d6c8a089b317ed75b
+  TARGET_SHA: d45fbba87643f4c46d27d6c0e63d458d087b3b91
   TARGET_TEST: tests/strategies/test_ridge_economic_gate.py
 
 jobs:
@@ -52,3 +52,5 @@ jobs:
           grep -F "ModuleNotFoundError: No module named 'trade_rl.strategies.forecasts.ridge_economic_gate'" /tmp/pytest.out >/dev/null
           ! grep -E '^FAILED ' /tmp/pytest.out >/dev/null
           echo ISSUE618_RIDGE_WRAPPER_SEMANTIC_RED=PASS
+
+# rerun on exact formatted RED head

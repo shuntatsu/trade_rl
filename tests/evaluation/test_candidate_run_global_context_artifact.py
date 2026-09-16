@@ -11,7 +11,10 @@ from trade_rl.evaluation.runs.artifact import (
     load_candidate_run_artifact,
     publish_candidate_run,
 )
-from trade_rl.evaluation.runs.config import CandidateRunConfig, resolve_candidate_run_spec
+from trade_rl.evaluation.runs.config import (
+    CandidateRunConfig,
+    resolve_candidate_run_spec,
+)
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.strategies.controls import ConstantIntentStrategy

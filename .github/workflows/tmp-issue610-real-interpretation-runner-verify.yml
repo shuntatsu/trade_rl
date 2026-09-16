@@ -1,5 +1,6 @@
 # Re-run after binding the exact frozen ACCEPT_CANDIDATE decision value.
 # Decision values are imported directly from the verified frozen helper.
+# Exact Ruff output applied to runner and regression test before this run.
 name: tmp Issue 610 real interpretation runner verification
 
 on:

@@ -1,10 +1,12 @@
 from pathlib import Path
 
 from tools.branch_hygiene import (
+    BranchDecision,
     BranchInfo,
     OpenPullRequestRefs,
     anchor_branch_names,
     anchor_shas,
+    apply_cleanup,
     plan_cleanup,
 )
 
@@ -141,6 +143,58 @@ def test_cleanup_is_fail_closed_when_reachability_is_not_proven() -> None:
     decision = next(item for item in decisions if item.branch.name == branch.name)
     assert decision.action == "keep"
     assert decision.reason == "unique-unmerged-tip"
+
+
+class FakeCleanupApi:
+    def __init__(
+        self,
+        branches: tuple[BranchInfo, ...],
+        open_refs: tuple[OpenPullRequestRefs, ...] = (),
+    ) -> None:
+        self._branches = {branch.name: branch for branch in branches}
+        self._open_refs = open_refs
+        self.deleted: list[str] = []
+
+    def branches(self) -> tuple[BranchInfo, ...]:
+        return tuple(self._branches.values())
+
+    def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
+        return self._open_refs
+
+    def delete_branch(self, name: str) -> None:
+        self.deleted.append(name)
+        self._branches.pop(name)
+
+
+def test_apply_cleanup_revalidates_open_refs_protection_and_exact_sha() -> None:
+    original = BranchInfo("verify/redundant", "a" * 40, False)
+    changed = BranchInfo("automation/moved", "b" * 40, False)
+    protected = BranchInfo("feature/protected", "c" * 40, False)
+    api = FakeCleanupApi(
+        (
+            original,
+            BranchInfo(changed.name, "d" * 40, False),
+            protected,
+        ),
+        (
+            OpenPullRequestRefs(
+                head_name=protected.name,
+                head_sha=protected.sha,
+                base_name="main",
+                base_sha="e" * 40,
+            ),
+        ),
+    )
+    decisions = (
+        BranchDecision(original, "delete", "tip-reachable-from-anchor"),
+        BranchDecision(changed, "delete", "tip-reachable-from-anchor"),
+        BranchDecision(protected, "delete", "tip-reachable-from-anchor"),
+    )
+
+    deleted = apply_cleanup(api, decisions)  # type: ignore[arg-type]
+
+    assert deleted == (original.name,)
+    assert api.deleted == [original.name]
 
 
 def test_branch_hygiene_workflow_never_checks_out_pull_request_head() -> None:

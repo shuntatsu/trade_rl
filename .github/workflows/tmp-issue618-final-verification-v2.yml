@@ -1,0 +1,163 @@
+name: tmp Issue 618 final verification v2
+
+on:
+  push:
+    branches:
+      - verify/issue618-ridge-evaluator-final-v2
+    paths:
+      - .github/workflows/tmp-issue618-final-verification-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  exact-core:
+    name: Exact Lean Core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout immutable research head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          persist-credentials: false
+      - name: Assert exact head
+        run: test "$(git rev-parse HEAD)" = "222a082ee28f4f0fd35081912a33649cce27c585"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests
+      - run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        run: |
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+      - name: Durable scope proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | wc -l)" -eq 8
+          ! git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | grep '^\.github/workflows/'
+
+  exact-guide:
+    name: Exact Human Guide
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GUIDE_SOURCE_REV: 222a082ee28f4f0fd35081912a33649cce27c585
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "222a082ee28f4f0fd35081912a33649cce27c585"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue618-guide-v2-${{ github.run_id }}
+          path: |
+            guide/test-results/
+            guide/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  current-main-compatibility:
+    name: Current Main Compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Merge current main without committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "222a082ee28f4f0fd35081912a33649cce27c585"
+          git fetch origin main
+          git -c user.name=verification -c user.email=verification@example.invalid merge --no-commit --no-ff origin/main
+          git diff --check
+          test -z "$(git diff --name-only --diff-filter=U)"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests
+      - run: uv build
+      - name: Confirm implementation survives current-main merge
+        run: |
+          test -f trade_rl/strategies/forecasts/ridge_economic_gate.py
+          test -f trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+          grep -q 'execution_cost_for_overlay' trade_rl/evaluation/runs/__init__.py

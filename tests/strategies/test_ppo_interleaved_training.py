@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -8,7 +9,11 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
+from trade_rl.strategies.rl.ppo import (
+    PPOIntentStrategy,
+    PPOTradingEnv,
+    fit_ppo_strategy,
+)
 
 
 class FakePPO:
@@ -33,8 +38,8 @@ class FakePPO:
 class FakeDummyVecEnv:
     last: FakeDummyVecEnv | None = None
 
-    def __init__(self, env_fns: list[object]) -> None:
-        self.envs = [cast(Any, env_fn)() for env_fn in env_fns]
+    def __init__(self, env_fns: list[Callable[[], object]]) -> None:
+        self.envs = [cast(Any, env_fn()) for env_fn in env_fns]
         self.num_envs = len(self.envs)
         FakeDummyVecEnv.last = self
 
@@ -73,6 +78,8 @@ def pooled_market() -> MarketDataset:
 
 
 def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakePPO.last = None
+    FakeDummyVecEnv.last = None
     monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=FakePPO))
     monkeypatch.setitem(
         sys.modules,
@@ -103,12 +110,54 @@ def interleaved_fit(**overrides: object) -> PPOIntentStrategy:
     return cast(Any, fit_ppo_strategy)(**kwargs)
 
 
+def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        total_timesteps=256,
+        seed=11,
+    )
+
+    fitted = FakePPO.last
+    assert fitted is not None
+    assert isinstance(fitted.env, PPOTradingEnv)
+    assert fitted.env.symbol_indices == (0, 1)
+    assert "n_steps" not in fitted.kwargs
+    assert "batch_size" not in fitted.kwargs
+    assert fitted.kwargs["policy_kwargs"] == {
+        "net_arch": {"pi": [64, 64], "vf": [64, 64]}
+    }
+    assert fitted.kwargs["seed"] == 11
+    assert fitted.kwargs["ent_coef"] == 0.0
+    assert fitted.learn_timesteps == 256
+    assert isinstance(strategy, PPOIntentStrategy)
+
+
 def test_interleaved_fit_uses_one_fixed_env_per_fit_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     install_fake_sb3(monkeypatch)
 
-    strategy = interleaved_fit()
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        total_timesteps=256,
+        seed=11,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+    )
 
     vector = FakeDummyVecEnv.last
     fitted = FakePPO.last

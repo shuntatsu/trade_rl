@@ -52,3 +52,5 @@ jobs:
           git add "$TARGET_FILE"
           git commit -m 'style: format Issue 616 RED oracle'
           git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+
+# connector-triggered exact Ruff formatting

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -40,7 +39,7 @@ def _feature_names() -> tuple[str, ...]:
     return tuple(names)
 
 
-def _dataset() -> MarketDataset:
+def _dataset(*, fee_drift: bool = False) -> MarketDataset:
     n_bars = 3
     n_symbols = len(_SYMBOLS)
     close = np.full((n_bars, n_symbols), 100.0, dtype=np.float64)
@@ -69,7 +68,18 @@ def _dataset() -> MarketDataset:
         global_feature_names=("regime",),
         periods_per_year=8_760,
         calendar_kind="session_calendar",
-        fee_rate=np.full((n_bars, n_symbols), 0.0005, dtype=np.float64),
+        fee_rate=(
+            np.asarray(
+                [
+                    [0.0005] * n_symbols,
+                    [0.0005, 0.0005, 0.0006, 0.0005, 0.0005]
+                    if fee_drift
+                    else [0.0005] * n_symbols,
+                    [0.0005] * n_symbols,
+                ],
+                dtype=np.float64,
+            )
+        ),
         taker_fee_rate=np.zeros((n_bars, n_symbols), dtype=np.float64),
         spread_rate=np.full((n_bars, n_symbols), 0.0002, dtype=np.float64),
     )
@@ -186,8 +196,7 @@ def _patch_economic_boundaries(
 def test_dataset_explicit_cost_drift_fails_before_economic_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dataset = _dataset()
-    dataset.fee_rate[1, 2] = 0.0006
+    dataset = _dataset(fee_drift=True)
     _patch_economic_boundaries(monkeypatch)
 
     with pytest.raises(ValueError, match="evaluation cost drift: fee_rate"):
@@ -224,7 +233,9 @@ def test_fitted_ridge_identity_drift_fails_before_replay(
 ) -> None:
     import trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation as module
 
-    monkeypatch.setattr(module, "fit_ridge_forecast", lambda *args, **kwargs: _model(horizon_hours=12))
+    monkeypatch.setattr(
+        module, "fit_ridge_forecast", lambda *args, **kwargs: _model(horizon_hours=12)
+    )
     called = False
 
     def compare(*args: object, **kwargs: object) -> Any:

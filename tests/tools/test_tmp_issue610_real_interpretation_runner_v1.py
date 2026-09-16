@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+import tools.tmp_issue610_real_interpretation_runner_v1 as runner
 from tools.tmp_issue610_real_interpretation_runner_v1 import (
     build_decision_envelope,
     build_strict_precheck_report,
@@ -53,6 +56,40 @@ def test_invalid_strict_evidence_short_circuits_economic_interpretation() -> Non
     assert envelope["production_eligible"] is False
     assert envelope["live_trading_authorized"] is False
     assert envelope["merge_authorized"] is False
+
+
+def test_invalid_precheck_never_invokes_v2_economic_interpretation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "precheck_candidate_artifact",
+        lambda **_kwargs: ((), ("candidate termination evidence malformed",)),
+    )
+
+    def forbidden_v2(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("v2 economic interpretation must not run")
+
+    monkeypatch.setattr(runner, "interpret_candidate_v2", forbidden_v2)
+    output_root = tmp_path / "result"
+    envelope = runner.interpret_real_candidate_v1(
+        source_root=tmp_path / "source",
+        candidate_root=tmp_path / "candidate",
+        precompute_path=tmp_path / "precompute.json",
+        output_root=output_root,
+        artifact_module_path=tmp_path / "artifact.py",
+        interpretation_run_id=123,
+        precompute_artifact_id=10,
+        precompute_artifact_digest="sha256:" + "a" * 64,
+        candidate_artifact_id=20,
+        candidate_artifact_digest="sha256:" + "b" * 64,
+    )
+
+    assert envelope["decision"] == "INVALID"
+    assert (output_root / "strict-precheck.json").is_file()
+    assert (output_root / "decision.json").is_file()
+    assert not (output_root / "v2").exists()
 
 
 def test_valid_strict_evidence_requires_frozen_v2_interpretation() -> None:

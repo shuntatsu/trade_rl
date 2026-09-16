@@ -25,8 +25,16 @@ _SOURCE_EVIDENCE_FINGERPRINT = (
 _SOURCE_STATUS_DOCUMENT = "docs/research/current-status.md"
 
 _CONTROLLED_FACTOR = "ppo_global_btc_regime_context"
+_EXPERIMENT_CONTROLLED_FACTOR = "FEATURE_SET"
+_BASELINE_OBSERVATION_SCHEMA = "ppo_observation_v2"
+_BASELINE_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 _REFERENCE_SYMBOL = "BTCUSDT"
 _REFERENCE_FEATURE = "1h__log_return_24bar"
+_REFERENCE_OBSERVATION_COMPONENTS = (
+    "value",
+    "available_and_finite",
+    "normalized_staleness",
+)
 _PPO_SEEDS = (0, 1, 2, 3, 4)
 
 
@@ -44,6 +52,11 @@ class PPOGlobalBTCRegimeProtocol:
     source_status_document: str = _SOURCE_STATUS_DOCUMENT
 
     controlled_factor: str = _CONTROLLED_FACTOR
+    experiment_controlled_factor: str = _EXPERIMENT_CONTROLLED_FACTOR
+    baseline_observation_schema: str = _BASELINE_OBSERVATION_SCHEMA
+    baseline_global_feature_names: tuple[str, ...] = _BASELINE_GLOBAL_FEATURE_NAMES
+    local_observation_contract_changed: bool = False
+
     reference_symbol: str = _REFERENCE_SYMBOL
     reference_feature: str = _REFERENCE_FEATURE
     reference_requires_available: bool = True
@@ -54,6 +67,14 @@ class PPOGlobalBTCRegimeProtocol:
     reference_uses_future_or_global_statistics: bool = False
     reference_availability_semantics: str = "canonical_dataset_feature_available"
     reference_staleness_semantics: str = "observation_v2_normalized_staleness"
+    reference_observation_components: tuple[str, ...] = _REFERENCE_OBSERVATION_COMPONENTS
+    reference_observation_width: int = 3
+    reference_value_source: str = "canonical_dataset.features"
+    reference_available_source: str = "canonical_dataset.feature_available"
+    reference_staleness_source: str = "canonical_dataset.feature_staleness"
+    reference_usable_semantics: str = "feature_available_and_isfinite"
+    reference_unavailable_value: float = 0.0
+    reference_staleness_recomputed: bool = False
 
     ppo_seeds: tuple[int, ...] = _PPO_SEEDS
     factor_slots_authorized: int = 1
@@ -111,6 +132,10 @@ class PPOGlobalBTCRegimeProtocol:
             "source_evidence_fingerprint": self.source_evidence_fingerprint,
             "source_status_document": self.source_status_document,
             "controlled_factor": self.controlled_factor,
+            "experiment_controlled_factor": self.experiment_controlled_factor,
+            "baseline_observation_schema": self.baseline_observation_schema,
+            "baseline_global_feature_names": list(self.baseline_global_feature_names),
+            "local_observation_contract_changed": self.local_observation_contract_changed,
             "reference_symbol": self.reference_symbol,
             "reference_feature": self.reference_feature,
             "reference_requires_available": self.reference_requires_available,
@@ -127,6 +152,16 @@ class PPOGlobalBTCRegimeProtocol:
             ),
             "reference_availability_semantics": self.reference_availability_semantics,
             "reference_staleness_semantics": self.reference_staleness_semantics,
+            "reference_observation_components": list(
+                self.reference_observation_components
+            ),
+            "reference_observation_width": self.reference_observation_width,
+            "reference_value_source": self.reference_value_source,
+            "reference_available_source": self.reference_available_source,
+            "reference_staleness_source": self.reference_staleness_source,
+            "reference_usable_semantics": self.reference_usable_semantics,
+            "reference_unavailable_value": self.reference_unavailable_value,
+            "reference_staleness_recomputed": self.reference_staleness_recomputed,
             "ppo_seeds": list(self.ppo_seeds),
             "factor_slots_authorized": self.factor_slots_authorized,
             "only_ppo_may_change": self.only_ppo_may_change,
@@ -186,6 +221,10 @@ def _canonical_field_values() -> dict[str, object]:
         "source_evidence_fingerprint": _SOURCE_EVIDENCE_FINGERPRINT,
         "source_status_document": _SOURCE_STATUS_DOCUMENT,
         "controlled_factor": _CONTROLLED_FACTOR,
+        "experiment_controlled_factor": _EXPERIMENT_CONTROLLED_FACTOR,
+        "baseline_observation_schema": _BASELINE_OBSERVATION_SCHEMA,
+        "baseline_global_feature_names": _BASELINE_GLOBAL_FEATURE_NAMES,
+        "local_observation_contract_changed": False,
         "reference_symbol": _REFERENCE_SYMBOL,
         "reference_feature": _REFERENCE_FEATURE,
         "reference_requires_available": True,
@@ -196,6 +235,14 @@ def _canonical_field_values() -> dict[str, object]:
         "reference_uses_future_or_global_statistics": False,
         "reference_availability_semantics": "canonical_dataset_feature_available",
         "reference_staleness_semantics": "observation_v2_normalized_staleness",
+        "reference_observation_components": _REFERENCE_OBSERVATION_COMPONENTS,
+        "reference_observation_width": 3,
+        "reference_value_source": "canonical_dataset.features",
+        "reference_available_source": "canonical_dataset.feature_available",
+        "reference_staleness_source": "canonical_dataset.feature_staleness",
+        "reference_usable_semantics": "feature_available_and_isfinite",
+        "reference_unavailable_value": 0.0,
+        "reference_staleness_recomputed": False,
         "ppo_seeds": _PPO_SEEDS,
         "factor_slots_authorized": 1,
         "only_ppo_may_change": True,

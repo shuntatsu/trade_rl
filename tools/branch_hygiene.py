@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,7 +17,7 @@ PRESERVED_PREFIXES = ("research/", "seal/", "freeze/", "run/")
 TRANSIENT_PREFIXES = ("verify/", "automation/", "tmp/")
 RETENTION_BRANCH = "provenance/branch-retention"
 RETENTION_BATCH_SIZE = 20
-DELETE_DELAY_SECONDS = 0.5
+DELETE_BATCH_SIZE = 25
 API_VERSION = "2022-11-28"
 
 
@@ -265,9 +265,36 @@ class GitHubApi:
             body={"sha": sha, "force": False},
         )
 
-    def delete_branch(self, name: str) -> None:
-        encoded = urllib.parse.quote(name, safe="/")
-        self._request_json("DELETE", f"git/refs/heads/{encoded}")
+    def delete_branches_with_leases(self, branches: Sequence[BranchInfo]) -> None:
+        if not branches:
+            return
+        credential = base64.b64encode(
+            f"x-access-token:{self._token}".encode("utf-8")
+        ).decode("ascii")
+        command = [
+            "git",
+            "-c",
+            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {credential}",
+            "push",
+            "--atomic",
+            "--porcelain",
+        ]
+        command.extend(
+            f"--force-with-lease=refs/heads/{branch.name}:{branch.sha}"
+            for branch in branches
+        )
+        command.append("origin")
+        command.extend(f":refs/heads/{branch.name}" for branch in branches)
+        process = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        if process.returncode != 0:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"conditional branch deletion failed: {detail}")
 
 
 def is_preserved_branch(name: str) -> bool:
@@ -463,31 +490,37 @@ def apply_cleanup(
     )
 
     current_by_name = {branch.name: branch for branch in api.branches()}
-    open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-    active_names = api.active_workflow_branch_names()
     if archive_candidates:
         retention = current_by_name.get(RETENTION_BRANCH)
         if retention is None or retention.sha != retention_sha:
             raise RuntimeError("retention branch did not reach the expected archive commit")
 
     archived_names = {branch.name for branch in archive_candidates}
-    deleted: list[str] = []
+    delete_candidates: list[BranchInfo] = []
     for decision in decisions:
         if decision.action not in {"delete", "archive-delete"}:
             continue
         expected = decision.branch
         if decision.action == "archive-delete" and expected.name not in archived_names:
             continue
-        if expected.name in open_names or expected.name in active_names:
-            continue
         current = current_by_name.get(expected.name)
-        if current is None:
+        if current is None or current.protected or current.sha != expected.sha:
             continue
-        if current.protected or current.sha != expected.sha:
+        delete_candidates.append(expected)
+
+    deleted: list[str] = []
+    for batch in chunks(tuple(delete_candidates), DELETE_BATCH_SIZE):
+        open_names = open_pull_request_branch_names(api.open_pull_request_refs())
+        active_names = api.active_workflow_branch_names()
+        safe_batch = tuple(
+            branch
+            for branch in batch
+            if branch.name not in open_names and branch.name not in active_names
+        )
+        if not safe_batch:
             continue
-        api.delete_branch(expected.name)
-        deleted.append(expected.name)
-        time.sleep(DELETE_DELAY_SECONDS)
+        api.delete_branches_with_leases(safe_batch)
+        deleted.extend(branch.name for branch in safe_batch)
 
     remaining_names = {branch.name for branch in api.branches()}
     unexpectedly_remaining = sorted(set(deleted) & remaining_names)

@@ -1,4 +1,5 @@
 # Re-run after binding the exact frozen ACCEPT_CANDIDATE decision value.
+# Decision values are imported directly from the verified frozen helper.
 name: tmp Issue 610 real interpretation runner verification
 
 on:

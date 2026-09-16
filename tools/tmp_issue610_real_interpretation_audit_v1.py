@@ -179,7 +179,8 @@ def audit_interpretation(
         "candidate execution run id drift",
     )
     _require(
-        recovery_binding.get("candidate_execution_run_id") == candidate_execution_run_id,
+        recovery_binding.get("candidate_execution_run_id")
+        == candidate_execution_run_id,
         "recovery binding execution run mismatch",
     )
     _require(

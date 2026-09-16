@@ -14,9 +14,7 @@ RunMap: TypeAlias = Mapping[int, _RunLike]
 
 
 def _mapping(value: object) -> Mapping[str, object] | None:
-    if not isinstance(value, Mapping) or any(
-        not isinstance(key, str) for key in value
-    ):
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         return None
     return cast(Mapping[str, object], value)
 

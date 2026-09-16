@@ -67,7 +67,9 @@ class PPOGlobalBTCRegimeProtocol:
     reference_uses_future_or_global_statistics: bool = False
     reference_availability_semantics: str = "canonical_dataset_feature_available"
     reference_staleness_semantics: str = "observation_v2_normalized_staleness"
-    reference_observation_components: tuple[str, ...] = _REFERENCE_OBSERVATION_COMPONENTS
+    reference_observation_components: tuple[str, ...] = (
+        _REFERENCE_OBSERVATION_COMPONENTS
+    )
     reference_observation_width: int = 3
     reference_value_source: str = "canonical_dataset.features"
     reference_available_source: str = "canonical_dataset.feature_available"

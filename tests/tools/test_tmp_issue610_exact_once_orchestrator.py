@@ -20,6 +20,7 @@ from tools.tmp_issue610_exact_once_orchestrator import (
     SYMBOLS,
     UNAFFECTED_STRATEGIES,
     termination_violations,
+    validate_exactly_once_invocation,
     validate_precompute_authority,
 )
 
@@ -101,6 +102,27 @@ def test_precompute_authority_accepts_only_result_blind_exact_binding() -> None:
         forged = deepcopy(authority)
         forged[field] = bad_value
         assert validate_precompute_authority(forged)
+
+
+def test_exactly_once_runtime_gate_requires_first_run_and_attempt() -> None:
+    assert validate_exactly_once_invocation(run_number=1, run_attempt=1) == ()
+    assert validate_exactly_once_invocation(run_number=2, run_attempt=1) == (
+        "economic publisher must use GitHub run number 1",
+    )
+    assert validate_exactly_once_invocation(run_number=1, run_attempt=2) == (
+        "economic publisher must use GitHub run attempt 1",
+    )
+    assert validate_exactly_once_invocation(run_number=2, run_attempt=3) == (
+        "economic publisher must use GitHub run number 1",
+        "economic publisher must use GitHub run attempt 1",
+    )
+
+
+def test_exactly_once_runtime_gate_rejects_non_integer_or_non_positive_values() -> None:
+    assert validate_exactly_once_invocation(run_number=True, run_attempt=1)
+    assert validate_exactly_once_invocation(run_number=0, run_attempt=1)
+    assert validate_exactly_once_invocation(run_number=1, run_attempt=False)
+    assert validate_exactly_once_invocation(run_number=1, run_attempt=0)
 
 
 def test_termination_gate_delegates_to_verified_reason_oracle() -> None:

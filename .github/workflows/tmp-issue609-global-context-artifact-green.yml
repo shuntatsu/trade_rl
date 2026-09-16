@@ -43,7 +43,7 @@ jobs:
           text = path.read_text()
 
           old_return = '''    return summary, returns\n\n\ndef _json_bytes'''
-          new_return = '''    if config.ppo_global_context is not None:\n        candidate_config_payload = cast(\n            dict[str, object],\n            summary["candidate_config"],\n        )\n        candidate_config_payload["ppo_global_context"] = config.ppo_global_context\n        summary["ppo_observation"] = ppo_observation_contract_payload(\n            global_context=config.ppo_global_context,\n        )\n    return summary, returns\n\n\ndef _json_bytes'''
+          new_return = '''    global_context = getattr(config, "ppo_global_context", None)\n    if global_context is not None:\n        candidate_config_payload = cast(\n            dict[str, object],\n            summary["candidate_config"],\n        )\n        candidate_config_payload["ppo_global_context"] = global_context\n        summary["ppo_observation"] = ppo_observation_contract_payload(\n            global_context=global_context,\n        )\n    return summary, returns\n\n\ndef _json_bytes'''
           if text.count(old_return) != 1:
               raise SystemExit("result payload patch anchor drifted")
           text = text.replace(old_return, new_return)

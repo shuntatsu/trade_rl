@@ -199,7 +199,9 @@ class RidgeEconomicGateEvaluationSpec:
                 )
 
     def to_payload(self) -> dict[str, object]:
-        return {item.name: _json_value(getattr(self, item.name)) for item in fields(self)}
+        return {
+            item.name: _json_value(getattr(self, item.name)) for item in fields(self)
+        }
 
     @property
     def digest(self) -> str:
@@ -230,18 +232,24 @@ class RidgeEconomicGateCostAuthority:
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
-        _require_hex(self.source_artifact_api_digest, field="source Artifact API digest")
+        _require_hex(
+            self.source_artifact_api_digest, field="source Artifact API digest"
+        )
         if self.schema_version != _COST_AUTHORITY_SCHEMA_VERSION:
             raise ValueError("unsupported cost authority schema")
         if self.dataset_id != spec.dataset_id:
             raise ValueError("cost authority dataset does not match frozen evaluation")
         if self.dataset_artifact_digest != spec.dataset_artifact_digest:
-            raise ValueError("cost authority dataset artifact does not match frozen evaluation")
+            raise ValueError(
+                "cost authority dataset artifact does not match frozen evaluation"
+            )
         if (
             self.evaluation_start != spec.evaluation_start
             or self.evaluation_stop_exclusive != spec.evaluation_stop_exclusive
         ):
-            raise ValueError("cost authority evaluation clock does not match frozen evaluation")
+            raise ValueError(
+                "cost authority evaluation clock does not match frozen evaluation"
+            )
         for field_name in (
             "fee_rate",
             "taker_fee_rate",
@@ -252,9 +260,16 @@ class RidgeEconomicGateCostAuthority:
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
             if value != getattr(spec, field_name):
-                raise ValueError(f"cost authority {field_name} differs from frozen evaluation")
-        if self.one_way_explicit_cost != self.fee_rate + self.taker_fee_rate + self.spread_rate:
-            raise ValueError("one_way_explicit_cost must equal explicit cost components")
+                raise ValueError(
+                    f"cost authority {field_name} differs from frozen evaluation"
+                )
+        if (
+            self.one_way_explicit_cost
+            != self.fee_rate + self.taker_fee_rate + self.spread_rate
+        ):
+            raise ValueError(
+                "one_way_explicit_cost must equal explicit cost components"
+            )
         if type(self.verified) is not bool or not self.verified:
             raise ValueError("cost authority must be verified before evaluation")
 
@@ -306,7 +321,10 @@ class RidgeEconomicGateSymbolResult:
         )
         if not all(math.isfinite(value) for value in numeric):
             raise ValueError("symbol evaluation metrics must be finite")
-        if self.excess_total_return != self.candidate_total_return - self.baseline_total_return:
+        if (
+            self.excess_total_return
+            != self.candidate_total_return - self.baseline_total_return
+        ):
             raise ValueError("excess_total_return must equal candidate minus baseline")
         for field_name in (
             "baseline_total_cost",
@@ -331,7 +349,10 @@ class RidgeEconomicGateSymbolResult:
             raise ValueError("baseline termination count/reasons mismatch")
         if self.candidate_termination_count != len(self.candidate_termination_reasons):
             raise ValueError("candidate termination count/reasons mismatch")
-        for reasons in (self.baseline_termination_reasons, self.candidate_termination_reasons):
+        for reasons in (
+            self.baseline_termination_reasons,
+            self.candidate_termination_reasons,
+        ):
             if any(not isinstance(reason, str) or not reason for reason in reasons):
                 raise ValueError("termination reasons must contain non-empty strings")
         if type(self.new_termination) is not bool:
@@ -406,7 +427,10 @@ class RidgeEconomicGateEvaluation:
         _require_hex(self.cost_authority_digest, field="cost authority digest")
         if self.dataset_id != spec.dataset_id:
             raise ValueError("dataset_id differs from frozen evaluation authority")
-        if self.symbols != spec.symbols or tuple(item.symbol for item in self.by_symbol) != self.symbols:
+        if (
+            self.symbols != spec.symbols
+            or tuple(item.symbol for item in self.by_symbol) != self.symbols
+        ):
             raise ValueError("ridge economic-gate result symbol roster mismatch")
         if len(self.by_symbol) != len(spec.symbols):
             raise ValueError("ridge economic-gate result requires all frozen symbols")
@@ -421,20 +445,35 @@ class RidgeEconomicGateEvaluation:
             "candidate_positive_total_return_symbols",
         ):
             value = getattr(self, field_name)
-            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= len(spec.symbols):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value <= len(spec.symbols)
+            ):
                 raise ValueError(f"{field_name} must be an integer within [0, 5]")
 
-        expected_positive = sum(item.excess_total_return > 0.0 for item in self.by_symbol)
-        expected_median = float(median(item.excess_total_return for item in self.by_symbol))
-        expected_cost = sum(item.candidate_total_cost < item.baseline_total_cost for item in self.by_symbol)
+        expected_positive = sum(
+            item.excess_total_return > 0.0 for item in self.by_symbol
+        )
+        expected_median = float(
+            median(item.excess_total_return for item in self.by_symbol)
+        )
+        expected_cost = sum(
+            item.candidate_total_cost < item.baseline_total_cost
+            for item in self.by_symbol
+        )
         expected_turnover = sum(
-            item.candidate_turnover_total < item.baseline_turnover_total for item in self.by_symbol
+            item.candidate_turnover_total < item.baseline_turnover_total
+            for item in self.by_symbol
         )
         expected_drawdown = sum(
-            item.candidate_max_drawdown <= item.baseline_max_drawdown for item in self.by_symbol
+            item.candidate_max_drawdown <= item.baseline_max_drawdown
+            for item in self.by_symbol
         )
         expected_new_termination = sum(item.new_termination for item in self.by_symbol)
-        expected_candidate_positive = sum(item.candidate_total_return > 0.0 for item in self.by_symbol)
+        expected_candidate_positive = sum(
+            item.candidate_total_return > 0.0 for item in self.by_symbol
+        )
         expected_status = research_status_from_counts(
             positive_effect_symbols=expected_positive,
             median_excess_total_return=expected_median,
@@ -455,7 +494,9 @@ class RidgeEconomicGateEvaluation:
         }
         for field_name, expected in expected_fields.items():
             if getattr(self, field_name) != expected:
-                raise ValueError(f"{field_name} does not match per-symbol evaluation evidence")
+                raise ValueError(
+                    f"{field_name} does not match per-symbol evaluation evidence"
+                )
         for field_name in (
             "final_test_accessed",
             "final_test_authorized",
@@ -467,7 +508,9 @@ class RidgeEconomicGateEvaluation:
         ):
             value = getattr(self, field_name)
             if type(value) is not bool or value:
-                raise ValueError("research evaluation cannot authorize production/final/shared-cash use")
+                raise ValueError(
+                    "research evaluation cannot authorize production/final/shared-cash use"
+                )
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -502,7 +545,9 @@ class RidgeEconomicGateEvaluation:
 def canonical_ridge_economic_gate_evaluation_spec() -> RidgeEconomicGateEvaluationSpec:
     protocol = canonical_ridge_economic_gate_protocol()
     if protocol.digest != _SPEC_VALUES["protocol_digest"]:
-        raise ValueError("sealed ridge protocol digest differs from evaluation authority")
+        raise ValueError(
+            "sealed ridge protocol digest differs from evaluation authority"
+        )
     return RidgeEconomicGateEvaluationSpec(**_SPEC_VALUES)  # type: ignore[arg-type]
 
 
@@ -576,7 +621,9 @@ def _validate_dataset(
         if index >= len(dataset.feature_names) or dataset.feature_names[index] != name:
             raise ValueError("ridge feature identity differs from frozen evaluation")
     start = _exact_index(dataset, spec.evaluation_start, field="evaluation_start")
-    stop = _exact_index(dataset, spec.evaluation_stop_exclusive, field="evaluation_stop_exclusive")
+    stop = _exact_index(
+        dataset, spec.evaluation_stop_exclusive, field="evaluation_stop_exclusive"
+    )
     if not 0 <= start < stop < dataset.n_bars:
         raise ValueError("evaluation range differs from frozen evaluation")
     execution_slice = slice(start, stop + 1)
@@ -586,7 +633,9 @@ def _validate_dataset(
         ("taker_fee_rate", spec.taker_fee_rate),
         ("spread_rate", spec.spread_rate),
     ):
-        values = np.asarray(dataset.resolved_array(field_name)[execution_slice], dtype=np.float64)
+        values = np.asarray(
+            dataset.resolved_array(field_name)[execution_slice], dtype=np.float64
+        )
         if (
             values.shape != expected_shape
             or not np.isfinite(values).all()
@@ -624,7 +673,8 @@ def _has_new_termination(
     baseline_counter = Counter(baseline_reasons)
     candidate_counter = Counter(candidate_reasons)
     return any(
-        candidate_counter[reason] > baseline_counter[reason] for reason in candidate_counter
+        candidate_counter[reason] > baseline_counter[reason]
+        for reason in candidate_counter
     )
 
 
@@ -692,8 +742,14 @@ def evaluate_ridge_economic_gate(
             one_way_explicit_cost=spec.one_way_explicit_cost,
         )
     )
-    if baseline.model is not model or candidate.model is not model or candidate.config.model is not model:
-        raise RuntimeError("baseline and candidate must share the exact fitted Ridge model")
+    if (
+        baseline.model is not model
+        or candidate.model is not model
+        or candidate.config.model is not model
+    ):
+        raise RuntimeError(
+            "baseline and candidate must share the exact fitted Ridge model"
+        )
     strategies: dict[str, SingleSymbolStrategy] = {
         "baseline": baseline,
         "candidate": candidate,
@@ -716,8 +772,12 @@ def evaluate_ridge_economic_gate(
             raise RuntimeError("paired ridge evaluation strategy roster drifted")
         baseline_entry = entries["baseline"]
         candidate_entry = entries["candidate"]
-        baseline_returns = tuple(float(value) for value in baseline_entry.replay.returns.values)
-        candidate_returns = tuple(float(value) for value in candidate_entry.replay.returns.values)
+        baseline_returns = tuple(
+            float(value) for value in baseline_entry.replay.returns.values
+        )
+        candidate_returns = tuple(
+            float(value) for value in candidate_entry.replay.returns.values
+        )
         if baseline_entry.metrics.n_periods != len(baseline_returns):
             raise RuntimeError("baseline return count differs from metrics")
         if candidate_entry.metrics.n_periods != len(candidate_returns):
@@ -727,7 +787,9 @@ def evaluate_ridge_economic_gate(
         if candidate_entry.metrics.total_return != compound_return(candidate_returns):
             raise RuntimeError("candidate total return differs from raw return path")
         baseline_reasons = tuple(baseline_entry.replay.diagnostics.termination_reasons)
-        candidate_reasons = tuple(candidate_entry.replay.diagnostics.termination_reasons)
+        candidate_reasons = tuple(
+            candidate_entry.replay.diagnostics.termination_reasons
+        )
         if baseline_entry.metrics.termination_count != len(baseline_reasons):
             raise RuntimeError("baseline termination evidence is inconsistent")
         if candidate_entry.metrics.termination_count != len(candidate_reasons):
@@ -738,7 +800,8 @@ def evaluate_ridge_economic_gate(
                 baseline_total_return=baseline_entry.metrics.total_return,
                 candidate_total_return=candidate_entry.metrics.total_return,
                 excess_total_return=(
-                    candidate_entry.metrics.total_return - baseline_entry.metrics.total_return
+                    candidate_entry.metrics.total_return
+                    - baseline_entry.metrics.total_return
                 ),
                 baseline_total_cost=baseline_entry.metrics.total_cost,
                 candidate_total_cost=candidate_entry.metrics.total_cost,
@@ -769,7 +832,9 @@ def evaluate_ridge_economic_gate(
 
     positive = sum(item.excess_total_return > 0.0 for item in results)
     excess_median = float(median(item.excess_total_return for item in results))
-    cost_reduction = sum(item.candidate_total_cost < item.baseline_total_cost for item in results)
+    cost_reduction = sum(
+        item.candidate_total_cost < item.baseline_total_cost for item in results
+    )
     turnover_reduction = sum(
         item.candidate_turnover_total < item.baseline_turnover_total for item in results
     )

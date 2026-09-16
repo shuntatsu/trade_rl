@@ -1,0 +1,583 @@
+name: Issue 610 PPO global-BTC development evaluation v1
+
+on:
+  push:
+    branches:
+      - run/issue610-ppo-global-btc-regime-evaluation-v1
+    paths:
+      - .github/workflows/issue610-ppo-global-btc-regime-evaluation-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue610-ppo-global-btc-regime-evaluation-v1
+  cancel-in-progress: false
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  IMPLEMENTATION_TREE: 4f14c5a06505b8ff9811b473bf6dea296453a13b
+  FRAMEWORK_SHA: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_ARTIFACT_BLOB: 8f95053b62239d674c18ed8564ffe4fc2c1ceaf6
+  ORCHESTRATOR_SHA: 75e09e0d71a164130a527783619e85a37eb883af
+  ORCHESTRATOR_VERIFY_RUN: '35101595997'
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_DIGEST: sha256:d8f619832df05f57925cef24db47d8069f4ab66e98e2808f52ee22ca6ee0e780
+  PRECOMPUTE_FRESH_NAME: issue610-precompute-authority-fresh-v1-35098793118
+  PRECOMPUTE_FRESH_ID: '10447607272'
+  PRECOMPUTE_FRESH_DIGEST: sha256:8b8db027bddd5a64c38df18a54eade86ec344d5570b09240d6d587db8c690a4c
+  BASELINE_RUN: '34700123151'
+  BASELINE_PUBLISH_JOB: '103570282369'
+  BASELINE_NAME: canonical-m2-portable-baseline-v1-34700123151
+  BASELINE_ID: '10301701698'
+  BASELINE_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  BASELINE_POSTVERIFY_RUN: '34704606059'
+  BASELINE_POSTVERIFY_ID: '10300932825'
+  BASELINE_POSTVERIFY_DIGEST: sha256:77c26e8cdeecdc023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9
+
+jobs:
+  candidate:
+    name: Exactly-once candidate execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      artifact_name: ${{ steps.candidate_name.outputs.artifact_name }}
+      artifact_id: ${{ steps.candidate_upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.candidate_upload.outputs.artifact-digest }}
+      candidate_fingerprint: ${{ steps.candidate_meta.outputs.candidate_fingerprint }}
+      candidate_authority_digest: ${{ steps.candidate_meta.outputs.candidate_authority_digest }}
+    steps:
+      - name: Enforce exactly-once economic execution envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          echo ISSUE610_EXACTLY_ONCE_ENVELOPE=PASS
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ORCHESTRATOR_SHA }}
+          path: orchestrator
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact code, artifact contract, orchestrator verification, and precompute authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C code rev-parse HEAD^{tree})" = "$IMPLEMENTATION_TREE"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          test "$(git -C framework rev-parse HEAD:trade_rl/evaluation/runs/artifact.py)" = "$FRAMEWORK_ARTIFACT_BLOB"
+          test "$(git -C orchestrator rev-parse HEAD)" = "$ORCHESTRATOR_SHA"
+
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORCHESTRATOR_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$ORCHESTRATOR_SHA"
+          verify_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORCHESTRATOR_VERIFY_RUN/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Exact Issue 610 orchestrator synthetic verification") | .conclusion' <<<"$verify_jobs")" = success
+
+          precompute="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRECOMPUTE_RUN")"
+          test "$(jq -r .status <<<"$precompute")" = completed
+          test "$(jq -r .conclusion <<<"$precompute")" = success
+          precompute_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRECOMPUTE_RUN/jobs?per_page=100")"
+          for job in 'Produce exact precompute authority' 'Independently reconstruct precompute authority' 'Final result-blind precompute audit'; do
+            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' <<<"$precompute_jobs")" = success
+          done
+
+          check_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local p
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$run_id"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          check_artifact "$PRECOMPUTE_ID" "$PRECOMPUTE_NAME" "$PRECOMPUTE_DIGEST" "$PRECOMPUTE_RUN"
+          check_artifact "$PRECOMPUTE_FRESH_ID" "$PRECOMPUTE_FRESH_NAME" "$PRECOMPUTE_FRESH_DIGEST" "$PRECOMPUTE_RUN"
+          check_artifact "$BASELINE_ID" "$BASELINE_NAME" "$BASELINE_DIGEST" "$BASELINE_RUN"
+
+          publisher="$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$BASELINE_PUBLISH_JOB")"
+          test "$(jq -r .run_id <<<"$publisher")" = "$BASELINE_RUN"
+          test "$(jq -r .name <<<"$publisher")" = publish
+          test "$(jq -r .conclusion <<<"$publisher")" = success
+          postverify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BASELINE_POSTVERIFY_RUN")"
+          test "$(jq -r .conclusion <<<"$postverify")" = success
+          check_artifact "$BASELINE_POSTVERIFY_ID" "canonical-m2-portable-baseline-postverify-v1-$BASELINE_POSTVERIFY_RUN" "$BASELINE_POSTVERIFY_DIGEST" "$BASELINE_POSTVERIFY_RUN"
+
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result|fresh-result)-v1-' <<<"$names"
+          echo ISSUE610_PRIOR_CANDIDATE_OR_RESULT_ARTIFACTS=0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Reprove cross-version artifact bridge immediately before economic execution
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue610-bridge-check
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            bridge-check \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --output-root /tmp/issue610-bridge-check
+      - name: Execute sealed candidate exactly once without interpreting economic values
+        id: execute_candidate
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          rm -rf /tmp/candidate
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            execute \
+            --source-root /tmp/baseline \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/candidate \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --execution-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST"
+      - id: candidate_meta
+        name: Bind candidate evidence and closed interpretation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r .candidate_training_performed /tmp/candidate/candidate-authority.json)" = true
+          test "$(jq -r .economic_values_interpreted /tmp/candidate/candidate-authority.json)" = false
+          test "$(jq -r .final_test_accessed /tmp/candidate/candidate-authority.json)" = false
+          test "$(jq -r .production_eligible /tmp/candidate/candidate-authority.json)" = false
+          test "$(jq -r .live_trading_authorized /tmp/candidate/candidate-authority.json)" = false
+          test "$(jq -r .merge_authorized /tmp/candidate/candidate-authority.json)" = false
+          echo "candidate_fingerprint=$(jq -r .candidate_evidence_fingerprint /tmp/candidate/candidate-authority.json)" >> "$GITHUB_OUTPUT"
+          echo "candidate_authority_digest=$(jq -r .content_digest /tmp/candidate/candidate-authority.json)" >> "$GITHUB_OUTPUT"
+      - id: candidate_name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-candidate-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: candidate_upload
+        name: Publish immutable candidate evidence before interpretation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.candidate_name.outputs.artifact_name }}
+          path: /tmp/candidate
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish fail-closed diagnostics without authorizing retraining
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue610-ppo-global-btc-regime-execution-failure-v1-${{ github.run_id }}
+          path: |
+            /tmp/candidate
+            /tmp/issue610-bridge-check
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: ignore
+
+  interpret:
+    name: Primary immutable-candidate interpretation
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_name: ${{ steps.result_name.outputs.artifact_name }}
+      artifact_id: ${{ steps.result_upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.result_upload.outputs.artifact-digest }}
+      decision: ${{ steps.result_meta.outputs.decision }}
+      result_content_digest: ${{ steps.result_meta.outputs.result_content_digest }}
+    steps:
+      - name: Forbid in-place rerun recovery
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ORCHESTRATOR_SHA }}
+          path: orchestrator
+          fetch-depth: 1
+          persist-credentials: false
+      - name: API-bind immutable candidate and precompute artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ID: ${{ needs.candidate.outputs.artifact_id }}
+          CANDIDATE_NAME: ${{ needs.candidate.outputs.artifact_name }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          bind_current() {
+            local id="$1" name="$2" digest="$3"
+            local p api_digest
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$p")" = false
+            api_digest="$(jq -r .digest <<<"$p")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          bind_current "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST"
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRECOMPUTE_ID")"
+          test "$(jq -r .name <<<"$p")" = "$PRECOMPUTE_NAME"
+          test "$(jq -r .digest <<<"$p")" = "$PRECOMPUTE_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$PRECOMPUTE_RUN"
+          test "$(jq -r .expired <<<"$p")" = false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.candidate.outputs.artifact_name }}
+          path: /tmp/candidate
+      - name: Interpret only the immutable candidate under the sealed Issue 609 rule
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+          CANDIDATE_ID: ${{ needs.candidate.outputs.artifact_id }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          rm -rf /tmp/result
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            interpret \
+            --source-root /tmp/baseline \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/result \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --interpretation-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST"
+      - id: result_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r .economic_values_interpreted /tmp/result/result.json)" = true
+          test "$(jq -r .final_test_accessed /tmp/result/result.json)" = false
+          test "$(jq -r .operational_eligibility_established /tmp/result/result.json)" = false
+          test "$(jq -r .production_eligible /tmp/result/result.json)" = false
+          test "$(jq -r .live_trading_authorized /tmp/result/result.json)" = false
+          test "$(jq -r .merge_authorized /tmp/result/result.json)" = false
+          echo "decision=$(jq -r .decision /tmp/result/result.json)" >> "$GITHUB_OUTPUT"
+          echo "result_content_digest=$(jq -r .content_digest /tmp/result/result.json)" >> "$GITHUB_OUTPUT"
+      - id: result_name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-result-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: result_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.result_name.outputs.artifact_name }}
+          path: /tmp/result
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  fresh_interpret:
+    name: Fresh independent immutable-candidate interpretation
+    needs: [candidate, interpret]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_name: ${{ steps.fresh_name.outputs.artifact_name }}
+      artifact_id: ${{ steps.fresh_upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.fresh_upload.outputs.artifact-digest }}
+    steps:
+      - name: Forbid in-place rerun recovery
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ORCHESTRATOR_SHA }}
+          path: orchestrator
+          fetch-depth: 1
+          persist-credentials: false
+      - name: API-bind immutable candidate, primary result, and precompute authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ID: ${{ needs.candidate.outputs.artifact_id }}
+          CANDIDATE_NAME: ${{ needs.candidate.outputs.artifact_name }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+          RESULT_ID: ${{ needs.interpret.outputs.artifact_id }}
+          RESULT_NAME: ${{ needs.interpret.outputs.artifact_name }}
+          RESULT_DIGEST: ${{ needs.interpret.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          bind_current() {
+            local id="$1" name="$2" digest="$3"
+            local p api_digest
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$p")" = false
+            api_digest="$(jq -r .digest <<<"$p")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          bind_current "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST"
+          bind_current "$RESULT_ID" "$RESULT_NAME" "$RESULT_DIGEST"
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRECOMPUTE_ID")"
+          test "$(jq -r .digest <<<"$p")" = "$PRECOMPUTE_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$PRECOMPUTE_RUN"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.candidate.outputs.artifact_name }}
+          path: /tmp/candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.interpret.outputs.artifact_name }}
+          path: /tmp/primary-result
+      - name: Independently reconstruct the sealed decision without PPO retraining
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+          CANDIDATE_ID: ${{ needs.candidate.outputs.artifact_id }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/fresh-result
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            interpret \
+            --source-root /tmp/baseline \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/fresh-result \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --interpretation-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST"
+          cmp /tmp/primary-result/result.json /tmp/fresh-result/result.json
+          test "$(jq -r .decision /tmp/fresh-result/result.json)" = "${{ needs.interpret.outputs.decision }}"
+          echo BASELINE_RETRAINED=false
+          echo CANDIDATE_RETRAINED_DURING_FRESH_INTERPRETATION=false
+      - id: fresh_name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-fresh-result-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: fresh_upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.fresh_name.outputs.artifact_name }}
+          path: /tmp/fresh-result
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  audit:
+    name: Final Issue 610 exactly-once development evaluation audit
+    needs: [candidate, interpret, fresh_interpret]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Forbid in-place rerun recovery and API-bind all immutable artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ID: ${{ needs.candidate.outputs.artifact_id }}
+          CANDIDATE_NAME: ${{ needs.candidate.outputs.artifact_name }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.artifact_digest }}
+          RESULT_ID: ${{ needs.interpret.outputs.artifact_id }}
+          RESULT_NAME: ${{ needs.interpret.outputs.artifact_name }}
+          RESULT_DIGEST: ${{ needs.interpret.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh_interpret.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh_interpret.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh_interpret.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          bind_current() {
+            local id="$1" name="$2" digest="$3"
+            local p api_digest
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$p")" = false
+            api_digest="$(jq -r .digest <<<"$p")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          bind_current "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST"
+          bind_current "$RESULT_ID" "$RESULT_NAME" "$RESULT_DIGEST"
+          bind_current "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.candidate.outputs.artifact_name }}
+          path: /tmp/candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.interpret.outputs.artifact_name }}
+          path: /tmp/result
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh_interpret.outputs.artifact_name }}
+          path: /tmp/fresh-result
+      - name: Require byte-identical independent interpretation, canonical integrity, and closed downstream boundaries
+        working-directory: code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/result/result.json /tmp/fresh-result/result.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          result_raw = Path('/tmp/result/result.json').read_bytes()
+          result = json.loads(result_raw)
+          assert isinstance(result, dict)
+          assert canonical_json_bytes(result) == result_raw
+          unsigned = dict(result)
+          digest = unsigned.pop('content_digest')
+          assert content_digest(unsigned) == digest
+
+          candidate_raw = Path('/tmp/candidate/candidate-authority.json').read_bytes()
+          candidate = json.loads(candidate_raw)
+          assert isinstance(candidate, dict)
+          assert canonical_json_bytes(candidate) == candidate_raw
+          candidate_unsigned = dict(candidate)
+          candidate_digest = candidate_unsigned.pop('content_digest')
+          assert content_digest(candidate_unsigned) == candidate_digest
+
+          assert result['candidate_authority_content_digest'] == candidate['content_digest']
+          assert result['candidate_evidence_fingerprint'] == candidate['candidate_evidence_fingerprint']
+          assert candidate['candidate_training_performed'] is True
+          assert candidate['economic_values_interpreted'] is False
+          assert result['economic_values_interpreted'] is True
+          assert result['baseline_retrained'] is False
+          assert result['candidate_retrained_during_interpretation'] is False
+          assert result['final_test_accessed'] is False
+          assert result['development_acceptance_establishes_profitability'] is False
+          assert result['operational_eligibility_established'] is False
+          assert result['production_eligible'] is False
+          assert result['live_trading_authorized'] is False
+          assert result['merge_authorized'] is False
+          assert result['decision'] in {'ACCEPT_CANDIDATE', 'KEEP_BASELINE', 'INVALID'}
+          print('ISSUE610_FINAL_AUDIT=PASS')
+          print('DECISION=' + result['decision'])
+          print('FINAL_TEST_ACCESSED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          PY

@@ -6,17 +6,23 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 PRESERVED_PREFIXES = ("research/", "seal/", "freeze/", "run/")
 RETENTION_BRANCH = "provenance/branch-retention"
 RETENTION_BATCH_SIZE = 20
 DELETE_BATCH_SIZE = 25
+RETENTION_GRACE_SECONDS = 60 * 60
+RETENTION_MESSAGE_PREFIXES = (
+    "Archive unique non-anchor branch tips before ref cleanup",
+    "Observe non-anchor branch tips before cleanup grace period",
+)
 API_VERSION = "2022-11-28"
 
 
@@ -368,6 +374,60 @@ def reachable_commits(shas: Iterable[str]) -> frozenset[str]:
     return frozenset(line for line in process.stdout.splitlines() if line)
 
 
+def parse_retention_log(log_output: str) -> dict[tuple[str, str], int]:
+    observed: dict[tuple[str, str], int] = {}
+    for raw_record in log_output.split("\x1e"):
+        record = raw_record.strip("\n")
+        if not record.strip():
+            continue
+        timestamp_text, separator, message = record.partition("\x1f")
+        if not separator:
+            raise RuntimeError("retention log record is missing its separator")
+        try:
+            timestamp = int(timestamp_text.strip())
+        except ValueError as exc:
+            raise RuntimeError("retention log timestamp is invalid") from exc
+        if not message.lstrip().startswith(RETENTION_MESSAGE_PREFIXES):
+            continue
+        for line in message.splitlines():
+            branch_name, mapping_separator, sha = line.partition("\t")
+            if not mapping_separator:
+                continue
+            if (
+                not branch_name
+                or len(sha) != 40
+                or any(character not in "0123456789abcdef" for character in sha)
+            ):
+                continue
+            key = (branch_name, sha)
+            previous = observed.get(key)
+            observed[key] = timestamp if previous is None else min(previous, timestamp)
+    return observed
+
+
+def retention_tip_observations() -> dict[tuple[str, str], int]:
+    ref = f"refs/remotes/origin/{RETENTION_BRANCH}"
+    probe = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", ref],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode == 1:
+        return {}
+    if probe.returncode != 0:
+        raise RuntimeError(f"git show-ref failed: {probe.stderr.strip()}")
+    process = subprocess.run(
+        ["git", "log", "--first-parent", "--format=%ct%x1f%B%x1e", ref],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise RuntimeError(f"git log failed: {process.stderr.strip()}")
+    return parse_retention_log(process.stdout)
+
+
 def plan_cleanup(
     branches: Sequence[BranchInfo],
     *,
@@ -375,6 +435,9 @@ def plan_cleanup(
     open_pull_request_refs: Sequence[OpenPullRequestRefs],
     active_workflow_branches: frozenset[str],
     reachable_from_anchors: frozenset[str],
+    retention_observed_at: Mapping[tuple[str, str], int],
+    now_timestamp: int,
+    grace_seconds: int = RETENTION_GRACE_SECONDS,
 ) -> tuple[BranchDecision, ...]:
     open_names = open_pull_request_branch_names(open_pull_request_refs)
     decisions: list[BranchDecision] = []
@@ -389,10 +452,20 @@ def plan_cleanup(
             decision = BranchDecision(branch, "keep", "active-workflow")
         elif is_preserved_branch(branch.name):
             decision = BranchDecision(branch, "keep", "provenance")
-        elif branch.sha in reachable_from_anchors:
-            decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")
         else:
-            decision = BranchDecision(branch, "archive-delete", "unique-non-anchor-tip")
+            observed_at = retention_observed_at.get((branch.name, branch.sha))
+            if observed_at is None:
+                decision = BranchDecision(
+                    branch, "archive-keep", "first-seen-non-anchor-tip"
+                )
+            elif now_timestamp - observed_at < grace_seconds:
+                decision = BranchDecision(branch, "keep", "observation-grace-period")
+            elif branch.sha in reachable_from_anchors:
+                decision = BranchDecision(
+                    branch, "delete", "observed-tip-reachable-from-anchor"
+                )
+            else:
+                decision = BranchDecision(branch, "keep", "retained-tip-not-reachable")
         decisions.append(decision)
     return tuple(decisions)
 
@@ -404,9 +477,10 @@ def chunks(items: Sequence[BranchInfo], size: int) -> Iterable[Sequence[BranchIn
 
 def retention_message(branches: Sequence[BranchInfo]) -> str:
     lines = [
-        "Archive unique non-anchor branch tips before ref cleanup",
+        "Observe non-anchor branch tips before cleanup grace period",
         "",
-        "Each mapping below preserves the deleted remote branch name and exact tip SHA.",
+        "Each mapping below records the remote branch name and exact observed tip SHA.",
+        "Cleanup requires the same observed tip to survive the grace period.",
         "Restore with: git branch <name> <sha>",
         "",
     ]
@@ -414,7 +488,7 @@ def retention_message(branches: Sequence[BranchInfo]) -> str:
     return "\n".join(lines)
 
 
-def archive_unique_tips(
+def archive_observed_tips(
     api: GitHubApi,
     *,
     default_branch: str,
@@ -462,7 +536,7 @@ def apply_cleanup(
 
     archive_candidates: list[BranchInfo] = []
     for decision in decisions:
-        if decision.action != "archive-delete":
+        if decision.action != "archive-keep":
             continue
         expected = decision.branch
         current = first_snapshot.get(expected.name)
@@ -475,7 +549,7 @@ def apply_cleanup(
         ):
             archive_candidates.append(expected)
 
-    retention_sha = archive_unique_tips(
+    retention_sha = archive_observed_tips(
         api,
         default_branch=default_branch,
         current_by_name=first_snapshot,
@@ -490,14 +564,11 @@ def apply_cleanup(
                 "retention branch did not reach the expected archive commit"
             )
 
-    archived_names = {branch.name for branch in archive_candidates}
     delete_candidates: list[BranchInfo] = []
     for decision in decisions:
-        if decision.action not in {"delete", "archive-delete"}:
+        if decision.action != "delete":
             continue
         expected = decision.branch
-        if decision.action == "archive-delete" and expected.name not in archived_names:
-            continue
         current = current_by_name.get(expected.name)
         if current is None or current.protected or current.sha != expected.sha:
             continue
@@ -532,7 +603,7 @@ def render_summary(
         item.branch.name for item in decisions if item.action == "delete"
     ]
     archive_candidates = [
-        item.branch.name for item in decisions if item.action == "archive-delete"
+        item.branch.name for item in decisions if item.action == "archive-keep"
     ]
     anchors = [item.branch.name for item in decisions if item.action == "keep"]
     lines = [
@@ -542,7 +613,8 @@ def render_summary(
         f"- branches inspected: {len(decisions)}",
         f"- durable anchors kept: {len(anchors)}",
         f"- direct deletion candidates: {len(direct_candidates)}",
-        f"- archive-then-delete candidates: {len(archive_candidates)}",
+        f"- first-observation branches archived and kept: {len(archive_candidates)}",
+        f"- grace period: {RETENTION_GRACE_SECONDS} seconds",
         f"- branches deleted: {len(deleted)}",
         f"- retention branch: `{RETENTION_BRANCH}`",
         "",
@@ -559,8 +631,8 @@ def render_summary(
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Delete redundant remote branches and archive unique non-anchor tips "
-            "before deleting their refs."
+            "Observe non-anchor branch tips first, preserve them in retention history, "
+            "and delete only unchanged tips that survive the grace period."
         )
     )
     parser.add_argument(
@@ -595,12 +667,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         active_workflow_branches=active_branches,
     )
     reachable = reachable_commits(anchors)
+    retention_observed_at = retention_tip_observations()
     decisions = plan_cleanup(
         branches,
         default_branch=default_branch,
         open_pull_request_refs=open_refs,
         active_workflow_branches=active_branches,
         reachable_from_anchors=reachable,
+        retention_observed_at=retention_observed_at,
+        now_timestamp=int(time.time()),
     )
     deleted = (
         apply_cleanup(api, decisions, default_branch=default_branch)

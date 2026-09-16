@@ -90,16 +90,25 @@ def test_protocol_freezes_exact_one_factor_candidate_and_existing_analysis_contr
     assert protocol.execution_economics_may_change is False
 
 
-def test_protocol_freezes_strict_robust_profit_decision_rule() -> None:
+def test_protocol_freezes_robust_development_improvement_decision_rule() -> None:
     protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
+    assert protocol.development_acceptance_scope == "robust_factor_improvement"
+    assert protocol.development_acceptance_gate_metrics == (
+        "positive_factor_effect_symbols",
+        "cross_symbol_median_factor_effect_gt_zero",
+        "positive_cross_symbol_median_seeds",
+        "no_new_termination",
+        "unaffected_raw_returns_equal",
+    )
     assert protocol.accept_requires_positive_factor_effect_symbols == 5
-    assert protocol.accept_requires_positive_candidate_return_symbols == 5
     assert protocol.accept_requires_positive_cross_symbol_median_seeds == 5
     assert protocol.accept_requires_cross_symbol_median_factor_effect_gt_zero is True
-    assert protocol.accept_requires_cross_symbol_median_candidate_return_gt_zero is True
     assert protocol.accept_requires_no_new_termination is True
     assert protocol.accept_requires_all_unaffected_raw_returns_equal is True
+    assert protocol.candidate_profitability_statistics_are_diagnostic_only is True
+    assert protocol.development_acceptance_establishes_profitability is False
+    assert protocol.operational_eligibility_established is False
     assert protocol.valid_non_accept_decision == "KEEP_BASELINE"
     assert protocol.invalid_decision == "INVALID"
     assert protocol.bootstrap_statistics_are_diagnostic_only is True
@@ -153,13 +162,21 @@ def test_protocol_rejects_any_authority_or_decision_rule_drift() -> None:
         {"positive_threshold": -1.0},
         {"positive_comparison": "greater_than_or_equal"},
         {"acceptance_rule_conjunction": "any_condition"},
+        {"development_acceptance_scope": "operational_profitability"},
+        {
+            "development_acceptance_gate_metrics": (
+                "positive_factor_effect_symbols",
+                "candidate_profitability",
+            )
+        },
         {"accept_requires_positive_factor_effect_symbols": 4},
-        {"accept_requires_positive_candidate_return_symbols": 4},
         {"accept_requires_positive_cross_symbol_median_seeds": 4},
         {"accept_requires_cross_symbol_median_factor_effect_gt_zero": False},
-        {"accept_requires_cross_symbol_median_candidate_return_gt_zero": False},
         {"accept_requires_no_new_termination": False},
         {"accept_requires_all_unaffected_raw_returns_equal": False},
+        {"candidate_profitability_statistics_are_diagnostic_only": False},
+        {"development_acceptance_establishes_profitability": True},
+        {"operational_eligibility_established": True},
         {"valid_non_accept_decision": "INCONCLUSIVE"},
         {"bootstrap_statistics_are_diagnostic_only": False},
         {"no_result_dependent_rescue": False},

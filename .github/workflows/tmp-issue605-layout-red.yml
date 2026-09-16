@@ -1,0 +1,48 @@
+name: Temporary Issue 605 layout hardening RED
+
+on:
+  push:
+    branches:
+      - verify/issue605-layout-red-57f19
+    paths:
+      - .github/workflows/tmp-issue605-layout-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 57f19ca2b60f396c17ea56642a795d31c57355e5
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Test source quality
+        run: |
+          uv run ruff check tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_layout.py
+          uv run ruff format --check tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_layout.py
+      - name: Require genuine missing-layout RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_layout.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "candidate_observation_schema" /tmp/red.log
+          grep -q "unexpected keyword argument" /tmp/red.log
+          grep -q "2 failed" /tmp/red.log
+      - run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

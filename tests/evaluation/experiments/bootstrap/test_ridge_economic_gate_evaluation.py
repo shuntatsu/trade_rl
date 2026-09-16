@@ -12,10 +12,13 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation im
     RidgeEconomicGateSymbolResult,
     canonical_ridge_economic_gate_evaluation_spec,
     evaluate_ridge_economic_gate,
-    ridge_model_sha256,
     research_status_from_counts,
+    ridge_model_sha256,
 )
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.forecasts.ridge_economic_gate import RidgeEconomicGateStrategy
 
 _FEATURE_NAMES = (

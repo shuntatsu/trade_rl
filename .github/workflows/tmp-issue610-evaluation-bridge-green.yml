@@ -1,0 +1,32 @@
+name: tmp Issue 610 evaluation bridge GREEN
+on:
+  push:
+    branches:
+      - verify/issue610-evaluation-bridge-green
+permissions:
+  contents: read
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c22db85cfe2d5cf3f8de528bbe8399845ea309fd
+          persist-credentials: false
+      - name: Confirm exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c22db85cfe2d5cf3f8de528bbe8399845ea309fd"
+          test "$(git ls-remote origin refs/heads/prepare/issue610-ppo-global-btc-regime-evaluation | cut -f1)" = "c22db85cfe2d5cf3f8de528bbe8399845ea309fd"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted semantic gates
+        run: |
+          uv run ruff check tools/tmp_issue610_ppo_global_btc_regime_evaluation.py tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run ruff format --check tools/tmp_issue610_ppo_global_btc_regime_evaluation.py tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run mypy tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run pytest -q tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py

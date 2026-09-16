@@ -1,0 +1,84 @@
+name: tmp Issue 610 real interpretation workflow verification
+
+on:
+  push:
+    branches:
+      - run/issue610-real-interpretation-v1
+    paths:
+      - .github/workflows/tmp-issue610-real-interpretation-workflow-verify.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET: .github/workflows/issue610-real-interpretation-v1.yml
+  MARKER: .github/issue610-real-interpretation-v1.authorized
+  RUNNER_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
+  RUNNER_VERIFY_RUN: '35111685710'
+  CANDIDATE_RUN: '35103004952'
+  CANDIDATE_HEAD: fd9fa65a77cef1f8efc566a495951b9c2f120a88
+  CANDIDATE_NAME: issue610-ppo-global-btc-regime-candidate-v1-35103004952
+
+jobs:
+  verify:
+    name: Result-blind real workflow safety verification
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Parse and statically bind dormant workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$TARGET"
+          test ! -e "$MARKER"
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "YAML_PARSE=PASS"' "$TARGET"
+
+          grep -F -- '- .github/issue610-real-interpretation-v1.authorized' "$TARGET" >/dev/null
+          ! grep -F 'workflow_dispatch:' "$TARGET"
+          grep -F "RUNNER_SHA: $RUNNER_SHA" "$TARGET" >/dev/null
+          grep -F "CANDIDATE_RUN: '$CANDIDATE_RUN'" "$TARGET" >/dev/null
+          grep -F "CANDIDATE_HEAD: $CANDIDATE_HEAD" "$TARGET" >/dev/null
+          grep -F "CANDIDATE_NAME: $CANDIDATE_NAME" "$TARGET" >/dev/null
+          grep -F 'name: Produce audited-input Issue 610 interpretation' "$TARGET" >/dev/null
+          grep -F 'name: Independently reconstruct Issue 610 interpretation' "$TARGET" >/dev/null
+          grep -F 'name: Final Issue 610 interpretation audit and reveal' "$TARGET" >/dev/null
+          test "$(grep -Fc 'uv run python "$GITHUB_WORKSPACE/control/$RUNNER" interpret' "$TARGET")" = 2
+          test "$(grep -Fc "print('DECISION='" "$TARGET")" = 1
+          ! grep -F 'tmp_issue610_exact_once_orchestrator.py" execute' "$TARGET"
+          ! grep -F 'train_candidate' "$TARGET"
+          ! grep -F 'cat /tmp/issue610-' "$TARGET"
+          grep -F '>/tmp/issue610-interpretation.stdout' "$TARGET" >/dev/null
+          grep -F '>/tmp/issue610-fresh-interpretation.stdout' "$TARGET" >/dev/null
+          grep -F 'diff -qr /tmp/producer /tmp/fresh' "$TARGET" >/dev/null
+          grep -F 'test "$GITHUB_RUN_NUMBER" = 1' "$TARGET" >/dev/null
+          grep -F 'test "$GITHUB_RUN_ATTEMPT" = 1' "$TARGET" >/dev/null
+          echo ISSUE610_DORMANT_REAL_WORKFLOW_STATIC_BINDING=PASS
+      - name: API-bind frozen runner and fixed candidate run identity without reading results
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runner="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUNNER_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$runner")" = completed
+          test "$(jq -r .conclusion <<<"$runner")" = success
+          test "$(jq -r .head_sha <<<"$runner")" = "$RUNNER_SHA"
+
+          candidate="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN")"
+          test "$(jq -r .head_sha <<<"$candidate")" = "$CANDIDATE_HEAD"
+          test "$(jq -r .run_number <<<"$candidate")" = 1
+          test "$(jq -r .run_attempt <<<"$candidate")" = 1
+
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(result|fresh-result)-' <<<"$names"
+          echo CANDIDATE_ECONOMIC_VALUES_ACCESSED=false
+          echo CANDIDATE_TRAINING_PERFORMED_BY_THIS_WORKFLOW=false
+          echo FINAL_TEST_ACCESSED=false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false
+          echo MERGE_AUTHORIZED=false

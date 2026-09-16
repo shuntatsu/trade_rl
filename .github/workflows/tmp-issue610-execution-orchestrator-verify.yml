@@ -115,4 +115,4 @@ jobs:
           echo ECONOMIC_VALUES_INTERPRETED=false
           echo FINAL_TEST_ACCESSED=false
 
-# Connector-triggered rerun after mechanical Ruff formatting.
+# Connector-triggered rerun after mechanical Ruff formatting and mypy cleanup.

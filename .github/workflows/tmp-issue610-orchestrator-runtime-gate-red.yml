@@ -1,0 +1,50 @@
+name: tmp Issue 610 orchestrator runtime gate RED
+
+on:
+  push:
+    branches:
+      - verify/issue610-orchestrator-runtime-gate-red-run
+    paths:
+      - .github/workflows/tmp-issue610-orchestrator-runtime-gate-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 46d4043e6c398d94512a638c0f7215da841cb100
+  MODULE: tools/tmp_issue610_exact_once_orchestrator.py
+  TEST: tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Require static-clean RED oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+      - name: Require runtime-gate semantic RED only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          try:
+              from tools.tmp_issue610_exact_once_orchestrator import validate_exactly_once_invocation
+          except ImportError as error:
+              assert 'validate_exactly_once_invocation' in str(error), str(error)
+              print('ISSUE610_RUNTIME_GATE_RED=PASS')
+          else:
+              raise SystemExit('runtime gate unexpectedly already exists')
+          PY

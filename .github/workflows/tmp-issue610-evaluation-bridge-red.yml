@@ -1,0 +1,43 @@
+name: tmp Issue 610 evaluation bridge RED
+on:
+  push:
+    branches:
+      - verify/issue610-evaluation-bridge-red
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0ab1b46f670e5a943b1cd33cb3a120289e6ba513
+          persist-credentials: false
+      - name: Confirm exact test-only target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "0ab1b46f670e5a943b1cd33cb3a120289e6ba513"
+          test ! -e tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static test-file gate
+        run: |
+          uv run ruff check tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run ruff format --check tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+      - name: Require semantic RED from missing production helper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py >/tmp/red.out 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -F "tools.tmp_issue610_ppo_global_btc_regime_evaluation" /tmp/red.out
+          grep -Eq "ModuleNotFoundError|ImportError" /tmp/red.out
+          ! grep -E "SyntaxError|IndentationError" /tmp/red.out
+          echo "ISSUE610_EXPECTED_RED=true"

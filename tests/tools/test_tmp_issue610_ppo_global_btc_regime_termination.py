@@ -34,12 +34,15 @@ def test_no_new_termination_when_candidate_matches_baseline() -> None:
     baseline = {0: _run(reason=None), 1: _run(reason="drawdown_stop")}
     candidate = {0: _run(reason=None), 1: _run(reason="drawdown_stop")}
 
-    assert module.validate_no_new_ppo_terminations(
-        baseline,
-        candidate,
-        seeds=(0, 1),
-        symbols=("BTCUSDT",),
-    ) == ()
+    assert (
+        module.validate_no_new_ppo_terminations(
+            baseline,
+            candidate,
+            seeds=(0, 1),
+            symbols=("BTCUSDT",),
+        )
+        == ()
+    )
 
 
 def test_new_candidate_termination_is_reported() -> None:
@@ -53,9 +56,7 @@ def test_new_candidate_termination_is_reported() -> None:
         seeds=(0,),
         symbols=("BTCUSDT",),
     )
-    assert violations == (
-        "new PPO termination: seed=0 BTCUSDT reason=margin_call",
-    )
+    assert violations == ("new PPO termination: seed=0 BTCUSDT reason=margin_call",)
 
 
 def test_changed_termination_reason_is_new() -> None:
@@ -69,9 +70,7 @@ def test_changed_termination_reason_is_new() -> None:
         seeds=(0,),
         symbols=("BTCUSDT",),
     )
-    assert violations == (
-        "new PPO termination: seed=0 BTCUSDT reason=liquidation",
-    )
+    assert violations == ("new PPO termination: seed=0 BTCUSDT reason=liquidation",)
 
 
 def test_malformed_termination_evidence_fails_closed() -> None:

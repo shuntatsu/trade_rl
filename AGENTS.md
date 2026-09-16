@@ -20,7 +20,7 @@ Remote branchは「作業履歴の保管庫」として増やさない。active�
 
 `main`、open PRのhead/base、実行中またはqueuedのGitHub Actionsが参照するbranch、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance ref、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、anchorからtip commitへ到達できる非anchor branchを直接削除してよい。`verify/`・`automation/`・`tmp/` に固有tipがある場合は、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ先に保存し、retention refの更新をread-backしてから元refだけを削除する。固有tipを持つその他のbranchはfail-closedで残す。
 
-削除直前にはbranch一覧・open PR head/base・active workflow branchを再取得し、tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
+削除直前にはopen PR head/baseとactive workflow branchを再取得し、削除自体は計画時のexact tip SHAを `git push --force-with-lease=<ref>:<sha> --atomic` で条件付き実行する。tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
 
 このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
 

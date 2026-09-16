@@ -104,7 +104,15 @@ def test_protocol_freezes_single_transition_gate_without_calibration() -> None:
     assert protocol.market_order_spread_rate == 0.0002
     assert protocol.nominal_one_way_explicit_cost == pytest.approx(0.0007)
     assert protocol.require_full_evaluation_cost_constancy is True
+    assert (
+        protocol.cost_constancy_scope
+        == "full_evaluation_decision_and_execution_boundary"
+    )
     assert protocol.future_row_economics_read_by_strategy is False
+    assert protocol.same_dataset_required is True
+    assert protocol.same_executor_required is True
+    assert protocol.same_hard_risk_required is True
+    assert protocol.same_accounting_required is True
 
 
 def test_protocol_freezes_decision_and_production_boundaries() -> None:
@@ -125,6 +133,7 @@ def test_protocol_freezes_decision_and_production_boundaries() -> None:
     assert protocol.reject_max_cost_reduction_symbols == 2
     assert protocol.reject_max_turnover_reduction_symbols == 2
     assert protocol.reject_max_drawdown_nonworse_symbols == 2
+    assert protocol.reject_on_new_termination is True
     assert protocol.absolute_positive_symbol_count_is_decision_input is False
     assert protocol.one_slot_only is True
     assert protocol.post_result_variant_allowed is False
@@ -165,6 +174,11 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"horizon_unchanged": False},
         {"symbol_scope_unchanged": False},
         {"future_row_economics_read_by_strategy": True},
+        {"same_dataset_required": False},
+        {"same_executor_required": False},
+        {"same_hard_risk_required": False},
+        {"same_accounting_required": False},
+        {"reject_on_new_termination": False},
         {"one_slot_only": False},
         {"post_result_variant_allowed": True},
         {"absolute_positive_symbol_count_is_decision_input": True},

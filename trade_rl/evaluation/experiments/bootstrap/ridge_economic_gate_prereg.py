@@ -92,7 +92,12 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "market_order_taker_fee_rate": 0.0,
     "market_order_spread_rate": 0.0002,
     "require_full_evaluation_cost_constancy": True,
+    "cost_constancy_scope": "full_evaluation_decision_and_execution_boundary",
     "future_row_economics_read_by_strategy": False,
+    "same_dataset_required": True,
+    "same_executor_required": True,
+    "same_hard_risk_required": True,
+    "same_accounting_required": True,
     "unaffected_strategies": _UNAFFECTED_STRATEGIES,
     "research_promote_status": "PROMOTE_RESEARCH_REFERENCE",
     "reject_status": "REJECT_MECHANISM",
@@ -109,6 +114,7 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "reject_max_cost_reduction_symbols": 2,
     "reject_max_turnover_reduction_symbols": 2,
     "reject_max_drawdown_nonworse_symbols": 2,
+    "reject_on_new_termination": True,
     "absolute_positive_symbol_count_is_decision_input": False,
     "one_slot_only": True,
     "post_result_variant_allowed": False,
@@ -226,7 +232,12 @@ class RidgeEconomicGateProtocol:
     market_order_taker_fee_rate: float
     market_order_spread_rate: float
     require_full_evaluation_cost_constancy: bool
+    cost_constancy_scope: str
     future_row_economics_read_by_strategy: bool
+    same_dataset_required: bool
+    same_executor_required: bool
+    same_hard_risk_required: bool
+    same_accounting_required: bool
     unaffected_strategies: tuple[str, ...]
     research_promote_status: str
     reject_status: str
@@ -243,6 +254,7 @@ class RidgeEconomicGateProtocol:
     reject_max_cost_reduction_symbols: int
     reject_max_turnover_reduction_symbols: int
     reject_max_drawdown_nonworse_symbols: int
+    reject_on_new_termination: bool
     absolute_positive_symbol_count_is_decision_input: bool
     one_slot_only: bool
     post_result_variant_allowed: bool
@@ -339,9 +351,14 @@ class RidgeEconomicGateProtocol:
             "impact_slippage_invented_by_gate",
             "require_full_evaluation_cost_constancy",
             "future_row_economics_read_by_strategy",
+            "same_dataset_required",
+            "same_executor_required",
+            "same_hard_risk_required",
+            "same_accounting_required",
             "promote_requires_positive_median_excess",
             "promote_requires_no_new_termination",
             "reject_on_nonpositive_median_excess",
+            "reject_on_new_termination",
             "absolute_positive_symbol_count_is_decision_input",
             "one_slot_only",
             "post_result_variant_allowed",

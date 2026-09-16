@@ -1,0 +1,273 @@
+name: Issue 609 execution-framework provenance-only recovery audit
+
+on:
+  push:
+    branches:
+      - audit/issue609-execution-framework-recovery
+    paths:
+      - .github/workflows/issue609-execution-framework-recovery-audit.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FRAMEWORK_HEAD: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_TREE: 3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6
+  EXACT_VERIFY_RUN_ID: "35091958231"
+  ORIGINAL_SEAL_RUN_ID: "35092272943"
+  ORIGINAL_SEAL_ARTIFACT_ID: "10444158266"
+  ORIGINAL_SEAL_ARTIFACT_NAME: issue609-execution-framework-seal-v1-35092272943
+  ORIGINAL_SEAL_ARTIFACT_DIGEST: sha256:f582fcd379be009fbabab1647031299bf046bd33d63dfe5d9fbed5cf9dcb66e4
+  ORIGINAL_FRESH_ARTIFACT_ID: "10444820998"
+  ORIGINAL_FRESH_ARTIFACT_NAME: issue609-execution-framework-fresh-v1-35092272943
+  ORIGINAL_FRESH_ARTIFACT_DIGEST: sha256:b36fca9eecafef8d488dc80f0bfbacb843cc97699f331805e2d76b0bf682747c
+  PREREG_HEAD: 02fd08798b3f23cc3db13d96ac27778e93592019
+  PREREG_PROTOCOL_DIGEST: e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b
+  PREREG_SEAL_RUN_ID: "35088018055"
+
+jobs:
+  recovery:
+    name: Provenance-only recovery of Issue 609 execution-framework audit
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_HEAD }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Bind original successful seal/fresh jobs and artifact API digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FRAMEWORK_HEAD"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$FRAMEWORK_TREE"
+
+          original="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_SEAL_RUN_ID)"
+          test "$(jq -r .status <<<"$original")" = completed
+          test "$(jq -r .conclusion <<<"$original")" = failure
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_SEAL_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Seal Issue 609 execution framework") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Fresh independent Issue 609 execution-framework reconstruction") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Final Issue 609 execution-framework audit") | .conclusion' <<<"$jobs")" = failure
+
+          exact="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$exact")" = success
+          prereg="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$prereg")" = success
+
+          for spec in \
+            "$ORIGINAL_SEAL_ARTIFACT_ID|$ORIGINAL_SEAL_ARTIFACT_NAME|$ORIGINAL_SEAL_ARTIFACT_DIGEST" \
+            "$ORIGINAL_FRESH_ARTIFACT_ID|$ORIGINAL_FRESH_ARTIFACT_NAME|$ORIGINAL_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$ORIGINAL_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.ORIGINAL_SEAL_ARTIFACT_NAME }}
+          path: /tmp/seal
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ORIGINAL_SEAL_RUN_ID }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.ORIGINAL_FRESH_ARTIFACT_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ORIGINAL_SEAL_RUN_ID }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Recover final audit without recomputation or market-data access
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/framework-index.json /tmp/fresh/framework-index.json
+          cmp /tmp/seal/authority.json /tmp/fresh/authority.json
+          mkdir -p /tmp/recovery
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import hashlib
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          recovery_run_id = int(sys.argv[1])
+          index_raw = Path('/tmp/seal/framework-index.json').read_bytes()
+          authority_raw = Path('/tmp/seal/authority.json').read_bytes()
+          index = json.loads(index_raw)
+          authority = json.loads(authority_raw)
+          assert canonical_json_bytes(index) == index_raw
+          assert canonical_json_bytes(authority) == authority_raw
+
+          unsigned_index = dict(index)
+          index_digest = unsigned_index.pop('content_digest')
+          assert content_digest(unsigned_index) == index_digest
+          unsigned_authority = dict(authority)
+          authority_digest = unsigned_authority.pop('content_digest')
+          assert content_digest(unsigned_authority) == authority_digest
+          assert authority['framework_index_sha256'] == hashlib.sha256(index_raw).hexdigest()
+          assert authority['framework_index_content_digest'] == index['content_digest']
+          assert authority['seal_run_id'] == 35092272943
+          assert authority['execution_framework_head'] == 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8'
+          assert authority['execution_framework_tree_sha1'] == '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6'
+          assert authority['evaluation_preregistration_head'] == '02fd08798b3f23cc3db13d96ac27778e93592019'
+          assert authority['evaluation_preregistration_protocol_digest'] == 'e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b'
+          assert authority['exact_head_verification_run_id'] == 35091958231
+
+          expected_paths = {
+              'docs/architecture/controlled-experiment-loop.md',
+              'tests/evaluation/experiments/test_issue609_feature_set_workflow.py',
+              'tests/evaluation/test_candidate_run_global_context_artifact.py',
+              'trade_rl/evaluation/experiments/workflow.py',
+              'trade_rl/evaluation/runs/artifact.py',
+          }
+          assert {entry['path'] for entry in index['files']} == expected_paths
+          for entry in index['files']:
+              path = entry['path']
+              raw = Path(path).read_bytes()
+              assert hashlib.sha256(raw).hexdigest() == entry['sha256']
+              blob = subprocess.check_output(
+                  ['git', 'rev-parse', f'ff332f0cc2dec46828aa1031d438f2f2f1705ba8:{path}'],
+                  text=True,
+              ).strip()
+              assert blob == entry['git_blob_sha1']
+
+          forbidden = (
+              authority['economic_execution_performed'],
+              authority['economic_result_inspected'],
+              authority['final_test_access_authorized'],
+              authority['operational_eligibility_established'],
+              authority['production_eligible'],
+              authority['live_trading_authorized'],
+              authority['merge_authorized'],
+          )
+          assert not any(forbidden)
+
+          recovery = {
+              'schema_version': 'issue609_execution_framework_recovery_audit_v1',
+              'issue_number': 609,
+              'execution_framework_head': 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8',
+              'execution_framework_tree_sha1': '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6',
+              'original_seal_run_id': 35092272943,
+              'original_seal_artifact_id': 10444158266,
+              'original_seal_artifact_api_digest': 'f582fcd379be009fbabab1647031299bf046bd33d63dfe5d9fbed5cf9dcb66e4',
+              'original_fresh_artifact_id': 10444820998,
+              'original_fresh_artifact_api_digest': 'b36fca9eecafef8d488dc80f0bfbacb843cc97699f331805e2d76b0bf682747c',
+              'framework_index_content_digest': index['content_digest'],
+              'framework_authority_content_digest': authority['content_digest'],
+              'recovery_run_id': recovery_run_id,
+              'publisher_fresh_byte_equal': True,
+              'economic_recomputation_performed': False,
+              'market_data_network_access_performed': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          recovery['content_digest'] = content_digest(recovery)
+          Path('/tmp/recovery/recovery.json').write_bytes(canonical_json_bytes(recovery))
+          Path('/tmp/recovery/framework-index.json').write_bytes(index_raw)
+          Path('/tmp/recovery/authority.json').write_bytes(authority_raw)
+          print('ISSUE609_EXECUTION_FRAMEWORK_RECOVERY=PASS')
+          print('ECONOMIC_RECOMPUTATION_PERFORMED=false')
+          print('MARKET_DATA_NETWORK_ACCESS_PERFORMED=false')
+          PY
+      - id: meta
+        run: echo "name=issue609-execution-framework-recovery-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload provenance-only recovery evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/recovery/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final provenance-only recovery audit
+    needs: recovery
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_HEAD }}
+          persist-credentials: false
+      - name: API-bind recovery artifact with normalized digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_ID: ${{ needs.recovery.outputs.artifact_id }}
+          RECOVERY_NAME: ${{ needs.recovery.outputs.artifact_name }}
+          RECOVERY_DIGEST: ${{ needs.recovery.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$RECOVERY_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$RECOVERY_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$RECOVERY_DIGEST" in
+            sha256:*) test "$api_digest" = "$RECOVERY_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$RECOVERY_DIGEST" ;;
+          esac
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.recovery.outputs.artifact_name }}
+          path: /tmp/recovery
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Validate recovery evidence and closed boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          raw = Path('/tmp/recovery/recovery.json').read_bytes()
+          recovery = json.loads(raw)
+          assert canonical_json_bytes(recovery) == raw
+          unsigned = dict(recovery)
+          digest = unsigned.pop('content_digest')
+          assert content_digest(unsigned) == digest
+          assert recovery['execution_framework_head'] == 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8'
+          assert recovery['original_seal_run_id'] == 35092272943
+          assert recovery['publisher_fresh_byte_equal'] is True
+          assert recovery['economic_recomputation_performed'] is False
+          assert recovery['market_data_network_access_performed'] is False
+          assert recovery['economic_result_inspected'] is False
+          assert recovery['final_test_access_authorized'] is False
+          assert recovery['operational_eligibility_established'] is False
+          assert recovery['production_eligible'] is False
+          assert recovery['live_trading_authorized'] is False
+          assert recovery['merge_authorized'] is False
+          print('ISSUE609_EXECUTION_FRAMEWORK_RECOVERY_AUDIT=PASS')
+          print('ECONOMIC_RECOMPUTATION_PERFORMED=false')
+          print('MARKET_DATA_NETWORK_ACCESS_PERFORMED=false')
+          PY
+          test "$(git rev-parse HEAD)" = "$FRAMEWORK_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"

@@ -24,9 +24,11 @@ class BranchInfo:
 
 
 @dataclass(frozen=True)
-class OpenPullRequestHead:
-    name: str
-    sha: str
+class OpenPullRequestRefs:
+    head_name: str | None
+    head_sha: str | None
+    base_name: str
+    base_sha: str
 
 
 @dataclass(frozen=True)
@@ -131,24 +133,45 @@ class GitHubApi:
             result.append(BranchInfo(name=name, sha=sha, protected=protected))
         return tuple(result)
 
-    def open_pull_request_heads(self) -> tuple[OpenPullRequestHead, ...]:
-        result: list[OpenPullRequestHead] = []
+    def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
+        result: list[OpenPullRequestRefs] = []
         for item in self._list_pages("pulls", state="open"):
             if not isinstance(item, dict):
                 raise RuntimeError("pull request entry is not an object")
             head = item.get("head")
-            if not isinstance(head, dict):
-                raise RuntimeError("pull request head is not an object")
+            base = item.get("base")
+            if not isinstance(head, dict) or not isinstance(base, dict):
+                raise RuntimeError("pull request ref entry is not an object")
+
+            base_repo = base.get("repo")
+            if not isinstance(base_repo, dict):
+                raise RuntimeError("pull request base repository is missing")
+            if base_repo.get("full_name") != self._repository:
+                raise RuntimeError("pull request base repository does not match target")
+            base_name = base.get("ref")
+            base_sha = base.get("sha")
+            if not isinstance(base_name, str) or not isinstance(base_sha, str):
+                raise RuntimeError("pull request base ref has an invalid shape")
+
+            head_name: str | None = None
+            head_sha: str | None = None
             head_repo = head.get("repo")
-            if not isinstance(head_repo, dict):
-                continue
-            if head_repo.get("full_name") != self._repository:
-                continue
-            name = head.get("ref")
-            sha = head.get("sha")
-            if not isinstance(name, str) or not isinstance(sha, str):
-                raise RuntimeError("pull request head has an invalid shape")
-            result.append(OpenPullRequestHead(name=name, sha=sha))
+            if isinstance(head_repo, dict) and head_repo.get("full_name") == self._repository:
+                raw_head_name = head.get("ref")
+                raw_head_sha = head.get("sha")
+                if not isinstance(raw_head_name, str) or not isinstance(raw_head_sha, str):
+                    raise RuntimeError("pull request head ref has an invalid shape")
+                head_name = raw_head_name
+                head_sha = raw_head_sha
+
+            result.append(
+                OpenPullRequestRefs(
+                    head_name=head_name,
+                    head_sha=head_sha,
+                    base_name=base_name,
+                    base_sha=base_sha,
+                )
+            )
         return tuple(result)
 
     def current_branch(self, name: str) -> BranchInfo | None:
@@ -181,13 +204,21 @@ def is_preserved_branch(name: str) -> bool:
     return name.startswith(PRESERVED_PREFIXES)
 
 
+def open_pull_request_branch_names(
+    refs: Sequence[OpenPullRequestRefs],
+) -> frozenset[str]:
+    names = {ref.base_name for ref in refs}
+    names.update(ref.head_name for ref in refs if ref.head_name is not None)
+    return frozenset(names)
+
+
 def anchor_branch_names(
     branches: Sequence[BranchInfo],
     *,
     default_branch: str,
-    open_pull_request_heads: Sequence[OpenPullRequestHead],
+    open_pull_request_refs: Sequence[OpenPullRequestRefs],
 ) -> frozenset[str]:
-    open_names = {head.name for head in open_pull_request_heads}
+    open_names = open_pull_request_branch_names(open_pull_request_refs)
     return frozenset(
         branch.name
         for branch in branches
@@ -202,15 +233,18 @@ def anchor_shas(
     branches: Sequence[BranchInfo],
     *,
     default_branch: str,
-    open_pull_request_heads: Sequence[OpenPullRequestHead],
+    open_pull_request_refs: Sequence[OpenPullRequestRefs],
 ) -> frozenset[str]:
     names = anchor_branch_names(
         branches,
         default_branch=default_branch,
-        open_pull_request_heads=open_pull_request_heads,
+        open_pull_request_refs=open_pull_request_refs,
     )
     shas = {branch.sha for branch in branches if branch.name in names}
-    shas.update(head.sha for head in open_pull_request_heads)
+    shas.update(ref.base_sha for ref in open_pull_request_refs)
+    shas.update(
+        ref.head_sha for ref in open_pull_request_refs if ref.head_sha is not None
+    )
     if not shas:
         raise RuntimeError("no durable anchor commits were found")
     return frozenset(shas)
@@ -236,10 +270,10 @@ def plan_cleanup(
     branches: Sequence[BranchInfo],
     *,
     default_branch: str,
-    open_pull_request_heads: Sequence[OpenPullRequestHead],
+    open_pull_request_refs: Sequence[OpenPullRequestRefs],
     reachable_from_anchors: frozenset[str],
 ) -> tuple[BranchDecision, ...]:
-    open_names = {head.name for head in open_pull_request_heads}
+    open_names = open_pull_request_branch_names(open_pull_request_refs)
     decisions: list[BranchDecision] = []
     for branch in sorted(branches, key=lambda item: item.name):
         if branch.name == default_branch:
@@ -247,7 +281,7 @@ def plan_cleanup(
         elif branch.protected:
             decision = BranchDecision(branch, "keep", "protected")
         elif branch.name in open_names:
-            decision = BranchDecision(branch, "keep", "open-pr-head")
+            decision = BranchDecision(branch, "keep", "open-pr-ref")
         elif is_preserved_branch(branch.name):
             decision = BranchDecision(branch, "keep", "research-provenance")
         elif branch.sha in reachable_from_anchors:
@@ -262,7 +296,7 @@ def apply_cleanup(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
 ) -> tuple[str, ...]:
-    open_names = {head.name for head in api.open_pull_request_heads()}
+    open_names = open_pull_request_branch_names(api.open_pull_request_refs())
     deleted: list[str] = []
     for decision in decisions:
         if decision.action != "delete":
@@ -351,17 +385,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)
     default_branch = api.repository_default_branch()
     branches = api.branches()
-    open_heads = api.open_pull_request_heads()
+    open_refs = api.open_pull_request_refs()
     anchors = anchor_shas(
         branches,
         default_branch=default_branch,
-        open_pull_request_heads=open_heads,
+        open_pull_request_refs=open_refs,
     )
     reachable = reachable_commits(anchors)
     decisions = plan_cleanup(
         branches,
         default_branch=default_branch,
-        open_pull_request_heads=open_heads,
+        open_pull_request_refs=open_refs,
         reachable_from_anchors=reachable,
     )
     deleted = apply_cleanup(api, decisions) if args.apply else ()

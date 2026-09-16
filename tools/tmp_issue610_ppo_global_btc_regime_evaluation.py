@@ -146,20 +146,40 @@ def validate_unaffected_raw_returns(
     return tuple(violations)
 
 
+def _has_extra_or_reordered_items(
+    observed: tuple[object, ...], expected: tuple[object, ...]
+) -> bool:
+    expected_set = set(expected)
+    return any(item not in expected_set for item in observed) or (
+        set(observed) == expected_set and observed != expected
+    )
+
+
 def validate_candidate_ppo_returns(
     candidate: ReturnMatrix,
     *,
     seeds: tuple[int, ...],
     symbols: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Require a complete, non-empty and finite PPO return matrix."""
+    """Require an exact-roster, non-empty and finite PPO return matrix."""
 
     violations: list[str] = []
+    observed_seeds = tuple(candidate)
+    if _has_extra_or_reordered_items(observed_seeds, seeds):
+        violations.append("candidate seed roster/order mismatch")
+
     for seed in seeds:
         candidate_seed = candidate.get(seed)
         if candidate_seed is None:
             violations.append(f"candidate PPO seed missing: seed={seed}")
             continue
+
+        observed_symbols = tuple(
+            dict.fromkeys(symbol for symbol, _strategy in candidate_seed)
+        )
+        if _has_extra_or_reordered_items(observed_symbols, symbols):
+            violations.append(f"candidate symbol roster/order mismatch: seed={seed}")
+
         for symbol in symbols:
             values = candidate_seed.get((symbol, "ppo"))
             label = f"seed={seed} {symbol}"
@@ -216,28 +236,41 @@ def evaluate_frozen_gate(
             raise ValueError("comparison symbol roster/order mismatch")
 
         seed_excesses: dict[int, list[float]] = {seed: [] for seed in seeds}
+        all_excesses: list[float] = []
         for symbol in symbols:
             symbol_payload = _mapping(by_symbol.get(symbol))
             strategies = _mapping(symbol_payload.get("strategies"))
             ppo = _mapping(strategies.get("ppo"))
-            aggregate = _mapping(ppo.get("seed_aggregate"))
-            symbol_median = _finite_number(aggregate.get("median_excess_total_return"))
-            positive_symbols += int(symbol_median > 0.0)
-
             by_seed = _mapping(ppo.get("by_seed"))
             if tuple(by_seed) != tuple(str(seed) for seed in seeds):
                 raise ValueError("comparison PPO seed roster/order mismatch")
+
+            symbol_excesses: list[float] = []
             for seed in seeds:
                 seed_payload = _mapping(by_seed.get(str(seed)))
-                seed_excesses[seed].append(
-                    _finite_number(seed_payload.get("excess_total_return"))
-                )
+                excess = _finite_number(seed_payload.get("excess_total_return"))
+                seed_excesses[seed].append(excess)
+                symbol_excesses.append(excess)
+                all_excesses.append(excess)
+
+            aggregate = _mapping(ppo.get("seed_aggregate"))
+            recorded_symbol_median = _finite_number(
+                aggregate.get("median_excess_total_return")
+            )
+            computed_symbol_median = float(median(symbol_excesses))
+            if recorded_symbol_median != computed_symbol_median:
+                raise ValueError(f"comparison PPO symbol median mismatch: {symbol}")
+            positive_symbols += int(computed_symbol_median > 0.0)
 
         cross_symbol = _mapping(comparison.get("cross_symbol"))
         ppo_cross = _mapping(cross_symbol.get("ppo"))
-        cross_symbol_positive = (
-            _finite_number(ppo_cross.get("median_excess_total_return")) > 0.0
+        recorded_cross_median = _finite_number(
+            ppo_cross.get("median_excess_total_return")
         )
+        computed_cross_median = float(median(all_excesses))
+        if recorded_cross_median != computed_cross_median:
+            raise ValueError("comparison PPO cross-symbol median mismatch")
+        cross_symbol_positive = computed_cross_median > 0.0
         positive_seed_medians = sum(
             float(median(seed_excesses[seed])) > 0.0 for seed in seeds
         )

@@ -191,13 +191,16 @@ def test_unaffected_raw_returns_require_exact_equality_for_all_cells() -> None:
     baseline = _return_matrix()
     candidate = _return_matrix()
 
-    assert validate_unaffected_raw_returns(
-        baseline,
-        candidate,
-        seeds=_SEEDS,
-        symbols=_SYMBOLS,
-        unaffected_strategies=_UNAFFECTED,
-    ) == ()
+    assert (
+        validate_unaffected_raw_returns(
+            baseline,
+            candidate,
+            seeds=_SEEDS,
+            symbols=_SYMBOLS,
+            unaffected_strategies=_UNAFFECTED,
+        )
+        == ()
+    )
 
     candidate[3][("XRPUSDT", "ridge24")] = np.array(
         [0.0, 0.01, -0.004], dtype=np.float64
@@ -214,15 +217,21 @@ def test_unaffected_raw_returns_require_exact_equality_for_all_cells() -> None:
 
 def test_candidate_ppo_returns_require_complete_finite_nonempty_cells() -> None:
     candidate = _return_matrix()
-    assert validate_candidate_ppo_returns(candidate, seeds=_SEEDS, symbols=_SYMBOLS) == ()
+    assert (
+        validate_candidate_ppo_returns(candidate, seeds=_SEEDS, symbols=_SYMBOLS) == ()
+    )
 
     del candidate[4][("ADAUSDT", "ppo")]
-    violations = validate_candidate_ppo_returns(candidate, seeds=_SEEDS, symbols=_SYMBOLS)
+    violations = validate_candidate_ppo_returns(
+        candidate, seeds=_SEEDS, symbols=_SYMBOLS
+    )
     assert violations == ("candidate PPO returns missing: seed=4 ADAUSDT",)
 
     candidate = _return_matrix()
     candidate[2][("BNBUSDT", "ppo")] = np.array([0.0, np.nan])
-    violations = validate_candidate_ppo_returns(candidate, seeds=_SEEDS, symbols=_SYMBOLS)
+    violations = validate_candidate_ppo_returns(
+        candidate, seeds=_SEEDS, symbols=_SYMBOLS
+    )
     assert violations == ("candidate PPO returns non-finite: seed=2 BNBUSDT",)
 
 
@@ -255,7 +264,9 @@ def test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold() 
     assert kept["decision"] == KEEP_BASELINE
 
 
-def test_frozen_gate_requires_every_seed_cross_symbol_median_strictly_positive() -> None:
+def test_frozen_gate_requires_every_seed_cross_symbol_median_strictly_positive() -> (
+    None
+):
     comparison = _comparison()
     for symbol in _SYMBOLS:
         comparison["by_symbol"][symbol]["strategies"]["ppo"]["by_seed"]["3"][

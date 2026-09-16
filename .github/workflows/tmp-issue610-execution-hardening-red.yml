@@ -1,0 +1,46 @@
+name: tmp Issue 610 execution hardening RED
+on:
+  push:
+    branches:
+      - verify/issue610-execution-hardening-red
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: bd4dfaa311c744750436366c8f12889f36766b4a
+      CORE_TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+      SAFETY_TEST: tests/tools/test_tmp_issue610_execution_safety.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: bd4dfaa311c744750436366c8f12889f36766b4a
+          persist-credentials: false
+      - name: Confirm exact test-only target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates
+        run: |
+          uv run ruff check "$CORE_TEST" "$SAFETY_TEST"
+          uv run ruff format --check "$CORE_TEST" "$SAFETY_TEST"
+      - name: Require semantic hardening REDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$CORE_TEST" >/tmp/core-red.out 2>&1
+          core_code=$?
+          uv run pytest -q "$SAFETY_TEST" >/tmp/safety-red.out 2>&1
+          safety_code=$?
+          set -e
+          test "$core_code" -ne 0
+          test "$safety_code" -ne 0
+          grep -F "test_candidate_ppo_returns_reject_extra_seed_and_symbol_roster" /tmp/core-red.out
+          grep -F "test_frozen_gate_rejects_inconsistent_cross_symbol_aggregate" /tmp/core-red.out
+          grep -Eq "candidate_run_config_from_resolved|execute_candidate_after_precompute_gate" /tmp/safety-red.out
+          echo "ISSUE610_HARDENING_EXPECTED_RED=true"

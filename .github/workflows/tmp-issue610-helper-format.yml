@@ -1,0 +1,39 @@
+name: tmp Issue 610 helper format
+on:
+  push:
+    branches:
+      - automation/issue610-helper-format
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c22db85cfe2d5cf3f8de528bbe8399845ea309fd
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format only helper
+        run: uv run ruff format tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+      - name: Validate and publish only helper formatting
+        shell: bash
+        env:
+          TARGET_BRANCH: prepare/issue610-ppo-global-btc-regime-evaluation
+          EXPECTED_HEAD: c22db85cfe2d5cf3f8de528bbe8399845ea309fd
+        run: |
+          set -euo pipefail
+          uv run ruff check tools/tmp_issue610_ppo_global_btc_regime_evaluation.py tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run ruff format --check tools/tmp_issue610_ppo_global_btc_regime_evaluation.py tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$EXPECTED_HEAD"
+          changed="$(git diff --name-only)"
+          test "$changed" = "tools/tmp_issue610_ppo_global_btc_regime_evaluation.py"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+          git commit -m "style: format Issue 610 evaluation helper"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

@@ -22,12 +22,12 @@ def _loaded(
     termination_reasons: list[str] | None = None,
     malformed: bool = False,
 ) -> SimpleNamespace:
-    runs = {}
+    runs: dict[int, SimpleNamespace] = {}
     reasons = [] if termination_reasons is None else termination_reasons
     for seed in SEEDS:
-        by_symbol = []
+        by_symbol: list[dict[str, object]] = []
         for symbol_index, symbol in enumerate(SYMBOLS):
-            strategy = {
+            strategy: dict[str, object] = {
                 "name": "ppo",
                 "metrics": {
                     "termination_count": termination_count,
@@ -36,7 +36,10 @@ def _loaded(
                 "diagnostics": {"termination_reasons": list(reasons)},
             }
             if malformed and seed == SEEDS[0] and symbol == SYMBOLS[0]:
-                strategy["metrics"] = {"termination_count": "bad", "total_return": 0.01}
+                strategy["metrics"] = {
+                    "termination_count": "bad",
+                    "total_return": 0.01,
+                }
             by_symbol.append({"symbol": symbol, "strategies": [strategy]})
         runs[seed] = SimpleNamespace(summary={"by_symbol": by_symbol})
     return SimpleNamespace(runs=runs)
@@ -73,7 +76,7 @@ def test_new_termination_is_gate_failure_not_evidence_invalidity() -> None:
 def test_absolute_candidate_diagnostic_publishes_each_symbol_seed_median() -> None:
     candidate = _loaded()
     symbol_medians = [0.01 * (index + 1) + 0.002 for index in range(len(SYMBOLS))]
-    comparison = {
+    comparison: dict[str, object] = {
         "cross_symbol": {
             "ppo": {
                 "median_candidate_total_return": symbol_medians[2],
@@ -87,11 +90,13 @@ def test_absolute_candidate_diagnostic_publishes_each_symbol_seed_median() -> No
     assert isinstance(by_symbol, dict)
     for index, symbol in enumerate(SYMBOLS):
         entry = by_symbol[symbol]
+        assert isinstance(entry, dict)
         assert entry["median_candidate_total_return"] == symbol_medians[index]
-        assert tuple(entry["by_seed_total_return"]) == tuple(
-            str(seed) for seed in SEEDS
-        )
+        by_seed = entry["by_seed_total_return"]
+        assert isinstance(by_seed, dict)
+        assert tuple(by_seed) == tuple(str(seed) for seed in SEEDS)
     cross = diagnostic["cross_symbol"]
+    assert isinstance(cross, dict)
     assert cross["symbol_count"] == 5
     assert cross["positive_symbol_count"] == 5
     assert cross["median_candidate_total_return"] == symbol_medians[2]
@@ -99,7 +104,9 @@ def test_absolute_candidate_diagnostic_publishes_each_symbol_seed_median() -> No
 
 def test_absolute_candidate_diagnostic_rejects_comparison_mismatch() -> None:
     candidate = _loaded()
-    comparison = {"cross_symbol": {"ppo": {"median_candidate_total_return": -999.0}}}
+    comparison: dict[str, object] = {
+        "cross_symbol": {"ppo": {"median_candidate_total_return": -999.0}}
+    }
     try:
         absolute_candidate_ppo_diagnostic(candidate, comparison)
     except ValueError as error:

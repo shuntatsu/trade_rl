@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.artifacts.hashing import content_digest
 import tools.tmp_issue610_real_interpretation_runner_v1 as runner
 from tools.tmp_issue610_real_interpretation_runner_v1 import (
     build_decision_envelope,
     build_strict_precheck_report,
 )
+from trade_rl.artifacts.hashing import content_digest
 
 
 def _strict(

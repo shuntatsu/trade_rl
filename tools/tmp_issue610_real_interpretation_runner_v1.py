@@ -13,8 +13,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.hashing import content_digest
 from tools.tmp_issue610_interpretation_precheck_v3 import precheck_candidate_artifact
 from tools.tmp_issue610_interpretation_v2 import interpret_candidate_v2
 from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
@@ -22,6 +20,8 @@ from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
     INVALID,
     KEEP_BASELINE,
 )
+from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
 
 ISSUE_NUMBER = 610
 STRICT_PRECHECK_SCHEMA = "issue610_strict_termination_precheck_v1"
@@ -89,13 +89,17 @@ def build_decision_envelope(
 
     if strict_invalid:
         if v2_result is not None:
-            raise RuntimeError("v2 interpretation forbidden for invalid termination evidence")
+            raise RuntimeError(
+                "v2 interpretation forbidden for invalid termination evidence"
+            )
         decision = INVALID
         v2_digest: object = None
         economic_values_interpreted = False
     else:
         if v2_result is None:
-            raise RuntimeError("valid termination evidence requires frozen v2 interpretation")
+            raise RuntimeError(
+                "valid termination evidence requires frozen v2 interpretation"
+            )
         v2_new = v2_result.get("new_termination_violations")
         v2_validity = v2_result.get("termination_validity_violations")
         if not isinstance(v2_new, list) or not all(

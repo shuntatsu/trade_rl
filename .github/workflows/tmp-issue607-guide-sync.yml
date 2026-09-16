@@ -1,0 +1,62 @@
+name: Temporary Issue 607 Guide contract synchronization
+
+on:
+  push:
+    branches:
+      - automation/issue607-guide-sync
+    paths:
+      - tools/tmp_issue607_sync_guide.py
+      - .github/workflows/tmp-issue607-guide-sync.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue607-ppo-global-btc-regime-impl
+  TARGET_SHA: 93d3f2a1b66e517c0ec265df3084e07e05e3893c
+
+jobs:
+  sync_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout automation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Preserve helper and checkout exact research target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/tmp_issue607_sync_guide.py /tmp/sync_guide.py
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Synchronize Human Guide content and code authorities
+        run: python3 /tmp/sync_guide.py
+      - name: Verify Guide source contract and content
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd guide
+          npm ci
+          GUIDE_SOURCE_REV="$TARGET_SHA" npm run source-check
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+      - name: Guard and publish Guide-only correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -n "$changed"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(guide/content/meta/implementation-ppo.json|guide/content/pages/implementation-ppo.md)$' || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add guide/content/meta/implementation-ppo.json guide/content/pages/implementation-ppo.md
+          git commit -m "docs: synchronize PPO Guide with Issue 607 context"
+          git push origin HEAD:"$TARGET_BRANCH"

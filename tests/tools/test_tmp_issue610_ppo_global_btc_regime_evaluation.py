@@ -6,9 +6,9 @@ import numpy as np
 
 from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
     ACCEPT_CANDIDATE,
+    EXPECTED_SEMANTIC_CHANGED_FIELDS,
     INVALID,
     KEEP_BASELINE,
-    EXPECTED_SEMANTIC_CHANGED_FIELDS,
     build_candidate_carrier_plan,
     evaluate_frozen_gate,
     validate_candidate_ppo_returns,

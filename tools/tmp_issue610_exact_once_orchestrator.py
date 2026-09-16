@@ -12,7 +12,6 @@ import argparse
 import importlib.util
 import json
 import sys
-from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -31,6 +30,9 @@ from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
     validate_candidate_ppo_returns,
     validate_controlled_semantic_delta,
     validate_unaffected_raw_returns,
+)
+from tools.tmp_issue610_ppo_global_btc_regime_termination import (
+    validate_no_new_ppo_terminations,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -302,73 +304,15 @@ def _run_return_matrix(loaded: Any) -> dict[int, dict[tuple[str, str], np.ndarra
     return matrix
 
 
-def _strategy_entry(run: Any, symbol: str, strategy_name: str) -> Mapping[str, object]:
-    by_symbol = run.summary.get("by_symbol")
-    if not isinstance(by_symbol, list):
-        raise ValueError("run by_symbol malformed")
-    for symbol_entry in by_symbol:
-        if not isinstance(symbol_entry, dict) or symbol_entry.get("symbol") != symbol:
-            continue
-        strategies = symbol_entry.get("strategies")
-        if not isinstance(strategies, list):
-            break
-        for strategy in strategies:
-            if isinstance(strategy, dict) and strategy.get("name") == strategy_name:
-                return cast(Mapping[str, object], strategy)
-    raise ValueError(f"strategy evidence missing: {symbol}/{strategy_name}")
-
-
-def _termination_count(entry: Mapping[str, object]) -> int:
-    metrics = entry.get("metrics")
-    if not isinstance(metrics, Mapping):
-        raise ValueError("strategy metrics malformed")
-    value = metrics.get("termination_count")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError("termination_count malformed")
-    return value
-
-
-def _termination_reasons(entry: Mapping[str, object]) -> tuple[str, ...]:
-    diagnostics = entry.get("diagnostics")
-    if not isinstance(diagnostics, Mapping):
-        raise ValueError("strategy diagnostics malformed")
-    raw = diagnostics.get("termination_reasons")
-    if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
-        raise ValueError("termination_reasons malformed")
-    return tuple(cast(str, value) for value in raw)
-
-
 def termination_violations(baseline: Any, candidate: Any) -> tuple[str, ...]:
-    """Reject any newly introduced PPO termination count or reason."""
+    """Apply the independently verified fail-closed termination oracle."""
 
-    violations: list[str] = []
-    for seed in SEEDS:
-        baseline_run = baseline.runs.get(seed)
-        candidate_run = candidate.runs.get(seed)
-        if baseline_run is None or candidate_run is None:
-            violations.append(f"termination run missing: seed={seed}")
-            continue
-        for symbol in SYMBOLS:
-            try:
-                baseline_entry = _strategy_entry(baseline_run, symbol, "ppo")
-                candidate_entry = _strategy_entry(candidate_run, symbol, "ppo")
-                baseline_count = _termination_count(baseline_entry)
-                candidate_count = _termination_count(candidate_entry)
-                baseline_reasons = Counter(_termination_reasons(baseline_entry))
-                candidate_reasons = Counter(_termination_reasons(candidate_entry))
-                label = f"seed={seed} symbol={symbol}"
-                if candidate_count > baseline_count:
-                    violations.append(f"new PPO termination count: {label}")
-                if any(
-                    count > baseline_reasons.get(reason, 0)
-                    for reason, count in candidate_reasons.items()
-                ):
-                    violations.append(f"new PPO termination reason: {label}")
-            except ValueError as error:
-                violations.append(
-                    f"termination evidence malformed: seed={seed} symbol={symbol}: {error}"
-                )
-    return tuple(violations)
+    return validate_no_new_ppo_terminations(
+        baseline.runs,
+        candidate.runs,
+        seeds=SEEDS,
+        symbols=SYMBOLS,
+    )
 
 
 def execute_candidate(

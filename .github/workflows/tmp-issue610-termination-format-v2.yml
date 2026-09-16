@@ -1,0 +1,54 @@
+name: tmp Issue 610 termination format v2
+
+on:
+  push:
+    branches:
+      - automation/issue610-termination-format-v2
+    paths:
+      - .github/workflows/tmp-issue610-termination-format-v2.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-termination-verifier
+  TARGET_HEAD: 8fb6f820a72e15fa90d77751c0ffc16a4a34a97b
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only termination verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          test "$(git diff --name-only)" = "$MODULE"
+          uv run ruff check "$MODULE"
+          uv run ruff format --check "$MODULE"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          git commit -m "style: apply exact Ruff formatting to Issue 610 termination verifier"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

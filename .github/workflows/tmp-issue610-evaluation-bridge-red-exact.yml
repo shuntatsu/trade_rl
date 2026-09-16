@@ -1,0 +1,52 @@
+name: tmp Issue 610 evaluation bridge exact RED
+
+on:
+  push:
+    branches:
+      - verify/issue610-evaluation-bridge-red-exact
+    paths:
+      - .github/workflows/tmp-issue610-evaluation-bridge-red-exact.yml
+
+permissions:
+  contents: read
+
+env:
+  RED_SHA: 7ef40f5554ee74f73f63f60242c47ea8464f2b46
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+  HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          persist-credentials: false
+      - name: Bind exact RED snapshot
+        run: |
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test -f "$TEST"
+          test ! -e "$HELPER"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static RED oracle must be clean
+        run: |
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Require semantic RED only from missing helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" > /tmp/red.log 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          cat /tmp/red.log
+          grep -F "ModuleNotFoundError: No module named 'tools.tmp_issue610_ppo_global_btc_regime_evaluation'" /tmp/red.log
+          ! grep -F "FAILED" /tmp/red.log | grep -v -F "ModuleNotFoundError" >/dev/null
+          echo ISSUE610_SEMANTIC_RED=PASS

@@ -22,7 +22,9 @@ class FixedIntent:
         return self.intent
 
 
-def _market(close: np.ndarray, *, symbols: tuple[str, ...] | None = None) -> MarketDataset:
+def _market(
+    close: np.ndarray, *, symbols: tuple[str, ...] | None = None
+) -> MarketDataset:
     close_array = np.asarray(close, dtype=np.float64)
     if close_array.ndim != 2:
         raise ValueError("close must be two-dimensional")
@@ -172,7 +174,11 @@ def test_risk_and_execution_run_once_per_bar_after_all_decisions(
     ) -> object:
         execution_calls.append(start_index)
         return original_execute(
-            executor, book, target, start_index=start_index, bars=bars  # type: ignore[arg-type]
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,  # type: ignore[arg-type]
         )
 
     def record_constrain(

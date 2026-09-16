@@ -38,51 +38,45 @@ jobs:
           from pathlib import Path
 
           path = Path('.github/workflows/issue610-real-interpretation-v1.yml')
-          text = path.read_text()
-          old = """          assert candidate['candidate_training_performed'] is True
-          assert candidate['economic_values_interpreted'] is False
-          assert candidate['final_test_accessed'] is False
-          assert recovery_binding['candidate_execution_run_id'] == int(os.environ['CANDIDATE_RUN'])
-          assert recovery_binding['candidate_artifact_api_digest'] if 'candidate_artifact_api_digest' in recovery_binding else True
-          assert recovery_binding['economic_values_interpreted'] is False
-          assert recovery_binding['final_test_accessed'] is False
-          assert recovery_binding['production_eligible'] is False
-          assert recovery_binding['live_trading_authorized'] is False
-          assert recovery_binding['merge_authorized'] is False
-"""
-          new = """          assert candidate['execution_run_id'] == int(os.environ['CANDIDATE_RUN'])
-          assert candidate['precompute_run_id'] == int(os.environ['PRECOMPUTE_RUN'])
-          assert candidate['precompute_artifact_id'] == precompute_id
-          assert candidate['precompute_artifact_api_digest'] == precompute_digest
-          assert candidate['precompute_authority_content_digest'] == precompute['content_digest']
-          assert candidate['ppo_seeds'] == [0, 1, 2, 3, 4]
-          assert candidate['symbols'] == ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT']
-          assert candidate['baseline_retrained'] is False
-          assert candidate['candidate_training_performed'] is True
-          assert candidate['economic_values_interpreted'] is False
-          assert candidate['final_test_accessed'] is False
-          assert candidate['operational_eligibility_established'] is False
-          assert candidate['production_eligible'] is False
-          assert candidate['live_trading_authorized'] is False
-          assert candidate['merge_authorized'] is False
-
-          assert recovery_binding['candidate_execution_run_id'] == int(os.environ['CANDIDATE_RUN'])
-          assert recovery_binding['precompute_run_id'] == int(os.environ['PRECOMPUTE_RUN'])
-          assert recovery_binding['precompute_artifact_id'] == precompute_id
-          assert recovery_binding['precompute_artifact_api_digest'] == precompute_digest
-          assert recovery_binding['candidate_evidence_fingerprint'] == candidate['candidate_evidence_fingerprint']
-          assert recovery_binding['candidate_authority_content_digest'] == candidate['content_digest']
-          assert recovery_binding['failed_run_candidate_training_performed'] is False
-          assert recovery_binding['recovery_candidate_training_performed'] is True
-          assert recovery_binding['economic_values_interpreted'] is False
-          assert recovery_binding['final_test_accessed'] is False
-          assert recovery_binding['production_eligible'] is False
-          assert recovery_binding['live_trading_authorized'] is False
-          assert recovery_binding['merge_authorized'] is False
-"""
-          if text.count(old) != 1:
-              raise SystemExit('expected audit block not found exactly once')
-          path.write_text(text.replace(old, new))
+          lines = path.read_text().splitlines()
+          start_line = "          assert candidate['candidate_training_performed'] is True"
+          end_line = "          assert recovery_binding['merge_authorized'] is False"
+          if lines.count(start_line) != 1 or lines.count(end_line) != 1:
+              raise SystemExit('expected audit boundaries not found exactly once')
+          start = lines.index(start_line)
+          end = lines.index(end_line, start) + 1
+          replacement = [
+              "          assert candidate['execution_run_id'] == int(os.environ['CANDIDATE_RUN'])",
+              "          assert candidate['precompute_run_id'] == int(os.environ['PRECOMPUTE_RUN'])",
+              "          assert candidate['precompute_artifact_id'] == precompute_id",
+              "          assert candidate['precompute_artifact_api_digest'] == precompute_digest",
+              "          assert candidate['precompute_authority_content_digest'] == precompute['content_digest']",
+              "          assert candidate['ppo_seeds'] == [0, 1, 2, 3, 4]",
+              "          assert candidate['symbols'] == ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT']",
+              "          assert candidate['baseline_retrained'] is False",
+              "          assert candidate['candidate_training_performed'] is True",
+              "          assert candidate['economic_values_interpreted'] is False",
+              "          assert candidate['final_test_accessed'] is False",
+              "          assert candidate['operational_eligibility_established'] is False",
+              "          assert candidate['production_eligible'] is False",
+              "          assert candidate['live_trading_authorized'] is False",
+              "          assert candidate['merge_authorized'] is False",
+              "",
+              "          assert recovery_binding['candidate_execution_run_id'] == int(os.environ['CANDIDATE_RUN'])",
+              "          assert recovery_binding['precompute_run_id'] == int(os.environ['PRECOMPUTE_RUN'])",
+              "          assert recovery_binding['precompute_artifact_id'] == precompute_id",
+              "          assert recovery_binding['precompute_artifact_api_digest'] == precompute_digest",
+              "          assert recovery_binding['candidate_evidence_fingerprint'] == candidate['candidate_evidence_fingerprint']",
+              "          assert recovery_binding['candidate_authority_content_digest'] == candidate['content_digest']",
+              "          assert recovery_binding['failed_run_candidate_training_performed'] is False",
+              "          assert recovery_binding['recovery_candidate_training_performed'] is True",
+              "          assert recovery_binding['economic_values_interpreted'] is False",
+              "          assert recovery_binding['final_test_accessed'] is False",
+              "          assert recovery_binding['production_eligible'] is False",
+              "          assert recovery_binding['live_trading_authorized'] is False",
+              "          assert recovery_binding['merge_authorized'] is False",
+          ]
+          path.write_text('\n'.join(lines[:start] + replacement + lines[end:]) + '\n')
           PY
           test "$(git diff --name-only)" = "$TARGET_FILE"
           grep -F "recovery_binding['candidate_evidence_fingerprint'] == candidate['candidate_evidence_fingerprint']" "$TARGET_FILE" >/dev/null

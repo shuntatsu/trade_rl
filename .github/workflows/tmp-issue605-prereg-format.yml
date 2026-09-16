@@ -1,0 +1,61 @@
+name: Temporary Issue 605 preregistration format
+
+on:
+  push:
+    branches:
+      - automation/issue605-prereg-format
+    paths:
+      - .github/workflows/tmp-issue605-prereg-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue605-ppo-global-btc-regime-prereg
+  TARGET_SHA: f0d151f2c1f090724ed2d44c5b5e66c8f5795edb
+  MODULE: trade_rl/evaluation/experiments/ppo_global_btc_regime_prereg.py
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard exact research head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and verify preregistration only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          uv run ruff check "$MODULE" tests/evaluation/experiments/test_ppo_global_btc_regime_prereg.py tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_hardening.py
+          uv run ruff format --check "$MODULE" tests/evaluation/experiments/test_ppo_global_btc_regime_prereg.py tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_hardening.py
+          uv run mypy "$MODULE"
+          uv run pytest -q tests/evaluation/experiments/test_ppo_global_btc_regime_prereg.py tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_hardening.py
+      - name: Guard and publish formatted module only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test -n "$changed"
+          test -z "$(printf '%s\n' "$changed" | grep -v -x "$MODULE" || true)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          git commit -m "style: format Issue 605 preregistration"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -1,0 +1,166 @@
+name: Temporary Issue 603 exact-head full verification
+
+on:
+  push:
+    branches:
+      - verify/issue603-exact-d153ff7
+    paths:
+      - .github/workflows/tmp-issue603-exact-d153ff7.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FINAL_SHA: d153ff7ee27a7628d1bdeeef6990f8496b7ed51f
+  BASE_SHA: c707be853480e57362f6a3d64f116e4056c3553f
+  RESEARCH_BRANCH: research/issue603-premium-pressure-calibration-v2
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_calibration.py
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+  PREREG: trade_rl/evaluation/experiments/bootstrap/premium_pressure_prereg.py
+
+  ISSUE600_HEAD: 6ffc414baa10e91f34df258fe5cfabacce65fd77
+  ISSUE600_DIGEST: 18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731
+  ISSUE600_FULL_RUN_ID: "34959430185"
+  ISSUE600_SEAL_RUN_ID: "34959849347"
+  ISSUE600_SEAL_ID: "10392936042"
+  ISSUE600_SEAL_DIGEST: sha256:4b611462f8d4f9bb4d23ab15bb4d8a20525d4093e590c1afb62d1b74ca875e15
+  ISSUE600_FRESH_ID: "10391714897"
+  ISSUE600_FRESH_DIGEST: sha256:858e930a03e442f047556801c3d9a536fbc89435b5f261cba621988dd8062acd
+
+  ISSUE570_RUN_ID: "34863522941"
+  ISSUE570_HEAD: 80b65a773c622af530f074888eb01fff2f7f98df
+  ISSUE570_ARTIFACT_ID: "10355913123"
+  ISSUE570_ARTIFACT_DIGEST: sha256:0076698414d3ac8197a676aecc0155853befc3828a2a9c62e92b76576ad2dc04
+  ISSUE570_FRESH_ID: "10355333076"
+  ISSUE570_FRESH_DIGEST: sha256:2212693404afefedc041b869a03dbe664d3b5cb1e25e28c6c3cdc04a89c1bd3f
+
+  ISSUE601_VALIDATOR_HEAD: c707be853480e57362f6a3d64f116e4056c3553f
+  ISSUE601_VALIDATOR_RUN_ID: "34961165095"
+  ISSUE601_PREFLIGHT_HEAD: e64256dd40e76d9606edfbdebe1c37b86668d467
+  ISSUE601_RUN_ID: "34962227821"
+  ISSUE601_PUBLISHER_ID: "10393693240"
+  ISSUE601_PUBLISHER_DIGEST: sha256:0c7f240390a35174329890fa83e9615e304de5f1a84114007ead1fddaaaf37ff
+  ISSUE601_FRESH_ID: "10393379932"
+  ISSUE601_FRESH_DIGEST: sha256:0c0c05b8f5256c918b90ae709ff05ce0f05f8e88a929f1820387cf60a12dfeff
+
+jobs:
+  exact_targeted:
+    name: Exact-head authority and semantic verification
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind exact implementation ancestry and diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FINAL_SHA"
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+          test "$(git merge-base "$BASE_SHA" "$FINAL_SHA")" = "$BASE_SHA"
+          actual="$(git diff --name-only "$BASE_SHA..$FINAL_SHA" | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST_FILE" | sort)"
+          test "$actual" = "$expected"
+          test "$(git rev-parse "$ISSUE600_HEAD:$PREREG")" = "$(git rev-parse "HEAD:$PREREG")"
+          test "$(git rev-parse "$ISSUE601_VALIDATOR_HEAD:trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py")" = "$(git rev-parse "HEAD:trade_rl/evaluation/experiments/bootstrap/issue601_target_source_validator.py")"
+
+      - name: API-bind all upstream run and artifact authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run_id in "$ISSUE600_FULL_RUN_ID" "$ISSUE600_SEAL_RUN_ID" "$ISSUE570_RUN_ID" "$ISSUE601_VALIDATOR_RUN_ID" "$ISSUE601_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .status <<<"$run")" = completed
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ISSUE570_RUN_ID --jq .head_sha)" = "$ISSUE570_HEAD"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ISSUE601_RUN_ID --jq .head_sha)" = "$ISSUE601_PREFLIGHT_HEAD"
+          for spec in \
+            "$ISSUE600_SEAL_ID|$ISSUE600_SEAL_RUN_ID|$ISSUE600_SEAL_DIGEST" \
+            "$ISSUE600_FRESH_ID|$ISSUE600_SEAL_RUN_ID|$ISSUE600_FRESH_DIGEST" \
+            "$ISSUE570_ARTIFACT_ID|$ISSUE570_RUN_ID|$ISSUE570_ARTIFACT_DIGEST" \
+            "$ISSUE570_FRESH_ID|$ISSUE570_RUN_ID|$ISSUE570_FRESH_DIGEST" \
+            "$ISSUE601_PUBLISHER_ID|$ISSUE601_RUN_ID|$ISSUE601_PUBLISHER_DIGEST" \
+            "$ISSUE601_FRESH_ID|$ISSUE601_RUN_ID|$ISSUE601_FRESH_DIGEST"; do
+            IFS='|' read -r id run_id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$run_id"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+
+      - name: Run exact targeted quality and semantic gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST_FILE"
+          uv run ruff format --check "$MODULE" "$TEST_FILE"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST_FILE"
+          PYTHONHASHSEED=1 uv run pytest -q "$TEST_FILE"
+          PYTHONHASHSEED=777 uv run pytest -q "$TEST_FILE"
+          ! grep -F "da97eb59b08ef042a96ebea4aaa645af02b450e9" "$MODULE"
+          ! grep -F "c78d556f94e247d5bdc1c0e9a891d160e4c48c4f0b62cd5be7600874b3017d22" "$MODULE"
+          ! grep -F "34961624663" "$MODULE"
+          ! grep -F "d914d49aca7a30bdbf8ac394dc492b3e19e9d61c" "$MODULE"
+          ! grep -F "402f45a99ffc570a3f9c13427cb95db1b8cf1c99a0a3c996d73e68b307f7b2a1" "$MODULE"
+          ! grep -F "10393119763" "$MODULE"
+          grep -F "$ISSUE600_HEAD" "$MODULE"
+          grep -F "$ISSUE600_DIGEST" "$MODULE"
+          grep -F "$ISSUE601_VALIDATOR_HEAD" "$MODULE"
+          grep -F "$ISSUE601_RUN_ID" "$MODULE"
+          uv run python - <<'PY'
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import canonical_premium_pressure_protocol
+          protocol = canonical_premium_pressure_protocol()
+          assert protocol.digest == "18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731"
+          assert protocol.minimum_eligible_observations_per_symbol == 16621
+          assert protocol.required_negative_symbol_slopes == 4
+          assert protocol.evaluation_pnl_inspected is False
+          assert protocol.final_test_authorized is False
+          assert protocol.production_eligible is False
+          assert protocol.live_trading_authorized is False
+          print("ISSUE603_EXACT_TARGETED=PASS")
+          PY
+
+  full_regression:
+    name: Exact-head full repository regression
+    needs: exact_targeted
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact target before full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FINAL_SHA"
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Full static, type, and test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run pytest -q
+          echo "ISSUE603_FULL_REGRESSION=PASS"

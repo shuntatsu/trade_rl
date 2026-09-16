@@ -63,15 +63,15 @@ def test_valid_strict_evidence_requires_frozen_v2_interpretation() -> None:
         build_decision_envelope(strict_precheck=_strict(), v2_result=None)
 
 
-def test_valid_accept_is_preserved_without_changing_v2_decision() -> None:
+def test_valid_accept_candidate_is_preserved_without_changing_v2_decision() -> None:
     strict = _strict()
-    v2_result = _v2(decision="ACCEPT")
+    v2_result = _v2(decision="ACCEPT_CANDIDATE")
     envelope = build_decision_envelope(
         strict_precheck=strict,
         v2_result=v2_result,
     )
 
-    assert envelope["decision"] == "ACCEPT"
+    assert envelope["decision"] == "ACCEPT_CANDIDATE"
     assert envelope["v2_result_content_digest"] == v2_result["content_digest"]
     assert envelope["strict_termination_evidence_valid"] is True
     assert envelope["economic_values_interpreted"] is True

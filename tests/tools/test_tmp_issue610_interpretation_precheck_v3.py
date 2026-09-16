@@ -53,9 +53,7 @@ def test_strict_precheck_routes_genuine_new_reason_to_gate_failure() -> None:
     entry = _ppo_entry(candidate, seed=0, symbol_index=0)
     entry["diagnostics"] = {"termination_reasons": ["economic_floor"]}
 
-    new_termination, invalid = classify_strict_termination_evidence(
-        baseline, candidate
-    )
+    new_termination, invalid = classify_strict_termination_evidence(baseline, candidate)
     assert invalid == ()
     assert new_termination == (
         "new PPO termination: seed=0 BTCUSDT reason=economic_floor",
@@ -68,13 +66,9 @@ def test_count_reason_inconsistency_is_invalid_not_gate_failure() -> None:
     entry = _ppo_entry(candidate, seed=0, symbol_index=0)
     entry["metrics"] = {"termination_count": 1}
 
-    new_termination, invalid = classify_strict_termination_evidence(
-        baseline, candidate
-    )
+    new_termination, invalid = classify_strict_termination_evidence(baseline, candidate)
     assert new_termination == ()
-    assert invalid == (
-        "candidate PPO termination evidence malformed: seed=0 BTCUSDT",
-    )
+    assert invalid == ("candidate PPO termination evidence malformed: seed=0 BTCUSDT",)
 
 
 def test_duplicate_reason_is_invalid_not_gate_failure() -> None:
@@ -84,13 +78,9 @@ def test_duplicate_reason_is_invalid_not_gate_failure() -> None:
     entry["diagnostics"] = {"termination_reasons": ["risk_limit", "risk_limit"]}
     entry["metrics"] = {"termination_count": 2}
 
-    new_termination, invalid = classify_strict_termination_evidence(
-        baseline, candidate
-    )
+    new_termination, invalid = classify_strict_termination_evidence(baseline, candidate)
     assert new_termination == ()
-    assert invalid == (
-        "candidate PPO termination evidence malformed: seed=0 BTCUSDT",
-    )
+    assert invalid == ("candidate PPO termination evidence malformed: seed=0 BTCUSDT",)
 
 
 def test_symbol_roster_drift_is_invalid() -> None:
@@ -98,13 +88,9 @@ def test_symbol_roster_drift_is_invalid() -> None:
     candidate = _loaded()
     candidate.runs[0].summary["symbols"] = list(reversed(SYMBOLS))
 
-    new_termination, invalid = classify_strict_termination_evidence(
-        baseline, candidate
-    )
+    new_termination, invalid = classify_strict_termination_evidence(baseline, candidate)
     assert new_termination == ()
-    assert invalid == (
-        "candidate termination symbol roster/order mismatch: seed=0",
-    )
+    assert invalid == ("candidate termination symbol roster/order mismatch: seed=0",)
 
 
 def test_partition_treats_unknown_violation_as_invalid() -> None:

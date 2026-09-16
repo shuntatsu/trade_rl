@@ -1,0 +1,36 @@
+name: Temporary Issue 609 FEATURE_SET workflow RED
+
+on:
+  push:
+    branches:
+      - automation/issue609-feature-set-workflow-red
+    paths:
+      - .github/workflows/tmp-issue609-feature-set-workflow-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: e34d681af2877046220a938186ffd4e1e237ab93
+  TEST: tests/evaluation/experiments/test_issue609_feature_set_workflow.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Reproduce FEATURE_SET definition blocker
+        run: uv run pytest -q "$TEST"

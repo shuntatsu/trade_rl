@@ -10,6 +10,7 @@ from tools.branch_hygiene import (
     anchor_branch_names,
     anchor_shas,
     apply_cleanup,
+    parse_retention_log,
     plan_cleanup,
 )
 
@@ -101,6 +102,11 @@ def test_cleanup_archives_every_unique_non_anchor_tip() -> None:
         reachable_from_anchors=frozenset(
             {"a" * 40, "b" * 40, "c" * 40, "d" * 40, "2" * 40}
         ),
+        retention_observed_at={
+            ("verify/absorbed", "d" * 40): 0,
+            ("feature/merged", "2" * 40): 0,
+        },
+        now_timestamp=10_000,
     )
 
     by_name = {decision.branch.name: decision for decision in decisions}
@@ -110,12 +116,12 @@ def test_cleanup_archives_every_unique_non_anchor_tip() -> None:
     assert by_name["research/evidence"].reason == "provenance"
     assert by_name["verify/absorbed"].action == "delete"
     assert by_name["feature/merged"].action == "delete"
-    assert by_name["tmp/unique-red"].action == "archive-delete"
-    assert by_name["automation/unique"].action == "archive-delete"
-    assert by_name["tmp/unique-red"].reason == "unique-non-anchor-tip"
-    assert by_name["automation/unique"].reason == "unique-non-anchor-tip"
-    assert by_name["feature/unique"].action == "archive-delete"
-    assert by_name["feature/unique"].reason == "unique-non-anchor-tip"
+    assert by_name["tmp/unique-red"].action == "archive-keep"
+    assert by_name["automation/unique"].action == "archive-keep"
+    assert by_name["tmp/unique-red"].reason == "first-seen-non-anchor-tip"
+    assert by_name["automation/unique"].reason == "first-seen-non-anchor-tip"
+    assert by_name["feature/unique"].action == "archive-keep"
+    assert by_name["feature/unique"].reason == "first-seen-non-anchor-tip"
 
 
 def test_fork_pr_and_active_workflow_refs_are_preserved() -> None:
@@ -139,6 +145,8 @@ def test_fork_pr_and_active_workflow_refs_are_preserved() -> None:
         open_pull_request_refs=open_refs,
         active_workflow_branches=frozenset({"verify/running"}),
         reachable_from_anchors=frozenset({"a" * 40, "b" * 40, "c" * 40}),
+        retention_observed_at={},
+        now_timestamp=10_000,
     )
 
     by_name = {decision.branch.name: decision for decision in decisions}
@@ -210,24 +218,23 @@ def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
     api = FakeCleanupApi((main, archived, direct))
     decisions = (
         BranchDecision(main, "keep", "default-branch"),
-        BranchDecision(archived, "archive-delete", "unique-non-anchor-tip"),
+        BranchDecision(archived, "archive-keep", "first-seen-non-anchor-tip"),
         BranchDecision(direct, "delete", "tip-reachable-from-anchor"),
     )
 
     deleted = apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
 
-    assert set(deleted) == {archived.name, direct.name}
+    assert deleted == (direct.name,)
     archive_event = next(
         index
         for index, event in enumerate(api.events)
         if event.startswith("create-ref:")
     )
     delete_event = next(
-        index
-        for index, event in enumerate(api.events)
-        if event.startswith("delete:") and archived.name in event
+        index for index, event in enumerate(api.events) if event.startswith("delete:")
     )
     assert archive_event < delete_event
+    assert archived.name in {branch.name for branch in api.branches()}
     assert RETENTION_BRANCH in {branch.name for branch in api.branches()}
     assert f"{archived.name}\t{archived.sha}" in api.messages[0]
 
@@ -341,3 +348,52 @@ def test_repository_root_url_has_no_trailing_slash() -> None:
         api._url("branches", {"page": "1"})
         == "https://api.github.test/repos/owner/repo/branches?page=1"
     )
+
+
+def test_cleanup_requires_observation_and_grace_before_delete() -> None:
+    main = BranchInfo("main", "a" * 40, False)
+    first_seen = BranchInfo("feature/first", "b" * 40, False)
+    recent = BranchInfo("feature/recent", "c" * 40, False)
+    stale = BranchInfo("feature/stale", "d" * 40, False)
+    unreachable = BranchInfo("feature/unreachable", "e" * 40, False)
+    now = 10_000
+    decisions = plan_cleanup(
+        (main, first_seen, recent, stale, unreachable),
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_anchors=frozenset({main.sha, recent.sha, stale.sha}),
+        retention_observed_at={
+            (recent.name, recent.sha): now - 30,
+            (stale.name, stale.sha): now - 3_601,
+            (unreachable.name, unreachable.sha): now - 3_601,
+        },
+        now_timestamp=now,
+    )
+
+    by_name = {decision.branch.name: decision for decision in decisions}
+    assert by_name[first_seen.name].action == "archive-keep"
+    assert by_name[first_seen.name].reason == "first-seen-non-anchor-tip"
+    assert by_name[recent.name].action == "keep"
+    assert by_name[recent.name].reason == "observation-grace-period"
+    assert by_name[stale.name].action == "delete"
+    assert by_name[stale.name].reason == "observed-tip-reachable-from-anchor"
+    assert by_name[unreachable.name].action == "keep"
+    assert by_name[unreachable.name].reason == "retained-tip-not-reachable"
+
+
+def test_retention_log_parser_uses_earliest_observation() -> None:
+    branch = "automation/recent"
+    sha = "a" * 40
+    old_message = (
+        f"Archive unique non-anchor branch tips before ref cleanup\n\n{branch}\t{sha}\n"
+    )
+    new_message = (
+        "Observe non-anchor branch tips before cleanup grace period\n\n"
+        f"{branch}\t{sha}\n"
+    )
+    payload = (
+        f"200\x1f{new_message}\x1e100\x1f{old_message}\x1e50\x1funrelated commit\x1e"
+    )
+
+    assert parse_retention_log(payload) == {(branch, sha): 100}

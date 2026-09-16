@@ -1,0 +1,294 @@
+name: Issue 605 PPO global-BTC preregistration seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue605-ppo-global-btc-regime-prereg-v1
+    paths:
+      - .github/workflows/issue605-ppo-global-btc-regime-prereg-seal-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  PREREG_HEAD: d84235185c5e79327ea7ced7073f0026970ba46b
+  PR_NUMBER: "606"
+  STANDARD_CI_RUN_ID: "35077671663"
+  MODULE: trade_rl/evaluation/experiments/ppo_global_btc_regime_prereg.py
+  TEST1: tests/evaluation/experiments/test_ppo_global_btc_regime_prereg.py
+  TEST2: tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_hardening.py
+  TEST3: tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_layout.py
+
+jobs:
+  seal:
+    name: Seal canonical preregistration
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact preregistration, PR and standard CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$PREREG_HEAD"
+          test "$(git ls-remote origin refs/heads/research/issue605-ppo-global-btc-regime-prereg | cut -f1)" = "$PREREG_HEAD"
+          pr="$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER)"
+          test "$(jq -r .head.sha <<<"$pr")" = "$PREREG_HEAD"
+          test "$(jq -r .base.sha <<<"$pr")" = "c5a1ce8395feaedd8833f7e596fddc9d8f3115fc"
+          test "$(jq -r .draft <<<"$pr")" = true
+          ci="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$STANDARD_CI_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          test "$(jq -r .head_sha <<<"$ci")" = "$PREREG_HEAD"
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$STANDARD_CI_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core") | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide") | .conclusion' <<<"$jobs")" = success
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove exact preregistration code and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$PREREG_HEAD"
+          uv run ruff check "$MODULE" "$TEST1" "$TEST2" "$TEST3"
+          uv run ruff format --check "$MODULE" "$TEST1" "$TEST2" "$TEST3"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST1" "$TEST2" "$TEST3"
+      - name: Materialize canonical protocol and source authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - "$GITHUB_RUN_ID" "$STANDARD_CI_RUN_ID" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.ppo_global_btc_regime_prereg import canonical_ppo_global_btc_regime_protocol
+
+          seal_run_id = int(sys.argv[1])
+          ci_run_id = int(sys.argv[2])
+          p = canonical_ppo_global_btc_regime_protocol()
+          protocol_bytes = canonical_json_bytes(p.to_payload())
+          Path('/tmp/seal/protocol.json').write_bytes(protocol_bytes)
+          authority = {
+              'schema_version': 'issue605_ppo_global_btc_regime_prereg_seal_v1',
+              'issue_number': 605,
+              'pr_number': 606,
+              'prereg_head': 'd84235185c5e79327ea7ced7073f0026970ba46b',
+              'base_main_sha': 'c5a1ce8395feaedd8833f7e596fddc9d8f3115fc',
+              'standard_ci_run_id': ci_run_id,
+              'seal_run_id': seal_run_id,
+              'protocol_digest': p.digest,
+              'protocol_json_sha256': hashlib.sha256(protocol_bytes).hexdigest(),
+              'source_dataset_id': p.source_dataset_id,
+              'source_dataset_artifact_digest': p.source_dataset_artifact_digest,
+              'source_study_digest': p.source_study_digest,
+              'source_evidence_fingerprint': p.source_evidence_fingerprint,
+              'economic_execution_authorized': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          Path('/tmp/seal/authority-unsigned.json').write_bytes(canonical_json_bytes(authority))
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/seal/authority.json').write_bytes(canonical_json_bytes(authority))
+          print('PROTOCOL_DIGEST=' + p.digest)
+          print('PROTOCOL_JSON_SHA256=' + hashlib.sha256(protocol_bytes).hexdigest())
+          print('ECONOMIC_EXECUTION_AUTHORIZED=false')
+          PY
+          rm /tmp/seal/authority-unsigned.json
+          for path in "$MODULE" "$TEST1" "$TEST2" "$TEST3"; do
+            printf '%s %s\n' "$(git rev-parse "$PREREG_HEAD:$path")" "$path"
+          done > /tmp/seal/git-blobs.txt
+      - id: meta
+        run: echo "name=issue605-prereg-seal-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable seal evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent preregistration reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PREREG_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: API-bind publisher seal artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.seal.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/published
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct canonical protocol and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PREREG_HEAD"
+          mkdir -p /tmp/fresh
+          uv run python - "$GITHUB_RUN_ID" "$STANDARD_CI_RUN_ID" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.ppo_global_btc_regime_prereg import canonical_ppo_global_btc_regime_protocol
+
+          seal_run_id = int(sys.argv[1])
+          ci_run_id = int(sys.argv[2])
+          p = canonical_ppo_global_btc_regime_protocol()
+          protocol_bytes = canonical_json_bytes(p.to_payload())
+          Path('/tmp/fresh/protocol.json').write_bytes(protocol_bytes)
+          authority = {
+              'schema_version': 'issue605_ppo_global_btc_regime_prereg_seal_v1',
+              'issue_number': 605,
+              'pr_number': 606,
+              'prereg_head': 'd84235185c5e79327ea7ced7073f0026970ba46b',
+              'base_main_sha': 'c5a1ce8395feaedd8833f7e596fddc9d8f3115fc',
+              'standard_ci_run_id': ci_run_id,
+              'seal_run_id': seal_run_id,
+              'protocol_digest': p.digest,
+              'protocol_json_sha256': hashlib.sha256(protocol_bytes).hexdigest(),
+              'source_dataset_id': p.source_dataset_id,
+              'source_dataset_artifact_digest': p.source_dataset_artifact_digest,
+              'source_study_digest': p.source_study_digest,
+              'source_evidence_fingerprint': p.source_evidence_fingerprint,
+              'economic_execution_authorized': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+          }
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/fresh/authority.json').write_bytes(canonical_json_bytes(authority))
+          PY
+          for path in "$MODULE" "$TEST1" "$TEST2" "$TEST3"; do
+            printf '%s %s\n' "$(git rev-parse "$PREREG_HEAD:$path")" "$path"
+          done > /tmp/fresh/git-blobs.txt
+          cmp /tmp/published/protocol.json /tmp/fresh/protocol.json
+          cmp /tmp/published/authority.json /tmp/fresh/authority.json
+          cmp /tmp/published/git-blobs.txt /tmp/fresh/git-blobs.txt
+      - id: meta
+        run: echo "name=issue605-prereg-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final preregistration seal audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind seal and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_DIGEST" "$FRESH_ID|$FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require canonical byte equality and closed result boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/protocol.json /tmp/fresh/protocol.json
+          cmp /tmp/seal/authority.json /tmp/fresh/authority.json
+          cmp /tmp/seal/git-blobs.txt /tmp/fresh/git-blobs.txt
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          raw = Path('/tmp/seal/authority.json').read_bytes()
+          payload = json.loads(raw)
+          assert raw == json.dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()
+          digest = payload.pop('content_digest')
+          assert hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == digest
+          assert payload['prereg_head'] == 'd84235185c5e79327ea7ced7073f0026970ba46b'
+          assert payload['standard_ci_run_id'] == 35077671663
+          assert payload['economic_execution_authorized'] is False
+          assert payload['economic_result_inspected'] is False
+          assert payload['final_test_access_authorized'] is False
+          assert payload['production_eligible'] is False
+          assert payload['live_trading_authorized'] is False
+          protocol = Path('/tmp/seal/protocol.json').read_bytes()
+          assert hashlib.sha256(protocol).hexdigest() == payload['protocol_json_sha256']
+          assert payload['protocol_digest'] == payload['protocol_json_sha256']
+          print('ISSUE605_PREREG_SEAL=PASS')
+          print('PROTOCOL_DIGEST=' + payload['protocol_digest'])
+          print('ECONOMIC_EXECUTION_AUTHORIZED=false')
+          PY

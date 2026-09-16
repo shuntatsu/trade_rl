@@ -1,0 +1,84 @@
+name: Temporary Issue 603 full-regression classification
+
+on:
+  push:
+    branches:
+      - verify/issue603-exact-d153ff7
+    paths:
+      - .github/workflows/tmp-issue603-full-regression-classify.yml
+
+permissions:
+  contents: read
+
+env:
+  FINAL_SHA: d153ff7ee27a7628d1bdeeef6990f8496b7ed51f
+  BASE_SHA: c707be853480e57362f6a3d64f116e4056c3553f
+  RESEARCH_BRANCH: research/issue603-premium-pressure-calibration-v2
+
+jobs:
+  baseline_lint_equivalence:
+    name: Prove global lint debt is pre-existing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Compare exact global Ruff failure output on base and final
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+          git checkout --detach "$BASE_SHA"
+          set +e
+          uv run ruff check . >/tmp/base-ruff.out 2>&1
+          base_code=$?
+          set -e
+          test "$base_code" -ne 0
+          git checkout --detach "$FINAL_SHA"
+          set +e
+          uv run ruff check . >/tmp/final-ruff.out 2>&1
+          final_code=$?
+          set -e
+          test "$final_code" -ne 0
+          diff -u /tmp/base-ruff.out /tmp/final-ruff.out
+          grep -F "guide/tools/bundle_budget.py" /tmp/final-ruff.out
+          grep -F "guide/tools/code_symbols.py" /tmp/final-ruff.out
+          grep -F "guide/tools/content_contract.py" /tmp/final-ruff.out
+          ! grep -F "premium_pressure_calibration.py" /tmp/final-ruff.out
+          echo "ISSUE603_GLOBAL_RUFF_FAILURE_PREEXISTING=true"
+
+  final_remaining_checks:
+    name: Exact-head remaining full checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FINAL_SHA"
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Full repository format check
+        run: uv run ruff format --check .
+      - name: Full repository type check
+        run: uv run mypy trade_rl
+      - name: Full repository test suite
+        run: uv run pytest -q
+      - name: Record remaining checks Green
+        run: echo "ISSUE603_REMAINING_FULL_CHECKS=PASS"

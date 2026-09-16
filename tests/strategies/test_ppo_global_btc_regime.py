@@ -155,14 +155,16 @@ def test_candidate_fails_closed_for_unavailable_or_nonfinite_reference() -> None
         unavailable[3:6], np.asarray([0.0, 0.0, 1.0], dtype=np.float32)
     )
 
-    nonfinite, _ = _candidate_env(
-        _market(
-            reference_available=True,
-            reference_value=float("nan"),
-            reference_staleness=0.7,
-        ),
-        symbol_index=1,
-    ).reset(seed=3)
+    nonfinite_dataset = _market(
+        reference_available=True,
+        reference_value=0.25,
+        reference_staleness=0.7,
+    )
+    corrupted_features = nonfinite_dataset.features.copy()
+    corrupted_features[0, 0, 0] = np.nan
+    corrupted_features.setflags(write=False)
+    object.__setattr__(nonfinite_dataset, "features", corrupted_features)
+    nonfinite, _ = _candidate_env(nonfinite_dataset, symbol_index=1).reset(seed=3)
     np.testing.assert_array_equal(
         nonfinite[3:6], np.asarray([0.0, 0.0, 0.7], dtype=np.float32)
     )

@@ -1,0 +1,58 @@
+name: tmp Issue 610 real interpretation runner format
+
+on:
+  push:
+    branches:
+      - automation/issue610-real-interpretation-runner-format
+    paths:
+      - .github/workflows/tmp-issue610-real-interpretation-runner-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-real-interpretation-runner-v1
+  TARGET_HEAD: 79aa54ab7fea38d6b5bea2c6f1c5b9a22faee569
+  RUNNER: tools/tmp_issue610_real_interpretation_runner_v1.py
+  TEST: tests/tools/test_tmp_issue610_real_interpretation_runner_v1.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply exact Ruff fixes only to runner and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$RUNNER" "$TEST"
+          uv run ruff format "$RUNNER" "$TEST"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$RUNNER" "$TEST" | sort)"
+          test "$changed" = "$expected"
+          uv run ruff check "$RUNNER" "$TEST"
+          uv run ruff format --check "$RUNNER" "$TEST"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RUNNER" "$TEST"
+          git commit -m "style: apply exact Ruff formatting to Issue 610 real interpretation runner"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

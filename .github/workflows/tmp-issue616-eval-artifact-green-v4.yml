@@ -1,0 +1,65 @@
+name: tmp Issue 616 evaluation artifact GREEN v4
+
+on:
+  push:
+    branches:
+      - automation/issue616-eval-artifact-green-v4
+    paths:
+      - .github/issue616-eval-artifact-green-v4.authorized
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-evaluation
+  EXPECTED_HEAD: b42f55f884e255fbd0896eae895325903f418a1a
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+  TEST_EVAL: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+  TEST_ARTIFACT: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
+  TEST_WRAPPER: tests/strategies/test_ridge_economic_gate.py
+  WRAPPER: trade_rl/strategies/forecasts/ridge_economic_gate.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue616-eval-artifact-green-v4
+          fetch-depth: 1
+      - run: cp .github/tools/tmp_issue616_add_eval_codec.py /tmp/issue616_add_eval_codec.py
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: python /tmp/issue616_add_eval_codec.py
+      - name: Verify strict artifact GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$MODULE" "$TEST_ARTIFACT"
+          uv run ruff format "$MODULE" "$TEST_ARTIFACT"
+          uv run ruff check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_ARTIFACT" "$TEST_WRAPPER"
+          uv run ruff format --check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_ARTIFACT" "$TEST_WRAPPER"
+          uv run mypy "$MODULE" "$WRAPPER"
+          uv run pytest -q "$TEST_WRAPPER" "$TEST_EVAL" "$TEST_ARTIFACT"
+          test "$(git diff --name-only)" = "$MODULE"
+      - name: Publish non-force if target unchanged
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE"
+          git commit -m 'research: add strict Issue 616 evaluation artifact codec'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

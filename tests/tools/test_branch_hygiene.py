@@ -323,3 +323,19 @@ def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     assert "ref: ${{ github.event.repository.default_branch }}" in workflow
     assert "persist-credentials: false" in workflow
     assert "python3 -m tools.branch_hygiene" in workflow
+
+
+def test_repository_root_url_has_no_trailing_slash() -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo",
+        token="token",
+        api_url="https://api.github.test/",
+    )
+
+    assert api._url("") == "https://api.github.test/repos/owner/repo"
+    assert (
+        api._url("branches", {"page": "1"})
+        == "https://api.github.test/repos/owner/repo/branches?page=1"
+    )

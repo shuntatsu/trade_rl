@@ -1,0 +1,73 @@
+name: tmp Issue 616 dataset id fix
+
+on:
+  push:
+    branches:
+      - automation/issue616-dataset-id-fix
+    paths:
+      - .github/workflows/tmp-issue616-dataset-id-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-prereg
+  EXPECTED_HEAD: 1185e4b64e3fe6ef07b5bb3d21417cc22c730512
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg.py
+  AUTH_TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg_authority.py
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - name: Correct only the successor dataset authority id
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_prereg.py")
+          text = path.read_text()
+          old = "6c0b040d317a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
+          new = "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
+          if text.count(old) != 1 or new in text:
+              raise SystemExit("dataset authority replacement precondition failed")
+          path.write_text(text.replace(old, new))
+          PY
+          test "$(git diff --name-only)" = "$MODULE"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Verify corrected protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run ruff format --check "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST" "$AUTH_TEST"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE"
+          git commit -m 'fix: bind exact Issue 616 successor dataset id'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

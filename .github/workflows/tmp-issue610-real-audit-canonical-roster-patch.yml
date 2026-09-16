@@ -1,0 +1,59 @@
+name: tmp Issue 610 real audit canonical roster patch
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-audit-canonical-roster-v1
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-canonical-roster-patch.yml
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_PARENT: 1bcba708830aa91dffcc111c476a6f71ca26280d
+  TARGET: tools/tmp_issue610_real_interpretation_audit_v1.py
+  PATCH_WORKFLOW: .github/workflows/tmp-issue610-real-audit-canonical-roster-patch.yml
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue610-real-audit-canonical-roster-v1
+          fetch-depth: 0
+      - name: Guard exact starting state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git diff --name-only "$EXPECTED_PARENT..HEAD")" = "$PATCH_WORKFLOW"
+          test "$(grep -Fc '_require(tuple(by_symbol) == SYMBOLS, "absolute diagnostic symbol roster drift")' "$TARGET")" = 1
+      - name: Apply only the map-roster semantic fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/tmp_issue610_real_interpretation_audit_v1.py')
+          text = path.read_text()
+          old = '    _require(tuple(by_symbol) == SYMBOLS, "absolute diagnostic symbol roster drift")\n'
+          new = '    _require(set(by_symbol) == set(SYMBOLS), "absolute diagnostic symbol roster drift")\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected audit roster assertion not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          changed="$(git diff --name-only)"
+          test "$changed" = "$TARGET"
+          git diff --check
+      - name: Commit helper fix and remove temporary patch workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm "$PATCH_WORKFLOW"
+          git add "$TARGET"
+          git commit -m 'fix: validate Issue 610 diagnostic symbols as a map roster'
+          git push origin HEAD:verify/issue610-real-audit-canonical-roster-v1

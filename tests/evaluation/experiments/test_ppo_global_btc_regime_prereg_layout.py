@@ -12,7 +12,9 @@ from trade_rl.evaluation.experiments.ppo_global_btc_regime_prereg import (
 def test_protocol_freezes_candidate_observation_layout() -> None:
     protocol = canonical_ppo_global_btc_regime_protocol()
 
-    assert protocol.candidate_observation_schema == "ppo_observation_v3_global_btc_regime"
+    assert (
+        protocol.candidate_observation_schema == "ppo_observation_v3_global_btc_regime"
+    )
     assert protocol.candidate_observation_layout == (
         "local_values",
         "local_available",

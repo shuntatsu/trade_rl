@@ -46,7 +46,9 @@ def build_candidate_carrier_plan(
     """Build a separate StudyPlan carrier for the sealed candidate EvidenceSet."""
 
     if candidate_config.ppo_seed != source_plan.ppo_seeds[0]:
-        raise ValueError("candidate carrier baseline seed must match source seed roster")
+        raise ValueError(
+            "candidate carrier baseline seed must match source seed roster"
+        )
     return StudyPlan(
         research_question=(
             f"{source_plan.research_question} [Issue 610 candidate execution carrier]"
@@ -101,7 +103,9 @@ def validate_controlled_semantic_delta(
     ):
         violations.append("candidate PPO observation schema is not frozen v3")
     if candidate.get("ppo_global_context") != PPO_GLOBAL_BTC_REGIME_CONTEXT:
-        violations.append("candidate PPO global context is not frozen global-BTC regime")
+        violations.append(
+            "candidate PPO global context is not frozen global-BTC regime"
+        )
     if "ppo_global_context" in baseline:
         violations.append("baseline unexpectedly defines PPO global context")
     return changed, tuple(violations)

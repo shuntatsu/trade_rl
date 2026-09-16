@@ -1,0 +1,54 @@
+name: tmp Issue 616 prereg semantic RED verify
+
+on:
+  push:
+    branches:
+      - verify/issue616-prereg-red
+    paths:
+      - .github/workflows/tmp-issue616-prereg-red-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 6ac664d877629332c681abfcfd473963299acb28
+  TARGET_TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg.py
+
+jobs:
+  verify_red:
+    name: Issue 616 semantic RED oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact RED head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static gates must already be green
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TARGET_TEST"
+          uv run ruff format --check "$TARGET_TEST"
+      - name: Require missing-production-module semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TARGET_TEST" >/tmp/pytest.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -F "ModuleNotFoundError: No module named 'trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_prereg'" /tmp/pytest.out >/dev/null
+          ! grep -E 'FAILED .*test_' /tmp/pytest.out >/dev/null
+          echo ISSUE616_SEMANTIC_RED=PASS

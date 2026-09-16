@@ -1,0 +1,90 @@
+name: Temporary Issue 603 fsum oracle fix
+
+on:
+  push:
+    branches:
+      - automation/issue603-fsum-oracle-fix
+    paths:
+      - .github/workflows/tmp-issue603-fsum-oracle-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  RED_SHA: 5ba0c595a424621f4f960f16123836467b5506a5
+  TARGET_BRANCH: verify/issue603-calibration-red-current
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_calibration.py
+
+jobs:
+  strengthen_oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          persist-credentials: true
+      - name: Replace interpreter-dependent sum comparison with direct fsum-order oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          test ! -e "$MODULE"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py')
+          text = path.read_text()
+
+          import_anchor = 'from trade_rl.artifacts.hashing import content_digest\n'
+          import_line = (
+              'import trade_rl.evaluation.experiments.bootstrap.'
+              'premium_pressure_calibration as calibration_module\n'
+          )
+          if import_line not in text:
+              if text.count(import_anchor) != 1:
+                  raise SystemExit('fsum import anchor differs')
+              text = text.replace(import_anchor, import_anchor + import_line)
+
+          start = text.index(
+              'def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator()'
+          )
+          end = text.index('\ndef test_four_of_five_negative_is_valid_three_is_reject_and_failure_is_invalid()', start)
+          replacement = '''def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator(\n    monkeypatch: pytest.MonkeyPatch,\n) -> None:\n    protocol = canonical_premium_pressure_protocol()\n    n = protocol.minimum_eligible_observations_per_symbol\n    x_values = [1e16, 1.0, -1e16] + [0.0] * (n - 3)\n    pairs = tuple(\n        TrainingPair(\n            decision_time_ms=index * _HOUR_MS,\n            x=x,\n            y=-x * 1e-16 + 3.0,\n        )\n        for index, x in enumerate(x_values)\n    )\n\n    original_fsum = math.fsum\n    fsum_calls: list[tuple[float, ...]] = []\n\n    def traced_fsum(values) -> float:\n        materialized = tuple(values)\n        fsum_calls.append(materialized)\n        return original_fsum(materialized)\n\n    monkeypatch.setattr(calibration_module.math, "fsum", traced_fsum)\n    result = calibrate_symbol("BTCUSDT", pairs)\n\n    x_order = tuple(x_values)\n    y_order = tuple(pair.y for pair in pairs)\n    x_bar = original_fsum(x_order) / n\n    y_bar = original_fsum(y_order) / n\n    numerator_terms = tuple(\n        (pair.x - x_bar) * (pair.y - y_bar) for pair in pairs\n    )\n    denominator_terms = tuple((pair.x - x_bar) ** 2 for pair in pairs)\n\n    assert fsum_calls == [x_order, y_order, numerator_terms, denominator_terms]\n    assert result.failures == ()\n    assert result.x_bar == x_bar\n    assert result.y_bar == y_bar\n    assert result.numerator == original_fsum(numerator_terms)\n    assert result.denominator == original_fsum(denominator_terms)\n    assert result.beta is not None and result.beta < 0.0\n\n    monkeypatch.setattr(calibration_module.math, "fsum", original_fsum)\n\n    low = calibrate_symbol("BTCUSDT", pairs[:-1])\n    assert low.eligible_observations == n - 1\n    assert low.beta is None\n    assert low.alpha is None\n    assert low.failures == (f"BTCUSDT:eligible_observations<{n}",)\n\n    constant_pairs = tuple(\n        TrainingPair(decision_time_ms=index * _HOUR_MS, x=1.0, y=float(index))\n        for index in range(n)\n    )\n    constant = calibrate_symbol("BTCUSDT", constant_pairs)\n    assert constant.beta is None\n    assert constant.alpha is None\n    assert constant.failures == ("BTCUSDT:denominator_not_finite_positive",)\n\n'''
+          text = text[:start] + replacement + text[end + 1:]
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$TEST_FILE"
+          test ! -e "$MODULE"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates and exact semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST_FILE"
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+          test "$(git diff --name-only)" = "$TEST_FILE"
+          set +e
+          uv run pytest -q "$TEST_FILE" >/tmp/issue603-red.out 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -F "No module named 'trade_rl.evaluation.experiments.bootstrap.premium_pressure_calibration'" /tmp/issue603-red.out
+      - name: Publish strengthened test-only RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_FILE"
+          git commit -m "test: observe Issue 603 fixed-order fsum directly"
+          test "$(git rev-parse HEAD^)" = "$RED_SHA"
+          test "$(git diff --name-only HEAD^ HEAD)" = "$TEST_FILE"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -1,0 +1,342 @@
+name: Issue 610 real interpretation independent audit v2
+
+on:
+  push:
+    branches:
+      - run/issue610-real-interpretation-audit-v1
+    paths:
+      - .github/issue610-real-interpretation-audit-v2.authorized
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue610-real-interpretation-independent-audit-v2
+  cancel-in-progress: false
+
+env:
+  AUDIT_SHA: b7c41a7c80c38eadce99759ac345489eb2ff9cce
+  AUDIT_VERIFY_RUN: '35115602955'
+  INTERPRETATION_RUN: '35116022231'
+  PRODUCER_JOB_NAME: Produce audited-input Issue 610 interpretation
+  FRESH_JOB_NAME: Independently reconstruct Issue 610 interpretation
+  FAILED_INLINE_AUDIT_JOB_NAME: Final Issue 610 interpretation audit and reveal
+  PRODUCER_NAME: issue610-ppo-global-btc-regime-result-v3-35116022231
+  PRODUCER_ID: '10455728296'
+  PRODUCER_DIGEST: sha256:71b7b166d9166038b5b83c85ee6809237271db3af8bfcf48dd87c701ceeebc1e
+  FRESH_NAME: issue610-ppo-global-btc-regime-fresh-result-v3-35116022231
+  FRESH_ID: '10454484504'
+  FRESH_DIGEST: sha256:dbaf3e2c81e07f953cedcd582753aac95dee871b49f076465799cf003bf176e5
+  CANDIDATE_RUN: '35103004952'
+  CANDIDATE_NAME: issue610-ppo-global-btc-regime-candidate-v1-35103004952
+  CANDIDATE_ID: '10453782249'
+  CANDIDATE_DIGEST: sha256:395918daae4c17ed5619d6b559aa799a8031e6d08fbad9a6f64a49f2b41208a8
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_DIGEST: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+
+jobs:
+  audit_primary:
+    name: Independent corrected Issue 610 result audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce one audit activation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.AUDIT_SHA }}
+          persist-credentials: false
+      - name: API-bind verified audit oracle and usable interpretation evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_SHA"
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$AUDIT_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+
+          interpretation="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERPRETATION_RUN")"
+          test "$(jq -r .status <<<"$interpretation")" = completed
+          test "$(jq -r .conclusion <<<"$interpretation")" = failure
+          test "$(jq -r .run_number <<<"$interpretation")" = 1
+          test "$(jq -r .run_attempt <<<"$interpretation")" = 1
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERPRETATION_RUN/jobs?per_page=100")"
+          test "$(jq -r --arg n "$PRODUCER_JOB_NAME" '.jobs[] | select(.name==$n) | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r --arg n "$FRESH_JOB_NAME" '.jobs[] | select(.name==$n) | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r --arg n "$FAILED_INLINE_AUDIT_JOB_NAME" '.jobs[] | select(.name==$n) | .conclusion' <<<"$jobs")" = failure
+
+          check() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local meta
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run_id"
+            test "$(jq -r .expired <<<"$meta")" = false
+          }
+          check "$PRODUCER_ID" "$PRODUCER_NAME" "$PRODUCER_DIGEST" "$INTERPRETATION_RUN"
+          check "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST" "$INTERPRETATION_RUN"
+          check "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST" "$CANDIDATE_RUN"
+          check "$PRECOMPUTE_ID" "$PRECOMPUTE_NAME" "$PRECOMPUTE_DIGEST" "$PRECOMPUTE_RUN"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRODUCER_NAME }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - name: Independently audit immutable results without revealing decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/audit
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 audit \
+            --producer-root /tmp/producer \
+            --fresh-root /tmp/fresh \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/audit \
+            --interpretation-run-id "$INTERPRETATION_RUN" \
+            --candidate-execution-run-id "$CANDIDATE_RUN" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --producer-result-artifact-id "$PRODUCER_ID" \
+            --producer-result-artifact-digest "$PRODUCER_DIGEST" \
+            --fresh-result-artifact-id "$FRESH_ID" \
+            --fresh-result-artifact-digest "$FRESH_DIGEST" \
+            >/tmp/audit.stdout
+          grep -q '^ISSUE610_REAL_INTERPRETATION_AUDIT_V1=PASS$' /tmp/audit.stdout
+          grep -q '^DECISION_REVEALED=false$' /tmp/audit.stdout
+          grep -q '^FINAL_TEST_ACCESSED=false$' /tmp/audit.stdout
+          rm /tmp/audit.stdout
+          test -f /tmp/audit/audit.json
+      - id: name
+        run: echo "artifact_name=issue610-real-interpretation-independent-audit-v2-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/audit
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  audit_fresh:
+    name: Fresh corrected Issue 610 result audit
+    needs: audit_primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.AUDIT_SHA }}
+          persist-credentials: false
+      - name: Independently rebind source result artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_SHA"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERPRETATION_RUN/jobs?per_page=100")"
+          test "$(jq -r --arg n "$PRODUCER_JOB_NAME" '.jobs[] | select(.name==$n) | .conclusion' <<<"$jobs")" = success
+          test "$(jq -r --arg n "$FRESH_JOB_NAME" '.jobs[] | select(.name==$n) | .conclusion' <<<"$jobs")" = success
+          check() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local meta
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run_id"
+            test "$(jq -r .expired <<<"$meta")" = false
+          }
+          check "$PRODUCER_ID" "$PRODUCER_NAME" "$PRODUCER_DIGEST" "$INTERPRETATION_RUN"
+          check "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST" "$INTERPRETATION_RUN"
+          check "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST" "$CANDIDATE_RUN"
+          check "$PRECOMPUTE_ID" "$PRECOMPUTE_NAME" "$PRECOMPUTE_DIGEST" "$PRECOMPUTE_RUN"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRODUCER_NAME }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.audit_primary.outputs.artifact_name }}
+          path: /tmp/primary-audit
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - name: Recompute audit and require byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/audit-fresh
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 audit \
+            --producer-root /tmp/producer \
+            --fresh-root /tmp/fresh \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/audit-fresh \
+            --interpretation-run-id "$INTERPRETATION_RUN" \
+            --candidate-execution-run-id "$CANDIDATE_RUN" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --producer-result-artifact-id "$PRODUCER_ID" \
+            --producer-result-artifact-digest "$PRODUCER_DIGEST" \
+            --fresh-result-artifact-id "$FRESH_ID" \
+            --fresh-result-artifact-digest "$FRESH_DIGEST" \
+            >/tmp/audit-fresh.stdout
+          grep -q '^ISSUE610_REAL_INTERPRETATION_AUDIT_V1=PASS$' /tmp/audit-fresh.stdout
+          grep -q '^DECISION_REVEALED=false$' /tmp/audit-fresh.stdout
+          rm /tmp/audit-fresh.stdout
+          cmp /tmp/primary-audit/audit.json /tmp/audit-fresh/audit.json
+          echo ISSUE610_INDEPENDENT_AUDITS_BYTE_IDENTICAL=PASS
+      - id: name
+        run: echo "artifact_name=issue610-real-interpretation-independent-audit-fresh-v2-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/audit-fresh
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  reveal:
+    name: Final independently audited Issue 610 decision reveal
+    needs: [audit_primary, audit_fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: API-bind both audit artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.audit_primary.outputs.artifact_id }}
+          PRIMARY_NAME: ${{ needs.audit_primary.outputs.artifact_name }}
+          PRIMARY_DIGEST: ${{ needs.audit_primary.outputs.artifact_digest }}
+          FRESH_AUDIT_ID: ${{ needs.audit_fresh.outputs.artifact_id }}
+          FRESH_AUDIT_NAME: ${{ needs.audit_fresh.outputs.artifact_name }}
+          FRESH_AUDIT_DIGEST: ${{ needs.audit_fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${{ needs.audit_primary.result }}" = success
+          test "${{ needs.audit_fresh.result }}" = success
+          check() {
+            local id="$1" name="$2" digest="$3"
+            local meta api_digest
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$meta")" = false
+            api_digest="$(jq -r .digest <<<"$meta")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          check "$PRIMARY_ID" "$PRIMARY_NAME" "$PRIMARY_DIGEST"
+          check "$FRESH_AUDIT_ID" "$FRESH_AUDIT_NAME" "$FRESH_AUDIT_DIGEST"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.audit_primary.outputs.artifact_name }}
+          path: /tmp/primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.audit_fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require identical audits and reveal only the frozen development decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/primary/audit.json /tmp/fresh/audit.json
+          test "$(jq -r .final_test_accessed /tmp/primary/audit.json)" = false
+          test "$(jq -r .production_eligible /tmp/primary/audit.json)" = false
+          test "$(jq -r .live_trading_authorized /tmp/primary/audit.json)" = false
+          test "$(jq -r .merge_authorized /tmp/primary/audit.json)" = false
+          decision="$(jq -r .decision /tmp/primary/audit.json)"
+          case "$decision" in
+            ACCEPT_CANDIDATE|KEEP_BASELINE|INVALID) ;;
+            *) exit 1 ;;
+          esac
+          echo ISSUE610_FINAL_INDEPENDENT_AUDIT=PASS
+          echo "DECISION=$decision"
+          echo FINAL_TEST_ACCESSED=false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false
+          echo MERGE_AUTHORIZED=false

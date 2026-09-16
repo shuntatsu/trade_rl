@@ -1,0 +1,40 @@
+name: tmp Issue 610 format RED oracle
+
+on:
+  push:
+    branches:
+      - verify/issue610-test-format
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue610-test-format
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format exact RED oracle
+        run: uv run ruff format tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+      - name: Require lint clean after formatter
+        run: uv run ruff check --fix tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+      - name: Commit formatter-owned change if any
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          if git diff --cached --quiet; then
+            echo "ISSUE610_TEST_ORACLE_ALREADY_FORMATTED=true"
+            exit 0
+          fi
+          git commit -m "style: ruff-format Issue 610 RED oracle"
+          git push origin HEAD:verify/issue610-test-format

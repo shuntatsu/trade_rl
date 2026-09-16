@@ -103,8 +103,9 @@ def _strategy_observation(dataset: MarketDataset, *, symbol_index: int, index: i
 def test_sealed_global_btc_regime_observation_contract_is_exact() -> None:
     module = _implementation_module()
 
-    assert module.PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA == (
-        "ppo_observation_v3_global_btc_regime"
+    assert (
+        module.PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA
+        == "ppo_observation_v3_global_btc_regime"
     )
     assert module.PPO_GLOBAL_BTC_REGIME_REFERENCE_SYMBOL == "BTCUSDT"
     assert module.PPO_GLOBAL_BTC_REGIME_REFERENCE_FEATURE == "1h__log_return_24bar"

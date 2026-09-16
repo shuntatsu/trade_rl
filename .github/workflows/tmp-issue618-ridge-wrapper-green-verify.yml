@@ -1,0 +1,56 @@
+name: tmp Issue 618 ridge wrapper GREEN verify
+
+on:
+  push:
+    branches:
+      - verify/issue618-ridge-wrapper-green
+    paths:
+      - .github/workflows/tmp-issue618-ridge-wrapper-green-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: e74a6c7e88a1dcb058d2966cfb7421deab5d62e4
+  TARGET_MODULE: trade_rl/strategies/forecasts/ridge_economic_gate.py
+  TARGET_TEST: tests/strategies/test_ridge_economic_gate.py
+
+jobs:
+  verify_green:
+    name: Issue 618 ridge wrapper focused GREEN
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Bind exact wrapper head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static, type and focused behavior verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TARGET_MODULE" "$TARGET_TEST"
+          uv run ruff format --check "$TARGET_MODULE" "$TARGET_TEST"
+          uv run mypy "$TARGET_MODULE"
+          uv run pytest -q "$TARGET_TEST"
+          echo ISSUE618_RIDGE_WRAPPER_GREEN=PASS
+      - name: Prove no economic execution surface was added
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac..$TARGET_SHA | sort)"
+          expected="$(printf '%s\n%s\n' "$TARGET_TEST" "$TARGET_MODULE" | sort)"
+          test "$changed" = "$expected"
+          echo EVALUATION_PNL_INSPECTED=false
+          echo EVALUATION_EXECUTION_AUTHORIZED=false
+          echo FINAL_TEST_ACCESSED=false

@@ -42,8 +42,8 @@ def _observation(
         symbol="BTCUSDT",
         features=np.asarray([forecast_feature], dtype=np.float32),
         feature_available=np.asarray([available], dtype=np.bool_),
-        global_features=np.asarray([], dtype=np.float32),
-        global_feature_available=np.asarray([], dtype=np.bool_),
+        global_features=np.asarray([0.0], dtype=np.float32),
+        global_feature_available=np.asarray([True], dtype=np.bool_),
         current_intent=current,
         current_weight=0.0,
     )

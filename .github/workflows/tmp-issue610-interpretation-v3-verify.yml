@@ -1,3 +1,4 @@
+# Result-blind control workflow; rerun after exact Ruff formatting.
 name: tmp Issue 610 interpretation v3 verification
 
 on:

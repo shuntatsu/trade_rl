@@ -1,0 +1,42 @@
+name: tmp Issue 610 execution safety RED
+on:
+  push:
+    branches:
+      - verify/issue610-execution-safety-red
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: 678e715c52e08fec823d0af6b494f6cf34f556bf
+      TEST: tests/tools/test_tmp_issue610_execution_safety.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 678e715c52e08fec823d0af6b494f6cf34f556bf
+          persist-credentials: false
+      - name: Confirm exact test-only target
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gate
+        run: |
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Require expected semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" >/tmp/red.out 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -Eq "candidate_run_config_from_resolved|execute_candidate_after_precompute_gate" /tmp/red.out
+          grep -Eq "ImportError|cannot import name" /tmp/red.out
+          echo "ISSUE610_EXECUTION_SAFETY_EXPECTED_RED=true"

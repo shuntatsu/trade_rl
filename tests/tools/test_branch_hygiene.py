@@ -216,7 +216,9 @@ def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
 
     assert set(deleted) == {archived.name, direct.name}
     archive_event = next(
-        index for index, event in enumerate(api.events) if event.startswith("create-ref:")
+        index
+        for index, event in enumerate(api.events)
+        if event.startswith("create-ref:")
     )
     delete_event = next(
         index

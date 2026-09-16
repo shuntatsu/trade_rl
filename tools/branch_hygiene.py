@@ -395,9 +395,7 @@ def plan_cleanup(
         elif branch.sha in reachable_from_anchors:
             decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")
         elif is_transient_branch(branch.name):
-            decision = BranchDecision(
-                branch, "archive-delete", "transient-unique-tip"
-            )
+            decision = BranchDecision(branch, "archive-delete", "transient-unique-tip")
         else:
             decision = BranchDecision(branch, "keep", "unique-unmerged-tip")
         decisions.append(decision)
@@ -493,7 +491,9 @@ def apply_cleanup(
     if archive_candidates:
         retention = current_by_name.get(RETENTION_BRANCH)
         if retention is None or retention.sha != retention_sha:
-            raise RuntimeError("retention branch did not reach the expected archive commit")
+            raise RuntimeError(
+                "retention branch did not reach the expected archive commit"
+            )
 
     archived_names = {branch.name for branch in archive_candidates}
     delete_candidates: list[BranchInfo] = []

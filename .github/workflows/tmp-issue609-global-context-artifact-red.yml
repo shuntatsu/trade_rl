@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: ff683e188e2d8eba61c55cb543c4bb8e75275b2f
+  TARGET_SHA: 0c76da0c68664b0f0a4b30a272e16c2add86702e
   TEST: tests/evaluation/test_candidate_run_global_context_artifact.py
 
 jobs:

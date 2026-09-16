@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PRE_FIX_HELPER_BLOB: faca2ecb687082dbdc1d799f3e31ef09b7532732
+
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -25,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse b7c41a7c80c38eadce99759ac345489eb2ff9cce:tools/tmp_issue610_real_interpretation_audit_v1.py)" = "$(git rev-parse HEAD:tools/tmp_issue610_real_interpretation_audit_v1.py)"
+          test "$(git rev-parse HEAD:tools/tmp_issue610_real_interpretation_audit_v1.py)" = "$PRE_FIX_HELPER_BLOB"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'

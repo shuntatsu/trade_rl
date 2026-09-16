@@ -137,6 +137,87 @@ def _validate_absolute_diagnostic(v2: Mapping[str, object]) -> None:
     )
 
 
+def _is_sha256_api_digest(value: str) -> bool:
+    prefix = "sha256:"
+    if not value.startswith(prefix):
+        return False
+    digest = value[len(prefix) :]
+    return len(digest) == 64 and all(
+        character in "0123456789abcdef" for character in digest
+    )
+
+
+def _validate_candidate_authority(
+    candidate: Mapping[str, object],
+    *,
+    precompute: Mapping[str, object],
+    candidate_execution_run_id: int,
+    candidate_artifact_id: int,
+    candidate_artifact_digest: str,
+    precompute_artifact_id: int,
+    precompute_artifact_digest: str,
+    producer_result_artifact_id: int,
+    producer_result_artifact_digest: str,
+    fresh_result_artifact_id: int,
+    fresh_result_artifact_digest: str,
+) -> None:
+    """Fail closed on drift in the immutable candidate/reveal authority chain."""
+
+    for label, artifact_id in (
+        ("candidate artifact", candidate_artifact_id),
+        ("precompute artifact", precompute_artifact_id),
+        ("producer result artifact", producer_result_artifact_id),
+        ("fresh result artifact", fresh_result_artifact_id),
+    ):
+        _require(artifact_id > 0, f"{label} id invalid")
+    for label, digest in (
+        ("candidate artifact", candidate_artifact_digest),
+        ("precompute artifact", precompute_artifact_digest),
+        ("producer result artifact", producer_result_artifact_digest),
+        ("fresh result artifact", fresh_result_artifact_digest),
+    ):
+        _require(_is_sha256_api_digest(digest), f"{label} API digest malformed")
+
+    _require(candidate.get("issue_number") == ISSUE_NUMBER, "candidate issue drift")
+    _require(
+        candidate.get("execution_run_id") == candidate_execution_run_id,
+        "candidate execution run mismatch",
+    )
+    _require(
+        candidate.get("precompute_run_id") == PRECOMPUTE_RUN_ID,
+        "candidate precompute run mismatch",
+    )
+    _require(
+        candidate.get("precompute_artifact_id") == precompute_artifact_id,
+        "candidate precompute artifact id mismatch",
+    )
+    _require(
+        candidate.get("precompute_artifact_api_digest") == precompute_artifact_digest,
+        "candidate precompute artifact digest mismatch",
+    )
+    _require(
+        candidate.get("precompute_authority_content_digest")
+        == precompute.get("content_digest"),
+        "candidate/precompute content binding mismatch",
+    )
+    _require(candidate.get("ppo_seeds") == list(SEEDS), "candidate seed roster drift")
+    _require(candidate.get("symbols") == list(SYMBOLS), "candidate symbol roster drift")
+    for field, expected in (
+        ("baseline_retrained", False),
+        ("candidate_training_performed", True),
+        ("economic_values_interpreted", False),
+        ("final_test_accessed", False),
+        ("operational_eligibility_established", False),
+        ("production_eligible", False),
+        ("live_trading_authorized", False),
+        ("merge_authorized", False),
+    ):
+        _require(
+            candidate.get(field) is expected,
+            f"candidate boundary mismatch: {field}",
+        )
+
+
 def audit_interpretation(
     *,
     producer_root: Path,
@@ -173,6 +254,20 @@ def audit_interpretation(
     recovery_binding = _load_canonical(candidate_root / "recovery-binding.json")
     recovery_authority = _load_canonical(candidate_root / "recovery-authority.json")
     precompute = _load_canonical(precompute_path)
+
+    _validate_candidate_authority(
+        candidate,
+        precompute=precompute,
+        candidate_execution_run_id=candidate_execution_run_id,
+        candidate_artifact_id=candidate_artifact_id,
+        candidate_artifact_digest=candidate_artifact_digest,
+        precompute_artifact_id=precompute_artifact_id,
+        precompute_artifact_digest=precompute_artifact_digest,
+        producer_result_artifact_id=producer_result_artifact_id,
+        producer_result_artifact_digest=producer_result_artifact_digest,
+        fresh_result_artifact_id=fresh_result_artifact_id,
+        fresh_result_artifact_digest=fresh_result_artifact_digest,
+    )
 
     _require(
         candidate_execution_run_id == 35103004952,

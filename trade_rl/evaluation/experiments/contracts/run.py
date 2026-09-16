@@ -15,12 +15,15 @@ from trade_rl.evaluation.experiments.contracts._common import (
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_BTC_REGIME_CONTEXT,
+    PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA,
 )
 
 _RESOLVED_RUN_CONFIG_V1 = "resolved_run_config_v1"
 _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
+_RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -59,6 +62,7 @@ class ResolvedRunConfig:
     execution_overlay: str
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
+    ppo_global_context: str | None = None
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
 
     def __post_init__(self) -> None:
@@ -151,13 +155,18 @@ class ResolvedRunConfig:
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
         if schema_version == _RESOLVED_RUN_CONFIG_V1:
-            if self.ppo_observation_schema is not None or self.ppo_global_feature_names:
+            if (
+                self.ppo_observation_schema is not None
+                or self.ppo_global_feature_names
+                or self.ppo_global_context is not None
+            ):
                 raise ContractViolationError(
                     "resolved_run_config_v1 must not define a PPO observation contract"
                 )
             ppo_observation_schema: str | None = None
             ppo_global_feature_names: tuple[str, ...] = ()
-        elif schema_version == _RESOLVED_RUN_CONFIG_V2:
+            ppo_global_context: str | None = None
+        elif schema_version in {_RESOLVED_RUN_CONFIG_V2, _RESOLVED_RUN_CONFIG_V3}:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
                 field="ppo_observation_schema",
@@ -172,12 +181,27 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "ppo_global_feature_names must contain unique values"
                 )
-            if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:
-                raise ContractViolationError("unsupported PPO observation schema")
             if ppo_global_feature_names != PPO_GLOBAL_FEATURE_NAMES:
                 raise ContractViolationError(
                     "PPO global feature names do not match the frozen observation contract"
                 )
+            if schema_version == _RESOLVED_RUN_CONFIG_V2:
+                if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:
+                    raise ContractViolationError("unsupported PPO observation schema")
+                if self.ppo_global_context is not None:
+                    raise ContractViolationError(
+                        "resolved_run_config_v2 must not define PPO global context"
+                    )
+                ppo_global_context = None
+            else:
+                if ppo_observation_schema != PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA:
+                    raise ContractViolationError("unsupported PPO observation schema")
+                ppo_global_context = contract_text(
+                    self.ppo_global_context,
+                    field="ppo_global_context",
+                )
+                if ppo_global_context != PPO_GLOBAL_BTC_REGIME_CONTEXT:
+                    raise ContractViolationError("unsupported PPO global context")
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
 
@@ -201,6 +225,7 @@ class ResolvedRunConfig:
         object.__setattr__(self, "execution_overlay", execution_overlay)
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
+        object.__setattr__(self, "ppo_global_context", ppo_global_context)
         object.__setattr__(self, "schema_version", schema_version)
 
     @classmethod
@@ -212,6 +237,17 @@ class ResolvedRunConfig:
 
         config = spec.config
         lean = spec.lean_config
+        candidate_context = config.ppo_global_context
+        observation_schema = (
+            PPO_OBSERVATION_SCHEMA
+            if candidate_context is None
+            else PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA
+        )
+        schema_version = (
+            _RESOLVED_RUN_CONFIG_V2
+            if candidate_context is None
+            else _RESOLVED_RUN_CONFIG_V3
+        )
         return cls(
             signal_name=config.signal_name,
             signal_index=lean.signal_index,
@@ -231,9 +267,10 @@ class ResolvedRunConfig:
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
             execution_overlay=spec.execution_overlay,
-            ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
+            ppo_observation_schema=observation_schema,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V2,
+            ppo_global_context=candidate_context,
+            schema_version=schema_version,
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -258,9 +295,11 @@ class ResolvedRunConfig:
             "initial_capital": self.initial_capital,
             "execution_overlay": self.execution_overlay,
         }
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V2:
+        if self.schema_version in {_RESOLVED_RUN_CONFIG_V2, _RESOLVED_RUN_CONFIG_V3}:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V3:
+            payload["ppo_global_context"] = self.ppo_global_context
         return payload
 
     @property

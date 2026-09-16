@@ -2,7 +2,7 @@
   "id": "implementation-ppo",
   "title": "PPOは何を見て、どう学び、どう売買するか",
   "nav_label": "PPOの実装を追う",
-  "summary": "PPO Observation v2の5区分、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
+  "summary": "PPO Observation v2の基準経路と、同一Dataset rowのBTC regime contextを追加する候補Observation v3、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
   "role": "detail",
   "keywords": [
     "PPO",
@@ -14,7 +14,10 @@
     "current_intent",
     "current_weight",
     "reward",
-    "PPOTradingEnv.step"
+    "PPOTradingEnv.step",
+    "Observation v3",
+    "global_reference_value",
+    "BTCUSDT"
   ],
   "source_sections": [
     {
@@ -63,7 +66,33 @@
           "description_ja": "5区分を固定順序で連結してfloat32化した最終観測です。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "global-btc-regime-channels",
+      "symbol": "trade_rl.strategies.rl.ppo._global_btc_regime_channels",
+      "kind": "function",
+      "source_sha256": "0abf933dcb2cf20db2d384283d37a5dd3d0669aea6e3fc11887aa05508e3e8e8",
+      "label_ja": "同一rowのBTC参照チャネルを読む",
+      "description_ja": "canonical Datasetの同一indexからBTCUSDT / 1h__log_return_24barを読み、unavailableまたはnon-finiteなら値とusableを0へfail-closedし、既存stalenessをそのまま使います。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_ppo_global_btc_regime.py"
+      ]
+    },
+    {
+      "id": "encode-global-btc-regime",
+      "symbol": "trade_rl.strategies.rl.ppo._encode_with_global_context",
+      "kind": "function",
+      "source_sha256": "5b04d57dec9591b3326291091232c850433e5e82dffd1f7403f39b8693189978",
+      "label_ja": "候補BTCレジーム観測を追加",
+      "description_ja": "既存Observation v2を壊さず、global_contextが明示された候補だけ同一Dataset rowのBTCUSDT 1h__log_return_24bar値・利用可否・既存stalenessを状態直前へ追加します。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_ppo_global_btc_regime.py"
+      ]
     },
     {
       "id": "env-step",
@@ -99,25 +128,29 @@
           "description_ja": "約定・コスト反映後のinterval_net_returnへlog1pを適用した値です。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     },
     {
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "da40e907b59087809cb5e3d1b551ae2388676034dd43e7bdb943889a2ed53697",
+      "source_sha256": "e73493e9b0eccadfd61fd2bfd8112a0510061dc62121e415f23b14f866d7cc1a",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "同じObservation v2と環境を使ってstable-baselines3のPPOを学習し、学習済みmodelをPPOIntentStrategyとして返します。",
+      "description_ja": "既定はObservation v2のまま、global_contextを明示した候補だけObservation v3でstable-baselines3 PPOを学習し、同じcontext契約を持つPPOIntentStrategyを返します。",
       "variables": [],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     },
     {
       "id": "ppo-decide",
       "symbol": "trade_rl.strategies.rl.ppo.PPOIntentStrategy.decide",
       "kind": "method",
-      "source_sha256": "5837fd86301c0b6106bfc7bf9ea77b8e967507d479bb907e40860e253ef8bc84",
+      "source_sha256": "d9a4af0a458610b1638315b8a193859138273802c5d6c35fbd07022473815bd7",
       "label_ja": "学習済みPPOで売買意図を決める",
-      "description_ja": "実行時も同じencoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
+      "description_ja": "実行時も学習時と同じglobal_context設定で観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
       "variables": [
         {
           "name": "encoded",
@@ -130,7 +163,9 @@
           "description_ja": "deterministic predictが返し、売買意図へ変換される離散actionです。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     }
   ]
 }

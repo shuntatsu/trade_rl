@@ -19,6 +19,7 @@ from trade_rl.evaluation.experiments.contracts import (
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs import LoadedCandidateRun
+from trade_rl.strategies.rl.ppo import PPO_GLOBAL_BTC_REGIME_CONTEXT
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,9 @@ FACTOR_RULES: Mapping[ControlledFactor, FactorRule] = MappingProxyType(
                 {
                     ("feature_names",),
                     ("feature_indices",),
+                    ("schema_version",),
+                    ("ppo_observation_schema",),
+                    ("ppo_global_context",),
                 }
             ),
             unaffected_strategies=frozenset(
@@ -253,10 +257,13 @@ def _fixed_config_violations(
     plan: StudyPlan,
     evidence: LoadedEvidenceSet,
     label: str,
+    allowed_paths: frozenset[tuple[str, ...]] = frozenset(),
 ) -> list[str]:
     plan_semantic = _without_seed(plan.baseline_config.to_payload())
     violations: list[str] = []
     for field in plan.FIXED_RESOLVED_FIELDS:
+        if (field,) in allowed_paths:
+            continue
         if field not in evidence.semantic_config or (
             _canonical_value(evidence.semantic_config[field])
             != _canonical_value(plan_semantic[field])
@@ -407,6 +414,34 @@ def _unaffected_strategy_violations(
     return violations
 
 
+def _rule_for_candidate(
+    *,
+    factor: ControlledFactor,
+    candidate_semantic: Mapping[str, object],
+) -> FactorRule:
+    rule = FACTOR_RULES[factor]
+    if (
+        factor is ControlledFactor.FEATURE_SET
+        and candidate_semantic.get("ppo_global_context")
+        == PPO_GLOBAL_BTC_REGIME_CONTEXT
+    ):
+        return FactorRule(
+            allowed_paths=rule.allowed_paths,
+            unaffected_strategies=frozenset(
+                {
+                    "cash",
+                    "constant_long",
+                    "constant_short",
+                    "trend",
+                    "mean_reversion",
+                    "ridge24",
+                    "lightgbm24",
+                }
+            ),
+        )
+    return rule
+
+
 def verify_controlled_delta(
     *,
     plan: StudyPlan,
@@ -433,11 +468,20 @@ def verify_controlled_delta(
     if _without_seed(candidate.semantic_config) != defined_candidate:
         violations.append("candidate evidence does not match the frozen definition")
 
+    rule = _rule_for_candidate(
+        factor=definition.factor,
+        candidate_semantic=candidate.semantic_config,
+    )
     violations.extend(
         _fixed_config_violations(plan=plan, evidence=baseline, label="baseline")
     )
     violations.extend(
-        _fixed_config_violations(plan=plan, evidence=candidate, label="candidate")
+        _fixed_config_violations(
+            plan=plan,
+            evidence=candidate,
+            label="candidate",
+            allowed_paths=rule.allowed_paths,
+        )
     )
 
     baseline_violations, baseline_matrices = _evidence_violations(
@@ -453,7 +497,6 @@ def verify_controlled_delta(
     violations.extend(baseline_violations)
     violations.extend(candidate_violations)
 
-    rule = FACTOR_RULES[definition.factor]
     changed_paths, forbidden_paths = _classify_resolved_delta(
         baseline.semantic_config,
         candidate.semantic_config,

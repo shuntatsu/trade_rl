@@ -25,6 +25,10 @@ from trade_rl.strategies.position_intent import (
 
 PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
+PPO_GLOBAL_BTC_REGIME_CONTEXT = "ppo_global_btc_regime_context"
+PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA = "ppo_observation_v3_global_btc_regime"
+_PPO_GLOBAL_BTC_REGIME_REFERENCE_SYMBOL = "BTCUSDT"
+_PPO_GLOBAL_BTC_REGIME_REFERENCE_FEATURE = "1h__log_return_24bar"
 
 
 class _PredictPolicy(Protocol):
@@ -36,17 +40,48 @@ class _PredictPolicy(Protocol):
     ) -> tuple[object, object]: ...
 
 
-def ppo_observation_contract_payload() -> dict[str, object]:
+def _validated_global_context(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value != PPO_GLOBAL_BTC_REGIME_CONTEXT:
+        raise ValueError(f"unsupported PPO global context: {value}")
+    return value
+
+
+def ppo_observation_contract_payload(
+    *,
+    global_context: str | None = None,
+) -> dict[str, object]:
     """Return the frozen semantic PPO observation contract for persisted evidence."""
 
+    context = _validated_global_context(global_context)
+    if context is None:
+        return {
+            "schema_version": PPO_OBSERVATION_SCHEMA,
+            "global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
+            "includes_local_feature_staleness": True,
+            "layout": [
+                "local_values",
+                "local_available",
+                "local_staleness",
+                "current_intent",
+                "current_weight",
+            ],
+        }
     return {
-        "schema_version": PPO_OBSERVATION_SCHEMA,
+        "schema_version": PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
         "global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
         "includes_local_feature_staleness": True,
+        "global_context": context,
+        "reference_symbol": _PPO_GLOBAL_BTC_REGIME_REFERENCE_SYMBOL,
+        "reference_feature": _PPO_GLOBAL_BTC_REGIME_REFERENCE_FEATURE,
         "layout": [
             "local_values",
             "local_available",
             "local_staleness",
+            "global_reference_value",
+            "global_reference_available_and_finite",
+            "global_reference_normalized_staleness",
             "current_intent",
             "current_weight",
         ],
@@ -100,6 +135,83 @@ def _encode_observation(
             state,
         ),
     ).astype(np.float32)
+    encoded.setflags(write=False)
+    return encoded
+
+
+def _global_btc_regime_indices(dataset: MarketDataset) -> tuple[int, int]:
+    try:
+        symbol_index = dataset.symbols.index(_PPO_GLOBAL_BTC_REGIME_REFERENCE_SYMBOL)
+    except ValueError as error:
+        raise ValueError(
+            "PPO global BTC regime context requires BTCUSDT in the dataset"
+        ) from error
+    try:
+        feature_index = dataset.feature_names.index(
+            _PPO_GLOBAL_BTC_REGIME_REFERENCE_FEATURE
+        )
+    except ValueError as error:
+        raise ValueError(
+            "PPO global BTC regime context requires 1h__log_return_24bar"
+        ) from error
+    return symbol_index, feature_index
+
+
+def _global_btc_regime_channels(
+    dataset: MarketDataset,
+    *,
+    index: int,
+) -> np.ndarray:
+    if (
+        isinstance(index, bool)
+        or not isinstance(index, int)
+        or not 0 <= index < dataset.n_bars
+    ):
+        raise ValueError("PPO global context index is outside the dataset")
+    symbol_index, feature_index = _global_btc_regime_indices(dataset)
+    value = float(dataset.features[index, symbol_index, feature_index])
+    available = bool(dataset.feature_available[index, symbol_index, feature_index])
+    staleness = float(
+        dataset.resolved_array("feature_staleness")[index, symbol_index, feature_index]
+    )
+    if not math.isfinite(staleness) or staleness < 0.0:
+        raise ValueError(
+            "PPO global reference staleness must be finite and non-negative"
+        )
+    usable = available and math.isfinite(value)
+    channels = np.asarray(
+        [value if usable else 0.0, float(usable), staleness],
+        dtype=np.float64,
+    )
+    channels.setflags(write=False)
+    return channels
+
+
+def _encode_with_global_context(
+    observation: StrategyObservation,
+    feature_indices: tuple[int, ...],
+    *,
+    dataset: MarketDataset | None,
+    global_context: str | None,
+) -> np.ndarray:
+    context = _validated_global_context(global_context)
+    baseline = _encode_observation(observation, feature_indices)
+    if context is None:
+        return baseline
+    if dataset is None:
+        raise ValueError("PPO global context requires the canonical MarketDataset")
+    if not 0 <= observation.index < dataset.n_bars:
+        raise ValueError("PPO observation index is outside the canonical dataset")
+    if np.datetime64(observation.timestamp, "ns") != np.datetime64(
+        dataset.timestamps[observation.index], "ns"
+    ):
+        raise ValueError(
+            "PPO observation timestamp does not match the canonical dataset row"
+        )
+    reference = _global_btc_regime_channels(dataset, index=observation.index)
+    encoded = np.concatenate((baseline[:-2], reference, baseline[-2:])).astype(
+        np.float32
+    )
     encoded.setflags(write=False)
     return encoded
 
@@ -166,14 +278,25 @@ class PPOIntentStrategy:
         policy: _PredictPolicy,
         *,
         feature_indices: tuple[int, ...],
+        dataset: MarketDataset | None = None,
+        global_context: str | None = None,
     ) -> None:
         self.policy = policy
         self.feature_indices = _validated_indices(feature_indices)
+        self.global_context = _validated_global_context(global_context)
+        if self.global_context is not None and dataset is None:
+            raise ValueError("PPO global context requires the canonical MarketDataset")
+        if self.global_context is not None:
+            assert dataset is not None
+            _global_btc_regime_indices(dataset)
+        self.dataset = dataset
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
-        encoded = _encode_observation(
+        encoded = _encode_with_global_context(
             observation,
             self.feature_indices,
+            dataset=self.dataset,
+            global_context=self.global_context,
         )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
@@ -195,6 +318,7 @@ class PPOTradingEnv(gym.Env):
         gross_budget: float,
         initial_capital: float = 100_000.0,
         execution_cost: ExecutionCostConfig | None = None,
+        global_context: str | None = None,
     ) -> None:
         super().__init__()
         if dataset.n_symbols <= 0:
@@ -221,8 +345,13 @@ class PPOTradingEnv(gym.Env):
         self.gross_budget = gross_budget
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
+        self.global_context = _validated_global_context(global_context)
+        if self.global_context is not None:
+            _global_btc_regime_indices(dataset)
 
         observation_size = 3 * len(self.feature_indices) + 2
+        if self.global_context is not None:
+            observation_size += 3
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -272,9 +401,11 @@ class PPOTradingEnv(gym.Env):
         )
 
     def _encoded_observation(self) -> np.ndarray:
-        return _encode_observation(
+        return _encode_with_global_context(
             self._strategy_observation(),
             self.feature_indices,
+            dataset=self.dataset,
+            global_context=self.global_context,
         ).copy()
 
     def reset(
@@ -387,6 +518,7 @@ def fit_ppo_strategy(
     seed: int = 0,
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
+    global_context: str | None = None,
 ) -> PPOIntentStrategy:
     """Fit one teacher-free policy across equal round-robin symbol episodes."""
 
@@ -409,6 +541,7 @@ def fit_ppo_strategy(
         gross_budget=gross_budget,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
+        global_context=global_context,
     )
 
     try:
@@ -431,10 +564,14 @@ def fit_ppo_strategy(
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
+        dataset=dataset if global_context is not None else None,
+        global_context=global_context,
     )
 
 
 __all__ = [
+    "PPO_GLOBAL_BTC_REGIME_CONTEXT",
+    "PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA",
     "PPO_GLOBAL_FEATURE_NAMES",
     "PPO_OBSERVATION_SCHEMA",
     "PPOIntentStrategy",

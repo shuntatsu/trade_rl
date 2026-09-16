@@ -38,7 +38,15 @@ STRATEGIES = (
 
 EXPECTED_RULES = {
     ControlledFactor.FEATURE_SET: (
-        frozenset({("feature_names",), ("feature_indices",)}),
+        frozenset(
+            {
+                ("feature_names",),
+                ("feature_indices",),
+                ("schema_version",),
+                ("ppo_observation_schema",),
+                ("ppo_global_context",),
+            }
+        ),
         frozenset(
             {"cash", "constant_long", "constant_short", "trend", "mean_reversion"}
         ),
@@ -545,6 +553,63 @@ def test_affected_strategy_drift_is_not_rejected_by_unaffected_oracle(
     )
 
     assert verification.status is ControlledVerificationStatus.CONTROLLED
+
+
+def test_global_btc_regime_context_is_controlled_and_all_non_ppo_is_invariant() -> None:
+    base = _resolved()
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate_config = replace(
+        base,
+        schema_version="resolved_run_config_v3",
+        ppo_observation_schema="ppo_observation_v3_global_btc_regime",
+        ppo_global_context="ppo_global_btc_regime_context",
+    )
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.FEATURE_SET,
+        candidate=candidate_config,
+    )
+
+    controlled = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=_loaded_evidence(candidate_config, plan),
+    )
+    assert controlled.status is ControlledVerificationStatus.CONTROLLED
+    assert controlled.changed_paths == (
+        ("ppo_global_context",),
+        ("ppo_observation_schema",),
+        ("schema_version",),
+    )
+    assert controlled.violations == ()
+
+    ridge_drift = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=_loaded_evidence(
+            candidate_config,
+            plan,
+            strategy_drift="ridge24",
+        ),
+    )
+    assert ridge_drift.status is ControlledVerificationStatus.INVALID
+    assert any("unaffected strategy" in item for item in ridge_drift.violations)
+
+    ppo_drift = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=_loaded_evidence(
+            candidate_config,
+            plan,
+            strategy_drift="ppo",
+        ),
+    )
+    assert ppo_drift.status is ControlledVerificationStatus.CONTROLLED
 
 
 def test_candidate_evidence_must_match_frozen_definition_exactly() -> None:

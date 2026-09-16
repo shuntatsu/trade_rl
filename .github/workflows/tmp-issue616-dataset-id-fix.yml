@@ -71,3 +71,5 @@ jobs:
           git add "$MODULE"
           git commit -m 'fix: bind exact Issue 616 successor dataset id'
           git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+
+# connector-triggered exact authority correction

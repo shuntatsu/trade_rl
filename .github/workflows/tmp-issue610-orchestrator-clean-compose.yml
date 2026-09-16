@@ -75,6 +75,7 @@ jobs:
           uv run ruff format "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
           uv run ruff check "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
           uv run ruff format --check "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+          git add -N "$TERMINATION_MODULE" "$TERMINATION_TEST"
           git diff --name-only "$BASE_SHA" | sort > /tmp/changed
           printf '%s\n' \
             tests/tools/test_tmp_issue610_exact_once_orchestrator.py \

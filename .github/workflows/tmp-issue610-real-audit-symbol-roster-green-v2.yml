@@ -1,0 +1,96 @@
+name: tmp Issue 610 real audit symbol roster GREEN v2
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-audit-symbol-roster-green-v2
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-symbol-roster-green-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 86e135b8e14dfd73eecd01ee69607bda45b050be
+  BASE_SHA: b7c41a7c80c38eadce99759ac345489eb2ff9cce
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+  TEST: tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py
+  KNOWN_BASE_FAILURE: tests/architecture/test_current_docs_layout.py::test_only_permanent_workflows_remain
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact minimal fix scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git -C base rev-parse HEAD)" = "$BASE_SHA"
+          changed="$(git -C target diff --name-only "$BASE_SHA..$TARGET_SHA" | sort)"
+          expected="$(printf '%s\n%s\n' "$HELPER" "$TEST" | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Targeted GREEN and full mypy
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run ruff check "$HELPER" "$TEST"
+          uv run ruff format --check "$HELPER" "$TEST"
+          uv run mypy "$HELPER" "$TEST"
+          uv run pytest -q "$TEST"
+          uv run mypy trade_rl
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 self-check
+      - name: Complete target pytest
+        working-directory: target
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          uv run pytest -q > /tmp/target.log 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > /tmp/target.rc
+          cat /tmp/target.log
+      - name: Complete base pytest
+        working-directory: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          set +e
+          uv run pytest -q > /tmp/base.log 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > /tmp/base.rc
+          cat /tmp/base.log
+      - name: Require no new full-pytest failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat /tmp/target.rc)" -ne 0
+          test "$(cat /tmp/base.rc)" -ne 0
+          grep '^FAILED ' /tmp/target.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/target-failures.txt
+          grep '^FAILED ' /tmp/base.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/base-failures.txt
+          cmp /tmp/base-failures.txt /tmp/target-failures.txt
+          test "$(wc -l < /tmp/target-failures.txt | tr -d ' ')" = 1
+          test "$(cat /tmp/target-failures.txt)" = "$KNOWN_BASE_FAILURE"
+          echo ISSUE610_AUDIT_SYMBOL_ROSTER_GREEN=PASS

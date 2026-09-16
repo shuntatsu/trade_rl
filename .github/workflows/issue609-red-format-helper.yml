@@ -1,0 +1,30 @@
+name: Issue 609 RED format helper
+
+on:
+  push:
+    branches:
+      - automation/issue609-red-format-helper
+
+permissions:
+  contents: read
+
+jobs:
+  ruff_fix_diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply Ruff import fix and print exact diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix-only tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py
+          uv run ruff format tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py
+          git diff -- tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py

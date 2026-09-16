@@ -1,0 +1,104 @@
+name: tmp Issue 610 real interpretation audit regression verify
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-interpretation-audit-v1
+    paths:
+      - .github/workflows/tmp-issue610-real-interpretation-audit-regression-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: b7c41a7c80c38eadce99759ac345489eb2ff9cce
+  BASE_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+  KNOWN_BASE_FAILURE: tests/architecture/test_current_docs_layout.py::test_only_permanent_workflows_remain
+
+jobs:
+  regression:
+    name: Base-paired final-audit regression verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind helper-only target delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git -C base rev-parse HEAD)" = "$BASE_SHA"
+          changed="$(git -C target diff --name-only "$BASE_SHA..$TARGET_SHA")"
+          test "$changed" = "$HELPER"
+          test "$(git -C target rev-parse "$BASE_SHA:.github/workflows")" = "$(git -C target rev-parse "$TARGET_SHA:.github/workflows")"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Verify target static/type/self-check
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run ruff check "$HELPER"
+          uv run ruff format --check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run mypy trade_rl
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 self-check
+      - name: Run complete target pytest without masking failures
+        working-directory: target
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          uv run pytest -q > /tmp/target-pytest.log 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > /tmp/target-pytest.rc
+          cat /tmp/target-pytest.log
+      - name: Run complete base pytest with same environment
+        working-directory: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          set +e
+          uv run pytest -q > /tmp/base-pytest.log 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > /tmp/base-pytest.rc
+          cat /tmp/base-pytest.log
+      - name: Require exact base-target failure-set equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat /tmp/target-pytest.rc)" -ne 0
+          test "$(cat /tmp/base-pytest.rc)" -ne 0
+          grep '^FAILED ' /tmp/target-pytest.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/target-failures.txt
+          grep '^FAILED ' /tmp/base-pytest.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/base-failures.txt
+          cmp /tmp/base-failures.txt /tmp/target-failures.txt
+          test "$(wc -l < /tmp/target-failures.txt | tr -d ' ')" = 1
+          test "$(cat /tmp/target-failures.txt)" = "$KNOWN_BASE_FAILURE"
+          echo ISSUE610_AUDIT_NO_NEW_FULL_PYTEST_FAILURES=PASS
+      - name: Prove result-blind boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo CANDIDATE_ARTIFACT_DOWNLOADED=false
+          echo RESULT_ARTIFACT_DOWNLOADED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo CANDIDATE_RETRAINED=false
+          echo FINAL_TEST_ACCESSED=false

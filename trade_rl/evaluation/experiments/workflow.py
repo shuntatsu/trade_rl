@@ -38,6 +38,7 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyPlan,
 )
 from trade_rl.evaluation.experiments.delta import (
+    FACTOR_RULES,
     ControlledVerification,
     ControlledVerificationStatus,
     verify_controlled_delta,
@@ -74,10 +75,22 @@ from trade_rl.evaluation.runs import (
 _FACTOR_EFFECT_SCHEMA = "controlled_evidence_comparison_v2"
 
 
-def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:
+def _validate_fixed_fields(
+    plan: StudyPlan,
+    config: ResolvedRunConfig,
+    *,
+    factor: ControlledFactor,
+) -> None:
     baseline = _semantic_without_seed(plan.baseline_config)
     candidate = _semantic_without_seed(config)
+    allowed_fixed_fields = {
+        path[0]
+        for path in FACTOR_RULES[factor].allowed_paths
+        if len(path) == 1 and path[0] in plan.FIXED_RESOLVED_FIELDS
+    }
     for field in plan.FIXED_RESOLVED_FIELDS:
+        if field in allowed_fixed_fields:
+            continue
         if content_digest({"value": baseline[field]}) != content_digest(
             {"value": candidate[field]}
         ):
@@ -298,7 +311,7 @@ def define_experiment(
             execution_overlay=state.plan.baseline_config.execution_overlay,
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
-        _validate_fixed_fields(state.plan, resolved)
+        _validate_fixed_fields(state.plan, resolved, factor=factor)
         definition = ExperimentDefinition(
             study_digest=state.plan.digest,
             sequence=sequence,

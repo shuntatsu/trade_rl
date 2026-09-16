@@ -1,0 +1,41 @@
+name: tmp Issue 610 termination oracle formatter
+
+on:
+  push:
+    branches:
+      - automation/issue610-termination-format
+    paths:
+      - .github/workflows/tmp-issue610-termination-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and publish test only
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST"
+          uv run ruff check "$TEST"
+          changed="$(git diff --name-only)"
+          test "$changed" = "$TEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST"
+          git commit -m "style: apply exact Ruff formatting to Issue 610 termination oracle"
+          git push origin HEAD:automation/issue610-termination-format

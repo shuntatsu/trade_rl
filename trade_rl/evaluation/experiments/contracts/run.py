@@ -230,7 +230,7 @@ class ResolvedRunConfig:
             evaluation_stop_exclusive=str(config.evaluation_stop_exclusive),
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
-            execution_overlay="zero_overlay_dataset_fields_authoritative",
+            execution_overlay=spec.execution_overlay,
             ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
             schema_version=_RESOLVED_RUN_CONFIG_V2,

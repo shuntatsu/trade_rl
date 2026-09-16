@@ -151,7 +151,7 @@ def test_phase4b_preview_workflow_is_absent() -> None:
 def test_only_permanent_workflows_remain() -> None:
     workflows = ROOT / ".github" / "workflows"
     files = {path.name for path in workflows.iterdir() if path.is_file()}
-    assert files == {"ci.yml", "deploy-guide.yml"}
+    assert files == {"branch-hygiene.yml", "ci.yml", "deploy-guide.yml"}
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:

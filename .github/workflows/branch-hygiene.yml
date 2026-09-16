@@ -1,0 +1,57 @@
+name: Branch hygiene
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply safe branch cleanup instead of reporting only
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Archive and delete proven-safe branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout default branch policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all current remote branch tips
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Plan and apply safe cleanup
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY_REQUESTED: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
+        run: |
+          set -euo pipefail
+          args=(
+            --repository "$GITHUB_REPOSITORY"
+            --summary "$GITHUB_STEP_SUMMARY"
+          )
+          if [[ "$APPLY_REQUESTED" == "true" ]]; then
+            args+=(--apply)
+          fi
+          python3 -m tools.branch_hygiene "${args[@]}"

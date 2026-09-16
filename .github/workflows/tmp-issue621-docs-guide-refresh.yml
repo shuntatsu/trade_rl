@@ -82,7 +82,13 @@ jobs:
           ]
           meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
           PY
-          python3 guide/tools/content_contract.py --refresh implementation-ppo
+          set +e
+          python3 guide/tools/content_contract.py --refresh implementation-ppo >/tmp/guide-refresh.out 2>&1
+          refresh_rc=$?
+          set -e
+          cat /tmp/guide-refresh.out
+          test "$refresh_rc" -ne 0
+          grep -Fq 'stale code source digest in topic implementation-ppo: trade_rl.strategies.rl.ppo.fit_ppo_strategy' /tmp/guide-refresh.out
           python3 guide/tools/content_contract.py --refresh-code implementation-ppo
           python3 guide/tools/content_contract.py --check
       - name: Commit reviewed docs and remove temporary workflow

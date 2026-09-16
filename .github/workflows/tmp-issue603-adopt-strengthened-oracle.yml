@@ -1,0 +1,72 @@
+name: Temporary Issue 603 adopt strengthened oracle
+
+on:
+  push:
+    branches:
+      - automation/issue603-adopt-strengthened-oracle
+    paths:
+      - .github/workflows/tmp-issue603-adopt-strengthened-oracle.yml
+
+permissions:
+  contents: write
+
+env:
+  IMPLEMENTATION_SHA: 9751445fb98a5c99156b23afeb2bfcc445be1acd
+  RED_ORACLE_SHA: 646367957306be2c10db21a0da34483f67a92da3
+  TARGET_BRANCH: research/issue603-premium-pressure-calibration-v2
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_premium_pressure_calibration.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/premium_pressure_calibration.py
+
+jobs:
+  adopt_and_verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Adopt only strengthened test oracle onto current implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$IMPLEMENTATION_SHA"
+          test -s "$MODULE"
+          git fetch origin "$RED_ORACLE_SHA" --no-tags
+          git checkout "$RED_ORACLE_SHA" -- "$TEST_FILE"
+          test "$(git diff HEAD --name-only)" = "$TEST_FILE"
+          test "$(git diff HEAD --name-only -- "$MODULE")" = ""
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Targeted GREEN with strengthened oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST_FILE"
+          uv run ruff format --check "$MODULE" "$TEST_FILE"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST_FILE"
+          ! grep -F "da97eb59b08ef042a96ebea4aaa645af02b450e9" "$MODULE"
+          ! grep -F "34961624663" "$MODULE"
+          ! grep -F "402f45a99ffc570a3f9c13427cb95db1b8cf1c99a0a3c996d73e68b307f7b2a1" "$MODULE"
+          grep -F "6ffc414baa10e91f34df258fe5cfabacce65fd77" "$MODULE"
+          grep -F "c707be853480e57362f6a3d64f116e4056c3553f" "$MODULE"
+          grep -F "34962227821" "$MODULE"
+          grep -F "a9bfe64d5232747ac2ee543e3b65a4be22d4d034969603040391b7b0eabec988" "$MODULE"
+          test "$(git diff HEAD --name-only)" = "$TEST_FILE"
+      - name: Publish strengthened oracle only after GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$IMPLEMENTATION_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_FILE"
+          git commit -m "test: verify Issue 603 fixed-order fsum directly"
+          test "$(git rev-parse HEAD^)" = "$IMPLEMENTATION_SHA"
+          test "$(git diff --name-only HEAD^ HEAD)" = "$TEST_FILE"
+          git push origin HEAD:"$TARGET_BRANCH"

@@ -1,0 +1,92 @@
+name: tmp Issue 610 interpretation v2 verification
+
+on:
+  push:
+    branches:
+      - verify/issue610-interpretation-v2
+    paths:
+      - .github/workflows/tmp-issue610-interpretation-v2-verify.yml
+      - tools/tmp_issue610_interpretation_v2.py
+      - tests/tools/test_tmp_issue610_interpretation_v2.py
+
+permissions:
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  ORCHESTRATOR_SHA: 75e09e0d71a164130a527783619e85a37eb883af
+
+jobs:
+  verify:
+    name: Result-blind Issue 610 interpretation v2 verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: interpretation
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove economic package and prior orchestrator are unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C interpretation rev-parse "$ORCHESTRATOR_SHA:trade_rl")" = "$(git -C interpretation rev-parse HEAD:trade_rl)"
+          test "$(git -C interpretation rev-parse "$ORCHESTRATOR_SHA:tools/tmp_issue610_exact_once_orchestrator.py")" = "$(git -C interpretation rev-parse HEAD:tools/tmp_issue610_exact_once_orchestrator.py)"
+          changed="$(git -C interpretation diff --name-only "$ORCHESTRATOR_SHA..HEAD" | sort)"
+          expected="$(printf '%s\n%s\n%s\n' \
+            .github/workflows/tmp-issue610-interpretation-v2-verify.yml \
+            tests/tools/test_tmp_issue610_interpretation_v2.py \
+            tools/tmp_issue610_interpretation_v2.py | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static checks for result-blind interpretation only
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/interpretation
+          MYPYPATH: ${{ github.workspace }}/interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            "$GITHUB_WORKSPACE/interpretation/tools/tmp_issue610_interpretation_v2.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_interpretation_v2.py"
+          uv run ruff format --check \
+            "$GITHUB_WORKSPACE/interpretation/tools/tmp_issue610_interpretation_v2.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_interpretation_v2.py"
+          uv run mypy \
+            "$GITHUB_WORKSPACE/interpretation/tools/tmp_issue610_interpretation_v2.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_interpretation_v2.py"
+      - name: TDD and prior decision-rule regressions
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/interpretation
+        run: |
+          uv run pytest -q \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_interpretation_v2.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py" \
+            "$GITHUB_WORKSPACE/interpretation/tests/tools/test_tmp_issue610_execution_safety.py"
+          uv run python "$GITHUB_WORKSPACE/interpretation/tools/tmp_issue610_interpretation_v2.py" self-check
+      - name: Prove result-blind boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git -C code status --porcelain --untracked-files=no)"
+          echo CANDIDATE_ARTIFACT_DOWNLOADED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo CANDIDATE_RETRAINED=false
+          echo FINAL_TEST_ACCESSED=false

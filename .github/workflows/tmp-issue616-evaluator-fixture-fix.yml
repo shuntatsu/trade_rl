@@ -1,0 +1,73 @@
+name: tmp Issue 616 evaluator fixture fix
+
+on:
+  push:
+    branches:
+      - automation/issue616-evaluator-fixture-fix
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-evaluation
+  EXPECTED_HEAD: 02720821faf7e7aeeef41e066d6f7ee3217ea94f
+  TEST_EVAL: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+  TEST_WRAPPER: tests/strategies/test_ridge_economic_gate.py
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+  WRAPPER: trade_rl/strategies/forecasts/ridge_economic_gate.py
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - name: Repair only synthetic Dataset clock contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py")
+          text = path.read_text()
+          old = '''    n_bars = 3\n    n_symbols = len(_SYMBOLS)\n    n_features = 119\n    timestamps = np.asarray(\n        [\n            np.datetime64("2023-01-01T00:00:00", "ns"),\n            np.datetime64("2025-01-01T00:00:00", "ns"),\n            np.datetime64("2025-01-01T01:00:00", "ns"),\n        ]\n    )\n'''
+          new = '''    timestamps = np.arange(\n        np.datetime64("2023-01-01", "D"),\n        np.datetime64("2025-01-03", "D"),\n        dtype="datetime64[D]",\n    ).astype("datetime64[ns]")\n    n_bars = timestamps.size\n    n_symbols = len(_SYMBOLS)\n    n_features = 119\n'''
+          if text.count(old) != 1:
+              raise SystemExit("synthetic clock insertion point drift")
+          text = text.replace(old, new)
+          if text.count("        periods_per_year=8_760,\n") != 1:
+              raise SystemExit("periods_per_year insertion point drift")
+          text = text.replace("        periods_per_year=8_760,\n", "        periods_per_year=365,\n")
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$TEST_EVAL"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Focused GREEN after fixture repair
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$TEST_EVAL"
+          uv run ruff format "$TEST_EVAL"
+          uv run ruff check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_WRAPPER"
+          uv run ruff format --check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_WRAPPER"
+          uv run mypy "$MODULE" "$WRAPPER"
+          uv run pytest -q "$TEST_WRAPPER" "$TEST_EVAL"
+      - name: Publish non-force if target unchanged
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TEST_EVAL"
+          git commit -m 'test: repair Issue 616 evaluator synthetic clock'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

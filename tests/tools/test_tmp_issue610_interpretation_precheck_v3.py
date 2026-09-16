@@ -34,7 +34,9 @@ def _loaded(*, reason: str | None = None) -> SimpleNamespace:
     return SimpleNamespace(runs=runs)
 
 
-def _ppo_entry(loaded: SimpleNamespace, *, seed: int, symbol_index: int) -> dict[str, object]:
+def _ppo_entry(
+    loaded: SimpleNamespace, *, seed: int, symbol_index: int
+) -> dict[str, object]:
     run = loaded.runs[seed]
     return run.summary["by_symbol"][symbol_index]["strategies"][0]
 

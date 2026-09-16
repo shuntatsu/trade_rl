@@ -171,6 +171,16 @@ def _result_payload(
         },
         "by_symbol": symbols_payload,
     }
+    global_context = getattr(config, "ppo_global_context", None)
+    if global_context is not None:
+        candidate_config_payload = cast(
+            dict[str, object],
+            summary["candidate_config"],
+        )
+        candidate_config_payload["ppo_global_context"] = global_context
+        summary["ppo_observation"] = ppo_observation_contract_payload(
+            global_context=global_context,
+        )
     return summary, returns
 
 
@@ -374,11 +384,25 @@ def _load_with_evidence(
     result_schema = summary.get("schema_version")
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
-    if (
-        result_schema == _RESULT_SCHEMA_V2
-        and summary.get("ppo_observation") != ppo_observation_contract_payload()
-    ):
-        raise ValueError("candidate PPO observation contract mismatch")
+    if result_schema == _RESULT_SCHEMA_V2:
+        candidate_config = summary.get("candidate_config")
+        if not isinstance(candidate_config, dict):
+            raise ValueError("candidate summary candidate_config must be an object")
+        raw_context = candidate_config.get("ppo_global_context")
+        if raw_context is None:
+            global_context: str | None = None
+        elif isinstance(raw_context, str):
+            global_context = raw_context
+        else:
+            raise ValueError("candidate PPO global context must be a string")
+        try:
+            expected_observation = ppo_observation_contract_payload(
+                global_context=global_context,
+            )
+        except ValueError as error:
+            raise ValueError("candidate PPO observation contract mismatch") from error
+        if summary.get("ppo_observation") != expected_observation:
+            raise ValueError("candidate PPO observation contract mismatch")
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")

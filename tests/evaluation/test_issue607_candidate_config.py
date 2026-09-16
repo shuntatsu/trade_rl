@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from trade_rl.evaluation.experiments.contracts import ControlledFactor, ResolvedRunConfig
+from trade_rl.evaluation.experiments.contracts import (
+    ControlledFactor,
+    ResolvedRunConfig,
+)
 from trade_rl.evaluation.experiments.delta import FACTOR_RULES
 from trade_rl.evaluation.runs.config import parse_candidate_run_config
 from trade_rl.strategies.rl import ppo

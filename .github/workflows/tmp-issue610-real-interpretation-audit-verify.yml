@@ -1,0 +1,65 @@
+name: tmp Issue 610 real interpretation audit verify
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-interpretation-audit-v1
+    paths:
+      - .github/workflows/tmp-issue610-real-interpretation-audit-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 52ebcd6f9a5054945355418788f86fd40bd35b94
+  BASE_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+
+jobs:
+  verify:
+    name: Independent final-audit oracle verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact helper-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin "$BASE_SHA" --no-tags
+          changed="$(git diff --name-only "$BASE_SHA..$TARGET_SHA")"
+          test "$changed" = "$HELPER"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static and self-check verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$HELPER"
+          uv run ruff format --check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 self-check
+      - name: Full repository regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run mypy trade_rl
+          uv run pytest -q
+      - name: Prove result-blind verification boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CANDIDATE_ARTIFACT_DOWNLOADED=false
+          echo RESULT_ARTIFACT_DOWNLOADED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo CANDIDATE_RETRAINED=false
+          echo FINAL_TEST_ACCESSED=false

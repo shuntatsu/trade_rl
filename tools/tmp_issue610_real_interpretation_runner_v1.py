@@ -17,11 +17,16 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from tools.tmp_issue610_interpretation_precheck_v3 import precheck_candidate_artifact
 from tools.tmp_issue610_interpretation_v2 import interpret_candidate_v2
+from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
+    ACCEPT_CANDIDATE,
+    INVALID,
+    KEEP_BASELINE,
+)
 
 ISSUE_NUMBER = 610
 STRICT_PRECHECK_SCHEMA = "issue610_strict_termination_precheck_v1"
 DECISION_ENVELOPE_SCHEMA = "issue610_interpretation_decision_v3"
-VALID_DECISIONS = frozenset({"ACCEPT_CANDIDATE", "KEEP_BASELINE", "INVALID"})
+VALID_DECISIONS = frozenset({ACCEPT_CANDIDATE, KEEP_BASELINE, INVALID})
 
 
 def _with_digest(payload: Mapping[str, object]) -> dict[str, object]:
@@ -85,7 +90,7 @@ def build_decision_envelope(
     if strict_invalid:
         if v2_result is not None:
             raise RuntimeError("v2 interpretation forbidden for invalid termination evidence")
-        decision = "INVALID"
+        decision = INVALID
         v2_digest: object = None
         economic_values_interpreted = False
     else:
@@ -220,7 +225,7 @@ def self_check() -> None:
         raise RuntimeError("strict precheck schema drift")
     if DECISION_ENVELOPE_SCHEMA != "issue610_interpretation_decision_v3":
         raise RuntimeError("decision envelope schema drift")
-    if VALID_DECISIONS != frozenset({"ACCEPT_CANDIDATE", "KEEP_BASELINE", "INVALID"}):
+    if VALID_DECISIONS != frozenset({ACCEPT_CANDIDATE, KEEP_BASELINE, INVALID}):
         raise RuntimeError("decision roster drift")
     print("ISSUE610_REAL_INTERPRETATION_RUNNER_V1_SELF_CHECK=PASS")
 

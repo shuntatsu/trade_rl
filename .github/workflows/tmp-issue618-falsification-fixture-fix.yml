@@ -1,0 +1,64 @@
+name: tmp Issue 618 falsification fixture fix
+
+on:
+  push:
+    branches:
+      - research/issue618-ridge-economic-gate-impl
+    paths:
+      - .github/workflows/tmp-issue618-falsification-fixture-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue618-ridge-economic-gate-impl
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Fix immutable fixture construction
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py')
+          s = p.read_text()
+          old = 'def _dataset() -> MarketDataset:\n'
+          new = 'def _dataset(*, fee_drift: bool = False) -> MarketDataset:\n'
+          if old not in s:
+              raise SystemExit('dataset signature marker missing')
+          s = s.replace(old, new, 1)
+          old = '        fee_rate=np.full((n_bars, n_symbols), 0.0005, dtype=np.float64),\n'
+          new = '''        fee_rate=(\n            np.asarray(\n                [\n                    [0.0005] * n_symbols,\n                    [0.0005, 0.0005, 0.0006, 0.0005, 0.0005]\n                    if fee_drift\n                    else [0.0005] * n_symbols,\n                    [0.0005] * n_symbols,\n                ],\n                dtype=np.float64,\n            )\n        ),\n'''
+          if old not in s:
+              raise SystemExit('fee fixture marker missing')
+          s = s.replace(old, new, 1)
+          old = '''    dataset = _dataset()\n    dataset.fee_rate[1, 2] = 0.0006\n'''
+          new = '''    dataset = _dataset(fee_drift=True)\n'''
+          if old not in s:
+              raise SystemExit('fee mutation marker missing')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          uv run ruff check --fix tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py \
+            tests/strategies/test_ridge_economic_gate.py \
+            tests/architecture/test_runs_capability_facade.py
+          git diff --check
+      - name: Commit corrected fixture
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py
+          git commit -m 'test: construct immutable ridge cost-drift fixture'
+          git push origin HEAD:research/issue618-ridge-economic-gate-impl

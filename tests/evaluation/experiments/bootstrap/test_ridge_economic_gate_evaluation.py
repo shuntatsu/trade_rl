@@ -447,9 +447,8 @@ def test_evaluator_requires_exact_verified_cost_authority(
     with pytest.raises(ValueError, match="cost authority"):
         evaluate_ridge_economic_gate(dataset, spec, None)  # type: ignore[arg-type]
 
-    bad = replace(_cost_authority(spec), dataset_artifact_digest="d" * 64)
     with pytest.raises(ValueError, match="cost authority"):
-        evaluate_ridge_economic_gate(dataset, spec, bad)
+        replace(_cost_authority(spec), dataset_artifact_digest="d" * 64)
 
 
 def test_symbol_result_and_aggregate_fail_closed_on_arithmetic() -> None:
@@ -463,7 +462,7 @@ def test_symbol_result_and_aggregate_fail_closed_on_arithmetic() -> None:
         symbols=spec.symbols,
         by_symbol=rows,
         positive_effect_symbols=5,
-        median_excess_total_return=0.15,
+        median_excess_total_return=rows[0].excess_total_return,
         cost_reduction_symbols=5,
         turnover_reduction_symbols=5,
         drawdown_nonworse_symbols=5,

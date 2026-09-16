@@ -114,3 +114,5 @@ jobs:
           echo CANDIDATE_TRAINING_PERFORMED=false
           echo ECONOMIC_VALUES_INTERPRETED=false
           echo FINAL_TEST_ACCESSED=false
+
+# Connector-triggered rerun after mechanical Ruff formatting.

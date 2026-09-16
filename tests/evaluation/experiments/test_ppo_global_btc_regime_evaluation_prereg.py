@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 _PREREG_HEAD = "d84235185c5e79327ea7ced7073f0026970ba46b"
 _PREREG_DIGEST = "65a803034fca8180c165728022221d7b3c2fa5dcdd8349d3ca52c3a6adc72228"
 _IMPLEMENTATION_HEAD = "1ae494ce182189c5be61e8007dc956f912d8b9d5"
@@ -31,7 +30,9 @@ def _module():
     )
 
 
-def test_protocol_binds_prereg_implementation_and_portable_baseline_authorities() -> None:
+def test_protocol_binds_prereg_implementation_and_portable_baseline_authorities() -> (
+    None
+):
     protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.schema_version == "ppo_global_btc_regime_evaluation_prereg_v1"
@@ -49,13 +50,17 @@ def test_protocol_binds_prereg_implementation_and_portable_baseline_authorities(
     assert protocol.baseline_evidence_fingerprint == _BASELINE_EVIDENCE_FINGERPRINT
 
 
-def test_protocol_freezes_exact_one_factor_candidate_and_existing_analysis_contract() -> None:
+def test_protocol_freezes_exact_one_factor_candidate_and_existing_analysis_contract() -> (
+    None
+):
     protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.controlled_factor == "FEATURE_SET"
     assert protocol.semantic_factor == "ppo_global_btc_regime_context"
     assert protocol.baseline_observation_schema == "ppo_observation_v2"
-    assert protocol.candidate_observation_schema == "ppo_observation_v3_global_btc_regime"
+    assert (
+        protocol.candidate_observation_schema == "ppo_observation_v3_global_btc_regime"
+    )
     assert protocol.ppo_seeds == (0, 1, 2, 3, 4)
     assert protocol.ppo_total_timesteps == 100_000
     assert protocol.n_bootstrap == 2_000

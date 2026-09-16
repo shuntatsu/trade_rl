@@ -1,0 +1,34 @@
+name: tmp Issue 610 combined GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue610-combined-green
+
+permissions:
+  contents: read
+
+env:
+  TARGET_HEAD: 358b4917e988561f9a5601ef25a6d53291e07585
+  HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+  TEST1: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+  TEST2: tests/tools/test_tmp_issue610_execution_safety.py
+
+jobs:
+  targeted:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check "$HELPER" "$TEST1" "$TEST2"
+      - run: uv run ruff format --check "$HELPER" "$TEST1" "$TEST2"
+      - run: uv run mypy "$HELPER"
+      - run: uv run pytest -q "$TEST1" "$TEST2"

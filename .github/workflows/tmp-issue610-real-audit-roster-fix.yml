@@ -1,0 +1,158 @@
+name: tmp Issue 610 real audit roster fix
+
+on:
+  push:
+    branches:
+      - automation/issue610-real-audit-roster-fix
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-roster-fix.yml
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-real-interpretation-audit-v1
+  EXPECTED_HEAD: b7c41a7c80c38eadce99759ac345489eb2ff9cce
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+  INTERPRETATION_RUN: '35116022231'
+  PRODUCER_NAME: issue610-ppo-global-btc-regime-result-v3-35116022231
+  PRODUCER_ID: '10455728296'
+  PRODUCER_DIGEST: sha256:71b7b166d9166038b5b83c85ee6809237271db3af8bfcf48dd87c701ceeebc1e
+  FRESH_NAME: issue610-ppo-global-btc-regime-fresh-result-v3-35116022231
+  FRESH_ID: '10454484504'
+  FRESH_DIGEST: sha256:dbaf3e2c81e07f953cedcd582753aac95dee871b49f076465799cf003bf176e5
+  CANDIDATE_RUN: '35103004952'
+  CANDIDATE_NAME: issue610-ppo-global-btc-regime-candidate-v1-35103004952
+  CANDIDATE_ID: '10453782249'
+  CANDIDATE_DIGEST: sha256:395918daae4c17ed5619d6b559aa799a8031e6d08fbad9a6f64a49f2b41208a8
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_DIGEST: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+
+jobs:
+  fix_and_prove:
+    name: Fix audit roster semantics and prove against immutable artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+      - name: Guard exact audit source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          grep -F '_require(tuple(by_symbol) == SYMBOLS, "absolute diagnostic symbol roster drift")' "$HELPER" >/dev/null
+      - name: Replace ordering assumption with roster-set invariant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/tmp_issue610_real_interpretation_audit_v1.py")
+          text = path.read_text()
+          old = '_require(tuple(by_symbol) == SYMBOLS, "absolute diagnostic symbol roster drift")'
+          new = '_require(set(by_symbol) == set(SYMBOLS), "absolute diagnostic symbol roster drift")'
+          if text.count(old) != 1:
+              raise SystemExit("expected roster assertion not found exactly once")
+          path.write_text(text.replace(old, new))
+          PY
+          test "$(git diff --name-only)" = "$HELPER"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static and self-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$HELPER"
+          uv run ruff format --check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 self-check
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRODUCER_NAME }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - name: Prove corrected audit against immutable real evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff -qr /tmp/producer /tmp/fresh
+          rm -rf /tmp/audit
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 audit \
+            --producer-root /tmp/producer \
+            --fresh-root /tmp/fresh \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/audit \
+            --interpretation-run-id "$INTERPRETATION_RUN" \
+            --candidate-execution-run-id "$CANDIDATE_RUN" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --producer-result-artifact-id "$PRODUCER_ID" \
+            --producer-result-artifact-digest "$PRODUCER_DIGEST" \
+            --fresh-result-artifact-id "$FRESH_ID" \
+            --fresh-result-artifact-digest "$FRESH_DIGEST" \
+            >/tmp/audit.stdout
+          grep -q '^ISSUE610_REAL_INTERPRETATION_AUDIT_V1=PASS$' /tmp/audit.stdout
+          grep -q '^DECISION_REVEALED=false$' /tmp/audit.stdout
+          grep -q '^FINAL_TEST_ACCESSED=false$' /tmp/audit.stdout
+          test -f /tmp/audit/audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/audit/audit.json').read_text())
+          assert payload['result_tree_byte_identical'] is True
+          assert payload['final_test_accessed'] is False
+          assert payload['operational_eligibility_established'] is False
+          assert payload['production_eligible'] is False
+          assert payload['live_trading_authorized'] is False
+          assert payload['merge_authorized'] is False
+          PY
+          rm /tmp/audit.stdout
+      - name: Publish helper-only fix if source is still unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          test "$(git diff --name-only)" = "$HELPER"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$HELPER"
+          git commit -m 'fix: audit symbol roster independent of canonical key order'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

@@ -1,0 +1,81 @@
+name: Temporary Issue 607 minimal GREEN builder
+
+on:
+  push:
+    branches: [automation/issue607-green-builder]
+    paths: [.github/workflows/tmp-issue607-green-builder.yml]
+
+permissions:
+  contents: write
+
+env:
+  BUILDER_SHA: b6d9299f6e94147b340ffd567954d6330bd0ec98
+  RED_SHA: b3f547e23b929a56885ea12ccd335a48cbfb0df5
+  TARGET_BRANCH: research/issue607-ppo-global-btc-regime-impl
+  BUILDER: tools/tmp_issue607_green_builder.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BUILDER_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Recover builder then checkout exact RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$BUILDER_SHA:$BUILDER" > /tmp/issue607_builder.py
+          test "$(git hash-object /tmp/issue607_builder.py)" = "$(git rev-parse "$BUILDER_SHA:$BUILDER")"
+          git checkout --detach "$RED_SHA"
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+      - name: Apply minimal production patch
+        run: python3 /tmp/issue607_builder.py
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format production diff only
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="trade_rl/strategies/rl/ppo.py trade_rl/evaluation/runs/candidate_suite.py trade_rl/evaluation/runs/config.py trade_rl/evaluation/experiments/contracts/run.py trade_rl/evaluation/experiments/delta.py"
+          uv run ruff check --fix $files
+          uv run ruff format $files
+          uv run ruff check $files
+          uv run ruff format --check $files
+          uv run mypy $files
+          git diff --check
+      - name: Targeted semantic GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py \
+            tests/architecture/test_candidate_run_json_authority.py \
+            tests/strategies/test_ppo_observation_v2.py
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n' \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/strategies/rl/ppo.py | sort)"
+          test "$actual" = "$expected"
+      - name: Publish GREEN implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/strategies/rl/ppo.py trade_rl/evaluation/runs/candidate_suite.py trade_rl/evaluation/runs/config.py trade_rl/evaluation/experiments/contracts/run.py trade_rl/evaluation/experiments/delta.py
+          git commit -m "feat: implement sealed Issue 607 PPO BTC regime context"
+          test "$(git rev-parse HEAD^)" = "$RED_SHA"
+          git push origin HEAD:"$TARGET_BRANCH"

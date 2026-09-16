@@ -235,6 +235,26 @@ def test_candidate_ppo_returns_require_complete_finite_nonempty_cells() -> None:
     assert violations == ("candidate PPO returns non-finite: seed=2 BNBUSDT",)
 
 
+def test_candidate_ppo_returns_reject_extra_seed_and_symbol_roster() -> None:
+    candidate = _return_matrix()
+    candidate[99] = {
+        key: values.copy() for key, values in candidate[0].items()
+    }
+    violations = validate_candidate_ppo_returns(
+        candidate, seeds=_SEEDS, symbols=_SYMBOLS
+    )
+    assert violations == ("candidate seed roster/order mismatch",)
+
+    candidate = _return_matrix()
+    candidate[0][("SOLUSDT", "ppo")] = np.array(
+        [0.0, 0.01, -0.005], dtype=np.float64
+    )
+    violations = validate_candidate_ppo_returns(
+        candidate, seeds=_SEEDS, symbols=_SYMBOLS
+    )
+    assert violations == ("candidate symbol roster/order mismatch: seed=0",)
+
+
 def test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold() -> None:
     accepted = evaluate_frozen_gate(
         _comparison(),
@@ -253,7 +273,7 @@ def test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold() 
     comparison["by_symbol"]["ETHUSDT"]["strategies"]["ppo"]["seed_aggregate"][
         "median_excess_total_return"
     ] = 0.0
-    kept = evaluate_frozen_gate(
+    invalid = evaluate_frozen_gate(
         comparison,
         seeds=_SEEDS,
         symbols=_SYMBOLS,
@@ -261,7 +281,25 @@ def test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold() 
         unaffected_raw_returns_equal=True,
         validity_violations=(),
     )
-    assert kept["decision"] == KEEP_BASELINE
+    assert invalid["decision"] == INVALID
+    assert invalid["evidence_valid"] is False
+
+
+def test_frozen_gate_rejects_inconsistent_cross_symbol_aggregate() -> None:
+    comparison = _comparison()
+    comparison["cross_symbol"]["ppo"]["median_excess_total_return"] = 0.5
+
+    result = evaluate_frozen_gate(
+        comparison,
+        seeds=_SEEDS,
+        symbols=_SYMBOLS,
+        no_new_termination=True,
+        unaffected_raw_returns_equal=True,
+        validity_violations=(),
+    )
+
+    assert result["decision"] == INVALID
+    assert result["evidence_valid"] is False
 
 
 def test_frozen_gate_requires_every_seed_cross_symbol_median_strictly_positive() -> (
@@ -272,6 +310,11 @@ def test_frozen_gate_requires_every_seed_cross_symbol_median_strictly_positive()
         comparison["by_symbol"][symbol]["strategies"]["ppo"]["by_seed"]["3"][
             "excess_total_return"
         ] = -0.01
+    for symbol in _SYMBOLS:
+        comparison["by_symbol"][symbol]["strategies"]["ppo"]["seed_aggregate"][
+            "median_excess_total_return"
+        ] = 0.011
+    comparison["cross_symbol"]["ppo"]["median_excess_total_return"] = 0.011
 
     result = evaluate_frozen_gate(
         comparison,

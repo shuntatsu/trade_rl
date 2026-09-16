@@ -1,0 +1,535 @@
+name: Issue 610 real candidate interpretation v1
+
+on:
+  push:
+    branches:
+      - run/issue610-real-interpretation-v1
+    paths:
+      - .github/issue610-real-interpretation-v1.authorized
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue610-real-interpretation-v1
+  cancel-in-progress: false
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  RUNNER_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
+  RUNNER_VERIFY_RUN: '35111685710'
+  V3_SHA: f439b5cfd9cd33a9de45a4719e316d1d7a814318
+  V3_VERIFY_RUN: '35110197426'
+  FRAMEWORK_SHA: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_ARTIFACT_BLOB: 8f95053b62239d674c18ed8564ffe4fc2c1ceaf6
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_DIGEST: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+  PRECOMPUTE_FRESH_ID: '10447607272'
+  PRECOMPUTE_FRESH_DIGEST: sha256:8b8d909facf14e453853cfc29d64275674779172cfa84c22b0e9541007c563ec
+  BASELINE_RUN: '34700123151'
+  BASELINE_NAME: canonical-m2-portable-baseline-v1-34700123151
+  BASELINE_ID: '10301701698'
+  BASELINE_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  BASELINE_POSTVERIFY_RUN: '34704606059'
+  CANDIDATE_RUN: '35103004952'
+  CANDIDATE_HEAD: fd9fa65a77cef1f8efc566a495951b9c2f120a88
+  CANDIDATE_NAME: issue610-ppo-global-btc-regime-candidate-v1-35103004952
+  RUNNER: tools/tmp_issue610_real_interpretation_runner_v1.py
+  ARTIFACT_MODULE: trade_rl/evaluation/runs/artifact.py
+
+jobs:
+  producer:
+    name: Produce audited-input Issue 610 interpretation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      candidate_id: ${{ steps.bind.outputs.candidate_id }}
+      candidate_digest: ${{ steps.bind.outputs.candidate_digest }}
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce one interpretation activation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RUNNER_SHA }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - id: bind
+        name: API-bind verified control and unique immutable candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C control rev-parse HEAD)" = "$RUNNER_SHA"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          test "$(git -C framework rev-parse "HEAD:$ARTIFACT_MODULE")" = "$FRAMEWORK_ARTIFACT_BLOB"
+
+          runner_verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUNNER_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$runner_verify")" = completed
+          test "$(jq -r .conclusion <<<"$runner_verify")" = success
+          test "$(jq -r .head_sha <<<"$runner_verify")" = "$RUNNER_SHA"
+          v3_verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$V3_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$v3_verify")" = completed
+          test "$(jq -r .conclusion <<<"$v3_verify")" = success
+          test "$(jq -r .head_sha <<<"$v3_verify")" = "$V3_SHA"
+
+          candidate_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN")"
+          test "$(jq -r .status <<<"$candidate_run")" = completed
+          test "$(jq -r .conclusion <<<"$candidate_run")" = success
+          test "$(jq -r .head_sha <<<"$candidate_run")" = "$CANDIDATE_HEAD"
+          test "$(jq -r .run_number <<<"$candidate_run")" = 1
+          test "$(jq -r .run_attempt <<<"$candidate_run")" = 1
+          candidate_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN/jobs?per_page=100")"
+          test "$(jq '[.jobs[] | select(.name=="Exactly-once recovery candidate execution")] | length' <<<"$candidate_jobs")" = 1
+          test "$(jq -r '.jobs[] | select(.name=="Exactly-once recovery candidate execution") | .conclusion' <<<"$candidate_jobs")" = success
+
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN/artifacts?per_page=100")"
+          match="$(jq -c --arg name "$CANDIDATE_NAME" '[.artifacts[] | select(.name==$name and .expired==false)]' <<<"$artifacts")"
+          test "$(jq 'length' <<<"$match")" = 1
+          candidate_id="$(jq -r '.[0].id' <<<"$match")"
+          candidate_digest="$(jq -r '.[0].digest' <<<"$match")"
+          test -n "$candidate_id"
+          case "$candidate_digest" in sha256:*) ;; *) exit 1 ;; esac
+          candidate_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$candidate_id")"
+          test "$(jq -r .name <<<"$candidate_meta")" = "$CANDIDATE_NAME"
+          test "$(jq -r .digest <<<"$candidate_meta")" = "$candidate_digest"
+          test "$(jq -r .workflow_run.id <<<"$candidate_meta")" = "$CANDIDATE_RUN"
+          test "$(jq -r .expired <<<"$candidate_meta")" = false
+
+          check_fixed() {
+            local id="$1" digest="$2" run_id="$3"
+            local meta
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run_id"
+            test "$(jq -r .expired <<<"$meta")" = false
+          }
+          check_fixed "$PRECOMPUTE_ID" "$PRECOMPUTE_DIGEST" "$PRECOMPUTE_RUN"
+          check_fixed "$PRECOMPUTE_FRESH_ID" "$PRECOMPUTE_FRESH_DIGEST" "$PRECOMPUTE_RUN"
+          check_fixed "$BASELINE_ID" "$BASELINE_DIGEST" "$BASELINE_RUN"
+          post="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BASELINE_POSTVERIFY_RUN")"
+          test "$(jq -r .conclusion <<<"$post")" = success
+
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          test "$(grep -Fx "$CANDIDATE_NAME" <<<"$names" | wc -l)" = 1
+          ! grep -E '^issue610-ppo-global-btc-regime-(result|fresh-result)-' <<<"$names"
+
+          echo "candidate_id=$candidate_id" >> "$GITHUB_OUTPUT"
+          echo "candidate_digest=$candidate_digest" >> "$GITHUB_OUTPUT"
+          echo ISSUE610_IMMUTABLE_CANDIDATE_BOUND=PASS
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Download frozen baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Download frozen precompute authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - name: Download unique immutable candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - name: Interpret once from immutable artifacts without logging decision
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/control
+          CANDIDATE_ID: ${{ steps.bind.outputs.candidate_id }}
+          CANDIDATE_DIGEST: ${{ steps.bind.outputs.candidate_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/result
+          uv run python "$GITHUB_WORKSPACE/control/$RUNNER" interpret \
+            --source-root /tmp/baseline \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/result \
+            --artifact-module "$GITHUB_WORKSPACE/framework/$ARTIFACT_MODULE" \
+            --interpretation-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            >/tmp/issue610-interpretation.stdout
+          grep -q '^ISSUE610_REAL_INTERPRETATION_RUNNER_V1=PASS$' /tmp/issue610-interpretation.stdout
+          grep -q '^FINAL_TEST_ACCESSED=false$' /tmp/issue610-interpretation.stdout
+          rm /tmp/issue610-interpretation.stdout
+          test -f /tmp/result/strict-precheck.json
+          test -f /tmp/result/decision.json
+          echo ISSUE610_PRODUCER_INTERPRETATION_RECORDED_WITHOUT_DECISION_LOG=PASS
+      - id: name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-result-v3-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        name: Upload immutable interpretation result
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/result
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  fresh:
+    name: Independently reconstruct Issue 610 interpretation
+    needs: producer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RUNNER_SHA }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - name: API-rebind producer and the same immutable candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ID: ${{ needs.producer.outputs.candidate_id }}
+          CANDIDATE_DIGEST: ${{ needs.producer.outputs.candidate_digest }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C control rev-parse HEAD)" = "$RUNNER_SHA"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          candidate_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN")"
+          test "$(jq -r .conclusion <<<"$candidate_run")" = success
+          candidate_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ID")"
+          test "$(jq -r .name <<<"$candidate_meta")" = "$CANDIDATE_NAME"
+          test "$(jq -r .digest <<<"$candidate_meta")" = "$CANDIDATE_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$candidate_meta")" = "$CANDIDATE_RUN"
+          test "$(jq -r .expired <<<"$candidate_meta")" = false
+          producer_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ID")"
+          test "$(jq -r .name <<<"$producer_meta")" = "$PRODUCER_NAME"
+          test "$(jq -r .workflow_run.id <<<"$producer_meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$producer_meta")" = false
+          api_digest="$(jq -r .digest <<<"$producer_meta")"
+          case "$PRODUCER_DIGEST" in
+            sha256:*) test "$api_digest" = "$PRODUCER_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PRODUCER_DIGEST" ;;
+          esac
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - name: Reconstruct from immutable inputs and require byte identity
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/control
+          CANDIDATE_ID: ${{ needs.producer.outputs.candidate_id }}
+          CANDIDATE_DIGEST: ${{ needs.producer.outputs.candidate_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/fresh
+          uv run python "$GITHUB_WORKSPACE/control/$RUNNER" interpret \
+            --source-root /tmp/baseline \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/fresh \
+            --artifact-module "$GITHUB_WORKSPACE/framework/$ARTIFACT_MODULE" \
+            --interpretation-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            >/tmp/issue610-fresh-interpretation.stdout
+          grep -q '^ISSUE610_REAL_INTERPRETATION_RUNNER_V1=PASS$' /tmp/issue610-fresh-interpretation.stdout
+          rm /tmp/issue610-fresh-interpretation.stdout
+          diff -qr /tmp/producer /tmp/fresh
+          echo ISSUE610_FRESH_INTERPRETATION_BYTE_IDENTICAL=PASS
+      - id: name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-fresh-result-v3-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        name: Upload independently reconstructed interpretation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/fresh
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  audit:
+    name: Final Issue 610 interpretation audit and reveal
+    needs: [producer, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 1
+          persist-credentials: false
+      - name: API-bind both result artifacts and candidate before reveal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ID: ${{ needs.producer.outputs.candidate_id }}
+          CANDIDATE_DIGEST: ${{ needs.producer.outputs.candidate_digest }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${{ needs.producer.result }}" = success
+          test "${{ needs.fresh.result }}" = success
+          check_current() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local meta api_digest
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run_id"
+            test "$(jq -r .expired <<<"$meta")" = false
+            api_digest="$(jq -r .digest <<<"$meta")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          check_current "$PRODUCER_ID" "$PRODUCER_NAME" "$PRODUCER_DIGEST" "$GITHUB_RUN_ID"
+          check_current "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST" "$GITHUB_RUN_ID"
+          check_current "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_DIGEST" "$CANDIDATE_RUN"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - name: Validate canonical closure, then reveal development decision
+        working-directory: code
+        env:
+          CANDIDATE_ID: ${{ needs.producer.outputs.candidate_id }}
+          CANDIDATE_DIGEST: ${{ needs.producer.outputs.candidate_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff -qr /tmp/producer /tmp/fresh
+          uv run python -P - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          def load_canonical(path: Path) -> dict[str, object]:
+              raw = path.read_bytes()
+              payload = json.loads(raw)
+              assert isinstance(payload, dict)
+              assert canonical_json_bytes(payload) == raw
+              digest = payload.get('content_digest')
+              assert isinstance(digest, str)
+              unsigned = dict(payload)
+              unsigned.pop('content_digest')
+              assert content_digest(unsigned) == digest
+              return payload
+
+          producer = Path('/tmp/producer')
+          strict = load_canonical(producer / 'strict-precheck.json')
+          decision = load_canonical(producer / 'decision.json')
+          candidate = load_canonical(Path('/tmp/candidate/candidate-authority.json'))
+          recovery_binding = load_canonical(Path('/tmp/candidate/recovery-binding.json'))
+          precompute = load_canonical(Path('/tmp/precompute/authority.json'))
+
+          candidate_id = int(os.environ['CANDIDATE_ID'])
+          candidate_digest = os.environ['CANDIDATE_DIGEST']
+          precompute_id = int(os.environ['PRECOMPUTE_ID'])
+          precompute_digest = os.environ['PRECOMPUTE_DIGEST']
+          run_id = int(os.environ['GITHUB_RUN_ID'])
+
+          for payload in (strict, decision):
+              assert payload['issue_number'] == 610
+              assert payload['interpretation_run_id'] == run_id
+              assert payload['candidate_artifact_id'] == candidate_id
+              assert payload['candidate_artifact_api_digest'] == candidate_digest
+              assert payload['precompute_artifact_id'] == precompute_id
+              assert payload['precompute_artifact_api_digest'] == precompute_digest
+              assert payload['final_test_accessed'] is False
+              assert payload['production_eligible'] is False
+              assert payload['live_trading_authorized'] is False
+              assert payload['merge_authorized'] is False
+
+          assert strict['candidate_retrained_during_interpretation'] is False
+          assert strict['economic_values_interpreted'] is False
+          assert decision['candidate_retrained_during_interpretation'] is False
+          assert decision['operational_eligibility_established'] is False
+          assert decision['strict_precheck_content_digest'] == strict['content_digest']
+          assert decision['strict_termination_evidence_valid'] == strict['termination_evidence_valid']
+          assert decision['strict_new_termination_present'] == bool(strict['new_termination_violations'])
+
+          assert candidate['candidate_training_performed'] is True
+          assert candidate['economic_values_interpreted'] is False
+          assert candidate['final_test_accessed'] is False
+          assert recovery_binding['candidate_execution_run_id'] == int(os.environ['CANDIDATE_RUN'])
+          assert recovery_binding['candidate_artifact_api_digest'] if 'candidate_artifact_api_digest' in recovery_binding else True
+          assert recovery_binding['economic_values_interpreted'] is False
+          assert recovery_binding['final_test_accessed'] is False
+          assert recovery_binding['production_eligible'] is False
+          assert recovery_binding['live_trading_authorized'] is False
+          assert recovery_binding['merge_authorized'] is False
+
+          invalid = strict['invalid_termination_evidence']
+          assert isinstance(invalid, list)
+          v2_path = producer / 'v2' / 'result.json'
+          if invalid:
+              assert strict['termination_evidence_valid'] is False
+              assert decision['decision'] == 'INVALID'
+              assert decision['economic_values_interpreted'] is False
+              assert decision['v2_result_content_digest'] is None
+              assert not v2_path.exists()
+          else:
+              assert strict['termination_evidence_valid'] is True
+              assert v2_path.is_file()
+              v2 = load_canonical(v2_path)
+              assert v2['issue_number'] == 610
+              assert v2['interpretation_run_id'] == run_id
+              assert v2['candidate_artifact_id'] == candidate_id
+              assert v2['candidate_artifact_api_digest'] == candidate_digest
+              assert v2['precompute_artifact_id'] == precompute_id
+              assert v2['precompute_artifact_api_digest'] == precompute_digest
+              assert v2['candidate_authority_content_digest'] == candidate['content_digest']
+              assert v2['precompute_authority_content_digest'] == precompute['content_digest']
+              assert v2['comparison_digest'] == content_digest(v2['comparison'])
+              assert v2['candidate_retrained_during_interpretation'] is False
+              assert v2['economic_values_interpreted'] is True
+              assert v2['final_test_accessed'] is False
+              assert v2['operational_eligibility_established'] is False
+              assert v2['production_eligible'] is False
+              assert v2['live_trading_authorized'] is False
+              assert v2['merge_authorized'] is False
+              assert decision['v2_result_content_digest'] == v2['content_digest']
+              assert decision['decision'] == v2['decision']
+              assert decision['decision'] in ('ACCEPT_CANDIDATE', 'KEEP_BASELINE', 'INVALID')
+              assert decision['economic_values_interpreted'] is True
+
+          print('ISSUE610_FINAL_INTERPRETATION_AUDIT=PASS')
+          print('DECISION=' + str(decision['decision']))
+          print('FINAL_TEST_ACCESSED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          print('MERGE_AUTHORIZED=false')
+          PY

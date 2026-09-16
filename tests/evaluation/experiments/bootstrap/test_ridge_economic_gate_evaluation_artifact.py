@@ -81,7 +81,9 @@ def test_canonical_result_round_trip_is_byte_stable(tmp_path) -> None:
     assert canonical_ridge_economic_gate_evaluation_bytes(loaded) == raw
 
 
-def test_loader_rejects_unknown_nested_field_even_with_resigned_digest(tmp_path) -> None:
+def test_loader_rejects_unknown_nested_field_even_with_resigned_digest(
+    tmp_path,
+) -> None:
     document = json.loads(canonical_ridge_economic_gate_evaluation_bytes(_result()))
     document["result"]["unexpected"] = 1
     document["content_digest"] = content_digest(document["result"])

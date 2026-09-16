@@ -53,7 +53,7 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "successor_bundle_run_id": 34803217815,
     "successor_bundle_artifact_id": 10331899302,
     "successor_bundle_artifact_digest": "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce",
-    "successor_dataset_id": "6c0b040d317a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f",
+    "successor_dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
     "successor_dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
     "successor_study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
     "successor_plan_sha256": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",

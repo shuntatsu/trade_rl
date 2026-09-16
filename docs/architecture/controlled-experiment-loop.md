@@ -82,9 +82,9 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。
+現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`がbaselineで`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`は**原則として**Study-fixed resolved fieldである。Experiment定義時に例外を認めるのは、宣言した`ControlledFactor`の`FACTOR_RULES`がそのtop-level pathを事前に明示許可している場合だけで、verificationでも同じruleを再適用する。現行の狭い例外は`FEATURE_SET`がsealed PPO global-context extensionの`schema_version` / `ppo_observation_schema` / `ppo_global_context`を変更する場合であり、`ppo_global_feature_names`、window、execution、budget等のunrelated fixed fieldは引き続き変更できない。
 
-historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
+historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2/v3 Runをv1 Studyへ継ぎ足すことは許さない。public resolverが生成するcurrent contractはcontextなしのv2、または事前登録済みglobal contextを持つv3だけである。旧Studyを新Observationへ暗黙migrationせず、Observation extensionを研究する場合は同じcurrent implementation/runtimeでbaseline v2とcandidate v3を生成し、宣言factorのdelta ruleで限定的に比較する。
 
 ## Study-owned EvidenceSet
 

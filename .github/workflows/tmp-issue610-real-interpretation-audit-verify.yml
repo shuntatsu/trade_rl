@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: 52ebcd6f9a5054945355418788f86fd40bd35b94
+  TARGET_SHA: b7c41a7c80c38eadce99759ac345489eb2ff9cce
   BASE_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
   HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
 
@@ -64,4 +64,4 @@ jobs:
           echo CANDIDATE_RETRAINED=false
           echo FINAL_TEST_ACCESSED=false
 
-# Connector-triggered verification of the fixed helper target above.
+# Formatted helper target; no economic artifact is read in this workflow.

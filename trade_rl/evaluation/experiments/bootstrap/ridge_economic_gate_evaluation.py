@@ -209,7 +209,11 @@ class RidgeEconomicGateEvaluationSpec:
             "one_way_explicit_cost",
         ):
             _require_nonnegative(getattr(self, field_name), field=field_name)
-        if self.ridge_alpha <= 0.0 or self.gross_budget <= 0.0 or self.initial_capital <= 0.0:
+        if (
+            self.ridge_alpha <= 0.0
+            or self.gross_budget <= 0.0
+            or self.initial_capital <= 0.0
+        ):
             raise ValueError("preregistered model/capital parameters are invalid")
         if self.forecast_exit_threshold >= self.forecast_entry_threshold:
             raise ValueError("preregistered forecast thresholds are invalid")
@@ -221,7 +225,9 @@ class RidgeEconomicGateEvaluationSpec:
             rel_tol=0.0,
             abs_tol=1e-15,
         ):
-            raise ValueError("one_way_explicit_cost differs from preregistered components")
+            raise ValueError(
+                "one_way_explicit_cost differs from preregistered components"
+            )
         for field_name in (
             "evaluation_pnl_inspected",
             "evaluation_execution_authorized",
@@ -237,7 +243,9 @@ class RidgeEconomicGateEvaluationSpec:
                 raise ValueError(f"{field_name} must be a boolean")
         for item in fields(self):
             if getattr(self, item.name) != _CANONICAL_SPEC_VALUES[item.name]:
-                raise ValueError(f"{item.name} differs from sealed Issue #616 semantics")
+                raise ValueError(
+                    f"{item.name} differs from sealed Issue #616 semantics"
+                )
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -270,9 +278,9 @@ def ridge_model_sha256(model: RidgeForecastModel) -> str:
     }
     hasher = hashlib.sha256()
     hasher.update(
-        json.dumps(metadata, allow_nan=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        json.dumps(
+            metadata, allow_nan=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
     )
     for array in (model.feature_mean, model.feature_scale, model.coefficients):
         values = np.asarray(array, dtype="<f8").reshape(-1)
@@ -374,7 +382,9 @@ class RidgeEconomicGateSymbolResult:
             rel_tol=0.0,
             abs_tol=1e-12,
         ):
-            raise ValueError("excess_total_return does not match candidate minus baseline")
+            raise ValueError(
+                "excess_total_return does not match candidate minus baseline"
+            )
         for field_name in (
             "baseline_termination_count",
             "candidate_termination_count",
@@ -406,8 +416,13 @@ class RidgeEconomicGateSymbolResult:
                 for reason in self.candidate_termination_reasons
             )
         )
-        if type(self.new_termination) is not bool or self.new_termination != expected_new:
-            raise ValueError("new_termination does not match pairwise termination evidence")
+        if (
+            type(self.new_termination) is not bool
+            or self.new_termination != expected_new
+        ):
+            raise ValueError(
+                "new_termination does not match pairwise termination evidence"
+            )
         _require_hex(self.baseline_return_sha256, field="baseline_return_sha256")
         _require_hex(self.candidate_return_sha256, field="candidate_return_sha256")
 
@@ -496,7 +511,9 @@ class RidgeEconomicGateEvaluation:
             rel_tol=0.0,
             abs_tol=1e-12,
         ):
-            raise ValueError("median_excess_total_return does not match by_symbol evidence")
+            raise ValueError(
+                "median_excess_total_return does not match by_symbol evidence"
+            )
         expected_status = research_status_from_counts(
             positive_effect_symbols=positive,
             median_excess_total_return=median_excess,
@@ -524,7 +541,9 @@ class RidgeEconomicGateEvaluation:
                 raise ValueError(f"{field_name} violates the sealed research boundary")
 
 
-def _exact_timestamp_index(dataset: MarketDataset, timestamp: str, *, field: str) -> int:
+def _exact_timestamp_index(
+    dataset: MarketDataset, timestamp: str, *, field: str
+) -> int:
     target = np.datetime64(timestamp, "ns")
     matches = np.flatnonzero(dataset.timestamps == target)
     if matches.size != 1:
@@ -542,9 +561,13 @@ def _validate_dataset(
         raise ValueError("Dataset symbols differ from sealed Issue #616 authority")
     if max(spec.feature_indices) >= dataset.n_features:
         raise ValueError("sealed feature index is outside Dataset features")
-    selected_names = tuple(dataset.feature_names[index] for index in spec.feature_indices)
+    selected_names = tuple(
+        dataset.feature_names[index] for index in spec.feature_indices
+    )
     if selected_names != spec.feature_names:
-        raise ValueError("Dataset feature roster differs from sealed Issue #616 authority")
+        raise ValueError(
+            "Dataset feature roster differs from sealed Issue #616 authority"
+        )
 
     start_index = _exact_timestamp_index(
         dataset, spec.evaluation_start, field="evaluation_start"
@@ -565,7 +588,9 @@ def _validate_dataset(
         if not np.isfinite(values).all() or np.any(values < 0.0):
             raise ValueError(f"evaluation cost drift: {field_name} is invalid")
         if not bool(np.all(values == expected)):
-            raise ValueError(f"evaluation cost drift: {field_name} differs from sealed value")
+            raise ValueError(
+                f"evaluation cost drift: {field_name} differs from sealed value"
+            )
 
     capacity = np.asarray(
         dataset.resolved_array("max_participation_rate")[scope], dtype=np.float64
@@ -576,7 +601,9 @@ def _validate_dataset(
     if not np.isfinite(capacity).all() or not np.array_equal(
         capacity, expected_capacity
     ):
-        raise ValueError("Dataset causal capacity differs from sealed Issue #616 authority")
+        raise ValueError(
+            "Dataset causal capacity differs from sealed Issue #616 authority"
+        )
     return start_index, stop_index
 
 
@@ -596,8 +623,12 @@ def _symbol_result(symbol_comparison: object) -> RidgeEconomicGateSymbolResult:
     candidate_metrics = getattr(candidate, "metrics")
     baseline_replay = getattr(baseline, "replay")
     candidate_replay = getattr(candidate, "replay")
-    baseline_reasons = tuple(getattr(baseline_replay.diagnostics, "termination_reasons"))
-    candidate_reasons = tuple(getattr(candidate_replay.diagnostics, "termination_reasons"))
+    baseline_reasons = tuple(
+        getattr(baseline_replay.diagnostics, "termination_reasons")
+    )
+    candidate_reasons = tuple(
+        getattr(candidate_replay.diagnostics, "termination_reasons")
+    )
     new_termination = (
         candidate_metrics.termination_count > baseline_metrics.termination_count
         or any(reason not in baseline_reasons for reason in candidate_reasons)
@@ -669,10 +700,14 @@ def evaluate_ridge_economic_gate(
     )
     rows = tuple(_symbol_result(item) for item in comparison.by_symbol)
     if tuple(row.symbol for row in rows) != resolved_spec.symbols:
-        raise ValueError("comparison symbol order differs from sealed Issue #616 roster")
+        raise ValueError(
+            "comparison symbol order differs from sealed Issue #616 roster"
+        )
     positive = sum(row.excess_total_return > 0.0 for row in rows)
     median_excess = float(median(row.excess_total_return for row in rows))
-    cost_reduction = sum(row.candidate_total_cost < row.baseline_total_cost for row in rows)
+    cost_reduction = sum(
+        row.candidate_total_cost < row.baseline_total_cost for row in rows
+    )
     turnover_reduction = sum(
         row.candidate_turnover_total < row.baseline_turnover_total for row in rows
     )

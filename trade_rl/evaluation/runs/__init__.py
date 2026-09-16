@@ -13,6 +13,12 @@ from trade_rl.evaluation.runs.candidate_suite import (
     run_lean_candidate_suite,
 )
 from trade_rl.evaluation.runs.config import (
+    CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY as CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+)
+from trade_rl.evaluation.runs.config import (
+    LEGACY_DATASET_EXECUTION_OVERLAY as LEGACY_DATASET_EXECUTION_OVERLAY,
+)
+from trade_rl.evaluation.runs.config import (
     CandidateRunConfig,
     ResolvedCandidateRunSpec,
     parse_candidate_run_config,

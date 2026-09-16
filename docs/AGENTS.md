@@ -105,7 +105,7 @@ Agent Evalはv1ではExtended verificationでありPR hard gateではない。�
 
 ## Git / PR integration safety
 
-Agent実装は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` への直接変更を通常経路にしない。mergeはユーザーの明示許可が必要であり、Agentはforce-push、history rewrite、`main`削除を行わない。
+Agent実装は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` への直接変更を通常経路にしない。Agentはforce-push、history rewrite、`main`削除を行わない。Acceptance Criteriaと必要なverificationを満たし、current `main`を包含するfinal PR HEADのrequired checksがGreenなら、Integratorは追加のユーザー確認なしに通常のPR経路でmergeしてよい。
 
 Integration invariant: tested PR head contains current `main`. PRの成功証拠は**現在のfinal HEAD**に束縛し、merge直前のcurrent `main` SHAをそのtested PR headがancestorとして包含していることも確認する。PR headが動いた後の古いCIだけでなく、`main` が進んだ後の古いPR-head Greenも現在の統合証拠として扱わない。`main` が進んだ場合は、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作り、その新HEADでpermanent CIを再実行する。将来merge queueを採用する場合は、current target branchを含むmerge-group SHAのrequired checkを同等のoracleとしてよい。
 

@@ -1,0 +1,36 @@
+name: Temporary Issue 609 global-context artifact RED
+
+on:
+  push:
+    branches:
+      - automation/issue609-global-context-artifact-red
+    paths:
+      - .github/workflows/tmp-issue609-global-context-artifact-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: ff683e188e2d8eba61c55cb543c4bb8e75275b2f
+  TEST: tests/evaluation/test_candidate_run_global_context_artifact.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Reproduce artifact provenance gap
+        run: uv run pytest -q "$TEST"

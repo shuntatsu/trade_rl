@@ -1,0 +1,27 @@
+name: tmp Issue 610 RED format probe
+on:
+  push:
+    branches:
+      - verify/issue610-evaluation-bridge-red-v2
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 936721991f7fff1c1b049ae2c19f82bd1823a1a5
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Show exact Ruff format diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          path=tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+          uv run ruff format "$path"
+          git diff -- "$path"

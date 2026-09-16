@@ -1,0 +1,54 @@
+name: tmp Issue 610 interpretation v3 format
+
+on:
+  push:
+    branches:
+      - automation/issue610-interpretation-v3-format
+    paths:
+      - .github/workflows/tmp-issue610-interpretation-v3-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-interpretation-v3
+  TARGET_HEAD: 66cc6413f6a5d102335c59a49d4b74312a1fe5d1
+  TARGET_FILE: tests/tools/test_tmp_issue610_interpretation_precheck_v3.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only v3 regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TARGET_FILE"
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+          uv run ruff check "$TARGET_FILE"
+          uv run ruff format --check "$TARGET_FILE"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_HEAD"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TARGET_FILE"
+          git commit -m "style: apply exact Ruff formatting to Issue 610 interpretation v3 test"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

@@ -34,7 +34,12 @@ jobs:
           git checkout --detach "$TARGET_SHA"
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Synchronize Human Guide content and code authorities
-        run: python3 /tmp/sync_guide.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/sync_guide.py tools/tmp_issue607_sync_guide.py
+          PYTHONPATH=. python3 tools/tmp_issue607_sync_guide.py
+          rm tools/tmp_issue607_sync_guide.py
       - name: Verify Guide source contract and content
         shell: bash
         run: |

@@ -1,0 +1,48 @@
+name: tmp Issue 610 termination exact RED
+
+on:
+  push:
+    branches:
+      - verify/issue610-termination-red-exact
+    paths:
+      - .github/workflows/tmp-issue610-termination-red-exact.yml
+
+permissions:
+  contents: read
+
+env:
+  RED_SHA: 676f5407a8886d10b5f7a5f1a5b9b6229f1ce5d0
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: |
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test -f "$TEST"
+          test ! -e "$MODULE"
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Require semantic RED from missing implementation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" >/tmp/red.log 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          cat /tmp/red.log
+          grep -F "ModuleNotFoundError: No module named 'tools.tmp_issue610_ppo_global_btc_regime_termination'" /tmp/red.log
+          echo ISSUE610_TERMINATION_SEMANTIC_RED=PASS

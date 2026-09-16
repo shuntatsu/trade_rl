@@ -6,6 +6,7 @@ on:
       - prepare/issue609-global-btc-development-eval-v1
     paths:
       - .github/workflows/tmp-issue609-global-btc-eval-plan-helper-verify.yml
+      - research/issue609_global_btc_eval_plan.py
 
 permissions:
   contents: read

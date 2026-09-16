@@ -5,12 +5,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+
 from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_prereg import (
     RidgeEconomicGateProtocol,
     canonical_ridge_economic_gate_protocol,
     load_ridge_economic_gate_protocol,
 )
-
 
 _FEATURE_NAMES = (
     "1h__log_return_1bar",

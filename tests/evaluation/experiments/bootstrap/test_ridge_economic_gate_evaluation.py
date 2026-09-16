@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -317,19 +318,14 @@ def _symbol_result() -> RidgeEconomicGateSymbolResult:
 
 def test_symbol_result_rejects_arithmetic_and_termination_forgery() -> None:
     with pytest.raises(ValueError, match="excess_total_return"):
-        RidgeEconomicGateSymbolResult(
-            **{**_symbol_result().__dict__, "excess_total_return": 99.0}
-        )
+        replace(_symbol_result(), excess_total_return=99.0)
+    with pytest.raises(ValueError, match="new_termination"):
+        replace(_symbol_result(), new_termination=True)
 
 
 def test_result_rejects_aggregate_or_status_forgery() -> None:
     spec = canonical_ridge_economic_gate_evaluation_spec()
-    rows = tuple(
-        RidgeEconomicGateSymbolResult(
-            **{**_symbol_result().__dict__, "symbol": symbol}
-        )
-        for symbol in _SYMBOLS
-    )
+    rows = tuple(replace(_symbol_result(), symbol=symbol) for symbol in _SYMBOLS)
     kwargs = dict(
         spec_digest=spec.digest,
         dataset_id=spec.dataset_id,

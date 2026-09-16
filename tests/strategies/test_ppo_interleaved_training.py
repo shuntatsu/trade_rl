@@ -142,6 +142,31 @@ def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
     assert isinstance(strategy, PPOIntentStrategy)
 
 
+def test_default_fit_preserves_stochastic_execution_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+    cost = ExecutionCostConfig(slippage_std=0.01)
+
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        total_timesteps=256,
+        seed=11,
+        execution_cost=cost,
+    )
+
+    fitted = FakePPO.last
+    assert fitted is not None
+    assert isinstance(fitted.env, PPOTradingEnv)
+    assert fitted.env.execution_cost is cost
+    assert isinstance(strategy, PPOIntentStrategy)
+
+
 def test_interleaved_fit_uses_one_fixed_env_per_fit_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -25,7 +25,10 @@ from trade_rl.strategies.forecasts.ridge import (
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.rl.ppo import fit_ppo_strategy
+from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_BTC_REGIME_CONTEXT,
+    fit_ppo_strategy,
+)
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -47,6 +50,7 @@ class LeanCandidateConfig:
     forecast_exit_threshold: float
     ppo_total_timesteps: int
     ppo_seed: int = 0
+    ppo_global_context: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -97,6 +101,10 @@ class LeanCandidateConfig:
             raise ValueError("ppo_seed must be a non-negative integer")
         if self.ppo_seed < 0:
             raise ValueError("ppo_seed must be a non-negative integer")
+        if self.ppo_global_context not in (None, PPO_GLOBAL_BTC_REGIME_CONTEXT):
+            raise ValueError(
+                f"unsupported PPO global context: {self.ppo_global_context}"
+            )
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
@@ -163,6 +171,7 @@ def run_lean_candidate_suite(
         seed=config.ppo_seed,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
+        global_context=config.ppo_global_context,
     )
 
     strategies: dict[str, SingleSymbolStrategy] = {

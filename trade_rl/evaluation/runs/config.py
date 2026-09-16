@@ -14,6 +14,7 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
+from trade_rl.strategies.rl.ppo import PPO_GLOBAL_BTC_REGIME_CONTEXT
 
 LEGACY_DATASET_EXECUTION_OVERLAY = "zero_overlay_dataset_fields_authoritative"
 CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY = (
@@ -53,6 +54,7 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
+        "ppo_global_context",
     )
 
     signal_name: str
@@ -69,6 +71,7 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
+    ppo_global_context: str | None = None
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -131,8 +134,14 @@ class CandidateRunConfig:
         object.__setattr__(self, "fit_cutoff", fit_cutoff)
         object.__setattr__(self, "evaluation_start", evaluation_start)
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
+        context = self.ppo_global_context
+        if context is not None:
+            context = _validated_text(context, field="ppo_global_context")
+            if context != PPO_GLOBAL_BTC_REGIME_CONTEXT:
+                raise ValueError(f"unsupported PPO global context: {context}")
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(self, "ppo_global_context", context)
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
@@ -140,6 +149,8 @@ class CandidateRunConfig:
         payload: dict[str, object] = {}
         for name in self.JSON_FIELDS:
             value = getattr(self, name)
+            if name == "ppo_global_context" and value is None:
+                continue
             if isinstance(value, np.datetime64):
                 payload[name] = str(np.datetime64(value, "ns"))
             elif isinstance(value, tuple):
@@ -289,6 +300,11 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         ppo_seed=_required_int(raw, "ppo_seed"),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
+        ppo_global_context=(
+            None
+            if raw.get("ppo_global_context") is None
+            else _required_string(raw, "ppo_global_context")
+        ),
     )
 
 
@@ -370,6 +386,7 @@ def resolve_candidate_run_spec(
         forecast_exit_threshold=config.forecast_exit_threshold,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
+        ppo_global_context=config.ppo_global_context,
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

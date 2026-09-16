@@ -90,3 +90,5 @@ jobs:
           echo ECONOMIC_VALUES_INTERPRETED=false
           echo CANDIDATE_RETRAINED=false
           echo FINAL_TEST_ACCESSED=false
+
+# Connector-triggered exact-head rerun after mechanical Ruff normalization.

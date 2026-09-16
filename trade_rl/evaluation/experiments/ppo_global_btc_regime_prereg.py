@@ -28,6 +28,17 @@ _CONTROLLED_FACTOR = "ppo_global_btc_regime_context"
 _EXPERIMENT_CONTROLLED_FACTOR = "FEATURE_SET"
 _BASELINE_OBSERVATION_SCHEMA = "ppo_observation_v2"
 _BASELINE_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
+_CANDIDATE_OBSERVATION_SCHEMA = "ppo_observation_v3_global_btc_regime"
+_CANDIDATE_OBSERVATION_LAYOUT = (
+    "local_values",
+    "local_available",
+    "local_staleness",
+    "global_reference_value",
+    "global_reference_available_and_finite",
+    "global_reference_normalized_staleness",
+    "current_intent",
+    "current_weight",
+)
 _REFERENCE_SYMBOL = "BTCUSDT"
 _REFERENCE_FEATURE = "1h__log_return_24bar"
 _REFERENCE_OBSERVATION_COMPONENTS = (
@@ -56,6 +67,8 @@ class PPOGlobalBTCRegimeProtocol:
     baseline_observation_schema: str = _BASELINE_OBSERVATION_SCHEMA
     baseline_global_feature_names: tuple[str, ...] = _BASELINE_GLOBAL_FEATURE_NAMES
     local_observation_contract_changed: bool = False
+    candidate_observation_schema: str = _CANDIDATE_OBSERVATION_SCHEMA
+    candidate_observation_layout: tuple[str, ...] = _CANDIDATE_OBSERVATION_LAYOUT
 
     reference_symbol: str = _REFERENCE_SYMBOL
     reference_feature: str = _REFERENCE_FEATURE
@@ -77,6 +90,9 @@ class PPOGlobalBTCRegimeProtocol:
     reference_usable_semantics: str = "feature_available_and_isfinite"
     reference_unavailable_value: float = 0.0
     reference_staleness_recomputed: bool = False
+    global_reference_applies_to_all_ppo_symbols: bool = True
+    global_reference_timestamp_alignment: str = "same_dataset_row"
+    global_reference_broadcast_is_symbol_independent: bool = True
 
     ppo_seeds: tuple[int, ...] = _PPO_SEEDS
     factor_slots_authorized: int = 1
@@ -138,6 +154,8 @@ class PPOGlobalBTCRegimeProtocol:
             "baseline_observation_schema": self.baseline_observation_schema,
             "baseline_global_feature_names": list(self.baseline_global_feature_names),
             "local_observation_contract_changed": self.local_observation_contract_changed,
+            "candidate_observation_schema": self.candidate_observation_schema,
+            "candidate_observation_layout": list(self.candidate_observation_layout),
             "reference_symbol": self.reference_symbol,
             "reference_feature": self.reference_feature,
             "reference_requires_available": self.reference_requires_available,
@@ -164,6 +182,15 @@ class PPOGlobalBTCRegimeProtocol:
             "reference_usable_semantics": self.reference_usable_semantics,
             "reference_unavailable_value": self.reference_unavailable_value,
             "reference_staleness_recomputed": self.reference_staleness_recomputed,
+            "global_reference_applies_to_all_ppo_symbols": (
+                self.global_reference_applies_to_all_ppo_symbols
+            ),
+            "global_reference_timestamp_alignment": (
+                self.global_reference_timestamp_alignment
+            ),
+            "global_reference_broadcast_is_symbol_independent": (
+                self.global_reference_broadcast_is_symbol_independent
+            ),
             "ppo_seeds": list(self.ppo_seeds),
             "factor_slots_authorized": self.factor_slots_authorized,
             "only_ppo_may_change": self.only_ppo_may_change,
@@ -227,6 +254,8 @@ def _canonical_field_values() -> dict[str, object]:
         "baseline_observation_schema": _BASELINE_OBSERVATION_SCHEMA,
         "baseline_global_feature_names": _BASELINE_GLOBAL_FEATURE_NAMES,
         "local_observation_contract_changed": False,
+        "candidate_observation_schema": _CANDIDATE_OBSERVATION_SCHEMA,
+        "candidate_observation_layout": _CANDIDATE_OBSERVATION_LAYOUT,
         "reference_symbol": _REFERENCE_SYMBOL,
         "reference_feature": _REFERENCE_FEATURE,
         "reference_requires_available": True,
@@ -245,6 +274,9 @@ def _canonical_field_values() -> dict[str, object]:
         "reference_usable_semantics": "feature_available_and_isfinite",
         "reference_unavailable_value": 0.0,
         "reference_staleness_recomputed": False,
+        "global_reference_applies_to_all_ppo_symbols": True,
+        "global_reference_timestamp_alignment": "same_dataset_row",
+        "global_reference_broadcast_is_symbol_independent": True,
         "ppo_seeds": _PPO_SEEDS,
         "factor_slots_authorized": 1,
         "only_ppo_may_change": True,

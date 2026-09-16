@@ -61,6 +61,13 @@ _UNAFFECTED_STRATEGY_NAMES = (
     "constant_long",
     "constant_short",
 )
+_DEVELOPMENT_ACCEPTANCE_GATE_METRICS = (
+    "positive_factor_effect_symbols",
+    "cross_symbol_median_factor_effect_gt_zero",
+    "positive_cross_symbol_median_seeds",
+    "no_new_termination",
+    "unaffected_raw_returns_equal",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,13 +132,18 @@ class PPOGlobalBTCRegimeEvaluationProtocol:
     )
     acceptance_rule_conjunction: str = "all_conditions_required"
 
+    development_acceptance_scope: str = "robust_factor_improvement"
+    development_acceptance_gate_metrics: tuple[str, ...] = (
+        _DEVELOPMENT_ACCEPTANCE_GATE_METRICS
+    )
     accept_requires_positive_factor_effect_symbols: int = 5
-    accept_requires_positive_candidate_return_symbols: int = 5
     accept_requires_positive_cross_symbol_median_seeds: int = 5
     accept_requires_cross_symbol_median_factor_effect_gt_zero: bool = True
-    accept_requires_cross_symbol_median_candidate_return_gt_zero: bool = True
     accept_requires_no_new_termination: bool = True
     accept_requires_all_unaffected_raw_returns_equal: bool = True
+    candidate_profitability_statistics_are_diagnostic_only: bool = True
+    development_acceptance_establishes_profitability: bool = False
+    operational_eligibility_established: bool = False
     valid_non_accept_decision: str = "KEEP_BASELINE"
     invalid_decision: str = "INVALID"
     bootstrap_statistics_are_diagnostic_only: bool = True
@@ -225,13 +237,16 @@ def _canonical_field_values() -> dict[str, object]:
             "candidate_must_not_introduce_new_hard_or_economic_termination"
         ),
         "acceptance_rule_conjunction": "all_conditions_required",
+        "development_acceptance_scope": "robust_factor_improvement",
+        "development_acceptance_gate_metrics": _DEVELOPMENT_ACCEPTANCE_GATE_METRICS,
         "accept_requires_positive_factor_effect_symbols": 5,
-        "accept_requires_positive_candidate_return_symbols": 5,
         "accept_requires_positive_cross_symbol_median_seeds": 5,
         "accept_requires_cross_symbol_median_factor_effect_gt_zero": True,
-        "accept_requires_cross_symbol_median_candidate_return_gt_zero": True,
         "accept_requires_no_new_termination": True,
         "accept_requires_all_unaffected_raw_returns_equal": True,
+        "candidate_profitability_statistics_are_diagnostic_only": True,
+        "development_acceptance_establishes_profitability": False,
+        "operational_eligibility_established": False,
         "valid_non_accept_decision": "KEEP_BASELINE",
         "invalid_decision": "INVALID",
         "bootstrap_statistics_are_diagnostic_only": True,

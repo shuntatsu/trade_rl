@@ -82,8 +82,8 @@ jobs:
           ]
           meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
           PY
-          python3 guide/tools/content_contract.py --refresh-code implementation-ppo
           python3 guide/tools/content_contract.py --refresh implementation-ppo
+          python3 guide/tools/content_contract.py --refresh-code implementation-ppo
           python3 guide/tools/content_contract.py --check
       - name: Commit reviewed docs and remove temporary workflow
         shell: bash

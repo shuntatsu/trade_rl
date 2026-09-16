@@ -1,0 +1,97 @@
+name: tmp Issue 616 result authority hardening
+
+on:
+  push:
+    branches:
+      - automation/issue616-result-authority-hardening
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-evaluation
+  EXPECTED_HEAD: 1f66400735df7cc1a3e8d62c6ac8d2b7807f137f
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+  TEST_ARTIFACT: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
+  TEST_WRAPPER: tests/strategies/test_ridge_economic_gate.py
+  WRAPPER: trade_rl/strategies/forecasts/ridge_economic_gate.py
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add result authority tests first
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py")
+          text = path.read_text()
+          marker = '''    with pytest.raises(ValueError, match="positive_effect_symbols"):\n        RidgeEconomicGateEvaluation(**{**kwargs, "positive_effect_symbols": 4})\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("authority test insertion point drift")
+          addition = '''    with pytest.raises(ValueError, match="spec_digest"):\n        RidgeEconomicGateEvaluation(**{**kwargs, "spec_digest": "d" * 64})\n    with pytest.raises(ValueError, match="dataset_id"):\n        RidgeEconomicGateEvaluation(**{**kwargs, "dataset_id": "e" * 64})\n\n'''
+          path.write_text(text.replace(marker, addition + marker))
+          PY
+      - name: Confirm authority hardening RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          echo ISSUE616_RESULT_AUTHORITY_RED=PASS
+      - name: Bind result to exact sealed spec and Dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py")
+          text = path.read_text()
+          old = '''        _require_hex(self.spec_digest, field="spec_digest")\n        _require_hex(self.dataset_id, field="dataset_id")\n        _require_hex(self.model_sha256, field="model_sha256")\n        if self.symbols != _SYMBOLS:\n'''
+          new = '''        _require_hex(self.spec_digest, field="spec_digest")\n        _require_hex(self.dataset_id, field="dataset_id")\n        _require_hex(self.model_sha256, field="model_sha256")\n        sealed_spec = canonical_ridge_economic_gate_evaluation_spec()\n        if self.spec_digest != sealed_spec.digest:\n            raise ValueError("spec_digest differs from sealed Issue #616 evaluator spec")\n        if self.dataset_id != sealed_spec.dataset_id:\n            raise ValueError("dataset_id differs from sealed Issue #616 evaluator authority")\n        if self.symbols != _SYMBOLS:\n'''
+          if text.count(old) != 1:
+              raise SystemExit("result authority insertion point drift")
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Focused GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$MODULE" "$TEST"
+          uv run ruff format "$MODULE" "$TEST"
+          uv run ruff check "$MODULE" "$WRAPPER" "$TEST" "$TEST_ARTIFACT" "$TEST_WRAPPER"
+          uv run ruff format --check "$MODULE" "$WRAPPER" "$TEST" "$TEST_ARTIFACT" "$TEST_WRAPPER"
+          uv run mypy "$MODULE" "$WRAPPER"
+          uv run pytest -W error::DeprecationWarning -q "$TEST_WRAPPER" "$TEST" "$TEST_ARTIFACT"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST" | sort)"
+          test "$changed" = "$expected"
+      - name: Publish non-force if target unchanged
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE" "$TEST"
+          git commit -m 'research: bind Issue 616 result to sealed evaluator authority'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

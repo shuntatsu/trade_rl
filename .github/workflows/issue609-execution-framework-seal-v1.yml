@@ -1,0 +1,440 @@
+name: Issue 609 execution-framework seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue609-execution-framework-v1
+    paths:
+      - .github/workflows/issue609-execution-framework-seal-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  ISSUE_NUMBER: "609"
+  PREREG_HEAD: 02fd08798b3f23cc3db13d96ac27778e93592019
+  PREREG_PROTOCOL_DIGEST: e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b
+  PREREG_SEAL_RUN_ID: "35088018055"
+  PREREG_SEAL_ARTIFACT_ID: "10443216354"
+  PREREG_SEAL_ARTIFACT_NAME: issue609-evaluation-prereg-seal-v1-35088018055
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:09c9033139b841b3e769ff1fb43fa291092f47fea5718c7ae396aebd71444986
+  PREREG_FRESH_ARTIFACT_ID: "10443355963"
+  PREREG_FRESH_ARTIFACT_NAME: issue609-evaluation-prereg-fresh-v1-35088018055
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:6040f352bebb5c0da94a0c25f0a8e41665788826c980f512588089758d8ab44c
+  FRAMEWORK_HEAD: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_TREE: 3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6
+  FRAMEWORK_BRANCH: hardening/issue609-feature-set-workflow
+  EXACT_VERIFY_RUN_ID: "35091958231"
+  ARTIFACT_HARDENING_RUN_ID: "35089080036"
+  WORKFLOW_HARDENING_RUN_ID: "35089855159"
+
+jobs:
+  seal:
+    name: Seal Issue 609 execution framework
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact framework, verification, and preregistration seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$FRAMEWORK_HEAD"
+          test "$(git ls-remote origin refs/heads/$FRAMEWORK_BRANCH | cut -f1)" = "$FRAMEWORK_HEAD"
+          test "$(git rev-parse "$FRAMEWORK_HEAD^{tree}")" = "$FRAMEWORK_TREE"
+          test "$(git merge-base "$PREREG_HEAD" "$FRAMEWORK_HEAD")" = "$PREREG_HEAD"
+
+          exact="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$exact")" = success
+          exact_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Exact Issue 609 execution-framework Lean Core") | .conclusion' <<<"$exact_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Exact Issue 609 execution-framework Human Guide") | .conclusion' <<<"$exact_jobs")" = success
+
+          for run_id in "$ARTIFACT_HARDENING_RUN_ID" "$WORKFLOW_HARDENING_RUN_ID"; do
+            run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$run_id)"
+            test "$(jq -r .conclusion <<<"$run")" = success
+          done
+
+          prereg="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$prereg")" = success
+          for spec in \
+            "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_NAME|$PREREG_SEAL_ARTIFACT_DIGEST" \
+            "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_NAME|$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+
+          changed="$(git diff --name-only "$PREREG_HEAD..$FRAMEWORK_HEAD" | sort)"
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n' \
+            docs/architecture/controlled-experiment-loop.md \
+            tests/evaluation/experiments/test_issue609_feature_set_workflow.py \
+            tests/evaluation/test_candidate_run_global_context_artifact.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            trade_rl/evaluation/runs/artifact.py | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove permanent execution-framework oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$FRAMEWORK_HEAD"
+          uv run ruff check \
+            trade_rl/evaluation/runs/artifact.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            tests/evaluation/test_candidate_run_global_context_artifact.py \
+            tests/evaluation/experiments/test_issue609_feature_set_workflow.py
+          uv run ruff format --check \
+            trade_rl/evaluation/runs/artifact.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            tests/evaluation/test_candidate_run_global_context_artifact.py \
+            tests/evaluation/experiments/test_issue609_feature_set_workflow.py
+          uv run mypy \
+            trade_rl/evaluation/runs/artifact.py \
+            trade_rl/evaluation/experiments/workflow.py
+          uv run pytest -q \
+            tests/evaluation/test_candidate_run_global_context_artifact.py \
+            tests/evaluation/experiments/test_issue609_feature_set_workflow.py \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_authority.py
+      - name: Materialize execution-framework index and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import hashlib
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          seal_run_id = int(sys.argv[1])
+          files = (
+              ('architecture_doc', 'docs/architecture/controlled-experiment-loop.md'),
+              ('permanent_oracle', 'tests/evaluation/experiments/test_issue609_feature_set_workflow.py'),
+              ('permanent_oracle', 'tests/evaluation/test_candidate_run_global_context_artifact.py'),
+              ('execution_framework', 'trade_rl/evaluation/experiments/workflow.py'),
+              ('execution_framework', 'trade_rl/evaluation/runs/artifact.py'),
+          )
+          entries = []
+          for category, path in files:
+              raw = Path(path).read_bytes()
+              blob = subprocess.check_output(
+                  ['git', 'rev-parse', f'ff332f0cc2dec46828aa1031d438f2f2f1705ba8:{path}'],
+                  text=True,
+              ).strip()
+              entries.append({
+                  'category': category,
+                  'path': path,
+                  'git_blob_sha1': blob,
+                  'sha256': hashlib.sha256(raw).hexdigest(),
+              })
+          index = {
+              'schema_version': 'issue609_execution_framework_index_v1',
+              'issue_number': 609,
+              'preregistration_head': '02fd08798b3f23cc3db13d96ac27778e93592019',
+              'execution_framework_head': 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8',
+              'execution_framework_tree_sha1': '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6',
+              'files': entries,
+          }
+          index['content_digest'] = content_digest(index)
+          index_bytes = canonical_json_bytes(index)
+          Path('/tmp/seal/framework-index.json').write_bytes(index_bytes)
+
+          authority = {
+              'schema_version': 'issue609_execution_framework_seal_v1',
+              'issue_number': 609,
+              'evaluation_preregistration_head': '02fd08798b3f23cc3db13d96ac27778e93592019',
+              'evaluation_preregistration_protocol_digest': 'e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b',
+              'evaluation_preregistration_seal_run_id': 35088018055,
+              'evaluation_preregistration_seal_artifact_id': 10443216354,
+              'evaluation_preregistration_seal_artifact_api_digest': '09c9033139b841b3e769ff1fb43fa291092f47fea5718c7ae396aebd71444986',
+              'evaluation_preregistration_fresh_artifact_id': 10443355963,
+              'evaluation_preregistration_fresh_artifact_api_digest': '6040f352bebb5c0da94a0c25f0a8e41665788826c980f512588089758d8ab44c',
+              'execution_framework_head': 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8',
+              'execution_framework_tree_sha1': '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6',
+              'exact_head_verification_run_id': 35091958231,
+              'artifact_hardening_run_id': 35089080036,
+              'workflow_hardening_run_id': 35089855159,
+              'seal_run_id': seal_run_id,
+              'framework_index_sha256': hashlib.sha256(index_bytes).hexdigest(),
+              'framework_index_content_digest': index['content_digest'],
+              'economic_execution_performed': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/seal/authority.json').write_bytes(canonical_json_bytes(authority))
+          print('FRAMEWORK_INDEX_DIGEST=' + index['content_digest'])
+          print('ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+      - id: meta
+        run: echo "name=issue609-execution-framework-seal-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable execution-framework seal
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent Issue 609 execution-framework reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind sealed upstream authority and exact framework
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FRAMEWORK_HEAD"
+          test "$(git rev-parse "HEAD^{tree}")" = "$FRAMEWORK_TREE"
+          exact="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$exact")" = success
+          for spec in \
+            "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_NAME|$PREREG_SEAL_ARTIFACT_DIGEST" \
+            "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_NAME|$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct exact canonical authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import hashlib
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          seal_run_id = int(sys.argv[1])
+          files = (
+              ('architecture_doc', 'docs/architecture/controlled-experiment-loop.md'),
+              ('permanent_oracle', 'tests/evaluation/experiments/test_issue609_feature_set_workflow.py'),
+              ('permanent_oracle', 'tests/evaluation/test_candidate_run_global_context_artifact.py'),
+              ('execution_framework', 'trade_rl/evaluation/experiments/workflow.py'),
+              ('execution_framework', 'trade_rl/evaluation/runs/artifact.py'),
+          )
+          entries = []
+          for category, path in files:
+              raw = Path(path).read_bytes()
+              blob = subprocess.check_output(
+                  ['git', 'rev-parse', f'ff332f0cc2dec46828aa1031d438f2f2f1705ba8:{path}'],
+                  text=True,
+              ).strip()
+              entries.append({
+                  'category': category,
+                  'path': path,
+                  'git_blob_sha1': blob,
+                  'sha256': hashlib.sha256(raw).hexdigest(),
+              })
+          index = {
+              'schema_version': 'issue609_execution_framework_index_v1',
+              'issue_number': 609,
+              'preregistration_head': '02fd08798b3f23cc3db13d96ac27778e93592019',
+              'execution_framework_head': 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8',
+              'execution_framework_tree_sha1': '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6',
+              'files': entries,
+          }
+          index['content_digest'] = content_digest(index)
+          index_bytes = canonical_json_bytes(index)
+          Path('/tmp/fresh/framework-index.json').write_bytes(index_bytes)
+
+          authority = {
+              'schema_version': 'issue609_execution_framework_seal_v1',
+              'issue_number': 609,
+              'evaluation_preregistration_head': '02fd08798b3f23cc3db13d96ac27778e93592019',
+              'evaluation_preregistration_protocol_digest': 'e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b',
+              'evaluation_preregistration_seal_run_id': 35088018055,
+              'evaluation_preregistration_seal_artifact_id': 10443216354,
+              'evaluation_preregistration_seal_artifact_api_digest': '09c9033139b841b3e769ff1fb43fa291092f47fea5718c7ae396aebd71444986',
+              'evaluation_preregistration_fresh_artifact_id': 10443355963,
+              'evaluation_preregistration_fresh_artifact_api_digest': '6040f352bebb5c0da94a0c25f0a8e41665788826c980f512588089758d8ab44c',
+              'execution_framework_head': 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8',
+              'execution_framework_tree_sha1': '3d195e67a4ac3dff2f2ede4e11bd0bc2bccbfec6',
+              'exact_head_verification_run_id': 35091958231,
+              'artifact_hardening_run_id': 35089080036,
+              'workflow_hardening_run_id': 35089855159,
+              'seal_run_id': seal_run_id,
+              'framework_index_sha256': hashlib.sha256(index_bytes).hexdigest(),
+              'framework_index_content_digest': index['content_digest'],
+              'economic_execution_performed': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/fresh/authority.json').write_bytes(canonical_json_bytes(authority))
+          print('FRESH_FRAMEWORK_INDEX_DIGEST=' + index['content_digest'])
+          PY
+      - id: meta
+        run: echo "name=issue609-execution-framework-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload independent execution-framework reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 609 execution-framework audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: API-bind both immutable reconstruction artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_NAME: ${{ needs.seal.outputs.artifact_name }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_NAME|$SEAL_DIGEST" "$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$artifact")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Require byte identity, content integrity, and closed boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/framework-index.json /tmp/fresh/framework-index.json
+          cmp /tmp/seal/authority.json /tmp/fresh/authority.json
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          index_raw = Path('/tmp/seal/framework-index.json').read_bytes()
+          authority_raw = Path('/tmp/seal/authority.json').read_bytes()
+          index = json.loads(index_raw)
+          authority = json.loads(authority_raw)
+          assert canonical_json_bytes(index) == index_raw
+          assert canonical_json_bytes(authority) == authority_raw
+
+          index_unsigned = dict(index)
+          index_digest = index_unsigned.pop('content_digest')
+          assert content_digest(index_unsigned) == index_digest
+          authority_unsigned = dict(authority)
+          authority_digest = authority_unsigned.pop('content_digest')
+          assert content_digest(authority_unsigned) == authority_digest
+          assert authority['framework_index_sha256'] == hashlib.sha256(index_raw).hexdigest()
+          assert authority['framework_index_content_digest'] == index['content_digest']
+          assert authority['execution_framework_head'] == 'ff332f0cc2dec46828aa1031d438f2f2f1705ba8'
+          assert authority['evaluation_preregistration_protocol_digest'] == 'e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b'
+          assert authority['exact_head_verification_run_id'] == 35091958231
+
+          expected_paths = {
+              'docs/architecture/controlled-experiment-loop.md',
+              'tests/evaluation/experiments/test_issue609_feature_set_workflow.py',
+              'tests/evaluation/test_candidate_run_global_context_artifact.py',
+              'trade_rl/evaluation/experiments/workflow.py',
+              'trade_rl/evaluation/runs/artifact.py',
+          }
+          assert {entry['path'] for entry in index['files']} == expected_paths
+          for entry in index['files']:
+              path = entry['path']
+              raw = Path(path).read_bytes()
+              assert hashlib.sha256(raw).hexdigest() == entry['sha256']
+              blob = subprocess.check_output(
+                  ['git', 'rev-parse', f'ff332f0cc2dec46828aa1031d438f2f2f1705ba8:{path}'],
+                  text=True,
+              ).strip()
+              assert blob == entry['git_blob_sha1']
+
+          forbidden = (
+              authority['economic_execution_performed'],
+              authority['economic_result_inspected'],
+              authority['final_test_access_authorized'],
+              authority['operational_eligibility_established'],
+              authority['production_eligible'],
+              authority['live_trading_authorized'],
+              authority['merge_authorized'],
+          )
+          assert not any(forbidden)
+          print('ISSUE609_EXECUTION_FRAMEWORK_AUDIT=PASS')
+          print('ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+          test "$(git rev-parse HEAD)" = "$FRAMEWORK_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"

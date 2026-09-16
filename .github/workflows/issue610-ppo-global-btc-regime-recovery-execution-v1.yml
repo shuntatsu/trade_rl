@@ -1,0 +1,273 @@
+name: Issue 610 PPO global-BTC recovery execution v1
+
+on:
+  push:
+    branches:
+      - run/issue610-ppo-global-btc-regime-evaluation-recovery-v1
+    paths:
+      - .github/workflows/issue610-ppo-global-btc-regime-recovery-execution-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue610-ppo-global-btc-regime-recovery-execution-v1
+  cancel-in-progress: false
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  IMPLEMENTATION_TREE: 4f14c5a06505b8ff9811b473bf6dea296453a13b
+  FRAMEWORK_SHA: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_ARTIFACT_BLOB: 8f95053b62239d674c18ed8564ffe4fc2c1ceaf6
+  ORCHESTRATOR_SHA: 75e09e0d71a164130a527783619e85a37eb883af
+  ORCHESTRATOR_VERIFY_RUN: '35101595997'
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_DIGEST: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+  PRECOMPUTE_FRESH_ID: '10447607272'
+  PRECOMPUTE_FRESH_DIGEST: sha256:8b8d909facf14e453853cfc29d64275674779172cfa84c22b0e9541007c563ec
+  RECOVERY_RUN: '35102584101'
+  RECOVERY_NAME: issue610-preexecution-recovery-authority-v1-35102584101
+  RECOVERY_ID: '10448459422'
+  RECOVERY_DIGEST: sha256:27ef65cb4febcaaa040596e346b3d0a834ed25f440a74bb4d6edba42bfab8779
+  RECOVERY_FRESH_ID: '10448937936'
+  RECOVERY_FRESH_DIGEST: sha256:617605e13eca0dff5520376e4121369424df297798583e608cf94ebf355a2981
+  FAILED_RUN: '35102237151'
+  BASELINE_RUN: '34700123151'
+  BASELINE_PUBLISH_JOB: '103570282369'
+  BASELINE_NAME: canonical-m2-portable-baseline-v1-34700123151
+  BASELINE_ID: '10301701698'
+  BASELINE_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  BASELINE_POSTVERIFY_RUN: '34704606059'
+
+jobs:
+  candidate:
+    name: Exactly-once recovery candidate execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      candidate_fingerprint: ${{ steps.meta.outputs.candidate_fingerprint }}
+      candidate_authority_digest: ${{ steps.meta.outputs.candidate_authority_digest }}
+      recovery_binding_digest: ${{ steps.meta.outputs.recovery_binding_digest }}
+    steps:
+      - name: Enforce one authorized recovery execution only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          echo ISSUE610_RECOVERY_EXACTLY_ONCE_ENVELOPE=PASS
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ORCHESTRATOR_SHA }}
+          path: orchestrator
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact code and all result-blind authorities before training
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C code rev-parse HEAD^{tree})" = "$IMPLEMENTATION_TREE"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          test "$(git -C framework rev-parse HEAD:trade_rl/evaluation/runs/artifact.py)" = "$FRAMEWORK_ARTIFACT_BLOB"
+          test "$(git -C orchestrator rev-parse HEAD)" = "$ORCHESTRATOR_SHA"
+
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORCHESTRATOR_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$ORCHESTRATOR_SHA"
+
+          precompute="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRECOMPUTE_RUN")"
+          test "$(jq -r .status <<<"$precompute")" = completed
+          test "$(jq -r .conclusion <<<"$precompute")" = success
+          recovery="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN")"
+          test "$(jq -r .status <<<"$recovery")" = completed
+          test "$(jq -r .conclusion <<<"$recovery")" = success
+          recovery_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN/jobs?per_page=100")"
+          for job in 'Produce provenance-only recovery authority' 'Independently reconstruct recovery authority' 'Final pre-execution recovery audit'; do
+            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' <<<"$recovery_jobs")" = success
+          done
+
+          check() {
+            local id="$1" digest="$2" run_id="$3"
+            local p
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$run_id"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          check "$PRECOMPUTE_ID" "$PRECOMPUTE_DIGEST" "$PRECOMPUTE_RUN"
+          check "$PRECOMPUTE_FRESH_ID" "$PRECOMPUTE_FRESH_DIGEST" "$PRECOMPUTE_RUN"
+          check "$RECOVERY_ID" "$RECOVERY_DIGEST" "$RECOVERY_RUN"
+          check "$RECOVERY_FRESH_ID" "$RECOVERY_FRESH_DIGEST" "$RECOVERY_RUN"
+          check "$BASELINE_ID" "$BASELINE_DIGEST" "$BASELINE_RUN"
+
+          failed_artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN/artifacts?per_page=100")"
+          test "$(jq -r .total_count <<<"$failed_artifacts")" = 0
+          publisher="$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$BASELINE_PUBLISH_JOB")"
+          test "$(jq -r .conclusion <<<"$publisher")" = success
+          post="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BASELINE_POSTVERIFY_RUN")"
+          test "$(jq -r .conclusion <<<"$post")" = success
+
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result|fresh-result)-v1-' <<<"$names"
+          echo ISSUE610_PRIOR_CANDIDATE_OR_RESULT_ARTIFACTS=0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.RECOVERY_NAME }}
+          path: /tmp/recovery
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.RECOVERY_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Validate recovery authority and reprove artifact bridge immediately before training
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r .recovery_candidate_execution_authorized /tmp/recovery/authority.json)" = true
+          test "$(jq -r .failed_run_candidate_training_performed /tmp/recovery/authority.json)" = false
+          test "$(jq -r .failed_run_candidate_artifact_published /tmp/recovery/authority.json)" = false
+          test "$(jq -r .correct_precompute_producer_api_digest /tmp/recovery/authority.json)" = "$PRECOMPUTE_DIGEST"
+          test "$(jq -r .correct_precompute_fresh_api_digest /tmp/recovery/authority.json)" = "$PRECOMPUTE_FRESH_DIGEST"
+          test "$(jq -r .recovery_requires_distinct_workflow /tmp/recovery/authority.json)" = true
+          test "$(jq -r .recovery_requires_run_number_one /tmp/recovery/authority.json)" = true
+          test "$(jq -r .recovery_requires_run_attempt_one /tmp/recovery/authority.json)" = true
+          rm -rf /tmp/issue610-bridge-check
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            bridge-check \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --output-root /tmp/issue610-bridge-check
+      - name: Execute the candidate exactly once without economic interpretation
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          rm -rf /tmp/candidate
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            execute \
+            --source-root /tmp/baseline \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/candidate \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --execution-run-id "$GITHUB_RUN_ID" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST"
+      - id: meta
+        name: Bind recovery authority into candidate artifact without interpreting returns
+        working-directory: code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/recovery/authority.json /tmp/candidate/recovery-authority.json
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          recovery = json.loads(Path('/tmp/recovery/authority.json').read_text())
+          candidate = json.loads(Path('/tmp/candidate/candidate-authority.json').read_text())
+          binding = {
+              'schema_version': 'issue610_candidate_recovery_binding_v1',
+              'issue_number': 610,
+              'candidate_execution_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'recovery_run_id': int(os.environ['RECOVERY_RUN']),
+              'recovery_artifact_id': int(os.environ['RECOVERY_ID']),
+              'recovery_artifact_api_digest': os.environ['RECOVERY_DIGEST'],
+              'recovery_authority_content_digest': recovery['content_digest'],
+              'failed_execution_run_id': int(os.environ['FAILED_RUN']),
+              'precompute_run_id': int(os.environ['PRECOMPUTE_RUN']),
+              'precompute_artifact_id': int(os.environ['PRECOMPUTE_ID']),
+              'precompute_artifact_api_digest': os.environ['PRECOMPUTE_DIGEST'],
+              'candidate_evidence_fingerprint': candidate['candidate_evidence_fingerprint'],
+              'candidate_authority_content_digest': candidate['content_digest'],
+              'failed_run_candidate_training_performed': False,
+              'recovery_candidate_training_performed': True,
+              'economic_values_interpreted': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          binding['content_digest'] = content_digest(binding)
+          Path('/tmp/candidate/recovery-binding.json').write_bytes(canonical_json_bytes(binding))
+          print('RECOVERY_BINDING=' + binding['content_digest'])
+          PY
+          test "$(jq -r .candidate_training_performed /tmp/candidate/candidate-authority.json)" = true
+          test "$(jq -r .economic_values_interpreted /tmp/candidate/candidate-authority.json)" = false
+          test "$(jq -r .economic_values_interpreted /tmp/candidate/recovery-binding.json)" = false
+          test "$(jq -r .final_test_accessed /tmp/candidate/recovery-binding.json)" = false
+          echo "candidate_fingerprint=$(jq -r .candidate_evidence_fingerprint /tmp/candidate/candidate-authority.json)" >> "$GITHUB_OUTPUT"
+          echo "candidate_authority_digest=$(jq -r .content_digest /tmp/candidate/candidate-authority.json)" >> "$GITHUB_OUTPUT"
+          echo "recovery_binding_digest=$(jq -r .content_digest /tmp/candidate/recovery-binding.json)" >> "$GITHUB_OUTPUT"
+      - id: name
+        run: echo "artifact_name=issue610-ppo-global-btc-regime-candidate-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        name: Publish immutable recovery candidate evidence before any interpretation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/candidate
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish failure diagnostics without authorizing another retry
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue610-ppo-global-btc-regime-recovery-execution-failure-v1-${{ github.run_id }}
+          path: |
+            /tmp/candidate
+            /tmp/issue610-bridge-check
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: ignore

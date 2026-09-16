@@ -10,6 +10,7 @@ from statistics import median
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
@@ -114,14 +115,6 @@ def _strict_equal(left: object, right: object) -> bool:
             _strict_equal(a, b) for a, b in zip(left, right, strict=True)
         )
     return bool(left == right)
-
-
-def _require_hex(value: object, *, field: str, length: int = 64) -> str:
-    if not isinstance(value, str) or len(value) != length:
-        raise ValueError(f"{field} must be a {length}-character lowercase hex digest")
-    if value.lower() != value or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError(f"{field} must be a {length}-character lowercase hex digest")
-    return value
 
 
 def _json_value(value: object) -> object:
@@ -232,7 +225,7 @@ class RidgeEconomicGateCostAuthority:
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
-        _require_hex(
+        require_sha256(
             self.source_artifact_api_digest, field="source Artifact API digest"
         )
         if self.schema_version != _COST_AUTHORITY_SCHEMA_VERSION:
@@ -365,8 +358,8 @@ class RidgeEconomicGateSymbolResult:
         )
         if self.new_termination is not expected_new:
             raise ValueError("new_termination does not match termination evidence")
-        _require_hex(self.baseline_return_sha256, field="baseline return SHA-256")
-        _require_hex(self.candidate_return_sha256, field="candidate return SHA-256")
+        require_sha256(self.baseline_return_sha256, field="baseline return SHA-256")
+        require_sha256(self.candidate_return_sha256, field="candidate return SHA-256")
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -424,7 +417,7 @@ class RidgeEconomicGateEvaluation:
             raise ValueError("unsupported ridge economic-gate result schema")
         if self.spec_digest != spec.digest:
             raise ValueError("spec_digest differs from frozen evaluation authority")
-        _require_hex(self.cost_authority_digest, field="cost authority digest")
+        require_sha256(self.cost_authority_digest, field="cost authority digest")
         if self.dataset_id != spec.dataset_id:
             raise ValueError("dataset_id differs from frozen evaluation authority")
         if (

@@ -10,9 +10,9 @@ Local repository tooling (`python -m tools.agent_repo`) は preflight / context 
 
 ## Git / PR boundary
 
-Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。Integration invariant: tested PR head contains current `main`. merge authorizationの直前にcurrent `main` のSHAを再確認し、tested PR headがそのcommitを包含していることと、その同一PR HEADに対する最新CI結果を確認する。`main` が進んだ場合、古いGreenを再利用せず、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作って再検証する。
+Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。Integration invariant: tested PR head contains current `main`. merge直前にcurrent `main` のSHAを再確認し、tested PR headがそのcommitを包含していることと、その同一PR HEADに対する最新CI結果を確認する。`main` が進んだ場合、古いGreenを再利用せず、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作って再検証する。
 
-Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。mergeは明示的なユーザー許可を要する。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
+Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。Acceptance Criteriaと必要なverificationを満たし、current `main`を包含するfinal PR HEADのrequired checksがGreenなら、Integratorは追加のユーザー確認なしに通常のPR経路でmergeしてよい。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
 
 ## Remote branch hygiene
 

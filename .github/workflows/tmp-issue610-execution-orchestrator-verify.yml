@@ -1,0 +1,116 @@
+name: tmp Issue 610 execution orchestrator verification
+
+on:
+  push:
+    branches:
+      - verify/issue610-execution-orchestrator-v1
+    paths:
+      - .github/workflows/tmp-issue610-execution-orchestrator-verify.yml
+      - tools/tmp_issue610_exact_once_orchestrator.py
+      - tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+
+permissions:
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  IMPLEMENTATION_TREE: 4f14c5a06505b8ff9811b473bf6dea296453a13b
+  HELPER_SHA: 358b4917e988561f9a5601ef25a6d53291e07585
+  FRAMEWORK_SHA: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  FRAMEWORK_ARTIFACT_BLOB: 8f95053b62239d674c18ed8564ffe4fc2c1ceaf6
+
+jobs:
+  verify:
+    name: Exact Issue 610 orchestrator synthetic verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FRAMEWORK_SHA }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: orchestrator
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact sealed sources and orchestration-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C code rev-parse HEAD^{tree})" = "$IMPLEMENTATION_TREE"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          test "$(git -C framework rev-parse HEAD:trade_rl/evaluation/runs/artifact.py)" = "$FRAMEWORK_ARTIFACT_BLOB"
+          test "$(git -C orchestrator rev-parse "$HELPER_SHA:trade_rl")" = "$(git -C orchestrator rev-parse HEAD:trade_rl)"
+          changed="$(git -C orchestrator diff --name-only "$HELPER_SHA..HEAD" | sort)"
+          expected="$(printf '%s\n%s\n%s\n' \
+            .github/workflows/tmp-issue610-execution-orchestrator-verify.yml \
+            tests/tools/test_tmp_issue610_exact_once_orchestrator.py \
+            tools/tmp_issue610_exact_once_orchestrator.py | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static checks on external orchestrator only
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+          MYPYPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_exact_once_orchestrator.py"
+          uv run ruff format --check \
+            "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_exact_once_orchestrator.py"
+          uv run mypy \
+            "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_exact_once_orchestrator.py"
+      - name: Pure fail-closed regression tests
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        run: |
+          uv run pytest -q \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py" \
+            "$GITHUB_WORKSPACE/orchestrator/tests/tools/test_tmp_issue610_execution_safety.py"
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" self-check
+      - name: Cross-version artifact bridge round-trip and tamper rejection
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue610-bridge-check
+          uv run python "$GITHUB_WORKSPACE/orchestrator/tools/tmp_issue610_exact_once_orchestrator.py" \
+            bridge-check \
+            --artifact-module "$GITHUB_WORKSPACE/framework/trade_rl/evaluation/runs/artifact.py" \
+            --output-root /tmp/issue610-bridge-check
+      - name: Prove no economic execution or final-test access occurred
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C framework rev-parse HEAD)" = "$FRAMEWORK_SHA"
+          test -z "$(git -C code status --porcelain --untracked-files=no)"
+          test -z "$(git -C framework status --porcelain --untracked-files=no)"
+          echo CANDIDATE_TRAINING_PERFORMED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo FINAL_TEST_ACCESSED=false

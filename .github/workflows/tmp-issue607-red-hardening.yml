@@ -1,0 +1,87 @@
+name: Temporary Issue 607 RED hardening
+
+on:
+  push:
+    branches:
+      - automation/issue607-red-hardening
+    paths:
+      - .github/workflows/tmp-issue607-red-hardening.yml
+
+permissions:
+  contents: write
+
+env:
+  RED_SHA: 8b707114767bc719dbf8bc5a77ac89991b33e2a5
+  TARGET_BRANCH: verify/issue607-global-btc-regime-red
+  STRATEGY_TEST: tests/strategies/test_ppo_global_btc_regime.py
+  CONFIG_TEST: tests/evaluation/test_issue607_candidate_config.py
+  DELTA_TEST: tests/evaluation/experiments/test_delta.py
+
+jobs:
+  harden_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard current RED and harden only test oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          strategy = Path('tests/strategies/test_ppo_global_btc_regime.py')
+          text = strategy.read_text()
+          old = '''    nonfinite, _ = _candidate_env(\n        _market(\n            reference_available=True,\n            reference_value=float("nan"),\n            reference_staleness=0.7,\n        ),\n        symbol_index=1,\n    ).reset(seed=3)\n'''
+          new = '''    nonfinite_dataset = _market(\n        reference_available=True,\n        reference_value=0.25,\n        reference_staleness=0.7,\n    )\n    corrupted_features = nonfinite_dataset.features.copy()\n    corrupted_features[0, 0, 0] = np.nan\n    corrupted_features.setflags(write=False)\n    object.__setattr__(nonfinite_dataset, "features", corrupted_features)\n    nonfinite, _ = _candidate_env(nonfinite_dataset, symbol_index=1).reset(seed=3)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('nonfinite fixture anchor differs')
+          strategy.write_text(text.replace(old, new))
+
+          delta = Path('tests/evaluation/experiments/test_delta.py')
+          text = delta.read_text()
+          old_rule = '''        frozenset({("feature_names",), ("feature_indices",)}),\n'''
+          new_rule = '''        frozenset(\n            {\n                ("feature_names",),\n                ("feature_indices",),\n                ("schema_version",),\n                ("ppo_observation_schema",),\n                ("ppo_global_context",),\n            }\n        ),\n'''
+          if text.count(old_rule) != 1:
+              raise SystemExit('feature-set expected rule anchor differs')
+          text = text.replace(old_rule, new_rule)
+          append_anchor = '''def test_candidate_evidence_must_match_frozen_definition_exactly() -> None:\n'''
+          if text.count(append_anchor) != 1:
+              raise SystemExit('delta append anchor differs')
+          added = '''def test_global_btc_regime_context_is_controlled_and_all_non_ppo_is_invariant() -> None:\n    base = _resolved()\n    plan = _plan(base)\n    baseline = _loaded_evidence(base, plan)\n    candidate_config = replace(\n        base,\n        schema_version="resolved_run_config_v3",\n        ppo_observation_schema="ppo_observation_v3_global_btc_regime",\n        ppo_global_context="ppo_global_btc_regime_context",\n    )\n    definition = _definition(\n        plan=plan,\n        baseline=baseline,\n        factor=ControlledFactor.FEATURE_SET,\n        candidate=candidate_config,\n    )\n\n    controlled = verify_controlled_delta(\n        plan=plan,\n        definition=definition,\n        baseline=baseline,\n        candidate=_loaded_evidence(candidate_config, plan),\n    )\n    assert controlled.status is ControlledVerificationStatus.CONTROLLED\n    assert controlled.changed_paths == (\n        ("ppo_global_context",),\n        ("ppo_observation_schema",),\n        ("schema_version",),\n    )\n    assert controlled.violations == ()\n\n    ridge_drift = verify_controlled_delta(\n        plan=plan,\n        definition=definition,\n        baseline=baseline,\n        candidate=_loaded_evidence(\n            candidate_config,\n            plan,\n            strategy_drift="ridge24",\n        ),\n    )\n    assert ridge_drift.status is ControlledVerificationStatus.INVALID\n    assert any("unaffected strategy" in item for item in ridge_drift.violations)\n\n    ppo_drift = verify_controlled_delta(\n        plan=plan,\n        definition=definition,\n        baseline=baseline,\n        candidate=_loaded_evidence(\n            candidate_config,\n            plan,\n            strategy_drift="ppo",\n        ),\n    )\n    assert ppo_drift.status is ControlledVerificationStatus.CONTROLLED\n\n\n'''
+          text = text.replace(append_anchor, added + append_anchor)
+          delta.write_text(text)
+          PY
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$DELTA_TEST" "$STRATEGY_TEST" | sort)"
+          test "$actual" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format and statically verify strengthened RED tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$STRATEGY_TEST" "$CONFIG_TEST" "$DELTA_TEST"
+          uv run ruff format "$STRATEGY_TEST" "$CONFIG_TEST" "$DELTA_TEST"
+          uv run ruff check "$STRATEGY_TEST" "$CONFIG_TEST" "$DELTA_TEST"
+          uv run ruff format --check "$STRATEGY_TEST" "$CONFIG_TEST" "$DELTA_TEST"
+          git diff --check
+      - name: Publish hardened test-only RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$STRATEGY_TEST" "$DELTA_TEST"
+          git commit -m "test: harden Issue 607 controlled-factor oracle"
+          test "$(git rev-parse HEAD^)" = "$RED_SHA"
+          git push origin HEAD:"$TARGET_BRANCH"

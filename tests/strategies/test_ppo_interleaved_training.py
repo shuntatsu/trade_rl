@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
@@ -208,6 +209,15 @@ def test_interleaved_fit_rejects_invalid_training_contract(
 
     with pytest.raises(ValueError, match=message):
         interleaved_fit(**overrides)
+
+
+def test_interleaved_fit_rejects_stochastic_execution_slippage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    with pytest.raises(ValueError, match="deterministic execution"):
+        interleaved_fit(execution_cost=ExecutionCostConfig(slippage_std=0.01))
 
 
 def test_interleaved_fit_accepts_implicit_full_symbol_roster(

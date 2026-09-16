@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import os
 import sys
 from collections import Counter
 from collections.abc import Mapping
@@ -22,6 +21,17 @@ from typing import Any, cast
 
 import numpy as np
 
+import trade_rl.evaluation.experiments.evidence as evidence_module
+from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
+    EXPECTED_SEMANTIC_CHANGED_FIELDS,
+    build_candidate_carrier_plan,
+    candidate_run_config_from_resolved,
+    evaluate_frozen_gate,
+    execute_candidate_after_precompute_gate,
+    validate_candidate_ppo_returns,
+    validate_controlled_semantic_delta,
+    validate_unaffected_raw_returns,
+)
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
@@ -31,7 +41,6 @@ from trade_rl.data import (
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
 from trade_rl.evaluation.experiments import inspect_study
 from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
-import trade_rl.evaluation.experiments.evidence as evidence_module
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs import (
     CandidateRunConfig,
@@ -44,16 +53,6 @@ from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_BTC_REGIME_CONTEXT,
     PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
     ppo_observation_contract_payload,
-)
-from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
-    EXPECTED_SEMANTIC_CHANGED_FIELDS,
-    build_candidate_carrier_plan,
-    candidate_run_config_from_resolved,
-    evaluate_frozen_gate,
-    execute_candidate_after_precompute_gate,
-    validate_candidate_ppo_returns,
-    validate_controlled_semantic_delta,
-    validate_unaffected_raw_returns,
 )
 
 ISSUE_NUMBER = 610
@@ -91,7 +90,9 @@ UNAFFECTED_STRATEGIES = (
 def _load_canonical_object(path: Path) -> tuple[dict[str, object], bytes]:
     raw = path.read_bytes()
     payload = json.loads(raw)
-    if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
+    if not isinstance(payload, dict) or any(
+        not isinstance(key, str) for key in payload
+    ):
         raise ValueError(f"canonical object required: {path}")
     if canonical_json_bytes(payload) != raw:
         raise ValueError(f"non-canonical JSON: {path}")
@@ -178,14 +179,22 @@ def install_artifact_bridge(artifact_module_path: Path) -> ModuleType:
             raise RuntimeError(f"external artifact contract missing callable: {name}")
     evidence_module.publish_candidate_run = module.publish_candidate_run  # type: ignore[attr-defined]
     evidence_module.load_candidate_run_artifact = module.load_candidate_run_artifact  # type: ignore[attr-defined]
-    evidence_module.inspect_candidate_run_artifact = module.inspect_candidate_run_artifact  # type: ignore[attr-defined]
+    evidence_module.inspect_candidate_run_artifact = (
+        module.inspect_candidate_run_artifact
+    )  # type: ignore[attr-defined]
     return module
 
 
-def _candidate_contract(source_plan: Any, precompute: Mapping[str, object]) -> tuple[Any, CandidateRunConfig, Any]:
+def _candidate_contract(
+    source_plan: Any, precompute: Mapping[str, object]
+) -> tuple[Any, CandidateRunConfig, Any]:
     provenance = build_candidate_run_provenance()
-    if provenance.get("implementation_digest") != precompute.get("implementation_digest"):
-        raise RuntimeError("current Issue 607 implementation digest differs from precompute")
+    if provenance.get("implementation_digest") != precompute.get(
+        "implementation_digest"
+    ):
+        raise RuntimeError(
+            "current Issue 607 implementation digest differs from precompute"
+        )
     if provenance.get("runtime_environment_digest") != precompute.get(
         "runtime_environment_digest"
     ):
@@ -216,21 +225,29 @@ def _candidate_contract(source_plan: Any, precompute: Mapping[str, object]) -> t
         runtime_environment_digest=str(provenance["runtime_environment_digest"]),
     )
     if carrier.digest != precompute.get("candidate_carrier_study_digest"):
-        raise RuntimeError("candidate carrier StudyPlan differs from precompute authority")
+        raise RuntimeError(
+            "candidate carrier StudyPlan differs from precompute authority"
+        )
     if content_digest(resolved.to_payload()) != precompute.get(
         "candidate_resolved_config_digest"
     ):
-        raise RuntimeError("candidate resolved config differs from precompute authority")
+        raise RuntimeError(
+            "candidate resolved config differs from precompute authority"
+        )
     if content_digest(executable.to_json_payload()) != precompute.get(
         "candidate_requested_config_digest"
     ):
-        raise RuntimeError("candidate executable config differs from precompute authority")
+        raise RuntimeError(
+            "candidate executable config differs from precompute authority"
+        )
     return resolved, executable, carrier
 
 
 def _strict_source(source_root: Path) -> tuple[Any, Any, Any]:
     dataset = load_market_dataset_artifact(source_root / "dataset")
-    dataset_artifact = inspect_published_market_dataset_artifact(source_root / "dataset")
+    dataset_artifact = inspect_published_market_dataset_artifact(
+        source_root / "dataset"
+    )
     snapshot = inspect_study(source_root / "study")
     baseline = evidence_module.load_evidence_set(
         source_root / "study" / "baseline" / "evidence"
@@ -262,7 +279,10 @@ def _run_return_matrix(loaded: Any) -> dict[int, dict[tuple[str, str], np.ndarra
             continue
         cells: dict[tuple[str, str], np.ndarray] = {}
         for symbol, symbol_entry in zip(SYMBOLS, by_symbol, strict=True):
-            if not isinstance(symbol_entry, dict) or symbol_entry.get("symbol") != symbol:
+            if (
+                not isinstance(symbol_entry, dict)
+                or symbol_entry.get("symbol") != symbol
+            ):
                 continue
             strategies = symbol_entry.get("strategies")
             if not isinstance(strategies, list):
@@ -272,7 +292,11 @@ def _run_return_matrix(loaded: Any) -> dict[int, dict[tuple[str, str], np.ndarra
                     continue
                 name = strategy.get("name")
                 key = strategy.get("return_key")
-                if isinstance(name, str) and isinstance(key, str) and key in run.returns:
+                if (
+                    isinstance(name, str)
+                    and isinstance(key, str)
+                    and key in run.returns
+                ):
                     cells[(symbol, name)] = run.returns[key]
         matrix[seed] = cells
     return matrix
@@ -341,7 +365,9 @@ def termination_violations(baseline: Any, candidate: Any) -> tuple[str, ...]:
                 ):
                     violations.append(f"new PPO termination reason: {label}")
             except ValueError as error:
-                violations.append(f"termination evidence malformed: seed={seed} symbol={symbol}: {error}")
+                violations.append(
+                    f"termination evidence malformed: seed={seed} symbol={symbol}: {error}"
+                )
     return tuple(violations)
 
 
@@ -394,20 +420,31 @@ def execute_candidate(
         symbols=SYMBOLS,
     )
     if ppo_violations:
-        raise RuntimeError("candidate PPO raw evidence invalid: " + "; ".join(ppo_violations))
+        raise RuntimeError(
+            "candidate PPO raw evidence invalid: " + "; ".join(ppo_violations)
+        )
     expected_observation = ppo_observation_contract_payload(
         global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT
     )
     for seed in SEEDS:
         run = loaded.runs[seed]
         config = run.summary.get("candidate_config")
-        if not isinstance(config, dict) or config.get("ppo_global_context") != PPO_GLOBAL_BTC_REGIME_CONTEXT:
+        if (
+            not isinstance(config, dict)
+            or config.get("ppo_global_context") != PPO_GLOBAL_BTC_REGIME_CONTEXT
+        ):
             raise RuntimeError(f"candidate run global context missing: seed={seed}")
         if run.summary.get("ppo_observation") != expected_observation:
             raise RuntimeError(f"candidate observation authority mismatch: seed={seed}")
-        if run.provenance.get("implementation_digest") != precompute.get("implementation_digest"):
-            raise RuntimeError(f"candidate implementation provenance mismatch: seed={seed}")
-        if run.provenance.get("runtime_environment_digest") != precompute.get("runtime_environment_digest"):
+        if run.provenance.get("implementation_digest") != precompute.get(
+            "implementation_digest"
+        ):
+            raise RuntimeError(
+                f"candidate implementation provenance mismatch: seed={seed}"
+            )
+        if run.provenance.get("runtime_environment_digest") != precompute.get(
+            "runtime_environment_digest"
+        ):
             raise RuntimeError(f"candidate runtime provenance mismatch: seed={seed}")
         if run.provenance.get("research_context_digest") != research_context_digest:
             raise RuntimeError(f"candidate research context mismatch: seed={seed}")
@@ -557,7 +594,9 @@ def interpret_candidate(
         )
 
     cross_symbol = comparison.get("cross_symbol")
-    if not isinstance(cross_symbol, dict) or not isinstance(cross_symbol.get("ppo"), dict):
+    if not isinstance(cross_symbol, dict) or not isinstance(
+        cross_symbol.get("ppo"), dict
+    ):
         raise RuntimeError("comparison PPO cross-symbol diagnostics missing")
     ppo_diagnostic = cast(dict[str, object], cross_symbol["ppo"])
 
@@ -612,8 +651,16 @@ def synthetic_bridge_check(artifact_module_path: Path, output_root: Path) -> Non
     module = install_artifact_bridge(artifact_module_path)
     n = 8
     close = np.asarray(
-        [[100.0, 100.0], [100.0, 100.0], [105.0, 95.0], [110.0, 90.0],
-         [115.0, 85.0], [120.0, 80.0], [125.0, 75.0], [130.0, 70.0]]
+        [
+            [100.0, 100.0],
+            [100.0, 100.0],
+            [105.0, 95.0],
+            [110.0, 90.0],
+            [115.0, 85.0],
+            [120.0, 80.0],
+            [125.0, 75.0],
+            [130.0, 70.0],
+        ]
     )
     signal = np.linspace(-1.0, 1.0, n, dtype=np.float32)
     features = np.stack((signal, -signal), axis=1).reshape(n, 2, 1)
@@ -627,40 +674,62 @@ def synthetic_bridge_check(artifact_module_path: Path, output_root: Path) -> Non
         + np.arange(n) * np.timedelta64(1, "h"),
         features=features,
         global_features=np.zeros((n, 1), dtype=np.float32),
-        open=close.copy(), high=close.copy(), low=close.copy(), close=close,
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
         volume=np.full((n, 2), 1_000_000.0),
         funding_rate=np.zeros((n, 2)),
         tradable=np.ones((n, 2), dtype=np.bool_),
         feature_available=np.ones((n, 2, 1), dtype=np.bool_),
-        feature_names=("signal",), global_feature_names=("regime",),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
         periods_per_year=8_760,
     )
     config = CandidateRunConfig(
-        signal_name="signal", feature_names=("signal",), fit_symbol_names=("BTCUSDT",),
+        signal_name="signal",
+        feature_names=("signal",),
+        fit_symbol_names=("BTCUSDT",),
         fit_cutoff=np.datetime64("2026-01-01T04:00:00", "ns"),
         evaluation_start=np.datetime64("2026-01-01T04:00:00", "ns"),
         evaluation_stop_exclusive=np.datetime64("2026-01-01T07:00:00", "ns"),
-        rule_entry_threshold=0.10, rule_exit_threshold=0.02,
-        forecast_entry_threshold=0.01, forecast_exit_threshold=0.002,
-        ppo_total_timesteps=256, ppo_seed=7, gross_budget=0.5,
-        initial_capital=1_000.0, ppo_global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT,
+        rule_entry_threshold=0.10,
+        rule_exit_threshold=0.02,
+        forecast_entry_threshold=0.01,
+        forecast_exit_threshold=0.002,
+        ppo_total_timesteps=256,
+        ppo_seed=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        ppo_global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT,
     )
     spec = resolve_candidate_run_spec(
-        dataset, dataset_artifact_schema="market_dataset_artifact_v3",
-        dataset_artifact_digest="d" * 64, config=config,
+        dataset,
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
     )
     comparison = compare_strategies_by_symbol(
-        dataset, {"cash": ConstantIntentStrategy(PositionIntent.FLAT)},
-        start_index=4, stop_index=7, gross_budget=0.5, initial_capital=1_000.0,
+        dataset,
+        {"cash": ConstantIntentStrategy(PositionIntent.FLAT)},
+        start_index=4,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
     )
-    result = CandidateRunResult(spec=spec, symbols=tuple(dataset.symbols), comparison=comparison)
+    result = CandidateRunResult(
+        spec=spec, symbols=tuple(dataset.symbols), comparison=comparison
+    )
     artifact = module.publish_candidate_run(
         output_root / "candidate",
         result,
         build_candidate_run_provenance(research_context_digest="e" * 64),
     )
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    if summary["candidate_config"]["ppo_global_context"] != PPO_GLOBAL_BTC_REGIME_CONTEXT:
+    if (
+        summary["candidate_config"]["ppo_global_context"]
+        != PPO_GLOBAL_BTC_REGIME_CONTEXT
+    ):
         raise RuntimeError("bridge did not persist global context")
     if summary["ppo_observation"] != ppo_observation_contract_payload(
         global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT
@@ -710,7 +779,9 @@ def self_check() -> None:
         "production_eligible": False,
         "live_trading_authorized": False,
         "merge_authorized": False,
-        "expected_semantic_changed_paths": [list(path) for path in EXPECTED_SEMANTIC_CHANGED_FIELDS],
+        "expected_semantic_changed_paths": [
+            list(path) for path in EXPECTED_SEMANTIC_CHANGED_FIELDS
+        ],
         "unaffected_strategy_names": list(UNAFFECTED_STRATEGIES),
         "implementation_digest": "a" * 64,
         "runtime_environment_digest": "b" * 64,
@@ -723,7 +794,10 @@ def self_check() -> None:
         raise RuntimeError("valid precompute fixture was rejected")
     bad = dict(payload)
     bad["candidate_training_performed"] = True
-    if "precompute authority mismatch: candidate_training_performed" not in validate_precompute_authority(bad):
+    if (
+        "precompute authority mismatch: candidate_training_performed"
+        not in validate_precompute_authority(bad)
+    ):
         raise RuntimeError("invalid precompute fixture was accepted")
 
     baseline_entry = {
@@ -762,10 +836,16 @@ def self_check() -> None:
         )
         for seed in SEEDS
     }
-    if termination_violations(SimpleNamespace(runs=baseline_runs), SimpleNamespace(runs=fake_runs)):
+    if termination_violations(
+        SimpleNamespace(runs=baseline_runs), SimpleNamespace(runs=fake_runs)
+    ):
         raise RuntimeError("equal termination evidence was rejected")
-    fake_runs[0].summary["by_symbol"][0]["strategies"][0]["metrics"]["termination_count"] = 2
-    if not termination_violations(SimpleNamespace(runs=baseline_runs), SimpleNamespace(runs=fake_runs)):
+    fake_runs[0].summary["by_symbol"][0]["strategies"][0]["metrics"][
+        "termination_count"
+    ] = 2
+    if not termination_violations(
+        SimpleNamespace(runs=baseline_runs), SimpleNamespace(runs=fake_runs)
+    ):
         raise RuntimeError("new termination evidence was accepted")
     print("ISSUE610_ORCHESTRATOR_SELF_CHECK=PASS")
 

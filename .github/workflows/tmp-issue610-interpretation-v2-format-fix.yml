@@ -1,0 +1,57 @@
+name: tmp Issue 610 interpretation v2 format fix
+
+on:
+  push:
+    branches:
+      - verify/issue610-interpretation-v2
+    paths:
+      - .github/workflows/tmp-issue610-interpretation-v2-format-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_PARENT: 6b6b36ed99eeaf61432fdcb4f617a7e47da387a1
+  TARGET1: tools/tmp_issue610_interpretation_v2.py
+  TARGET2: tests/tools/test_tmp_issue610_interpretation_v2.py
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue610-interpretation-v2
+          fetch-depth: 0
+      - name: Guard exact starting head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git diff --name-only "$EXPECTED_PARENT..HEAD")" = ".github/workflows/tmp-issue610-interpretation-v2-format-fix.yml"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Apply only mechanical Ruff fixes and verify typing
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$TARGET1" "$TARGET2"
+          uv run ruff format "$TARGET1" "$TARGET2"
+          uv run ruff check "$TARGET1" "$TARGET2"
+          uv run ruff format --check "$TARGET1" "$TARGET2"
+          uv run mypy "$TARGET1" "$TARGET2"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$TARGET1" "$TARGET2" | sort)"
+          test "$changed" = "$expected"
+      - name: Commit mechanical fix only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TARGET1" "$TARGET2"
+          git commit -m 'style: format Issue 610 interpretation v2'
+          git push origin HEAD:verify/issue610-interpretation-v2

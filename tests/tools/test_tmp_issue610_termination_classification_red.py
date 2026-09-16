@@ -20,6 +20,8 @@ def test_new_termination_is_gate_failure_but_malformed_is_invalid() -> None:
 
 
 def test_unknown_termination_violation_fails_closed_as_invalid() -> None:
-    new, invalid = partition_termination_violations(("unexpected termination error",))
+    new, invalid = partition_termination_violations(
+        ("unexpected termination error",)
+    )
     assert new == ()
     assert invalid == ("unexpected termination error",)

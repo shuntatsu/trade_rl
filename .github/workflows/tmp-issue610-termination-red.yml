@@ -1,0 +1,48 @@
+name: tmp Issue 610 termination oracle RED
+
+on:
+  push:
+    branches:
+      - automation/issue610-termination-red
+    paths:
+      - .github/workflows/tmp-issue610-termination-red.yml
+
+permissions:
+  contents: read
+
+env:
+  RED_SHA: 3f294fab756993ecd62efc5381407a532ba8890f
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Require clean test and missing implementation
+        run: |
+          test -f "$TEST"
+          test ! -e "$MODULE"
+          uv run ruff check "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Require semantic RED from missing termination module only
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" >/tmp/red.log 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          cat /tmp/red.log
+          grep -F "ModuleNotFoundError: No module named 'tools.tmp_issue610_ppo_global_btc_regime_termination'" /tmp/red.log
+          echo ISSUE610_TERMINATION_RED=PASS

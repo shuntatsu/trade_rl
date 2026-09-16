@@ -1,0 +1,63 @@
+name: Temporary Issue 609 development-evaluation planner verification
+
+on:
+  push:
+    branches:
+      - prepare/issue609-global-btc-development-eval-v1
+    paths:
+      - .github/workflows/tmp-issue609-global-btc-eval-plan-helper-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  FRAMEWORK_HEAD: ff332f0cc2dec46828aa1031d438f2f2f1705ba8
+  HELPER: research/issue609_global_btc_eval_plan.py
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove production package is exact sealed execution framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FRAMEWORK_HEAD:trade_rl")"
+          changed="$(git diff --name-only "$FRAMEWORK_HEAD..HEAD" | sort)"
+          expected="$(printf '%s\n%s\n' \
+            .github/workflows/tmp-issue609-global-btc-eval-plan-helper-verify.yml \
+            research/issue609_global_btc_eval_plan.py | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static and synthetic verification without canonical economic data
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$HELPER"
+          uv run ruff format --check "$HELPER"
+          uv run mypy "$HELPER"
+          uv run python "$HELPER" --self-check
+      - name: Re-run authority and hardening oracles
+        run: |
+          uv run pytest -q \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_authority.py \
+            tests/evaluation/experiments/test_issue609_feature_set_workflow.py \
+            tests/evaluation/test_candidate_run_global_context_artifact.py
+      - name: Reassert no market-data/economic artifact was downloaded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FRAMEWORK_HEAD:trade_rl")"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo REAL_DATA_ACCESSED=false
+          echo ECONOMIC_EXECUTION_PERFORMED=false

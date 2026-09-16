@@ -345,6 +345,11 @@ def test_result_rejects_aggregate_or_status_forgery() -> None:
     valid = RidgeEconomicGateEvaluation(**kwargs)
     assert valid.research_status == "PROMOTE_RESEARCH_REFERENCE"
 
+    with pytest.raises(ValueError, match="spec_digest"):
+        RidgeEconomicGateEvaluation(**{**kwargs, "spec_digest": "d" * 64})
+    with pytest.raises(ValueError, match="dataset_id"):
+        RidgeEconomicGateEvaluation(**{**kwargs, "dataset_id": "e" * 64})
+
     with pytest.raises(ValueError, match="positive_effect_symbols"):
         RidgeEconomicGateEvaluation(**{**kwargs, "positive_effect_symbols": 4})
     with pytest.raises(ValueError, match="research_status"):

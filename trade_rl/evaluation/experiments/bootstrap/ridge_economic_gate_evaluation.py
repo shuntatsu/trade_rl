@@ -474,6 +474,15 @@ class RidgeEconomicGateEvaluation:
         _require_hex(self.spec_digest, field="spec_digest")
         _require_hex(self.dataset_id, field="dataset_id")
         _require_hex(self.model_sha256, field="model_sha256")
+        sealed_spec = canonical_ridge_economic_gate_evaluation_spec()
+        if self.spec_digest != sealed_spec.digest:
+            raise ValueError(
+                "spec_digest differs from sealed Issue #616 evaluator spec"
+            )
+        if self.dataset_id != sealed_spec.dataset_id:
+            raise ValueError(
+                "dataset_id differs from sealed Issue #616 evaluator authority"
+            )
         if self.symbols != _SYMBOLS:
             raise ValueError("symbols differ from sealed Issue #616 roster")
         if tuple(row.symbol for row in self.by_symbol) != self.symbols:

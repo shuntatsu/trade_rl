@@ -18,33 +18,42 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation im
     evaluation_return_sha256,
     research_status_from_counts,
 )
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.forecasts.ridge_economic_gate import RidgeEconomicGateStrategy
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _FEATURE_NAMES = (
-    "1h__log_return_1bar",
-    "1h__log_return_4bar",
-    "1h__log_return_24bar",
-    "unused_3",
-    "1h__realized_volatility_24bar",
-    "1h__volume_zscore_24bar",
-    "1h__funding_bps",
-    "1h__rsi_14bar",
-    "unused_8",
-    "unused_9",
-    "1h__macd_histogram_12_26_9",
-) + tuple(f"unused_{index}" for index in range(11, 60)) + (
-    "4h__log_return_4bar",
-    "unused_61",
-    "unused_62",
-    "4h__realized_volatility_24bar",
-) + tuple(f"unused_{index}" for index in range(64, 114)) + (
-    "1d__log_return_1bar",
-    "unused_115",
-    "unused_116",
-    "unused_117",
-    "1d__realized_volatility_24bar",
+    (
+        "1h__log_return_1bar",
+        "1h__log_return_4bar",
+        "1h__log_return_24bar",
+        "unused_3",
+        "1h__realized_volatility_24bar",
+        "1h__volume_zscore_24bar",
+        "1h__funding_bps",
+        "1h__rsi_14bar",
+        "unused_8",
+        "unused_9",
+        "1h__macd_histogram_12_26_9",
+    )
+    + tuple(f"unused_{index}" for index in range(11, 60))
+    + (
+        "4h__log_return_4bar",
+        "unused_61",
+        "unused_62",
+        "4h__realized_volatility_24bar",
+    )
+    + tuple(f"unused_{index}" for index in range(64, 114))
+    + (
+        "1d__log_return_1bar",
+        "unused_115",
+        "unused_116",
+        "unused_117",
+        "1d__realized_volatility_24bar",
+    )
 )
 
 
@@ -74,9 +83,7 @@ def _dataset() -> MarketDataset:
         volume=np.full((n_bars, n_symbols), 1_000_000.0, dtype=np.float64),
         funding_rate=np.zeros((n_bars, n_symbols), dtype=np.float64),
         tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
-        feature_available=np.ones(
-            (n_bars, n_symbols, n_features), dtype=np.bool_
-        ),
+        feature_available=np.ones((n_bars, n_symbols, n_features), dtype=np.bool_),
         feature_names=_FEATURE_NAMES,
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -210,7 +217,9 @@ def _symbol_result(
         candidate_termination_count=len(candidate_reasons),
         baseline_termination_reasons=baseline_reasons,
         candidate_termination_reasons=candidate_reasons,
-        new_termination=bool(candidate_reasons and candidate_reasons != baseline_reasons),
+        new_termination=bool(
+            candidate_reasons and candidate_reasons != baseline_reasons
+        ),
         baseline_n_periods=2,
         candidate_n_periods=2,
         baseline_return_sha256="b" * 64,
@@ -375,7 +384,9 @@ def test_pairwise_evaluator_uses_same_frozen_model_and_common_replay(
         fit_calls.append(dict(kwargs))
         return model
 
-    def compare(dataset_arg: MarketDataset, strategies: dict[str, object], **kwargs: object) -> Any:
+    def compare(
+        dataset_arg: MarketDataset, strategies: dict[str, object], **kwargs: object
+    ) -> Any:
         assert dataset_arg is dataset
         baseline = strategies["baseline"]
         candidate = strategies["candidate"]
@@ -429,7 +440,9 @@ def test_evaluator_requires_exact_verified_cost_authority(
     dataset = _dataset()
     model = _model()
     monkeypatch.setattr(module, "fit_ridge_forecast", lambda *args, **kwargs: model)
-    monkeypatch.setattr(module, "compare_strategies_by_symbol", lambda *args, **kwargs: _comparison())
+    monkeypatch.setattr(
+        module, "compare_strategies_by_symbol", lambda *args, **kwargs: _comparison()
+    )
 
     with pytest.raises(ValueError, match="cost authority"):
         evaluate_ridge_economic_gate(dataset, spec, None)  # type: ignore[arg-type]

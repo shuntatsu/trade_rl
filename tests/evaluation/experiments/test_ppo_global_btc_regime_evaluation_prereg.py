@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -26,8 +25,9 @@ _BASELINE_EVIDENCE_FINGERPRINT = (
 
 
 def _module():
-    return importlib.import_module(
-        "trade_rl.evaluation.experiments.ppo_global_btc_regime_evaluation_prereg"
+    return __import__(
+        "trade_rl.evaluation.experiments.ppo_global_btc_regime_evaluation_prereg",
+        fromlist=["*"],
     )
 
 

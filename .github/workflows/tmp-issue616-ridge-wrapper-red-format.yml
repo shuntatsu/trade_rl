@@ -1,0 +1,49 @@
+name: tmp Issue 616 ridge wrapper RED format
+
+on:
+  push:
+    branches:
+      - automation/issue616-ridge-wrapper-red-format
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-evaluation
+  EXPECTED_HEAD: 631172b78fe9c327302e5ecdedd75139351de33b
+  TARGET_FILE: tests/strategies/test_ridge_economic_gate.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Format only RED test
+        run: |
+          set -euo pipefail
+          uvx --from ruff==0.15.21 ruff format "$TARGET_FILE"
+          uvx --from ruff==0.15.21 ruff check "$TARGET_FILE"
+          uvx --from ruff==0.15.21 ruff format --check "$TARGET_FILE"
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+      - name: Publish non-force if target unchanged
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TARGET_FILE"
+          git commit -m 'style: format Issue 616 ridge wrapper RED'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

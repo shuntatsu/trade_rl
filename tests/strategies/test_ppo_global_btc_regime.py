@@ -62,7 +62,9 @@ def _market(
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(4) * np.timedelta64(1, "h"),
         features=features,
-        global_features=np.asarray([[999.0], [998.0], [997.0], [996.0]], dtype=np.float32),
+        global_features=np.asarray(
+            [[999.0], [998.0], [997.0], [996.0]], dtype=np.float32
+        ),
         open=close.copy(),
         high=close.copy(),
         low=close.copy(),
@@ -121,8 +123,12 @@ def test_candidate_uses_same_row_btc_reference_and_broadcasts_identically() -> N
     btc_observation, _ = _candidate_env(dataset, symbol_index=0).reset(seed=1)
     eth_observation, _ = _candidate_env(dataset, symbol_index=1).reset(seed=1)
 
-    np.testing.assert_array_equal(btc_observation[:3], np.asarray([10.0, 1.0, 0.0], dtype=np.float32))
-    np.testing.assert_array_equal(eth_observation[:3], np.asarray([20.0, 1.0, 0.0], dtype=np.float32))
+    np.testing.assert_array_equal(
+        btc_observation[:3], np.asarray([10.0, 1.0, 0.0], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        eth_observation[:3], np.asarray([20.0, 1.0, 0.0], dtype=np.float32)
+    )
     expected_reference = np.asarray([0.25, 1.0, 0.4], dtype=np.float32)
     np.testing.assert_array_equal(btc_observation[3:6], expected_reference)
     np.testing.assert_array_equal(eth_observation[3:6], expected_reference)
@@ -131,7 +137,9 @@ def test_candidate_uses_same_row_btc_reference_and_broadcasts_identically() -> N
 
 
 def test_candidate_reference_is_point_in_time_and_ignores_dataset_globals() -> None:
-    baseline, _ = _candidate_env(_market(future_reference_shift=0.0), symbol_index=1).reset(seed=2)
+    baseline, _ = _candidate_env(
+        _market(future_reference_shift=0.0), symbol_index=1
+    ).reset(seed=2)
     future_mutated, _ = _candidate_env(
         _market(future_reference_shift=777.0), symbol_index=1
     ).reset(seed=2)
@@ -148,7 +156,11 @@ def test_candidate_fails_closed_for_unavailable_or_nonfinite_reference() -> None
     )
 
     nonfinite, _ = _candidate_env(
-        _market(reference_available=True, reference_value=float("nan"), reference_staleness=0.7),
+        _market(
+            reference_available=True,
+            reference_value=float("nan"),
+            reference_staleness=0.7,
+        ),
         symbol_index=1,
     ).reset(seed=3)
     np.testing.assert_array_equal(

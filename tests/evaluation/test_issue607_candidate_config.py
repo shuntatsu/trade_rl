@@ -116,7 +116,9 @@ def test_resolved_v3_binds_candidate_schema_without_dataset_global_features() ->
     assert candidate.to_payload() == payload
 
 
-def test_feature_set_factor_admits_only_frozen_global_context_paths_as_extension() -> None:
+def test_feature_set_factor_admits_only_frozen_global_context_paths_as_extension() -> (
+    None
+):
     allowed = FACTOR_RULES[ControlledFactor.FEATURE_SET].allowed_paths
     assert ("feature_names",) in allowed
     assert ("feature_indices",) in allowed

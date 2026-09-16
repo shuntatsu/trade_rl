@@ -1,0 +1,68 @@
+name: Temporary Issue 609 architecture doc sync
+
+on:
+  push:
+    branches:
+      - automation/issue609-doc-sync
+    paths:
+      - .github/workflows/tmp-issue609-doc-sync.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: hardening/issue609-feature-set-workflow
+  TARGET_SHA: 121dfdd03f89c5617f848162e09dd568adcc7c7f
+  DOC: docs/architecture/controlled-experiment-loop.md
+
+jobs:
+  sync_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Synchronize architecture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/architecture/controlled-experiment-loop.md")
+          text = path.read_text()
+          old = '''現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。\n\nhistorical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。'''
+          new = '''現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`がbaselineで`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`は**原則として**Study-fixed resolved fieldである。Experiment定義時に例外を認めるのは、宣言した`ControlledFactor`の`FACTOR_RULES`がそのtop-level pathを事前に明示許可している場合だけで、verificationでも同じruleを再適用する。現行の狭い例外は`FEATURE_SET`がsealed PPO global-context extensionの`schema_version` / `ppo_observation_schema` / `ppo_global_context`を変更する場合であり、`ppo_global_feature_names`、window、execution、budget等のunrelated fixed fieldは引き続き変更できない。\n\nhistorical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2/v3 Runをv1 Studyへ継ぎ足すことは許さない。public resolverが生成するcurrent contractはcontextなしのv2、または事前登録済みglobal contextを持つv3だけである。旧Studyを新Observationへ暗黙migrationせず、Observation extensionを研究する場合は同じcurrent implementation/runtimeでbaseline v2とcandidate v3を生成し、宣言factorのdelta ruleで限定的に比較する。'''
+          if text.count(old) != 1:
+              raise SystemExit("architecture paragraph anchor drifted")
+          text = text.replace(old, new)
+          old2 = '''factorごとに影響しないstrategyのraw returnsを完全一致で検証する。dataset identity、symbol roster、Study seed policy、implementation/runtime provenance、Study-fixed fieldが変わってもINVALIDである。'''
+          new2 = '''factorごとに影響しないstrategyのraw returnsを完全一致で検証する。dataset identity、symbol roster、Study seed policy、implementation/runtime provenanceが変わればINVALIDである。Study-fixed fieldも原則INVALIDだが、宣言factorの`FACTOR_RULES`が定義時から明示許可したpathだけは例外であり、定義時とverification時の両方で同じ許可範囲を使う。'''
+          if text.count(old2) != 1:
+              raise SystemExit("controlled-factor paragraph anchor drifted")
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$DOC"
+          grep -Fq '宣言した`ControlledFactor`の`FACTOR_RULES`' "$DOC"
+          grep -Fq '同じcurrent implementation/runtimeでbaseline v2とcandidate v3' "$DOC"
+      - name: Publish docs-only synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git diff --name-only)" = "$DOC"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DOC"
+          git commit -m "docs: document controlled observation extensions"
+          git push origin HEAD:"$TARGET_BRANCH"

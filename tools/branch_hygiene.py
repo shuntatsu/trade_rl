@@ -174,27 +174,6 @@ class GitHubApi:
             )
         return tuple(result)
 
-    def current_branch(self, name: str) -> BranchInfo | None:
-        encoded = urllib.parse.quote(name, safe="")
-        payload = self._request_json("GET", f"branches/{encoded}", allow_not_found=True)
-        if payload is None:
-            return None
-        if not isinstance(payload, dict):
-            raise RuntimeError("branch lookup is not an object")
-        commit = payload.get("commit")
-        branch_name = payload.get("name")
-        protected = payload.get("protected")
-        if not isinstance(commit, dict):
-            raise RuntimeError("branch lookup commit is not an object")
-        sha = commit.get("sha")
-        if (
-            not isinstance(branch_name, str)
-            or not isinstance(sha, str)
-            or not isinstance(protected, bool)
-        ):
-            raise RuntimeError("branch lookup has an invalid shape")
-        return BranchInfo(name=branch_name, sha=sha, protected=protected)
-
     def delete_branch(self, name: str) -> None:
         encoded = urllib.parse.quote(name, safe="/")
         self._request_json("DELETE", f"git/refs/heads/{encoded}")
@@ -296,6 +275,7 @@ def apply_cleanup(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
 ) -> tuple[str, ...]:
+    current_by_name = {branch.name: branch for branch in api.branches()}
     open_names = open_pull_request_branch_names(api.open_pull_request_refs())
     deleted: list[str] = []
     for decision in decisions:
@@ -304,13 +284,19 @@ def apply_cleanup(
         expected = decision.branch
         if expected.name in open_names:
             continue
-        current = api.current_branch(expected.name)
+        current = current_by_name.get(expected.name)
         if current is None:
             continue
         if current.protected or current.sha != expected.sha:
             continue
         api.delete_branch(expected.name)
         deleted.append(expected.name)
+
+    remaining_names = {branch.name for branch in api.branches()}
+    unexpectedly_remaining = sorted(set(deleted) & remaining_names)
+    if unexpectedly_remaining:
+        joined = ", ".join(unexpectedly_remaining)
+        raise RuntimeError(f"deleted branches still present after cleanup: {joined}")
     return tuple(deleted)
 
 

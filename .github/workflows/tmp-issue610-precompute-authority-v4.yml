@@ -1,0 +1,705 @@
+name: tmp Issue 610 precompute authority v4
+
+on:
+  push:
+    branches:
+      - verify/issue610-precompute-authority-v4
+    paths:
+      - .github/workflows/tmp-issue610-precompute-authority-v4.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  IMPLEMENTATION_TREE: 4f14c5a06505b8ff9811b473bf6dea296453a13b
+  IMPLEMENTATION_INDEX_DIGEST: d5390a0025a92e4e2a1e987b7b7ac8ee6ef3974c5c8247b0256ae70c0d2d6e10
+  HELPER_SHA: 358b4917e988561f9a5601ef25a6d53291e07585
+  HELPER_BRANCH: prepare/issue610-ppo-global-btc-regime-evaluation
+  HELPER_BASE_SHA: 02fd08798b3f23cc3db13d96ac27778e93592019
+  HELPER_VERIFY_RUN: '35095863761'
+  HELPER_VERIFY_CARRIER_SHA: da5ddb05aaeb2ae2ce111f11e48a639c2f7bb46b
+  BASELINE_RUN: '34700123151'
+  BASELINE_NAME: canonical-m2-portable-baseline-v1-34700123151
+  BASELINE_ID: '10301701698'
+  BASELINE_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  BASELINE_FRESH_RUN: '34704606059'
+  BASELINE_FRESH_NAME: canonical-m2-portable-baseline-postverify-v1-34704606059
+  BASELINE_FRESH_ID: '10300932825'
+  BASELINE_FRESH_DIGEST: sha256:77c26e8cdeecdc023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9
+  DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  DATASET_ARTIFACT_DIGEST: 77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8
+  STUDY_DIGEST: 3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79
+  BASELINE_FP: 526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29
+  IMPL_RUN: '35084553267'
+  IMPL_SEAL_ID: '10441133239'
+  IMPL_SEAL_NAME: issue607-implementation-seal-v1-35084553267
+  IMPL_SEAL_DIGEST: sha256:8f8a3319f9213bf999b3ce2d911882fd9276daf575a7cde99ec33de9e8208b37
+  IMPL_FRESH_ID: '10441194709'
+  IMPL_FRESH_NAME: issue607-implementation-fresh-v1-35084553267
+  IMPL_FRESH_DIGEST: sha256:39f578321699d3deba1c1cc67ee9d5401c7a45573088d63b2c346f09721c7f52
+  EVAL_RUN: '35088018055'
+  EVAL_SEAL_ID: '10443216354'
+  EVAL_SEAL_NAME: issue609-evaluation-prereg-seal-v1-35088018055
+  EVAL_SEAL_DIGEST: sha256:09c9033139b841b3e769ff1fb43fa291092f47fea5718c7ae396aebd71444986
+  EVAL_FRESH_ID: '10443355963'
+  EVAL_FRESH_NAME: issue609-evaluation-prereg-fresh-v1-35088018055
+  EVAL_FRESH_DIGEST: sha256:6040f352bebb5c0da94a0c25f0a8e41665788826c980f512588089758d8ab44c
+  EVAL_PROTOCOL_DIGEST: e52a19b859500ea01e900a1ea7209bd545c03acd08435d1ff615b7539ec75d2b
+
+jobs:
+  producer:
+    name: Produce result-blind precompute authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact code and bridge scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C code rev-parse HEAD^{tree})" = "$IMPLEMENTATION_TREE"
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C helper rev-parse "$HELPER_SHA:trade_rl")" = "$(git -C helper rev-parse "$HELPER_BASE_SHA:trade_rl")"
+          changed="$(git -C helper diff --name-only "$HELPER_BASE_SHA..$HELPER_SHA" | sort)"
+          expected="$(printf '%s\n%s\n%s\n' \
+            tests/tools/test_tmp_issue610_execution_safety.py \
+            tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py \
+            tools/tmp_issue610_ppo_global_btc_regime_evaluation.py | sort)"
+          test "$changed" = "$expected"
+          test "$(git -C helper ls-remote origin "refs/heads/$HELPER_BRANCH" | cut -f1)" = "$HELPER_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: cd code && uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: API-bind frozen authorities, exact bridge verification, and zero prior economics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for run in "$BASELINE_RUN" "$BASELINE_FRESH_RUN" "$IMPL_RUN" "$EVAL_RUN" "$HELPER_VERIFY_RUN"; do
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run")"
+            test "$(jq -r .status <<<"$p")" = completed
+            test "$(jq -r .conclusion <<<"$p")" = success
+          done
+          verify_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN")"
+          test "$(jq -r .head_sha <<<"$verify_run")" = "$HELPER_VERIFY_CARRIER_SHA"
+          verify_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN/jobs?per_page=100")"
+          for job in 'Exact helper semantics' 'Exact-head full mypy' 'Exact-head full pytest' 'Prove global style debt unchanged'; do
+            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' <<<"$verify_jobs")" = success
+          done
+          verify_source="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/tmp-issue610-combined-full.yml?ref=$HELPER_VERIFY_CARRIER_SHA" --jq .content | base64 --decode)"
+          grep -F "TARGET_HEAD: $HELPER_SHA" <<<"$verify_source" >/dev/null
+
+          check() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local p
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$run_id"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          check "$BASELINE_ID" "$BASELINE_NAME" "$BASELINE_DIGEST" "$BASELINE_RUN"
+          check "$BASELINE_FRESH_ID" "$BASELINE_FRESH_NAME" "$BASELINE_FRESH_DIGEST" "$BASELINE_FRESH_RUN"
+          check "$IMPL_SEAL_ID" "$IMPL_SEAL_NAME" "$IMPL_SEAL_DIGEST" "$IMPL_RUN"
+          check "$IMPL_FRESH_ID" "$IMPL_FRESH_NAME" "$IMPL_FRESH_DIGEST" "$IMPL_RUN"
+          check "$EVAL_SEAL_ID" "$EVAL_SEAL_NAME" "$EVAL_SEAL_DIGEST" "$EVAL_RUN"
+          check "$EVAL_FRESH_ID" "$EVAL_FRESH_NAME" "$EVAL_FRESH_DIGEST" "$EVAL_RUN"
+
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result)-v1-' <<<"$names"
+          echo ISSUE610_PRIOR_ECONOMIC_ARTIFACTS=0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_FRESH_NAME }}
+          path: /tmp/baseline-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_FRESH_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_SEAL_NAME }}
+          path: /tmp/impl-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.IMPL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_FRESH_NAME }}
+          path: /tmp/impl-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.IMPL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.EVAL_SEAL_NAME }}
+          path: /tmp/eval-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.EVAL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.EVAL_FRESH_NAME }}
+          path: /tmp/eval-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.EVAL_RUN }}
+      - name: Strict-load immutable inputs and materialize canonical precompute authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/impl-seal/authority.json /tmp/impl-fresh/authority.json
+          cmp /tmp/impl-seal/implementation-index.json /tmp/impl-fresh/implementation-index.json
+          cmp /tmp/eval-seal/protocol.json /tmp/eval-fresh/protocol.json
+          cmp /tmp/eval-seal/authority.json /tmp/eval-fresh/authority.json
+          cmp /tmp/eval-seal/git-blobs.txt /tmp/eval-fresh/git-blobs.txt
+          cd code
+          PYTHONPATH="$GITHUB_WORKSPACE/helper" uv run python -P - <<'PY'
+          import hashlib
+          import json
+          import os
+          from dataclasses import replace
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.experiments import inspect_study, load_evidence_set
+          from trade_rl.evaluation.runs import build_candidate_run_provenance
+          from trade_rl.strategies.rl.ppo import (
+              PPO_GLOBAL_BTC_REGIME_CONTEXT,
+              PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
+          )
+          from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
+              build_candidate_carrier_plan,
+              candidate_run_config_from_resolved,
+              validate_controlled_semantic_delta,
+          )
+
+          def load_canonical(path: str) -> tuple[dict[str, object], bytes]:
+              raw = Path(path).read_bytes()
+              payload = json.loads(raw)
+              assert isinstance(payload, dict)
+              assert canonical_json_bytes(payload) == raw
+              return payload, raw
+
+          impl_authority, _ = load_canonical('/tmp/impl-seal/authority.json')
+          impl_index, _ = load_canonical('/tmp/impl-seal/implementation-index.json')
+          impl_unsigned = dict(impl_authority)
+          impl_digest = impl_unsigned.pop('content_digest')
+          assert content_digest(impl_unsigned) == impl_digest
+          index_unsigned = dict(impl_index)
+          index_digest = index_unsigned.pop('content_digest')
+          assert content_digest(index_unsigned) == index_digest
+          assert impl_index['content_digest'] == os.environ['IMPLEMENTATION_INDEX_DIGEST']
+          assert impl_authority['implementation_index_content_digest'] == os.environ['IMPLEMENTATION_INDEX_DIGEST']
+          assert impl_authority['canonical_implementation_head'] == os.environ['IMPLEMENTATION_SHA']
+          assert impl_authority['canonical_implementation_tree_sha1'] == os.environ['IMPLEMENTATION_TREE']
+          assert impl_authority['economic_factor_effect_executed'] is False
+          assert impl_authority['economic_result_inspected'] is False
+          assert impl_authority['final_test_access_authorized'] is False
+
+          eval_authority, _ = load_canonical('/tmp/eval-seal/authority.json')
+          eval_unsigned = dict(eval_authority)
+          eval_content_digest = eval_unsigned.pop('content_digest')
+          assert content_digest(eval_unsigned) == eval_content_digest
+          protocol_raw = Path('/tmp/eval-seal/protocol.json').read_bytes()
+          protocol = json.loads(protocol_raw)
+          assert isinstance(protocol, dict)
+          assert canonical_json_bytes(protocol) == protocol_raw
+          assert hashlib.sha256(protocol_raw).hexdigest() == os.environ['EVAL_PROTOCOL_DIGEST']
+          assert eval_authority['protocol_digest'] == os.environ['EVAL_PROTOCOL_DIGEST']
+          assert eval_authority['protocol_json_sha256'] == os.environ['EVAL_PROTOCOL_DIGEST']
+          assert protocol['implementation_head'] == os.environ['IMPLEMENTATION_SHA']
+          assert protocol['implementation_tree'] == os.environ['IMPLEMENTATION_TREE']
+          assert protocol['source_dataset_id'] == os.environ['DATASET_ID']
+          assert protocol['source_dataset_artifact_digest'] == os.environ['DATASET_ARTIFACT_DIGEST']
+          assert protocol['source_study_digest'] == os.environ['STUDY_DIGEST']
+          assert protocol['baseline_evidence_fingerprint'] == os.environ['BASELINE_FP']
+          assert protocol['symbols'] == ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT']
+          assert protocol['ppo_seeds'] == [0, 1, 2, 3, 4]
+          assert protocol['ppo_total_timesteps'] == 100_000
+          assert protocol['n_bootstrap'] == 2_000
+          assert protocol['bootstrap_seed'] == 1_729
+          assert protocol['controlled_factor'] == 'FEATURE_SET'
+          assert protocol['semantic_factor'] == 'ppo_global_btc_regime_context'
+          assert protocol['comparison_schema'] == 'controlled_evidence_comparison_v2'
+          assert protocol['economic_execution_authorized'] is False
+          assert protocol['economic_result_inspected'] is False
+          assert protocol['final_test_access_authorized'] is False
+          assert protocol['production_eligible'] is False
+          assert protocol['live_trading_authorized'] is False
+          assert protocol['merge_authorized'] is False
+
+          binding = json.loads(Path('/tmp/baseline-fresh/prereg-baseline-binding.json').read_text())
+          assert binding['baseline_artifact_id'] == int(os.environ['BASELINE_ID'])
+          assert binding['baseline_artifact_digest'] == os.environ['BASELINE_DIGEST']
+          assert binding['baseline_evidence_fingerprint'] == os.environ['BASELINE_FP']
+          assert binding['dataset_id'] == os.environ['DATASET_ID']
+          assert binding['dataset_artifact_digest'] == os.environ['DATASET_ARTIFACT_DIGEST']
+          assert binding['study_digest'] == os.environ['STUDY_DIGEST']
+          assert binding['baseline_uses_exact_preregistered_plan'] is True
+          assert binding['prereg_was_plan_only'] is True
+          assert binding['profitability_interpreted'] is False
+          assert binding['winner_interpreted'] is False
+
+          root = Path('/tmp/baseline')
+          dataset = load_market_dataset_artifact(root / 'dataset')
+          dataset_artifact = inspect_published_market_dataset_artifact(root / 'dataset')
+          snapshot = inspect_study(root / 'study')
+          baseline = load_evidence_set(root / 'study' / 'baseline' / 'evidence')
+          assert dataset.dataset_id == os.environ['DATASET_ID']
+          assert dataset_artifact.artifact_digest == os.environ['DATASET_ARTIFACT_DIGEST']
+          assert tuple(dataset.symbols) == ('BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT')
+          assert snapshot.plan.digest == os.environ['STUDY_DIGEST']
+          assert baseline.evidence.fingerprint == os.environ['BASELINE_FP']
+          assert baseline.evidence.ppo_seeds == (0, 1, 2, 3, 4)
+          assert snapshot.baseline is not None
+          assert snapshot.experiment_sequences == ()
+          assert snapshot.terminal_sequences == ()
+          assert snapshot.frozen is False
+
+          provenance = build_candidate_run_provenance()
+          candidate = replace(
+              snapshot.plan.baseline_config,
+              schema_version='resolved_run_config_v3',
+              ppo_observation_schema=PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
+              ppo_global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT,
+          )
+          baseline_semantic = snapshot.plan.baseline_config.to_payload()
+          candidate_semantic = candidate.to_payload()
+          baseline_semantic.pop('ppo_seed')
+          candidate_semantic.pop('ppo_seed')
+          changed_paths, violations = validate_controlled_semantic_delta(
+              baseline_semantic,
+              candidate_semantic,
+          )
+          assert not violations
+          assert changed_paths == (
+              ('ppo_global_context',),
+              ('ppo_observation_schema',),
+              ('schema_version',),
+          )
+          executable_candidate = candidate_run_config_from_resolved(candidate)
+          assert executable_candidate.ppo_total_timesteps == 100_000
+          assert executable_candidate.ppo_seed == 0
+          assert executable_candidate.ppo_global_context == PPO_GLOBAL_BTC_REGIME_CONTEXT
+          carrier = build_candidate_carrier_plan(
+              source_plan=snapshot.plan,
+              candidate_config=candidate,
+              implementation_digest=str(provenance['implementation_digest']),
+              runtime_environment_digest=str(provenance['runtime_environment_digest']),
+          )
+          assert carrier.dataset_id == snapshot.plan.dataset_id
+          assert carrier.dataset_artifact_digest == snapshot.plan.dataset_artifact_digest
+          assert carrier.symbols == snapshot.plan.symbols
+          assert carrier.ppo_seeds == snapshot.plan.ppo_seeds
+          assert carrier.n_bootstrap == snapshot.plan.n_bootstrap
+          assert carrier.bootstrap_seed == snapshot.plan.bootstrap_seed
+
+          report: dict[str, object] = {
+              'schema_version': 'issue610_precompute_authority_v1',
+              'issue_number': 610,
+              'precompute_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'implementation_git_sha': os.environ['IMPLEMENTATION_SHA'],
+              'implementation_tree_sha': os.environ['IMPLEMENTATION_TREE'],
+              'implementation_index_digest': os.environ['IMPLEMENTATION_INDEX_DIGEST'],
+              'helper_git_sha': os.environ['HELPER_SHA'],
+              'helper_exact_verification_run_id': int(os.environ['HELPER_VERIFY_RUN']),
+              'implementation_digest': provenance['implementation_digest'],
+              'runtime_environment_digest': provenance['runtime_environment_digest'],
+              'dataset_id': dataset.dataset_id,
+              'dataset_artifact_digest': dataset_artifact.artifact_digest,
+              'source_study_digest': snapshot.plan.digest,
+              'baseline_evidence_fingerprint': baseline.evidence.fingerprint,
+              'baseline_artifact_id': int(os.environ['BASELINE_ID']),
+              'baseline_artifact_api_digest': os.environ['BASELINE_DIGEST'],
+              'baseline_fresh_artifact_id': int(os.environ['BASELINE_FRESH_ID']),
+              'baseline_fresh_artifact_api_digest': os.environ['BASELINE_FRESH_DIGEST'],
+              'implementation_seal_artifact_id': int(os.environ['IMPL_SEAL_ID']),
+              'implementation_seal_artifact_api_digest': os.environ['IMPL_SEAL_DIGEST'],
+              'implementation_fresh_artifact_id': int(os.environ['IMPL_FRESH_ID']),
+              'implementation_fresh_artifact_api_digest': os.environ['IMPL_FRESH_DIGEST'],
+              'evaluation_seal_artifact_id': int(os.environ['EVAL_SEAL_ID']),
+              'evaluation_seal_artifact_api_digest': os.environ['EVAL_SEAL_DIGEST'],
+              'evaluation_fresh_artifact_id': int(os.environ['EVAL_FRESH_ID']),
+              'evaluation_fresh_artifact_api_digest': os.environ['EVAL_FRESH_DIGEST'],
+              'evaluation_protocol_digest': os.environ['EVAL_PROTOCOL_DIGEST'],
+              'candidate_carrier_study_digest': carrier.digest,
+              'candidate_resolved_config_digest': content_digest(candidate.to_payload()),
+              'candidate_requested_config_digest': content_digest(executable_candidate.to_json_payload()),
+              'expected_semantic_changed_paths': [list(path) for path in changed_paths],
+              'unaffected_strategy_names': protocol['unaffected_strategy_names'],
+              'prior_issue610_economic_artifacts': 0,
+              'precompute_inputs_validated': True,
+              'economic_publisher_requires_run_number_one': True,
+              'economic_publisher_requires_attempt_one': True,
+              'baseline_retrained': False,
+              'candidate_training_performed': False,
+              'economic_values_interpreted': False,
+              'final_test_accessed': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          report['content_digest'] = content_digest(report)
+          out = Path('/tmp/preflight')
+          out.mkdir()
+          (out / 'authority.json').write_bytes(canonical_json_bytes(report))
+          print('ISSUE610_PRECOMPUTE_AUTHORITY_OK=true')
+          print('CANDIDATE_TRAINING_PERFORMED=false')
+          print('ECONOMIC_VALUES_INTERPRETED=false')
+          print('FINAL_TEST_ACCESSED=false')
+          PY
+      - id: name
+        run: echo "artifact_name=issue610-precompute-authority-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/preflight
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  fresh:
+    name: Fresh reconstruction of precompute authority
+    needs: producer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: cd code && uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: API-bind publisher artifact and frozen inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ID")"
+          test "$(jq -r .name <<<"$p")" = "$PRODUCER_NAME"
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$p")" = false
+          api_digest="$(jq -r .digest <<<"$p")"
+          case "$PRODUCER_DIGEST" in
+            sha256:*) test "$api_digest" = "$PRODUCER_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PRODUCER_DIGEST" ;;
+          esac
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result)-v1-' <<<"$names"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_NAME }}
+          path: /tmp/baseline
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_FRESH_NAME }}
+          path: /tmp/baseline-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_FRESH_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_SEAL_NAME }}
+          path: /tmp/impl-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.IMPL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_FRESH_NAME }}
+          path: /tmp/impl-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.IMPL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.EVAL_SEAL_NAME }}
+          path: /tmp/eval-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.EVAL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.EVAL_FRESH_NAME }}
+          path: /tmp/eval-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.EVAL_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+      - name: Independently reconstruct identical authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/impl-seal/authority.json /tmp/impl-fresh/authority.json
+          cmp /tmp/impl-seal/implementation-index.json /tmp/impl-fresh/implementation-index.json
+          cmp /tmp/eval-seal/protocol.json /tmp/eval-fresh/protocol.json
+          cmp /tmp/eval-seal/authority.json /tmp/eval-fresh/authority.json
+          cmp /tmp/eval-seal/git-blobs.txt /tmp/eval-fresh/git-blobs.txt
+          cd code
+          PYTHONPATH="$GITHUB_WORKSPACE/helper" uv run python -P - <<'PY'
+          import hashlib
+          import json
+          import os
+          from dataclasses import replace
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.experiments import inspect_study, load_evidence_set
+          from trade_rl.evaluation.runs import build_candidate_run_provenance
+          from trade_rl.strategies.rl.ppo import (
+              PPO_GLOBAL_BTC_REGIME_CONTEXT,
+              PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
+          )
+          from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
+              build_candidate_carrier_plan,
+              candidate_run_config_from_resolved,
+              validate_controlled_semantic_delta,
+          )
+
+          impl_authority = json.loads(Path('/tmp/impl-seal/authority.json').read_text())
+          impl_index = json.loads(Path('/tmp/impl-seal/implementation-index.json').read_text())
+          assert impl_authority['canonical_implementation_head'] == os.environ['IMPLEMENTATION_SHA']
+          assert impl_authority['canonical_implementation_tree_sha1'] == os.environ['IMPLEMENTATION_TREE']
+          assert impl_index['content_digest'] == os.environ['IMPLEMENTATION_INDEX_DIGEST']
+          protocol_raw = Path('/tmp/eval-seal/protocol.json').read_bytes()
+          protocol = json.loads(protocol_raw)
+          eval_authority = json.loads(Path('/tmp/eval-seal/authority.json').read_text())
+          assert canonical_json_bytes(protocol) == protocol_raw
+          assert hashlib.sha256(protocol_raw).hexdigest() == os.environ['EVAL_PROTOCOL_DIGEST']
+          assert eval_authority['protocol_digest'] == os.environ['EVAL_PROTOCOL_DIGEST']
+          binding = json.loads(Path('/tmp/baseline-fresh/prereg-baseline-binding.json').read_text())
+          assert binding['baseline_artifact_id'] == int(os.environ['BASELINE_ID'])
+          assert binding['baseline_evidence_fingerprint'] == os.environ['BASELINE_FP']
+          assert binding['profitability_interpreted'] is False
+          assert binding['winner_interpreted'] is False
+
+          root = Path('/tmp/baseline')
+          dataset = load_market_dataset_artifact(root / 'dataset')
+          dataset_artifact = inspect_published_market_dataset_artifact(root / 'dataset')
+          snapshot = inspect_study(root / 'study')
+          baseline = load_evidence_set(root / 'study' / 'baseline' / 'evidence')
+          assert dataset.dataset_id == os.environ['DATASET_ID']
+          assert dataset_artifact.artifact_digest == os.environ['DATASET_ARTIFACT_DIGEST']
+          assert snapshot.plan.digest == os.environ['STUDY_DIGEST']
+          assert baseline.evidence.fingerprint == os.environ['BASELINE_FP']
+          provenance = build_candidate_run_provenance()
+          candidate = replace(
+              snapshot.plan.baseline_config,
+              schema_version='resolved_run_config_v3',
+              ppo_observation_schema=PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
+              ppo_global_context=PPO_GLOBAL_BTC_REGIME_CONTEXT,
+          )
+          baseline_semantic = snapshot.plan.baseline_config.to_payload()
+          candidate_semantic = candidate.to_payload()
+          baseline_semantic.pop('ppo_seed')
+          candidate_semantic.pop('ppo_seed')
+          changed_paths, violations = validate_controlled_semantic_delta(
+              baseline_semantic,
+              candidate_semantic,
+          )
+          assert not violations
+          executable_candidate = candidate_run_config_from_resolved(candidate)
+          carrier = build_candidate_carrier_plan(
+              source_plan=snapshot.plan,
+              candidate_config=candidate,
+              implementation_digest=str(provenance['implementation_digest']),
+              runtime_environment_digest=str(provenance['runtime_environment_digest']),
+          )
+          report: dict[str, object] = {
+              'schema_version': 'issue610_precompute_authority_v1',
+              'issue_number': 610,
+              'precompute_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'implementation_git_sha': os.environ['IMPLEMENTATION_SHA'],
+              'implementation_tree_sha': os.environ['IMPLEMENTATION_TREE'],
+              'implementation_index_digest': os.environ['IMPLEMENTATION_INDEX_DIGEST'],
+              'helper_git_sha': os.environ['HELPER_SHA'],
+              'helper_exact_verification_run_id': int(os.environ['HELPER_VERIFY_RUN']),
+              'implementation_digest': provenance['implementation_digest'],
+              'runtime_environment_digest': provenance['runtime_environment_digest'],
+              'dataset_id': dataset.dataset_id,
+              'dataset_artifact_digest': dataset_artifact.artifact_digest,
+              'source_study_digest': snapshot.plan.digest,
+              'baseline_evidence_fingerprint': baseline.evidence.fingerprint,
+              'baseline_artifact_id': int(os.environ['BASELINE_ID']),
+              'baseline_artifact_api_digest': os.environ['BASELINE_DIGEST'],
+              'baseline_fresh_artifact_id': int(os.environ['BASELINE_FRESH_ID']),
+              'baseline_fresh_artifact_api_digest': os.environ['BASELINE_FRESH_DIGEST'],
+              'implementation_seal_artifact_id': int(os.environ['IMPL_SEAL_ID']),
+              'implementation_seal_artifact_api_digest': os.environ['IMPL_SEAL_DIGEST'],
+              'implementation_fresh_artifact_id': int(os.environ['IMPL_FRESH_ID']),
+              'implementation_fresh_artifact_api_digest': os.environ['IMPL_FRESH_DIGEST'],
+              'evaluation_seal_artifact_id': int(os.environ['EVAL_SEAL_ID']),
+              'evaluation_seal_artifact_api_digest': os.environ['EVAL_SEAL_DIGEST'],
+              'evaluation_fresh_artifact_id': int(os.environ['EVAL_FRESH_ID']),
+              'evaluation_fresh_artifact_api_digest': os.environ['EVAL_FRESH_DIGEST'],
+              'evaluation_protocol_digest': os.environ['EVAL_PROTOCOL_DIGEST'],
+              'candidate_carrier_study_digest': carrier.digest,
+              'candidate_resolved_config_digest': content_digest(candidate.to_payload()),
+              'candidate_requested_config_digest': content_digest(executable_candidate.to_json_payload()),
+              'expected_semantic_changed_paths': [list(path) for path in changed_paths],
+              'unaffected_strategy_names': protocol['unaffected_strategy_names'],
+              'prior_issue610_economic_artifacts': 0,
+              'precompute_inputs_validated': True,
+              'economic_publisher_requires_run_number_one': True,
+              'economic_publisher_requires_attempt_one': True,
+              'baseline_retrained': False,
+              'candidate_training_performed': False,
+              'economic_values_interpreted': False,
+              'final_test_accessed': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          report['content_digest'] = content_digest(report)
+          out = Path('/tmp/fresh')
+          out.mkdir()
+          fresh_raw = canonical_json_bytes(report)
+          (out / 'authority.json').write_bytes(fresh_raw)
+          producer_raw = Path('/tmp/producer/authority.json').read_bytes()
+          assert fresh_raw == producer_raw
+          print('ISSUE610_PRECOMPUTE_FRESH_OK=true')
+          print('CANDIDATE_TRAINING_PERFORMED=false')
+          PY
+      - id: name
+        run: echo "artifact_name=issue610-precompute-authority-fresh-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/fresh
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  audit:
+    name: Final result-blind precompute audit
+    needs: [producer, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind both independently reconstructed authority artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${{ needs.producer.result }}" = success
+          test "${{ needs.fresh.result }}" = success
+          check_current() {
+            local id="$1" name="$2" digest="$3"
+            local p api_digest
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$p")" = false
+            api_digest="$(jq -r .digest <<<"$p")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          check_current "$PRODUCER_ID" "$PRODUCER_NAME" "$PRODUCER_DIGEST"
+          check_current "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result)-v1-' <<<"$names"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require byte identity and closed downstream boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/producer/authority.json /tmp/fresh/authority.json
+          producer_sha="$(sha256sum /tmp/producer/authority.json | cut -d' ' -f1)"
+          fresh_sha="$(sha256sum /tmp/fresh/authority.json | cut -d' ' -f1)"
+          test "$producer_sha" = "$fresh_sha"
+          test "$(jq -r .precompute_inputs_validated /tmp/producer/authority.json)" = true
+          test "$(jq -r .prior_issue610_economic_artifacts /tmp/producer/authority.json)" = 0
+          test "$(jq -r .baseline_retrained /tmp/producer/authority.json)" = false
+          test "$(jq -r .candidate_training_performed /tmp/producer/authority.json)" = false
+          test "$(jq -r .economic_values_interpreted /tmp/producer/authority.json)" = false
+          test "$(jq -r .final_test_accessed /tmp/producer/authority.json)" = false
+          test "$(jq -r .operational_eligibility_established /tmp/producer/authority.json)" = false
+          test "$(jq -r .production_eligible /tmp/producer/authority.json)" = false
+          test "$(jq -r .live_trading_authorized /tmp/producer/authority.json)" = false
+          test "$(jq -r .merge_authorized /tmp/producer/authority.json)" = false
+          echo ISSUE610_PRECOMPUTE_AUDIT=PASS
+          echo CANDIDATE_TRAINING_PERFORMED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo FINAL_TEST_ACCESSED=false

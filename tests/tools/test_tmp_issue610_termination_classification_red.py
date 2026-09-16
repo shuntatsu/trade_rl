@@ -1,4 +1,6 @@
-from tools.tmp_issue610_exact_once_orchestrator import partition_termination_violations
+from tools.tmp_issue610_exact_once_orchestrator import (
+    partition_termination_violations,
+)
 
 
 def test_new_termination_is_gate_failure_but_malformed_is_invalid() -> None:

@@ -1,0 +1,115 @@
+name: tmp Issue 610 real interpretation runner verification
+
+on:
+  push:
+    branches:
+      - prepare/issue610-real-interpretation-runner-v1
+    paths:
+      - .github/workflows/tmp-issue610-real-interpretation-runner-verify.yml
+
+permissions:
+  contents: read
+
+env:
+  V3_SHA: f439b5cfd9cd33a9de45a4719e316d1d7a814318
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  RUNNER: tools/tmp_issue610_real_interpretation_runner_v1.py
+  TEST: tests/tools/test_tmp_issue610_real_interpretation_runner_v1.py
+  PRECHECK: tools/tmp_issue610_interpretation_precheck_v3.py
+  PRECHECK_TEST: tests/tools/test_tmp_issue610_interpretation_precheck_v3.py
+  TERMINATION: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+  TERMINATION_TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+  V2_MODULE: tools/tmp_issue610_interpretation_v2.py
+  V2_TEST: tests/tools/test_tmp_issue610_interpretation_v2.py
+
+jobs:
+  verify:
+    name: Result-blind real interpretation runner verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          path: code
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind verified v3 control and runner-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C code rev-parse HEAD)" = "$IMPLEMENTATION_SHA"
+          test "$(git -C control rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C control rev-parse "$V3_SHA:trade_rl")" = "$(git -C control rev-parse HEAD:trade_rl)"
+          for path in "$PRECHECK" "$PRECHECK_TEST" "$TERMINATION" "$TERMINATION_TEST" "$V2_MODULE" "$V2_TEST"; do
+            test "$(git -C control rev-parse "$V3_SHA:$path")" = "$(git -C control rev-parse "HEAD:$path")"
+          done
+          changed="$(git -C control diff --name-only "$V3_SHA..HEAD" | sort)"
+          expected="$(printf '%s\n%s\n%s\n' \
+            .github/workflows/tmp-issue610-real-interpretation-runner-verify.yml \
+            "$RUNNER" "$TEST" | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: code
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static checks
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/control
+          MYPYPATH: ${{ github.workspace }}/control
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            "$GITHUB_WORKSPACE/control/$RUNNER"
+            "$GITHUB_WORKSPACE/control/$TEST"
+            "$GITHUB_WORKSPACE/control/$PRECHECK"
+            "$GITHUB_WORKSPACE/control/$TERMINATION"
+            "$GITHUB_WORKSPACE/control/$V2_MODULE"
+          )
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
+          uv run mypy \
+            "$GITHUB_WORKSPACE/control/$RUNNER" \
+            "$GITHUB_WORKSPACE/control/$PRECHECK" \
+            "$GITHUB_WORKSPACE/control/$TERMINATION" \
+            "$GITHUB_WORKSPACE/control/$V2_MODULE"
+      - name: Falsification and prior semantic regressions
+        working-directory: code
+        env:
+          PYTHONPATH: ${{ github.workspace }}/control
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            "$GITHUB_WORKSPACE/control/$TEST" \
+            "$GITHUB_WORKSPACE/control/$PRECHECK_TEST" \
+            "$GITHUB_WORKSPACE/control/$TERMINATION_TEST" \
+            "$GITHUB_WORKSPACE/control/$V2_TEST" \
+            "$GITHUB_WORKSPACE/control/tests/tools/test_tmp_issue610_exact_once_orchestrator.py" \
+            "$GITHUB_WORKSPACE/control/tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py" \
+            "$GITHUB_WORKSPACE/control/tests/tools/test_tmp_issue610_execution_safety.py"
+          uv run python "$GITHUB_WORKSPACE/control/$RUNNER" self-check
+      - name: Prove result-blind boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$GITHUB_WORKSPACE/control/.github/workflows/tmp-issue610-real-interpretation-runner-verify.yml"
+          ! grep -F 'actions/download-artifact@' "$source"
+          ! grep -F 'issue610-ppo-global-btc-regime-candidate-v1-' "$source"
+          echo CANDIDATE_ARTIFACT_ACCESSED=false
+          echo CANDIDATE_TRAINING_PERFORMED=false
+          echo ECONOMIC_VALUES_INTERPRETED=false
+          echo FINAL_TEST_ACCESSED=false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false
+          echo MERGE_AUTHORIZED=false

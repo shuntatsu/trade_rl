@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Bind exact wrapper head
         shell: bash
@@ -55,4 +56,4 @@ jobs:
           echo EVALUATION_EXECUTION_AUTHORIZED=false
           echo FINAL_TEST_ACCESSED=false
 
-# rerun on valid observation-fixture head
+# rerun with full history for exact-base diff proof

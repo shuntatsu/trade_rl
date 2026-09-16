@@ -12,6 +12,7 @@ BINANCE = INTEGRATIONS / "binance"
 
 EXPECTED_BINANCE_PUBLIC_API = {
     "BOOK_DEPTH_PERCENTAGE_BANDS",
+    "BinanceAggTradesSeries",
     "BinanceBookDepthSeries",
     "BinanceDatasetBuildResult",
     "BinanceExchangeInfoSnapshot",
@@ -31,8 +32,10 @@ EXPECTED_BINANCE_PUBLIC_API = {
     "build_binance_market_dataset",
     "inspect_binance_vision_cache",
     "inspect_binance_vision_urls",
+    "parse_vision_agg_trades_archive",
     "parse_vision_book_depth_archive",
     "plan_binance_vision_cache",
+    "plan_vision_agg_trades_urls",
     "plan_vision_book_depth_urls",
     "plan_vision_kline_urls",
     "require_complete_binance_vision_cache",
@@ -40,6 +43,7 @@ EXPECTED_BINANCE_PUBLIC_API = {
     "sync_binance_vision_urls",
     "validate_book_depth_reference_alignment",
     "validate_cached_vision_payload",
+    "vision_agg_trades_url",
     "vision_book_depth_url",
     "vision_cache_path",
     "vision_funding_url",
@@ -72,6 +76,7 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "types.py",
         "vision.py",
         "book_depth.py",
+        "agg_trades.py",
         "cache.py",
         "metadata.py",
         "transport.py",
@@ -131,16 +136,33 @@ def test_binance_book_depth_is_provider_evidence_not_dataset_assembly() -> None:
     assert not any(name.startswith(forbidden) for name in imports)
 
 
-def test_binance_book_depth_boundary_is_documented_as_non_pnl_evidence() -> None:
+def test_binance_agg_trades_is_provider_evidence_not_dataset_assembly() -> None:
+    path = BINANCE / "agg_trades.py"
+    imports = _imports(path)
+    forbidden = (
+        "trade_rl.data.market",
+        "trade_rl.data.build",
+        "trade_rl.evaluation",
+        "trade_rl.simulation",
+        "trade_rl.integrations.binance.dataset",
+    )
+    assert not any(name.startswith(forbidden) for name in imports)
+    assert "_csv_rows_from_zip" not in path.read_text(encoding="utf-8")
+
+
+def test_binance_provider_evidence_boundary_is_documented_as_non_pnl() -> None:
     text = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
         encoding="utf-8"
     )
     assert "## Provider evidence boundary" in text
     assert "integrations/binance/book_depth.py" in text
+    assert "integrations/binance/agg_trades.py" in text
     assert "top-of-book" in text
     assert "MarketDataset" in text
     assert "P&Lのauthorityにはしない" in text
     assert "reference valueの`available_at`" in text
+    assert "event timestamp" in text
+    assert "archive publication" in text
     assert "既存canonical Studyやfrozen Experiment evidenceを書き換えない" in text
 
 

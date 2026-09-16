@@ -36,6 +36,7 @@ trade_rl/
 │       ├── cache.py
 │       ├── vision.py
 │       ├── book_depth.py
+│       ├── agg_trades.py
 │       ├── metadata.py
 │       └── dataset.py
 ├── risk/
@@ -91,13 +92,17 @@ trade_rl/
 
 ## Provider evidence boundary
 
-`integrations/binance/book_depth.py` は、Binance Vision USD-M daily `bookDepth` archiveのprovider-specific historical evidenceだけを所有する。`timestamp,percentage,depth,notional` を厳密にdecodeし、maintained percentage bands、snapshot completeness、累積depth/notional、implied average price、timestamp orderingをfail-closedに検証する。top-of-book quote、bid/ask spread、market impact、slippage、`MarketDataset`、`ExecutionEconomicsProfile`、execution/accounting、P&Lのauthorityにはしない。
+`integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 
-raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquired_at` が取得証拠のauthorityであり、`BinanceBookDepthSeries` はその再現可能なderivativeである。rowの`timestamp`と現行`available_at`はarchive内に記録されたmarket-observation timestampを表し、archive自体がその時刻にpublicだったことを意味しない。providerが保証していない固定sampling cadenceやpublication lagは捏造しない。実archiveでもsnapshot間隔は一定ではないため、30秒固定などの補間前提を置かない。
+`book_depth.py` はUSD-M daily `bookDepth` の `timestamp,percentage,depth,notional` を厳密にdecodeし、maintained percentage bands、snapshot completeness、累積depth/notional、implied average price、timestamp orderingをfail-closedに検証する。top-of-book quote、bid/ask spread、market impact、slippage、`MarketDataset`、`ExecutionEconomicsProfile`、execution/accounting、P&Lのauthorityにはしない。
+
+`agg_trades.py` はUSD-M daily `aggTrades` のaggregate trade ID、price、quantity、underlying first/last trade ID、event timestamp、buyer-is-makerを厳密にdecodeする。archiveはheaderless、またはmaintained seven-column headerが1行だけ存在する形式だけを受理し、それ以外をfail closedに拒否する。multi-million-row daily archiveを全Python string行列へ展開せずstreaming CSV + compact typed buffersで処理する。aggregate tradesはrealized trade-flow evidenceであり、order-book depth、top-of-book spread、queue position、market impact、slippage、hypothetical fill probabilityのauthorityにはしない。
+
+raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquired_at` が取得証拠のauthorityであり、`BinanceBookDepthSeries` と `BinanceAggTradesSeries` はその再現可能なderivativeである。bookDepth rowの`timestamp`と現行`available_at`はarchive内に記録されたmarket-observation timestampを表す。aggTradesの`transact_time`もmarket event timestampであり、いずれもarchive publication timestampやそのevent時点でVision ZIPがpublicだったことを意味しない。providerが保証していないpublication lagや固定sampling cadenceを捏造しない。
 
 別sourceの価格を使ってbookDepth品質を検査する場合は、reference valueの`available_at`が対象liquidity snapshotの`available_at`以下であることを必須にする。未来available referenceによる品質判定を許さない。historical archiveの異常値はraw evidenceを修復・丸めして隠さず、構造検証と明示的なcausal reference-alignment検証を分けてfail closedに扱う。
 
-このevidenceをbar-level participation、spread、impact、slippageへ変換する規則は別の研究変更である。導入する場合は結果を見る前にpreregisterし、execution-economics identityを変えた新しいDataset / Studyを構築する。既存canonical Studyやfrozen Experiment evidenceを書き換えない。
+これらprovider evidenceをbar-level participation、spread、impact、slippageやstrategy featureへ変換する規則は別の研究変更である。導入する場合は結果を見る前にpreregisterし、必要なavailability/join semanticsとexecution-economics identityを固定した新しいDataset / Studyを構築する。既存canonical Studyやfrozen Experiment evidenceを書き換えない。
 
 ## Ownership
 

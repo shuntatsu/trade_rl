@@ -1,0 +1,41 @@
+name: tmp Issue 616 evaluator GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue616-evaluator-green
+
+permissions:
+  contents: read
+
+env:
+  GREEN_HEAD: 490ae0562604d23cce71367a5037f6c6b48eddbf
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+  WRAPPER: trade_rl/strategies/forecasts/ridge_economic_gate.py
+  TEST_EVAL: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+  TEST_WRAPPER: tests/strategies/test_ridge_economic_gate.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.GREEN_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact GREEN head
+        run: test "$(git rev-parse HEAD)" = "$GREEN_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Focused evaluator verification
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_WRAPPER"
+          uv run ruff format --check "$MODULE" "$WRAPPER" "$TEST_EVAL" "$TEST_WRAPPER"
+          uv run mypy "$MODULE" "$WRAPPER"
+          uv run pytest -q "$TEST_WRAPPER" "$TEST_EVAL"

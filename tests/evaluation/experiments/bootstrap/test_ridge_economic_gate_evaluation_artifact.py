@@ -94,6 +94,19 @@ def test_loader_rejects_unknown_nested_field_even_with_resigned_digest(
         load_ridge_economic_gate_evaluation(path)
 
 
+def test_loader_rejects_unknown_nested_symbol_field_even_when_resigned(
+    tmp_path,
+) -> None:
+    document = json.loads(canonical_ridge_economic_gate_evaluation_bytes(_result()))
+    document["result"]["by_symbol"][0]["unexpected"] = 1
+    document["content_digest"] = content_digest(document["result"])
+    path = tmp_path / "result.json"
+    path.write_bytes(_canonical_document_bytes(document))
+
+    with pytest.raises(ValueError, match="by_symbol item keys differ"):
+        load_ridge_economic_gate_evaluation(path)
+
+
 def test_loader_rejects_resigned_aggregate_and_status_forgery(tmp_path) -> None:
     document = json.loads(canonical_ridge_economic_gate_evaluation_bytes(_result()))
     document["result"]["positive_effect_symbols"] = 4

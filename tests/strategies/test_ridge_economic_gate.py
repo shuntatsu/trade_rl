@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 
@@ -25,7 +23,7 @@ def _model(*, coefficient: float = 1.0, intercept: float = 0.0) -> RidgeForecast
         horizon_hours=24,
         alpha=1.0,
         n_samples=10,
-        fit_cutoff=np.datetime64(datetime(2023, 1, 1, tzinfo=UTC)),
+        fit_cutoff=np.datetime64("2023-01-01T00:00:00", "ns"),
     )
 
 

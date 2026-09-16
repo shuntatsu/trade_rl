@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 
-import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation import replay as replay_module
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.position_intent import PositionIntent
@@ -82,16 +82,18 @@ def _risk(*, max_gross: float, max_turnover: float | None) -> PreTradeRisk:
 
 
 def test_shared_cash_replay_api_exists() -> None:
-    assert callable(evaluation.run_shared_cash_replay)
+    assert callable(replay_module.run_shared_cash_replay)
 
 
 def test_one_symbol_shared_cash_is_single_symbol_equivalent() -> None:
-    dataset = _market(np.asarray([[100.0], [100.0], [110.0], [120.0], [130.0], [140.0]]))
+    dataset = _market(
+        np.asarray([[100.0], [100.0], [110.0], [120.0], [130.0], [140.0]])
+    )
     single_strategy = FixedIntent(PositionIntent.LONG)
     shared_strategy = FixedIntent(PositionIntent.LONG)
     execution_cost = ExecutionCostConfig.zero()
 
-    single = evaluation.run_single_symbol_replay(
+    single = replay_module.run_single_symbol_replay(
         dataset,
         single_strategy,
         start_index=0,
@@ -100,7 +102,7 @@ def test_one_symbol_shared_cash_is_single_symbol_equivalent() -> None:
         initial_capital=1_000.0,
         execution_cost=execution_cost,
     )
-    shared = evaluation.run_shared_cash_replay(
+    shared = replay_module.run_shared_cash_replay(
         dataset,
         (shared_strategy,),
         start_index=0,
@@ -128,7 +130,7 @@ def test_one_symbol_shared_cash_is_single_symbol_equivalent() -> None:
 
 def test_simultaneous_long_proposals_share_one_gross_budget() -> None:
     dataset = _market(np.full((5, 2), [100.0, 200.0]))
-    result = evaluation.run_shared_cash_replay(
+    result = replay_module.run_shared_cash_replay(
         dataset,
         (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.LONG)),
         start_index=0,
@@ -169,7 +171,9 @@ def test_risk_and_execution_run_once_per_bar_after_all_decisions(
         bars: int,
     ) -> object:
         execution_calls.append(start_index)
-        return original_execute(executor, book, target, start_index=start_index, bars=bars)  # type: ignore[arg-type,return-value]
+        return original_execute(
+            executor, book, target, start_index=start_index, bars=bars  # type: ignore[arg-type]
+        )
 
     def record_constrain(
         controller: PreTradeRisk,
@@ -188,12 +192,12 @@ def test_risk_and_execution_run_once_per_bar_after_all_decisions(
             drawdown=drawdown,
             emergency_flatten_mask=emergency_flatten_mask,
             reduce_only_mask=reduce_only_mask,
-        )  # type: ignore[return-value]
+        )
 
     monkeypatch.setattr(MarketExecutor, "execute_interval", record_execute)
     monkeypatch.setattr(PreTradeRisk, "constrain", record_constrain)
 
-    result = evaluation.run_shared_cash_replay(
+    result = replay_module.run_shared_cash_replay(
         dataset,
         strategies,
         start_index=0,
@@ -206,16 +210,15 @@ def test_risk_and_execution_run_once_per_bar_after_all_decisions(
     assert execution_calls == [0, 1, 2, 3]
     assert len(risk_calls) == 4
     assert risk_calls[0] == pytest.approx((1.0, 1.0))
-    assert [getattr(strategy.observations[0], "current_weight") for strategy in strategies] == [
-        0.0,
-        0.0,
-    ]
+    assert [
+        getattr(strategy.observations[0], "current_weight") for strategy in strategies
+    ] == [0.0, 0.0]
     assert len(result.decisions) == 4
 
 
 def test_turnover_only_projection_keeps_desired_quantities_for_convergence() -> None:
     dataset = _market(np.full((5, 2), [100.0, 200.0]))
-    result = evaluation.run_shared_cash_replay(
+    result = replay_module.run_shared_cash_replay(
         dataset,
         (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.LONG)),
         start_index=0,
@@ -235,7 +238,7 @@ def test_turnover_only_projection_keeps_desired_quantities_for_convergence() -> 
 
 def test_hard_risk_projection_rebinds_desired_quantities() -> None:
     dataset = _market(np.full((5, 2), [100.0, 200.0]))
-    result = evaluation.run_shared_cash_replay(
+    result = replay_module.run_shared_cash_replay(
         dataset,
         (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.LONG)),
         start_index=0,
@@ -259,7 +262,7 @@ def test_symbol_permutation_preserves_shared_portfolio_economics() -> None:
         np.asarray(original.close)[:, [1, 0]],
         symbols=("ETHUSDT", "BTCUSDT"),
     )
-    first = evaluation.run_shared_cash_replay(
+    first = replay_module.run_shared_cash_replay(
         original,
         (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.SHORT)),
         start_index=0,
@@ -268,7 +271,7 @@ def test_symbol_permutation_preserves_shared_portfolio_economics() -> None:
         initial_capital=1_000.0,
         execution_cost=ExecutionCostConfig.zero(),
     )
-    second = evaluation.run_shared_cash_replay(
+    second = replay_module.run_shared_cash_replay(
         swapped,
         (FixedIntent(PositionIntent.SHORT), FixedIntent(PositionIntent.LONG)),
         start_index=0,
@@ -296,9 +299,9 @@ def test_strategy_roster_fails_closed() -> None:
         execution_cost=ExecutionCostConfig.zero(),
     )
     with pytest.raises(ValueError, match="one strategy per dataset symbol"):
-        evaluation.run_shared_cash_replay(dataset, (shared,), **common)
+        replay_module.run_shared_cash_replay(dataset, (shared,), **common)
     with pytest.raises(ValueError, match="distinct strategy instance"):
-        evaluation.run_shared_cash_replay(dataset, (shared, shared), **common)
+        replay_module.run_shared_cash_replay(dataset, (shared, shared), **common)
 
 
 def test_portfolio_termination_stops_all_symbols() -> None:
@@ -314,7 +317,7 @@ def test_portfolio_termination_stops_all_symbols() -> None:
             ]
         )
     )
-    result = evaluation.run_shared_cash_replay(
+    result = replay_module.run_shared_cash_replay(
         dataset,
         (FixedIntent(PositionIntent.SHORT), FixedIntent(PositionIntent.FLAT)),
         start_index=0,

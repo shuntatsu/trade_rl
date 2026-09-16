@@ -9,7 +9,9 @@ from tools.branch_hygiene import (
 )
 
 
-def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs() -> None:
+def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs() -> (
+    None
+):
     branches = (
         BranchInfo("main", "a" * 40, False),
         BranchInfo("protected/release", "b" * 40, True),

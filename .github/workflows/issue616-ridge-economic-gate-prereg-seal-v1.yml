@@ -1,0 +1,353 @@
+name: Issue 616 ridge economic gate prereg seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue616-ridge-economic-gate-prereg-v1
+    paths:
+      - .github/issue616-ridge-economic-gate-prereg-v1.authorized
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue616-ridge-economic-gate-prereg-seal-v1
+  cancel-in-progress: false
+
+env:
+  PROTOCOL_HEAD: 75999e53c70224c31a62b106e4a8d2caa4b920ac
+  PROTOCOL_MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_prereg.py
+  PROTOCOL_MODULE_BLOB: 72d532351238223a1c467d54addb8b6a8de829f5
+  PR_NUMBER: '617'
+  VERIFY_RUN: '35125881823'
+
+jobs:
+  primary:
+    name: Produce immutable Issue 616 preregistration seal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce exactly-once seal activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROTOCOL_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact protocol, final CI and unmerged Draft PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROTOCOL_HEAD"
+          test "$(git rev-parse "HEAD:$PROTOCOL_MODULE")" = "$PROTOCOL_MODULE_BLOB"
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$PROTOCOL_HEAD"
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .merged <<<"$pr")" = false
+          test "$(jq -r .head.sha <<<"$pr")" = "$PROTOCOL_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Generate canonical result-blind seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/seal
+          mkdir /tmp/seal
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_prereg import (
+              canonical_ridge_economic_gate_protocol,
+          )
+
+          root = Path('/tmp/seal')
+          protocol = canonical_ridge_economic_gate_protocol()
+          protocol_doc: dict[str, object] = {
+              'schema_version': 'issue616_ridge_economic_gate_protocol_artifact_v1',
+              'issue_number': 616,
+              'protocol': protocol.to_payload(),
+              'protocol_digest': protocol.digest,
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+              'final_test_accessed': False,
+              'final_test_authorized': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          protocol_doc['content_digest'] = content_digest(protocol_doc)
+          (root / 'protocol.json').write_bytes(canonical_json_bytes(protocol_doc))
+
+          seal: dict[str, object] = {
+              'schema_version': 'issue616_ridge_economic_gate_prereg_seal_v1',
+              'issue_number': 616,
+              'protocol_head': '75999e53c70224c31a62b106e4a8d2caa4b920ac',
+              'protocol_module_blob': '72d532351238223a1c467d54addb8b6a8de829f5',
+              'verification_run_id': 35125881823,
+              'protocol_digest': protocol.digest,
+              'protocol_document_content_digest': protocol_doc['content_digest'],
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+              'final_test_accessed': False,
+              'final_test_authorized': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          seal['content_digest'] = content_digest(seal)
+          (root / 'seal.json').write_bytes(canonical_json_bytes(seal))
+          print('ISSUE616_PROTOCOL_DIGEST=' + protocol.digest)
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('EVALUATION_EXECUTION_AUTHORIZED=false')
+          print('FINAL_TEST_ACCESSED=false')
+          PY
+      - id: name
+        run: echo "artifact_name=issue616-ridge-economic-gate-prereg-seal-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/seal
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  fresh:
+    name: Fresh reconstruction of Issue 616 preregistration seal
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROTOCOL_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Rebind exact protocol and final CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROTOCOL_HEAD"
+          test "$(git rev-parse "HEAD:$PROTOCOL_MODULE")" = "$PROTOCOL_MODULE_BLOB"
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFY_RUN")"
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$PROTOCOL_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.primary.outputs.artifact_name }}
+          path: /tmp/primary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - name: Independently reconstruct and require byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/fresh
+          mkdir /tmp/fresh
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_prereg import (
+              canonical_ridge_economic_gate_protocol,
+          )
+
+          root = Path('/tmp/fresh')
+          protocol = canonical_ridge_economic_gate_protocol()
+          protocol_doc: dict[str, object] = {
+              'schema_version': 'issue616_ridge_economic_gate_protocol_artifact_v1',
+              'issue_number': 616,
+              'protocol': protocol.to_payload(),
+              'protocol_digest': protocol.digest,
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+              'final_test_accessed': False,
+              'final_test_authorized': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          protocol_doc['content_digest'] = content_digest(protocol_doc)
+          (root / 'protocol.json').write_bytes(canonical_json_bytes(protocol_doc))
+          seal: dict[str, object] = {
+              'schema_version': 'issue616_ridge_economic_gate_prereg_seal_v1',
+              'issue_number': 616,
+              'protocol_head': '75999e53c70224c31a62b106e4a8d2caa4b920ac',
+              'protocol_module_blob': '72d532351238223a1c467d54addb8b6a8de829f5',
+              'verification_run_id': 35125881823,
+              'protocol_digest': protocol.digest,
+              'protocol_document_content_digest': protocol_doc['content_digest'],
+              'evaluation_pnl_inspected': False,
+              'evaluation_execution_authorized': False,
+              'final_test_accessed': False,
+              'final_test_authorized': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          seal['content_digest'] = content_digest(seal)
+          (root / 'seal.json').write_bytes(canonical_json_bytes(seal))
+          PY
+          diff -qr /tmp/primary /tmp/fresh
+          echo ISSUE616_FRESH_SEAL_BYTE_IDENTICAL=PASS
+      - id: name
+        run: echo "artifact_name=issue616-ridge-economic-gate-prereg-seal-fresh-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/fresh
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  verify:
+    name: Verify immutable Issue 616 preregistration closure
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: API-bind both seal artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_NAME: ${{ needs.primary.outputs.artifact_name }}
+          PRIMARY_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${{ needs.primary.result }}" = success
+          test "${{ needs.fresh.result }}" = success
+          check_artifact() {
+            local id="$1" name="$2" digest="$3"
+            local meta api_digest
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$meta")" = false
+            api_digest="$(jq -r .digest <<<"$meta")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          check_artifact "$PRIMARY_ID" "$PRIMARY_NAME" "$PRIMARY_DIGEST"
+          check_artifact "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROTOCOL_HEAD }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.primary.outputs.artifact_name }}
+          path: /tmp/primary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+      - name: Validate canonical closure and boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff -qr /tmp/primary /tmp/fresh
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          def load(path: Path) -> dict[str, object]:
+              raw = path.read_bytes()
+              payload = json.loads(raw)
+              assert isinstance(payload, dict)
+              assert canonical_json_bytes(payload) == raw
+              digest = payload.get('content_digest')
+              assert isinstance(digest, str)
+              unsigned = dict(payload)
+              unsigned.pop('content_digest')
+              assert content_digest(unsigned) == digest
+              return payload
+
+          root = Path('/tmp/primary')
+          protocol = load(root / 'protocol.json')
+          seal = load(root / 'seal.json')
+          assert seal['protocol_head'] == '75999e53c70224c31a62b106e4a8d2caa4b920ac'
+          assert seal['protocol_module_blob'] == '72d532351238223a1c467d54addb8b6a8de829f5'
+          assert seal['verification_run_id'] == 35125881823
+          assert seal['protocol_digest'] == protocol['protocol_digest']
+          assert seal['protocol_document_content_digest'] == protocol['content_digest']
+          for payload in (protocol, seal):
+              assert payload['evaluation_pnl_inspected'] is False
+              assert payload['evaluation_execution_authorized'] is False
+              assert payload['final_test_accessed'] is False
+              assert payload['final_test_authorized'] is False
+              assert payload['shared_cash_profitability_established'] is False
+              assert payload['operational_eligibility_established'] is False
+              assert payload['production_eligible'] is False
+              assert payload['live_trading_authorized'] is False
+              assert payload['merge_authorized'] is False
+          print('ISSUE616_PREREG_SEAL_V1=PASS')
+          print('PROTOCOL_DIGEST=' + str(seal['protocol_digest']))
+          print('EVALUATION_PNL_INSPECTED=false')
+          print('EVALUATION_EXECUTION_AUTHORIZED=false')
+          print('FINAL_TEST_ACCESSED=false')
+          print('PRODUCTION_ELIGIBLE=false')
+          print('LIVE_TRADING_AUTHORIZED=false')
+          print('MERGE_AUTHORIZED=false')
+          PY

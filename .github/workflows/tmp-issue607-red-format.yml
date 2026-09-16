@@ -1,0 +1,67 @@
+name: Temporary Issue 607 RED test formatting
+
+on:
+  push:
+    branches:
+      - automation/issue607-red-format
+    paths:
+      - .github/workflows/tmp-issue607-red-format.yml
+
+permissions:
+  contents: write
+
+env:
+  RED_SHA: c84e3d5f75b43717f40740334503927e85d75044
+  TARGET_BRANCH: verify/issue607-global-btc-regime-red
+  TEST_STRATEGY: tests/strategies/test_ppo_global_btc_regime.py
+  TEST_CONFIG: tests/evaluation/test_issue607_candidate_config.py
+
+jobs:
+  format_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard exact test-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          actual="$(git diff --name-only d84235185c5e79327ea7ced7073f0026970ba46b..HEAD | sort)"
+          expected="$(printf '%s\n%s\n' "$TEST_CONFIG" "$TEST_STRATEGY" | sort)"
+          test "$actual" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Apply formatting only and verify static gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$TEST_STRATEGY" "$TEST_CONFIG"
+          uv run ruff format "$TEST_STRATEGY" "$TEST_CONFIG"
+          uv run ruff check "$TEST_STRATEGY" "$TEST_CONFIG"
+          uv run ruff format --check "$TEST_STRATEGY" "$TEST_CONFIG"
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$TEST_CONFIG" "$TEST_STRATEGY" | sort)"
+          test "$actual" = "$expected"
+          git diff --check
+      - name: Publish formatted RED tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$RED_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_STRATEGY" "$TEST_CONFIG"
+          git commit -m "test: format Issue 607 semantic RED"
+          test "$(git rev-parse HEAD^)" = "$RED_SHA"
+          actual="$(git diff --name-only HEAD^ HEAD | sort)"
+          expected="$(printf '%s\n%s\n' "$TEST_CONFIG" "$TEST_STRATEGY" | sort)"
+          test "$actual" = "$expected"
+          git push origin HEAD:"$TARGET_BRANCH"

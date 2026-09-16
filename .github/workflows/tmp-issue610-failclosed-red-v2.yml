@@ -1,0 +1,52 @@
+name: tmp Issue 610 fail-closed RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue610-failclosed-red-v2
+
+permissions:
+  contents: read
+
+env:
+  TARGET_HEAD: 0ee43dadc8a4447b518941a48de93252a8160cbd
+  HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Require static-clean RED oracle
+        run: |
+          uv run ruff check "$HELPER" "$TEST"
+          uv run ruff format --check "$HELPER" "$TEST"
+          uv run mypy "$HELPER"
+      - name: Require fail-closed semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            "$TEST::test_candidate_ppo_returns_reject_extra_seed_and_symbol_roster" \
+            "$TEST::test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold" \
+            "$TEST::test_frozen_gate_rejects_inconsistent_cross_symbol_aggregate" \
+            > /tmp/red.out 2>&1
+          code=$?
+          set -e
+          cat /tmp/red.out
+          test "$code" -ne 0
+          grep -q "test_candidate_ppo_returns_reject_extra_seed_and_symbol_roster" /tmp/red.out
+          grep -q "test_frozen_gate_accepts_only_when_all_five_preregistered_conditions_hold" /tmp/red.out
+          grep -q "test_frozen_gate_rejects_inconsistent_cross_symbol_aggregate" /tmp/red.out
+          echo "ISSUE610_FAILCLOSED_RED=PASS"

@@ -1,0 +1,20 @@
+issue: 610
+purpose: authorize exactly-once recovery-v2 independent audit of immutable producer/fresh results using the GREEN-verified canonical-map-roster audit helper
+audit_sha: ad563089469ec964d9c04234d14dcc8f6b47a7ca
+audit_verify_run: 35118400283
+prior_recovery_run: 35117702793
+interpretation_run: 35116022231
+producer_artifact_id: 10455728296
+producer_artifact_digest: sha256:71b7b166d9166038b5b83c85ee6809237271db3af8bfcf48dd87c701ceeebc1e
+fresh_artifact_id: 10454484504
+fresh_artifact_digest: sha256:dbaf3e2c81e07f953cedcd582753aac95dee871b49f076465799cf003bf176e5
+candidate_artifact_id: 10453782249
+candidate_artifact_digest: sha256:395918daae4c17ed5619d6b559aa799a8031e6d08fbad9a6f64a49f2b41208a8
+precompute_artifact_id: 10447243668
+precompute_artifact_digest: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+candidate_retrained: false
+interpretation_recomputed: false
+final_test_accessed: false
+production_eligible: false
+live_trading_authorized: false
+merge_authorized: false

@@ -131,8 +131,7 @@ def validate_no_new_ppo_terminations(
             )
             if baseline_reasons is None:
                 violations.append(
-                    "baseline PPO termination evidence malformed: "
-                    f"seed={seed} {symbol}"
+                    f"baseline PPO termination evidence malformed: seed={seed} {symbol}"
                 )
                 continue
             if candidate_reasons is None:

@@ -77,7 +77,9 @@ def _env(name: str) -> str:
 def _unique(root: Path, name: str) -> Path:
     matches = tuple(root.rglob(name))
     if len(matches) != 1:
-        raise RuntimeError(f"expected exactly one {name} under {root}, found {len(matches)}")
+        raise RuntimeError(
+            f"expected exactly one {name} under {root}, found {len(matches)}"
+        )
     return matches[0]
 
 
@@ -87,7 +89,9 @@ def _canonical_object(path: Path) -> tuple[dict[str, object], bytes]:
         decoded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"malformed JSON: {path}") from error
-    if not isinstance(decoded, dict) or any(not isinstance(key, str) for key in decoded):
+    if not isinstance(decoded, dict) or any(
+        not isinstance(key, str) for key in decoded
+    ):
         raise RuntimeError(f"JSON root is not a string-keyed object: {path}")
     if canonical_json_bytes(decoded) != raw:
         raise RuntimeError(f"JSON is not canonical: {path}")
@@ -110,9 +114,14 @@ def _require_false(payload: dict[str, object], *names: str) -> None:
             raise RuntimeError(f"{name} must remain false")
 
 
-def _verify_eval_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path) -> None:
+def _verify_eval_authority(
+    *, repo_root: Path, seal_root: Path, fresh_root: Path
+) -> None:
     for name in ("protocol.json", "authority.json", "git-blobs.txt"):
-        if _unique(seal_root, name).read_bytes() != _unique(fresh_root, name).read_bytes():
+        if (
+            _unique(seal_root, name).read_bytes()
+            != _unique(fresh_root, name).read_bytes()
+        ):
             raise RuntimeError(f"Issue 609 seal/fresh byte mismatch: {name}")
 
     protocol, protocol_raw = _canonical_object(_unique(seal_root, "protocol.json"))
@@ -152,7 +161,13 @@ def _verify_eval_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path
     expected_lines = []
     for path in _EVAL_BLOB_PATHS:
         blob = subprocess.check_output(
-            ["git", "-C", str(repo_root), "rev-parse", f"{_env('EVAL_PREREG_HEAD')}:{path}"],
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "rev-parse",
+                f"{_env('EVAL_PREREG_HEAD')}:{path}",
+            ],
             text=True,
         ).strip()
         expected_lines.append(f"{blob} {path}\n")
@@ -162,12 +177,19 @@ def _verify_eval_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path
         raise RuntimeError("Issue 609 git-blobs authority mismatch")
 
 
-def _verify_impl_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path) -> None:
+def _verify_impl_authority(
+    *, repo_root: Path, seal_root: Path, fresh_root: Path
+) -> None:
     for name in ("implementation-index.json", "authority.json"):
-        if _unique(seal_root, name).read_bytes() != _unique(fresh_root, name).read_bytes():
+        if (
+            _unique(seal_root, name).read_bytes()
+            != _unique(fresh_root, name).read_bytes()
+        ):
             raise RuntimeError(f"Issue 607 seal/fresh byte mismatch: {name}")
 
-    index, index_raw = _canonical_object(_unique(seal_root, "implementation-index.json"))
+    index, index_raw = _canonical_object(
+        _unique(seal_root, "implementation-index.json")
+    )
     _verify_embedded_digest(index, label="Issue 607 implementation index")
     if index.get("content_digest") != _env("IMPL_INDEX_DIGEST"):
         raise RuntimeError("Issue 607 implementation index digest mismatch")
@@ -185,14 +207,24 @@ def _verify_impl_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path
             raise RuntimeError("Issue 607 implementation file entry malformed")
         category = entry.get("category")
         path = entry.get("path")
-        if not isinstance(category, str) or category not in observed or not isinstance(path, str):
+        if (
+            not isinstance(category, str)
+            or category not in observed
+            or not isinstance(path, str)
+        ):
             raise RuntimeError("Issue 607 implementation file identity malformed")
         observed[category].add(path)
         raw = (repo_root / path).read_bytes()
         if hashlib.sha256(raw).hexdigest() != entry.get("sha256"):
             raise RuntimeError(f"Issue 607 file SHA-256 mismatch: {path}")
         blob = subprocess.check_output(
-            ["git", "-C", str(repo_root), "rev-parse", f"{_env('IMPLEMENTATION_SHA')}:{path}"],
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "rev-parse",
+                f"{_env('IMPLEMENTATION_SHA')}:{path}",
+            ],
             text=True,
         ).strip()
         if blob != entry.get("git_blob_sha1"):
@@ -204,11 +236,18 @@ def _verify_impl_authority(*, repo_root: Path, seal_root: Path, fresh_root: Path
     _verify_embedded_digest(authority, label="Issue 607 authority")
     if authority.get("canonical_implementation_head") != _env("IMPLEMENTATION_SHA"):
         raise RuntimeError("Issue 607 seal head mismatch")
-    if authority.get("canonical_implementation_tree_sha1") != _env("IMPLEMENTATION_TREE"):
+    if authority.get("canonical_implementation_tree_sha1") != _env(
+        "IMPLEMENTATION_TREE"
+    ):
         raise RuntimeError("Issue 607 seal tree mismatch")
-    if authority.get("implementation_index_content_digest") != _env("IMPL_INDEX_DIGEST"):
+    if authority.get("implementation_index_content_digest") != _env(
+        "IMPL_INDEX_DIGEST"
+    ):
         raise RuntimeError("Issue 607 seal index digest mismatch")
-    if authority.get("implementation_index_sha256") != hashlib.sha256(index_raw).hexdigest():
+    if (
+        authority.get("implementation_index_sha256")
+        != hashlib.sha256(index_raw).hexdigest()
+    ):
         raise RuntimeError("Issue 607 seal index byte hash mismatch")
     _require_false(
         authority,
@@ -243,7 +282,9 @@ def _verify_baseline_fresh_binding(fresh_root: Path) -> None:
             raise RuntimeError(f"baseline fresh binding mismatch: {key}")
 
 
-def _build_report(*, baseline_root: Path) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+def _build_report(
+    *, baseline_root: Path
+) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
     dataset = load_market_dataset_artifact(baseline_root / "dataset")
     artifact = inspect_published_market_dataset_artifact(baseline_root / "dataset")
     snapshot = inspect_study(baseline_root / "study")
@@ -257,11 +298,22 @@ def _build_report(*, baseline_root: Path) -> tuple[dict[str, object], dict[str, 
         raise RuntimeError("baseline Study digest mismatch")
     if loaded.evidence.fingerprint != _env("BASELINE_FP"):
         raise RuntimeError("baseline EvidenceSet fingerprint mismatch")
-    if snapshot.baseline is None or snapshot.experiment_sequences or snapshot.terminal_sequences or snapshot.frozen:
+    if (
+        snapshot.baseline is None
+        or snapshot.experiment_sequences
+        or snapshot.terminal_sequences
+        or snapshot.frozen
+    ):
         raise RuntimeError("baseline Study state is not baseline-only mutable state")
-    if snapshot.plan.symbols != _EXPECTED_SYMBOLS or snapshot.plan.ppo_seeds != _EXPECTED_SEEDS:
+    if (
+        snapshot.plan.symbols != _EXPECTED_SYMBOLS
+        or snapshot.plan.ppo_seeds != _EXPECTED_SEEDS
+    ):
         raise RuntimeError("baseline symbol/seed roster mismatch")
-    if tuple(sorted(loaded.runs)) != _EXPECTED_SEEDS or loaded.evidence.ppo_seeds != _EXPECTED_SEEDS:
+    if (
+        tuple(sorted(loaded.runs)) != _EXPECTED_SEEDS
+        or loaded.evidence.ppo_seeds != _EXPECTED_SEEDS
+    ):
         raise RuntimeError("baseline EvidenceSet seed roster mismatch")
     if snapshot.plan.n_bootstrap != 2_000 or snapshot.plan.bootstrap_seed != 1_729:
         raise RuntimeError("baseline bootstrap authority mismatch")
@@ -271,7 +323,10 @@ def _build_report(*, baseline_root: Path) -> tuple[dict[str, object], dict[str, 
         raise RuntimeError("baseline resolved schema mismatch")
     if baseline.ppo_observation_schema != PPO_OBSERVATION_SCHEMA:
         raise RuntimeError("baseline PPO observation schema mismatch")
-    if baseline.ppo_global_feature_names != () or baseline.ppo_global_context is not None:
+    if (
+        baseline.ppo_global_feature_names != ()
+        or baseline.ppo_global_context is not None
+    ):
         raise RuntimeError("baseline unexpectedly contains global PPO context")
     if baseline.ppo_total_timesteps != 100_000:
         raise RuntimeError("baseline PPO timestep budget mismatch")
@@ -302,12 +357,16 @@ def _build_report(*, baseline_root: Path) -> tuple[dict[str, object], dict[str, 
     )
     resolved_again = ResolvedRunConfig.from_candidate_spec(spec)
     if resolved_again != candidate:
-        raise RuntimeError("executable candidate resolution differs from frozen candidate")
+        raise RuntimeError(
+            "executable candidate resolution differs from frozen candidate"
+        )
 
     provenance = build_candidate_run_provenance()
     implementation_digest = provenance.get("implementation_digest")
     runtime_digest = provenance.get("runtime_environment_digest")
-    if not isinstance(implementation_digest, str) or not isinstance(runtime_digest, str):
+    if not isinstance(implementation_digest, str) or not isinstance(
+        runtime_digest, str
+    ):
         raise RuntimeError("candidate provenance digest malformed")
     carrier = build_candidate_carrier_plan(
         source_plan=snapshot.plan,

@@ -21,7 +21,7 @@ from tools.tmp_issue610_interpretation_v2 import interpret_candidate_v2
 ISSUE_NUMBER = 610
 STRICT_PRECHECK_SCHEMA = "issue610_strict_termination_precheck_v1"
 DECISION_ENVELOPE_SCHEMA = "issue610_interpretation_decision_v3"
-VALID_DECISIONS = frozenset({"ACCEPT", "KEEP_BASELINE", "INVALID"})
+VALID_DECISIONS = frozenset({"ACCEPT_CANDIDATE", "KEEP_BASELINE", "INVALID"})
 
 
 def _with_digest(payload: Mapping[str, object]) -> dict[str, object]:
@@ -220,7 +220,7 @@ def self_check() -> None:
         raise RuntimeError("strict precheck schema drift")
     if DECISION_ENVELOPE_SCHEMA != "issue610_interpretation_decision_v3":
         raise RuntimeError("decision envelope schema drift")
-    if VALID_DECISIONS != frozenset({"ACCEPT", "KEEP_BASELINE", "INVALID"}):
+    if VALID_DECISIONS != frozenset({"ACCEPT_CANDIDATE", "KEEP_BASELINE", "INVALID"}):
         raise RuntimeError("decision roster drift")
     print("ISSUE610_REAL_INTERPRETATION_RUNNER_V1_SELF_CHECK=PASS")
 

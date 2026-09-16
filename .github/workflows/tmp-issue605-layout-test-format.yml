@@ -1,0 +1,58 @@
+name: Temporary Issue 605 layout test format
+
+on:
+  push:
+    branches:
+      - automation/issue605-layout-test-format
+    paths:
+      - .github/workflows/tmp-issue605-layout-test-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue605-ppo-global-btc-regime-prereg
+  TARGET_SHA: 56287bc5a5340006131f993cd1ef76a3c3daa48a
+  TEST_FILE: tests/evaluation/experiments/test_ppo_global_btc_regime_prereg_layout.py
+
+jobs:
+  format_verify_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Guard exact research head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format RED test without changing expectations
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$TEST_FILE"
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+      - name: Guard and publish test-only format
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          changed="$(git diff --name-only)"
+          test "$changed" = "$TEST_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TEST_FILE"
+          git commit -m "style: format Issue 605 layout RED test"
+          git push origin HEAD:"$TARGET_BRANCH"

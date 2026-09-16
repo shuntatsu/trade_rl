@@ -1,0 +1,473 @@
+name: Issue 607 PPO global-BTC implementation seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue607-ppo-global-btc-regime-impl-v1
+    paths:
+      - .github/workflows/issue607-ppo-global-btc-regime-impl-seal-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  ISSUE_NUMBER: "607"
+  PR_NUMBER: "608"
+  BASE_MAIN_SHA: c5a1ce8395feaedd8833f7e596fddc9d8f3115fc
+  PREREG_HEAD: d84235185c5e79327ea7ced7073f0026970ba46b
+  PREREG_PROTOCOL_DIGEST: 65a803034fca8180c165728022221d7b3c2fa5dcdd8349d3ca52c3a6adc72228
+  PREREG_SEAL_RUN_ID: "35078049585"
+  PREREG_SEAL_ARTIFACT_ID: "10439281380"
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:b030ecc638c440fafcbee27cc45fe0eb0b242309c5bb6ddaaaf32980894e2859
+  PREREG_FRESH_ARTIFACT_ID: "10438184487"
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:1a405428a709d8994a0f70d16697be249a664f57afaa74732102c2a8ea32fc69
+  DATASET_ID: d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f
+  RED_HEAD: b3f547e23b929a56885ea12ccd335a48cbfb0df5
+  IMPL_HEAD: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  IMPL_TREE: 4f14c5a06505b8ff9811b473bf6dea296453a13b
+  CARRIER_HEAD: ca0cafcdeb70e30b6511c31c7efa9c45687cd3ff
+  EXACT_VERIFY_RUN_ID: "35083543978"
+  STANDARD_PR_CI_RUN_ID: "35083900962"
+  CANONICAL_BRANCH: research/issue607-ppo-global-btc-regime-impl
+  CARRIER_BRANCH: research/issue605-ppo-global-btc-regime-impl
+
+jobs:
+  seal:
+    name: Seal canonical Issue 607 implementation
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind canonical implementation, PR carrier, CI and preregistration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$IMPL_HEAD"
+          test "$(git ls-remote origin refs/heads/$CANONICAL_BRANCH | cut -f1)" = "$IMPL_HEAD"
+          test "$(git ls-remote origin refs/heads/$CARRIER_BRANCH | cut -f1)" = "$CARRIER_HEAD"
+          git fetch origin "$RED_HEAD" "$PREREG_HEAD" "$CARRIER_HEAD" --no-tags
+          test "$(git rev-parse "$IMPL_HEAD^{tree}")" = "$IMPL_TREE"
+          test "$(git rev-parse "$CARRIER_HEAD^{tree}")" = "$IMPL_TREE"
+          test "$(git merge-base "$PREREG_HEAD" "$IMPL_HEAD")" = "$PREREG_HEAD"
+          test "$(git merge-base "$RED_HEAD" "$IMPL_HEAD")" = "$RED_HEAD"
+
+          pr="$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER)"
+          test "$(jq -r .head.sha <<<"$pr")" = "$CARRIER_HEAD"
+          test "$(jq -r .base.sha <<<"$pr")" = "$BASE_MAIN_SHA"
+          test "$(jq -r .draft <<<"$pr")" = true
+
+          exact="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$exact")" = success
+          exact_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$EXACT_VERIFY_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Exact Issue 607 Lean Core") | .conclusion' <<<"$exact_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Exact Issue 607 Human Guide") | .conclusion' <<<"$exact_jobs")" = success
+
+          ci="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$STANDARD_PR_CI_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          test "$(jq -r .head_sha <<<"$ci")" = "$CARRIER_HEAD"
+          ci_jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$STANDARD_PR_CI_RUN_ID/jobs?per_page=100)"
+          test "$(jq -r '.jobs[] | select(.name=="Lean Core") | .conclusion' <<<"$ci_jobs")" = success
+          test "$(jq -r '.jobs[] | select(.name=="Human Guide") | .conclusion' <<<"$ci_jobs")" = success
+
+          prereg_run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN_ID)"
+          test "$(jq -r .conclusion <<<"$prereg_run")" = success
+          for spec in "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_DIGEST" "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$PREREG_SEAL_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+
+          changed="$(git diff --name-only "$RED_HEAD..$IMPL_HEAD" | sort)"
+          expected="$(printf '%s\n' \
+            guide/content/meta/implementation-ppo.json \
+            guide/content/pages/implementation-ppo.md \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/strategies/rl/ppo.py | sort)"
+          test "$changed" = "$expected"
+
+          for path in \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py; do
+            test "$(git rev-parse "$RED_HEAD:$path")" = "$(git rev-parse "$IMPL_HEAD:$path")"
+          done
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove permanent Issue 607 oracles on canonical implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$IMPL_HEAD"
+          uv run ruff check \
+            trade_rl/strategies/rl/ppo.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py
+          uv run ruff format --check \
+            trade_rl/strategies/rl/ppo.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py
+          uv run mypy \
+            trade_rl/strategies/rl/ppo.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/experiments/contracts/run.py
+          uv run pytest -q \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py
+      - name: Materialize implementation index and seal authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seal
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import hashlib
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          seal_run_id = int(sys.argv[1])
+          production_and_guide = [
+              'guide/content/meta/implementation-ppo.json',
+              'guide/content/pages/implementation-ppo.md',
+              'trade_rl/evaluation/experiments/contracts/run.py',
+              'trade_rl/evaluation/experiments/delta.py',
+              'trade_rl/evaluation/runs/candidate_suite.py',
+              'trade_rl/evaluation/runs/config.py',
+              'trade_rl/strategies/rl/ppo.py',
+          ]
+          permanent_oracles = [
+              'tests/strategies/test_ppo_global_btc_regime.py',
+              'tests/evaluation/test_issue607_candidate_config.py',
+              'tests/evaluation/experiments/test_delta.py',
+          ]
+          entries = []
+          for category, paths in (
+              ('implementation_or_guide', production_and_guide),
+              ('permanent_oracle', permanent_oracles),
+          ):
+              for path in paths:
+                  raw = Path(path).read_bytes()
+                  blob = subprocess.check_output(
+                      ['git', 'rev-parse', f'1ae494ce182189c5be61e8007dc956f912d8b9d5:{path}'],
+                      text=True,
+                  ).strip()
+                  entries.append({
+                      'category': category,
+                      'path': path,
+                      'git_blob_sha1': blob,
+                      'sha256': hashlib.sha256(raw).hexdigest(),
+                  })
+          index = {
+              'schema_version': 'issue607_ppo_global_btc_regime_implementation_index_v1',
+              'issue_number': 607,
+              'canonical_implementation_head': '1ae494ce182189c5be61e8007dc956f912d8b9d5',
+              'canonical_implementation_tree_sha1': '4f14c5a06505b8ff9811b473bf6dea296453a13b',
+              'red_baseline_head': 'b3f547e23b929a56885ea12ccd335a48cbfb0df5',
+              'files': entries,
+          }
+          index['content_digest'] = content_digest(index)
+          index_bytes = canonical_json_bytes(index)
+          Path('/tmp/seal/implementation-index.json').write_bytes(index_bytes)
+
+          authority = {
+              'schema_version': 'issue607_ppo_global_btc_regime_implementation_seal_v1',
+              'issue_number': 607,
+              'pr_number': 608,
+              'base_main_sha': 'c5a1ce8395feaedd8833f7e596fddc9d8f3115fc',
+              'prereg_issue_number': 605,
+              'prereg_head': 'd84235185c5e79327ea7ced7073f0026970ba46b',
+              'prereg_protocol_digest': '65a803034fca8180c165728022221d7b3c2fa5dcdd8349d3ca52c3a6adc72228',
+              'prereg_seal_run_id': 35078049585,
+              'prereg_seal_artifact_id': 10439281380,
+              'prereg_seal_artifact_api_digest': 'b030ecc638c440fafcbee27cc45fe0eb0b242309c5bb6ddaaaf32980894e2859',
+              'prereg_fresh_artifact_id': 10438184487,
+              'prereg_fresh_artifact_api_digest': '1a405428a709d8994a0f70d16697be249a664f57afaa74732102c2a8ea32fc69',
+              'source_dataset_id': 'd7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f',
+              'red_baseline_head': 'b3f547e23b929a56885ea12ccd335a48cbfb0df5',
+              'canonical_implementation_head': '1ae494ce182189c5be61e8007dc956f912d8b9d5',
+              'canonical_implementation_tree_sha1': '4f14c5a06505b8ff9811b473bf6dea296453a13b',
+              'pr_carrier_head': 'ca0cafcdeb70e30b6511c31c7efa9c45687cd3ff',
+              'exact_head_verification_run_id': 35083543978,
+              'standard_pr_ci_run_id': 35083900962,
+              'seal_run_id': seal_run_id,
+              'implementation_index_sha256': hashlib.sha256(index_bytes).hexdigest(),
+              'implementation_index_content_digest': index['content_digest'],
+              'economic_factor_effect_executed': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/seal/authority.json').write_bytes(canonical_json_bytes(authority))
+          print('IMPLEMENTATION_INDEX_DIGEST=' + index['content_digest'])
+          print('ECONOMIC_FACTOR_EFFECT_EXECUTED=false')
+          PY
+      - id: meta
+        run: echo "name=issue607-implementation-seal-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable implementation seal
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/seal/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh independent Issue 607 implementation reconstruction
+    needs: seal
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPL_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: API-bind publisher seal artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.seal.outputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID)"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          api_digest="$(jq -r .digest <<<"$artifact")"
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) test "$api_digest" = "$ARTIFACT_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$ARTIFACT_DIGEST" ;;
+          esac
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/published
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct implementation index and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$IMPL_HEAD"
+          mkdir -p /tmp/fresh
+          uv run python - "$GITHUB_RUN_ID" <<'PY'
+          import hashlib
+          import subprocess
+          import sys
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          seal_run_id = int(sys.argv[1])
+          production_and_guide = [
+              'guide/content/meta/implementation-ppo.json',
+              'guide/content/pages/implementation-ppo.md',
+              'trade_rl/evaluation/experiments/contracts/run.py',
+              'trade_rl/evaluation/experiments/delta.py',
+              'trade_rl/evaluation/runs/candidate_suite.py',
+              'trade_rl/evaluation/runs/config.py',
+              'trade_rl/strategies/rl/ppo.py',
+          ]
+          permanent_oracles = [
+              'tests/strategies/test_ppo_global_btc_regime.py',
+              'tests/evaluation/test_issue607_candidate_config.py',
+              'tests/evaluation/experiments/test_delta.py',
+          ]
+          entries = []
+          for category, paths in (
+              ('implementation_or_guide', production_and_guide),
+              ('permanent_oracle', permanent_oracles),
+          ):
+              for path in paths:
+                  raw = Path(path).read_bytes()
+                  blob = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
+                  entries.append({
+                      'category': category,
+                      'path': path,
+                      'git_blob_sha1': blob,
+                      'sha256': hashlib.sha256(raw).hexdigest(),
+                  })
+          index = {
+              'schema_version': 'issue607_ppo_global_btc_regime_implementation_index_v1',
+              'issue_number': 607,
+              'canonical_implementation_head': '1ae494ce182189c5be61e8007dc956f912d8b9d5',
+              'canonical_implementation_tree_sha1': '4f14c5a06505b8ff9811b473bf6dea296453a13b',
+              'red_baseline_head': 'b3f547e23b929a56885ea12ccd335a48cbfb0df5',
+              'files': entries,
+          }
+          index['content_digest'] = content_digest(index)
+          index_bytes = canonical_json_bytes(index)
+          Path('/tmp/fresh/implementation-index.json').write_bytes(index_bytes)
+          authority = {
+              'schema_version': 'issue607_ppo_global_btc_regime_implementation_seal_v1',
+              'issue_number': 607,
+              'pr_number': 608,
+              'base_main_sha': 'c5a1ce8395feaedd8833f7e596fddc9d8f3115fc',
+              'prereg_issue_number': 605,
+              'prereg_head': 'd84235185c5e79327ea7ced7073f0026970ba46b',
+              'prereg_protocol_digest': '65a803034fca8180c165728022221d7b3c2fa5dcdd8349d3ca52c3a6adc72228',
+              'prereg_seal_run_id': 35078049585,
+              'prereg_seal_artifact_id': 10439281380,
+              'prereg_seal_artifact_api_digest': 'b030ecc638c440fafcbee27cc45fe0eb0b242309c5bb6ddaaaf32980894e2859',
+              'prereg_fresh_artifact_id': 10438184487,
+              'prereg_fresh_artifact_api_digest': '1a405428a709d8994a0f70d16697be249a664f57afaa74732102c2a8ea32fc69',
+              'source_dataset_id': 'd7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f',
+              'red_baseline_head': 'b3f547e23b929a56885ea12ccd335a48cbfb0df5',
+              'canonical_implementation_head': '1ae494ce182189c5be61e8007dc956f912d8b9d5',
+              'canonical_implementation_tree_sha1': '4f14c5a06505b8ff9811b473bf6dea296453a13b',
+              'pr_carrier_head': 'ca0cafcdeb70e30b6511c31c7efa9c45687cd3ff',
+              'exact_head_verification_run_id': 35083543978,
+              'standard_pr_ci_run_id': 35083900962,
+              'seal_run_id': seal_run_id,
+              'implementation_index_sha256': hashlib.sha256(index_bytes).hexdigest(),
+              'implementation_index_content_digest': index['content_digest'],
+              'economic_factor_effect_executed': False,
+              'economic_result_inspected': False,
+              'final_test_access_authorized': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          authority['content_digest'] = content_digest(authority)
+          Path('/tmp/fresh/authority.json').write_bytes(canonical_json_bytes(authority))
+          PY
+          cmp /tmp/published/implementation-index.json /tmp/fresh/implementation-index.json
+          cmp /tmp/published/authority.json /tmp/fresh/authority.json
+      - id: meta
+        run: echo "name=issue607-implementation-fresh-v1-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh independent reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 607 implementation seal audit
+    needs: [seal, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind seal and fresh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAL_ID: ${{ needs.seal.outputs.artifact_id }}
+          SEAL_DIGEST: ${{ needs.seal.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SEAL_ID|$SEAL_DIGEST" "$FRESH_ID|$FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.seal.outputs.artifact_name }}
+          path: /tmp/seal
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require canonical equality and closed economic boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/seal/implementation-index.json /tmp/fresh/implementation-index.json
+          cmp /tmp/seal/authority.json /tmp/fresh/authority.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          def canonical(value):
+              return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()
+
+          raw_index = Path('/tmp/seal/implementation-index.json').read_bytes()
+          index = json.loads(raw_index)
+          assert raw_index == canonical(index)
+          index_digest = index.pop('content_digest')
+          assert hashlib.sha256(canonical(index)).hexdigest() == index_digest
+          assert index['canonical_implementation_head'] == '1ae494ce182189c5be61e8007dc956f912d8b9d5'
+          assert index['canonical_implementation_tree_sha1'] == '4f14c5a06505b8ff9811b473bf6dea296453a13b'
+          assert len(index['files']) == 10
+
+          raw = Path('/tmp/seal/authority.json').read_bytes()
+          payload = json.loads(raw)
+          assert raw == canonical(payload)
+          digest = payload.pop('content_digest')
+          assert hashlib.sha256(canonical(payload)).hexdigest() == digest
+          assert payload['canonical_implementation_head'] == '1ae494ce182189c5be61e8007dc956f912d8b9d5'
+          assert payload['pr_carrier_head'] == 'ca0cafcdeb70e30b6511c31c7efa9c45687cd3ff'
+          assert payload['exact_head_verification_run_id'] == 35083543978
+          assert payload['standard_pr_ci_run_id'] == 35083900962
+          assert payload['implementation_index_content_digest'] == index_digest
+          assert hashlib.sha256(raw_index).hexdigest() == payload['implementation_index_sha256']
+          for key in (
+              'economic_factor_effect_executed',
+              'economic_result_inspected',
+              'final_test_access_authorized',
+              'production_eligible',
+              'live_trading_authorized',
+              'merge_authorized',
+          ):
+              assert payload[key] is False
+          print('ISSUE607_IMPLEMENTATION_SEAL=PASS')
+          print('IMPLEMENTATION_INDEX_DIGEST=' + index_digest)
+          print('ECONOMIC_FACTOR_EFFECT_EXECUTED=false')
+          PY

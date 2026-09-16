@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -123,9 +122,21 @@ def _source_baseline_config(plan: dict[str, Any]) -> CandidateRunConfig:
     raw = plan.get("baseline_config")
     if not isinstance(raw, dict):
         raise ValueError("source Study baseline_config is malformed")
-    _require_equal(raw.get("schema_version"), "resolved_run_config_v2", field="schema_version")
-    _require_equal(raw.get("ppo_observation_schema"), "ppo_observation_v2", field="ppo_observation_schema")
-    _require_equal(raw.get("ppo_global_feature_names"), [], field="ppo_global_feature_names")
+    _require_equal(
+        raw.get("schema_version"),
+        "resolved_run_config_v2",
+        field="schema_version",
+    )
+    _require_equal(
+        raw.get("ppo_observation_schema"),
+        "ppo_observation_v2",
+        field="ppo_observation_schema",
+    )
+    _require_equal(
+        raw.get("ppo_global_feature_names"),
+        [],
+        field="ppo_global_feature_names",
+    )
     if "ppo_global_context" in raw:
         raise ValueError("source baseline unexpectedly defines PPO global context")
     return CandidateRunConfig(
@@ -157,7 +168,9 @@ def _top_level_changed_paths(
     return tuple(changed)
 
 
-def _validate_source_authority(source_root: Path) -> tuple[dict[str, Any], CandidateRunConfig]:
+def _validate_source_authority(
+    source_root: Path,
+) -> tuple[dict[str, Any], CandidateRunConfig]:
     dataset_root = source_root / "dataset"
     source_study_root = source_root / "study"
     plan_path = source_study_root / "plan.json"
@@ -168,17 +181,45 @@ def _validate_source_authority(source_root: Path) -> tuple[dict[str, Any], Candi
     artifact = inspect_published_market_dataset_artifact(dataset_root)
     dataset = load_market_dataset_artifact(dataset_root)
     _require_equal(dataset.dataset_id, SOURCE_DATASET_ID, field="source dataset id")
-    _require_equal(artifact.artifact_digest, SOURCE_DATASET_ARTIFACT_DIGEST, field="dataset artifact digest")
+    _require_equal(
+        artifact.artifact_digest,
+        SOURCE_DATASET_ARTIFACT_DIGEST,
+        field="dataset artifact digest",
+    )
     _require_equal(tuple(dataset.symbols), EXPECTED_SYMBOLS, field="dataset symbols")
 
     plan = _load_json_object(plan_path)
     _require_equal(content_digest(plan), SOURCE_STUDY_DIGEST, field="source Study digest")
-    _require_equal(plan.get("dataset_id"), SOURCE_DATASET_ID, field="source Study dataset id")
-    _require_equal(plan.get("dataset_artifact_digest"), SOURCE_DATASET_ARTIFACT_DIGEST, field="source Study dataset digest")
-    _require_equal(plan.get("symbols"), list(EXPECTED_SYMBOLS), field="source Study symbols")
-    _require_equal(plan.get("ppo_seeds"), list(EXPECTED_PPO_SEEDS), field="source Study PPO seeds")
-    _require_equal(plan.get("n_bootstrap"), 2_000, field="source Study bootstrap count")
-    _require_equal(plan.get("bootstrap_seed"), 1_729, field="source Study bootstrap seed")
+    _require_equal(
+        plan.get("dataset_id"),
+        SOURCE_DATASET_ID,
+        field="source Study dataset id",
+    )
+    _require_equal(
+        plan.get("dataset_artifact_digest"),
+        SOURCE_DATASET_ARTIFACT_DIGEST,
+        field="source Study dataset digest",
+    )
+    _require_equal(
+        plan.get("symbols"),
+        list(EXPECTED_SYMBOLS),
+        field="source Study symbols",
+    )
+    _require_equal(
+        plan.get("ppo_seeds"),
+        list(EXPECTED_PPO_SEEDS),
+        field="source Study PPO seeds",
+    )
+    _require_equal(
+        plan.get("n_bootstrap"),
+        2_000,
+        field="source Study bootstrap count",
+    )
+    _require_equal(
+        plan.get("bootstrap_seed"),
+        1_729,
+        field="source Study bootstrap seed",
+    )
 
     baseline_manifest = _load_json_object(manifest_path)
     _require_equal(
@@ -249,7 +290,10 @@ def build_plan(*, source_root: Path, output_root: Path, plan_run_id: int) -> Non
         raise ValueError("candidate introduced an unregistered global feature roster")
     if candidate_payload.get("ppo_global_context") != PPO_GLOBAL_BTC_REGIME_CONTEXT:
         raise ValueError("candidate PPO global context drift")
-    if candidate_payload.get("ppo_observation_schema") != "ppo_observation_v3_global_btc_regime":
+    if (
+        candidate_payload.get("ppo_observation_schema")
+        != "ppo_observation_v3_global_btc_regime"
+    ):
         raise ValueError("candidate observation schema drift")
     if candidate_payload.get("schema_version") != "resolved_run_config_v3":
         raise ValueError("candidate resolved schema drift")
@@ -280,7 +324,9 @@ def build_plan(*, source_root: Path, output_root: Path, plan_run_id: int) -> Non
         "source_baseline_run_id": SOURCE_BASELINE_RUN_ID,
         "source_baseline_artifact_id": SOURCE_BASELINE_ARTIFACT_ID,
         "source_baseline_artifact_name": SOURCE_BASELINE_ARTIFACT_NAME,
-        "source_baseline_artifact_api_digest": SOURCE_BASELINE_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "source_baseline_artifact_api_digest": SOURCE_BASELINE_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "source_dataset_id": SOURCE_DATASET_ID,
         "source_dataset_artifact_digest": SOURCE_DATASET_ARTIFACT_DIGEST,
         "source_study_digest": SOURCE_STUDY_DIGEST,
@@ -293,27 +339,41 @@ def build_plan(*, source_root: Path, output_root: Path, plan_run_id: int) -> Non
         "implementation_index_digest": IMPLEMENTATION_INDEX_DIGEST,
         "implementation_seal_run_id": IMPLEMENTATION_SEAL_RUN_ID,
         "implementation_seal_artifact_id": IMPLEMENTATION_SEAL_ARTIFACT_ID,
-        "implementation_seal_artifact_api_digest": IMPLEMENTATION_SEAL_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "implementation_seal_artifact_api_digest": IMPLEMENTATION_SEAL_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "implementation_fresh_artifact_id": IMPLEMENTATION_FRESH_ARTIFACT_ID,
-        "implementation_fresh_artifact_api_digest": IMPLEMENTATION_FRESH_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "implementation_fresh_artifact_api_digest": IMPLEMENTATION_FRESH_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "evaluation_prereg_head": EVALUATION_PREREG_HEAD,
         "evaluation_prereg_protocol_digest": EVALUATION_PREREG_PROTOCOL_DIGEST,
         "evaluation_prereg_seal_run_id": EVALUATION_PREREG_SEAL_RUN_ID,
         "evaluation_prereg_seal_artifact_id": EVALUATION_PREREG_SEAL_ARTIFACT_ID,
-        "evaluation_prereg_seal_artifact_api_digest": EVALUATION_PREREG_SEAL_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "evaluation_prereg_seal_artifact_api_digest": EVALUATION_PREREG_SEAL_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "evaluation_prereg_fresh_artifact_id": EVALUATION_PREREG_FRESH_ARTIFACT_ID,
-        "evaluation_prereg_fresh_artifact_api_digest": EVALUATION_PREREG_FRESH_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "evaluation_prereg_fresh_artifact_api_digest": EVALUATION_PREREG_FRESH_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "execution_framework_head": EXECUTION_FRAMEWORK_HEAD,
         "execution_framework_tree": EXECUTION_FRAMEWORK_TREE,
         "execution_framework_exact_verify_run_id": EXECUTION_FRAMEWORK_EXACT_VERIFY_RUN_ID,
         "execution_framework_seal_run_id": EXECUTION_FRAMEWORK_SEAL_RUN_ID,
         "execution_framework_seal_artifact_id": EXECUTION_FRAMEWORK_SEAL_ARTIFACT_ID,
-        "execution_framework_seal_artifact_api_digest": EXECUTION_FRAMEWORK_SEAL_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "execution_framework_seal_artifact_api_digest": EXECUTION_FRAMEWORK_SEAL_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "execution_framework_fresh_artifact_id": EXECUTION_FRAMEWORK_FRESH_ARTIFACT_ID,
-        "execution_framework_fresh_artifact_api_digest": EXECUTION_FRAMEWORK_FRESH_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "execution_framework_fresh_artifact_api_digest": EXECUTION_FRAMEWORK_FRESH_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "execution_framework_recovery_run_id": EXECUTION_FRAMEWORK_RECOVERY_RUN_ID,
         "execution_framework_recovery_artifact_id": EXECUTION_FRAMEWORK_RECOVERY_ARTIFACT_ID,
-        "execution_framework_recovery_artifact_api_digest": EXECUTION_FRAMEWORK_RECOVERY_ARTIFACT_DIGEST.removeprefix("sha256:"),
+        "execution_framework_recovery_artifact_api_digest": EXECUTION_FRAMEWORK_RECOVERY_ARTIFACT_DIGEST.removeprefix(
+            "sha256:"
+        ),
         "new_study_digest": study_digest,
         "new_study_plan_sha256": hashlib.sha256(plan_bytes).hexdigest(),
         "new_study_implementation_digest": snapshot.plan.implementation_digest,

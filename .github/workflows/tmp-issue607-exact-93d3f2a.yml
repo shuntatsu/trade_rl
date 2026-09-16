@@ -1,0 +1,142 @@
+name: Temporary Issue 607 exact-head full verification
+
+on:
+  push:
+    branches: [verify/issue607-exact-93d3f2a]
+    paths: [.github/workflows/tmp-issue607-exact-93d3f2a.yml]
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FINAL_SHA: 93d3f2a1b66e517c0ec265df3084e07e05e3893c
+  RED_SHA: b3f547e23b929a56885ea12ccd335a48cbfb0df5
+  PREREG_SHA: d84235185c5e79327ea7ced7073f0026970ba46b
+  RESEARCH_BRANCH: research/issue607-ppo-global-btc-regime-impl
+  ISSUE605_SEAL_RUN: "35078049585"
+  ISSUE605_SEAL_ID: "10439281380"
+  ISSUE605_SEAL_DIGEST: sha256:b030ecc638c440fafcbee27cc45fe0eb0b242309c5bb6ddaaaf32980894e2859
+  ISSUE605_FRESH_ID: "10438184487"
+  ISSUE605_FRESH_DIGEST: sha256:1a405428a709d8994a0f70d16697be249a664f57afaa74732102c2a8ea32fc69
+
+jobs:
+  core:
+    name: Exact Issue 607 Lean Core
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact lineage, diff, and Issue 605 seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FINAL_SHA"
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+          test "$(git merge-base "$PREREG_SHA" "$FINAL_SHA")" = "$PREREG_SHA"
+          test "$(git merge-base "$RED_SHA" "$FINAL_SHA")" = "$RED_SHA"
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$ISSUE605_SEAL_RUN)"
+          test "$(jq -r .conclusion <<<"$run")" = success
+          for spec in "$ISSUE605_SEAL_ID|$ISSUE605_SEAL_DIGEST" "$ISSUE605_FRESH_ID|$ISSUE605_FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$ISSUE605_SEAL_RUN"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+          prod="$(git diff --name-only "$RED_SHA..$FINAL_SHA" | sort)"
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n' \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/experiments/delta.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/strategies/rl/ppo.py | sort)"
+          test "$prod" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Exact repository quality gates
+        run: |
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          uv run pytest -q tests
+      - name: Build and distribution closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.evaluation.experiments
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          from trade_rl.strategies.rl.ppo import PPO_GLOBAL_BTC_REGIME_CONTEXT
+          assert PPO_GLOBAL_BTC_REGIME_CONTEXT == "ppo_global_btc_regime_context"
+          print("ISSUE607_CLEAN_INSTALL=PASS")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+      - name: Boundaries
+        run: |
+          ! git grep -n -E 'economic_result_inspected *= *True|final_test_access_authorized *= *True|live_trading_authorized *= *True' "$FINAL_SHA" -- trade_rl/evaluation/experiments/ppo_global_btc_regime_prereg.py
+          echo ISSUE607_EXACT_CORE=PASS
+
+  guide:
+    name: Exact Issue 607 Human Guide
+    runs-on: ubuntu-24.04
+    env:
+      GUIDE_SOURCE_REV: 93d3f2a1b66e517c0ec265df3084e07e05e3893c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e

@@ -1,0 +1,43 @@
+name: tmp Issue 610 hardening format apply
+on:
+  push:
+    branches:
+      - verify/issue610-execution-hardening-red
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_BRANCH: prepare/issue610-ppo-global-btc-regime-evaluation
+      TARGET_SHA: bd4dfaa311c744750436366c8f12889f36766b4a
+      TARGET_PATH: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: bd4dfaa311c744750436366c8f12889f36766b4a
+          fetch-depth: 0
+      - name: Guard exact remote head
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format only hardening oracle
+        run: |
+          uv run ruff format "$TARGET_PATH"
+          uv run ruff check "$TARGET_PATH"
+          uv run ruff format --check "$TARGET_PATH"
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "$TARGET_PATH"
+      - name: Publish non-force if branch unchanged
+        run: |
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TARGET_PATH"
+          git commit -m "style: format Issue 610 hardening oracle"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

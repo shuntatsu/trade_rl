@@ -47,16 +47,14 @@ def _feature_roster() -> tuple[str, ...]:
 
 
 def _dataset(*, fee_rate: float = 0.0005) -> MarketDataset:
-    n_bars = 3
+    timestamps = np.arange(
+        np.datetime64("2023-01-01", "D"),
+        np.datetime64("2025-01-03", "D"),
+        dtype="datetime64[D]",
+    ).astype("datetime64[ns]")
+    n_bars = timestamps.size
     n_symbols = len(_SYMBOLS)
     n_features = 119
-    timestamps = np.asarray(
-        [
-            np.datetime64("2023-01-01T00:00:00", "ns"),
-            np.datetime64("2025-01-01T00:00:00", "ns"),
-            np.datetime64("2025-01-01T01:00:00", "ns"),
-        ]
-    )
     close = np.full((n_bars, n_symbols), 100.0)
     return MarketDataset(
         dataset_id="6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
@@ -89,7 +87,7 @@ def _dataset(*, fee_rate: float = 0.0005) -> MarketDataset:
             ),
             (n_bars, n_symbols),
         ).copy(),
-        periods_per_year=8_760,
+        periods_per_year=365,
     )
 
 

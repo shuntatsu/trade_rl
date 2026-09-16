@@ -7,13 +7,14 @@ candidate implementation digest.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from statistics import median
-from typing import TypeAlias
+from typing import TypeAlias, TypeVar
 
 import numpy as np
 
 from trade_rl.evaluation.experiments.contracts import ResolvedRunConfig, StudyPlan
+from trade_rl.evaluation.runs import CandidateRunConfig
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_BTC_REGIME_CONTEXT,
     PPO_GLOBAL_BTC_REGIME_OBSERVATION_SCHEMA,
@@ -34,6 +35,47 @@ ReturnMatrix: TypeAlias = Mapping[
     int,
     Mapping[tuple[str, str], np.ndarray],
 ]
+_T = TypeVar("_T")
+
+
+def candidate_run_config_from_resolved(
+    resolved: ResolvedRunConfig,
+) -> CandidateRunConfig:
+    """Project one resolved candidate contract back to executable raw config."""
+
+    return CandidateRunConfig(
+        signal_name=resolved.signal_name,
+        feature_names=resolved.feature_names,
+        fit_symbol_names=resolved.fit_symbol_names,
+        fit_cutoff=np.datetime64(resolved.fit_cutoff, "ns"),
+        evaluation_start=np.datetime64(resolved.evaluation_start, "ns"),
+        evaluation_stop_exclusive=np.datetime64(
+            resolved.evaluation_stop_exclusive, "ns"
+        ),
+        rule_entry_threshold=resolved.rule_entry_threshold,
+        rule_exit_threshold=resolved.rule_exit_threshold,
+        forecast_entry_threshold=resolved.forecast_entry_threshold,
+        forecast_exit_threshold=resolved.forecast_exit_threshold,
+        ppo_total_timesteps=resolved.ppo_total_timesteps,
+        ppo_seed=resolved.ppo_seed,
+        gross_budget=resolved.gross_budget,
+        initial_capital=resolved.initial_capital,
+        ppo_global_context=resolved.ppo_global_context,
+    )
+
+
+def execute_candidate_after_precompute_gate(
+    *,
+    precompute_violations: tuple[str, ...],
+    candidate_executor: Callable[[], _T],
+) -> _T:
+    """Execute the candidate exactly once only after every precompute gate is green."""
+
+    if precompute_violations:
+        raise RuntimeError(
+            "precompute gate failed: " + "; ".join(precompute_violations)
+        )
+    return candidate_executor()
 
 
 def build_candidate_carrier_plan(
@@ -319,7 +361,9 @@ __all__ = [
     "INVALID",
     "KEEP_BASELINE",
     "build_candidate_carrier_plan",
+    "candidate_run_config_from_resolved",
     "evaluate_frozen_gate",
+    "execute_candidate_after_precompute_gate",
     "validate_candidate_ppo_returns",
     "validate_controlled_semantic_delta",
     "validate_unaffected_raw_returns",

@@ -1,0 +1,88 @@
+name: Temporary Issue 609 global-context artifact GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue609-global-context-artifact-green
+    paths:
+      - .github/workflows/tmp-issue609-global-context-artifact-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: hardening/issue609-global-context-artifact
+  TARGET_SHA: 0c76da0c68664b0f0a4b30a272e16c2add86702e
+  FILE: trade_rl/evaluation/runs/artifact.py
+
+jobs:
+  green_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Apply minimal observation-authority patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/runs/artifact.py")
+          text = path.read_text()
+
+          old_return = '''    return summary, returns\n\n\ndef _json_bytes'''
+          new_return = '''    if config.ppo_global_context is not None:\n        candidate_config_payload = cast(\n            dict[str, object],\n            summary["candidate_config"],\n        )\n        candidate_config_payload["ppo_global_context"] = config.ppo_global_context\n        summary["ppo_observation"] = ppo_observation_contract_payload(\n            global_context=config.ppo_global_context,\n        )\n    return summary, returns\n\n\ndef _json_bytes'''
+          if text.count(old_return) != 1:
+              raise SystemExit("result payload patch anchor drifted")
+          text = text.replace(old_return, new_return)
+
+          old_loader = '''    if (\n        result_schema == _RESULT_SCHEMA_V2\n        and summary.get("ppo_observation") != ppo_observation_contract_payload()\n    ):\n        raise ValueError("candidate PPO observation contract mismatch")\n'''
+          new_loader = '''    if result_schema == _RESULT_SCHEMA_V2:\n        candidate_config = summary.get("candidate_config")\n        if not isinstance(candidate_config, dict):\n            raise ValueError("candidate summary candidate_config must be an object")\n        raw_context = candidate_config.get("ppo_global_context")\n        if raw_context is None:\n            global_context: str | None = None\n        elif isinstance(raw_context, str):\n            global_context = raw_context\n        else:\n            raise ValueError("candidate PPO global context must be a string")\n        try:\n            expected_observation = ppo_observation_contract_payload(\n                global_context=global_context,\n            )\n        except ValueError as error:\n            raise ValueError("candidate PPO observation contract mismatch") from error\n        if summary.get("ppo_observation") != expected_observation:\n            raise ValueError("candidate PPO observation contract mismatch")\n'''
+          if text.count(old_loader) != 1:
+              raise SystemExit("loader patch anchor drifted")
+          text = text.replace(old_loader, new_loader)
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$FILE"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted regression verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$FILE" tests/evaluation/test_candidate_run_global_context_artifact.py tests/evaluation/test_candidate_run_observation_contract.py tests/evaluation/test_candidate_run_artifact.py
+          uv run ruff format --check "$FILE" tests/evaluation/test_candidate_run_global_context_artifact.py tests/evaluation/test_candidate_run_observation_contract.py tests/evaluation/test_candidate_run_artifact.py
+          uv run mypy "$FILE"
+          uv run pytest -q \
+            tests/evaluation/test_candidate_run_global_context_artifact.py \
+            tests/evaluation/test_candidate_run_observation_contract.py \
+            tests/evaluation/test_candidate_run_artifact.py \
+            tests/evaluation/test_candidate_run_artifact_identity.py
+      - name: Guard and publish artifact-only fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git diff --name-only)" = "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "fix: persist PPO global-context artifact authority"
+          git push origin HEAD:"$TARGET_BRANCH"

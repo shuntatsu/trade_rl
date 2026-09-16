@@ -1,0 +1,101 @@
+name: Temporary Issue 609 FEATURE_SET workflow GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue609-feature-set-workflow-green
+    paths:
+      - .github/workflows/tmp-issue609-feature-set-workflow-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: hardening/issue609-feature-set-workflow
+  TARGET_SHA: e34d681af2877046220a938186ffd4e1e237ab93
+  FILE: trade_rl/evaluation/experiments/workflow.py
+  TEST: tests/evaluation/experiments/test_issue609_feature_set_workflow.py
+
+jobs:
+  green_publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Guard target head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+      - name: Apply factor-aware Study-fixed validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = path.read_text()
+
+          old_import = '''from trade_rl.evaluation.experiments.delta import (\n    ControlledVerification,\n    ControlledVerificationStatus,\n    verify_controlled_delta,\n)'''
+          new_import = '''from trade_rl.evaluation.experiments.delta import (\n    FACTOR_RULES,\n    ControlledVerification,\n    ControlledVerificationStatus,\n    verify_controlled_delta,\n)'''
+          if text.count(old_import) != 1:
+              raise SystemExit("delta import anchor drifted")
+          text = text.replace(old_import, new_import)
+
+          old_validator = '''def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:\n    baseline = _semantic_without_seed(plan.baseline_config)\n    candidate = _semantic_without_seed(config)\n    for field in plan.FIXED_RESOLVED_FIELDS:\n        if content_digest({"value": baseline[field]}) != content_digest(\n            {"value": candidate[field]}\n        ):\n            raise ContractViolationError(\n                f"candidate changes Study-fixed resolved field: {field}"\n            )\n'''
+          new_validator = '''def _validate_fixed_fields(\n    plan: StudyPlan,\n    config: ResolvedRunConfig,\n    *,\n    factor: ControlledFactor,\n) -> None:\n    baseline = _semantic_without_seed(plan.baseline_config)\n    candidate = _semantic_without_seed(config)\n    allowed_fixed_fields = {\n        path[0]\n        for path in FACTOR_RULES[factor].allowed_paths\n        if len(path) == 1 and path[0] in plan.FIXED_RESOLVED_FIELDS\n    }\n    for field in plan.FIXED_RESOLVED_FIELDS:\n        if field in allowed_fixed_fields:\n            continue\n        if content_digest({"value": baseline[field]}) != content_digest(\n            {"value": candidate[field]}\n        ):\n            raise ContractViolationError(\n                f"candidate changes Study-fixed resolved field: {field}"\n            )\n'''
+          if text.count(old_validator) != 1:
+              raise SystemExit("fixed-field validator anchor drifted")
+          text = text.replace(old_validator, new_validator)
+
+          old_call = '''        _validate_fixed_fields(state.plan, resolved)\n'''
+          new_call = '''        _validate_fixed_fields(state.plan, resolved, factor=factor)\n'''
+          if text.count(old_call) != 1:
+              raise SystemExit("fixed-field call anchor drifted")
+          text = text.replace(old_call, new_call)
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only)" = "$FILE"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted regression verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$FILE" "$TEST" \
+            tests/evaluation/experiments/test_workflow.py \
+            tests/evaluation/experiments/test_delta.py \
+            tests/architecture/test_experiment_semantic_authorities.py
+          uv run ruff format --check "$FILE" "$TEST" \
+            tests/evaluation/experiments/test_workflow.py \
+            tests/evaluation/experiments/test_delta.py \
+            tests/architecture/test_experiment_semantic_authorities.py
+          uv run mypy "$FILE"
+          uv run pytest -q \
+            "$TEST" \
+            tests/evaluation/experiments/test_workflow.py \
+            tests/evaluation/experiments/test_delta.py \
+            tests/architecture/test_experiment_semantic_authorities.py
+      - name: Guard and publish workflow-only fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH" --no-tags
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$TARGET_SHA"
+          test "$(git diff --name-only)" = "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "fix: admit sealed FEATURE_SET schema extension"
+          git push origin HEAD:"$TARGET_BRANCH"

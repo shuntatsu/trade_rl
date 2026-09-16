@@ -18,7 +18,7 @@ Agent作業で `main` へのforce-push、history rewrite、branch削除を行わ
 
 Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。
 
-`main`、open PRのhead/base、実行中またはqueuedのGitHub Actionsが参照するbranch、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance ref、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、anchorからtip commitへ到達できる非anchor branchを直接削除してよい。`verify/`・`automation/`・`tmp/` に固有tipがある場合は、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ先に保存し、retention refの更新をread-backしてから元refだけを削除する。固有tipを持つその他のbranchはfail-closedで残す。
+`main`、open PRのhead/base、実行中またはqueuedのGitHub Actionsが参照するbranch、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance ref、および `provenance/branch-retention` は自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、anchorからtip commitへ到達できる非anchor branchを直接削除してよい。anchorに含まれない固有tipはprefixに依存せず、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ先に保存し、retention refの更新をread-backしてから元refだけを削除する。
 
 削除直前にはopen PR head/baseとactive workflow branchを再取得し、削除自体は計画時のexact tip SHAを `git push --force-with-lease=<ref>:<sha> --atomic` で条件付き実行する。tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
 

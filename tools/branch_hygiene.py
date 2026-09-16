@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 PRESERVED_PREFIXES = ("research/", "seal/", "freeze/", "run/")
-TRANSIENT_PREFIXES = ("verify/", "automation/", "tmp/")
 RETENTION_BRANCH = "provenance/branch-retention"
 RETENTION_BATCH_SIZE = 20
 DELETE_BATCH_SIZE = 25
@@ -303,10 +302,6 @@ def is_preserved_branch(name: str) -> bool:
     return name == RETENTION_BRANCH or name.startswith(PRESERVED_PREFIXES)
 
 
-def is_transient_branch(name: str) -> bool:
-    return name.startswith(TRANSIENT_PREFIXES)
-
-
 def open_pull_request_branch_names(
     refs: Sequence[OpenPullRequestRefs],
 ) -> frozenset[str]:
@@ -396,10 +391,8 @@ def plan_cleanup(
             decision = BranchDecision(branch, "keep", "provenance")
         elif branch.sha in reachable_from_anchors:
             decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")
-        elif is_transient_branch(branch.name):
-            decision = BranchDecision(branch, "archive-delete", "transient-unique-tip")
         else:
-            decision = BranchDecision(branch, "keep", "unique-unmerged-tip")
+            decision = BranchDecision(branch, "archive-delete", "unique-non-anchor-tip")
         decisions.append(decision)
     return tuple(decisions)
 
@@ -411,7 +404,7 @@ def chunks(items: Sequence[BranchInfo], size: int) -> Iterable[Sequence[BranchIn
 
 def retention_message(branches: Sequence[BranchInfo]) -> str:
     lines = [
-        "Archive transient branch tips before ref cleanup",
+        "Archive unique non-anchor branch tips before ref cleanup",
         "",
         "Each mapping below preserves the deleted remote branch name and exact tip SHA.",
         "Restore with: git branch <name> <sha>",
@@ -421,7 +414,7 @@ def retention_message(branches: Sequence[BranchInfo]) -> str:
     return "\n".join(lines)
 
 
-def archive_transient_tips(
+def archive_unique_tips(
     api: GitHubApi,
     *,
     default_branch: str,
@@ -482,7 +475,7 @@ def apply_cleanup(
         ):
             archive_candidates.append(expected)
 
-    retention_sha = archive_transient_tips(
+    retention_sha = archive_unique_tips(
         api,
         default_branch=default_branch,
         current_by_name=first_snapshot,
@@ -541,23 +534,13 @@ def render_summary(
     archive_candidates = [
         item.branch.name for item in decisions if item.action == "archive-delete"
     ]
-    unique = [
-        item.branch.name
-        for item in decisions
-        if item.action == "keep" and item.reason == "unique-unmerged-tip"
-    ]
-    anchors = [
-        item.branch.name
-        for item in decisions
-        if item.action == "keep" and item.reason != "unique-unmerged-tip"
-    ]
+    anchors = [item.branch.name for item in decisions if item.action == "keep"]
     lines = [
         "## Branch hygiene",
         "",
         f"- mode: {'apply' if apply else 'dry-run'}",
         f"- branches inspected: {len(decisions)}",
         f"- durable anchors kept: {len(anchors)}",
-        f"- unique non-transient branches kept: {len(unique)}",
         f"- direct deletion candidates: {len(direct_candidates)}",
         f"- archive-then-delete candidates: {len(archive_candidates)}",
         f"- branches deleted: {len(deleted)}",
@@ -570,19 +553,13 @@ def render_summary(
         if len(deleted) > 100:
             lines.append(f"- … and {len(deleted) - 100} more")
         lines.append("")
-    if unique:
-        lines.extend(["### Kept unique non-transient branches", ""])
-        lines.extend(f"- `{name}`" for name in unique[:100])
-        if len(unique) > 100:
-            lines.append(f"- … and {len(unique) - 100} more")
-        lines.append("")
     return "\n".join(lines)
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Delete redundant remote branches and archive unique transient tips "
+            "Delete redundant remote branches and archive unique non-anchor tips "
             "before deleting their refs."
         )
     )

@@ -1,0 +1,55 @@
+name: tmp Issue 610 real audit format
+
+on:
+  push:
+    branches:
+      - automation/issue610-real-audit-format
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-real-interpretation-audit-v1
+  EXPECTED_HEAD: 52ebcd6f9a5054945355418788f86fd40bd35b94
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+      - name: Guard exact source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Apply only fixed Ruff mechanics
+        shell: bash
+        run: |
+          set -euo pipefail
+          uvx --from ruff==0.15.21 ruff check --fix "$HELPER"
+          uvx --from ruff==0.15.21 ruff format "$HELPER"
+          uvx --from ruff==0.15.21 ruff check "$HELPER"
+          uvx --from ruff==0.15.21 ruff format --check "$HELPER"
+          changed="$(git diff --name-only)"
+          test "$changed" = "$HELPER"
+      - name: Publish non-force if source unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$HELPER"
+          git commit -m 'style: format Issue 610 final audit oracle'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

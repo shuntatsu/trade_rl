@@ -1,0 +1,64 @@
+name: tmp Issue 616 evaluation artifact RED
+
+on:
+  push:
+    branches:
+      - automation/issue616-eval-artifact-red
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-evaluation
+  EXPECTED_HEAD: f92e66470fa58c5cf9ff4cd909e7b7f4b4e887ff
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only artifact RED oracle
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$TEST_FILE"
+          uv run ruff format "$TEST_FILE"
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+      - name: Require missing artifact codec semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST_FILE" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -E "cannot import name '(canonical_ridge_economic_gate_evaluation_bytes|load_ridge_economic_gate_evaluation)'" /tmp/red.out >/dev/null
+          echo ISSUE616_EVAL_ARTIFACT_RED=PASS
+      - name: Publish formatted RED oracle if changed
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then exit 0; fi
+          test "$changed" = "$TEST_FILE"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TEST_FILE"
+          git commit -m 'style: format Issue 616 evaluation artifact RED'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

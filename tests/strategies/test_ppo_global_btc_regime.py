@@ -147,6 +147,31 @@ def test_candidate_reference_is_point_in_time_and_ignores_dataset_globals() -> N
     assert baseline[3] == pytest.approx(0.25)
 
 
+def test_candidate_later_row_does_not_read_previous_reference_row() -> None:
+    baseline_dataset = _market(reference_value=0.25)
+    previous_row_mutated_dataset = _market(reference_value=777.0)
+
+    def later_row_observation(dataset: MarketDataset) -> np.ndarray:
+        env = ppo.PPOTradingEnv(
+            dataset,
+            feature_indices=(1,),
+            symbol_indices=(1,),
+            start_index=1,
+            stop_index=3,
+            gross_budget=0.5,
+            initial_capital=1_000.0,
+            global_context=ppo.PPO_GLOBAL_BTC_REGIME_CONTEXT,
+        )
+        observation, _ = env.reset(seed=21)
+        return observation
+
+    baseline = later_row_observation(baseline_dataset)
+    previous_row_mutated = later_row_observation(previous_row_mutated_dataset)
+
+    np.testing.assert_array_equal(baseline, previous_row_mutated)
+    assert baseline[3] == pytest.approx(0.30)
+
+
 def test_candidate_fails_closed_for_unavailable_or_nonfinite_reference() -> None:
     unavailable, _ = _candidate_env(
         _market(reference_available=False, reference_value=123.0), symbol_index=1

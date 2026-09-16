@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import trade_rl.evaluation.experiments.bootstrap.premium_pressure_calibration as calibration_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.bootstrap.premium_pressure_calibration import (
     PremiumObservation,
@@ -334,29 +335,48 @@ def test_intercept_ols_is_canonical_and_differs_from_no_intercept_regression() -
     assert no_intercept != result.beta
 
 
-def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator() -> (
-    None
-):
+def test_calibration_uses_fsum_and_invalidates_low_coverage_or_zero_denominator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     protocol = canonical_premium_pressure_protocol()
     n = protocol.minimum_eligible_observations_per_symbol
-    x_values = [
-        0.05843888312600577,
-        -7.274351982346268e-59,
-        0.07076126508662547,
-    ] + [0.0] * (n - 3)
+    x_values = [1e16, 1.0, -1e16] + [0.0] * (n - 3)
     pairs = tuple(
         TrainingPair(
             decision_time_ms=index * _HOUR_MS,
             x=x,
-            y=-2.0 * x + 3.0,
+            y=-x * 1e-16 + 3.0,
         )
         for index, x in enumerate(x_values)
     )
+
+    original_fsum = math.fsum
+    fsum_calls: list[tuple[float, ...]] = []
+
+    def traced_fsum(values) -> float:
+        materialized = tuple(values)
+        fsum_calls.append(materialized)
+        return original_fsum(materialized)
+
+    monkeypatch.setattr(calibration_module.math, "fsum", traced_fsum)
     result = calibrate_symbol("BTCUSDT", pairs)
+
+    x_order = tuple(x_values)
+    y_order = tuple(pair.y for pair in pairs)
+    x_bar = original_fsum(x_order) / n
+    y_bar = original_fsum(y_order) / n
+    numerator_terms = tuple((pair.x - x_bar) * (pair.y - y_bar) for pair in pairs)
+    denominator_terms = tuple((pair.x - x_bar) ** 2 for pair in pairs)
+
+    assert fsum_calls == [x_order, y_order, numerator_terms, denominator_terms]
     assert result.failures == ()
-    assert result.x_bar == math.fsum(x_values) / n
-    assert result.x_bar != sum(x_values) / n
+    assert result.x_bar == x_bar
+    assert result.y_bar == y_bar
+    assert result.numerator == original_fsum(numerator_terms)
+    assert result.denominator == original_fsum(denominator_terms)
     assert result.beta is not None and result.beta < 0.0
+
+    monkeypatch.setattr(calibration_module.math, "fsum", original_fsum)
 
     low = calibrate_symbol("BTCUSDT", pairs[:-1])
     assert low.eligible_observations == n - 1

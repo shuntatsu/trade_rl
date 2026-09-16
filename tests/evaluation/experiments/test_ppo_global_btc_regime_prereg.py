@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from trade_rl.evaluation.experiments.ppo_global_btc_regime_prereg import (
     canonical_ppo_global_btc_regime_protocol,
+    load_ppo_global_btc_regime_protocol,
 )
-
 
 _MAIN_SHA = "c5a1ce8395feaedd8833f7e596fddc9d8f3115fc"
 _DATASET_ID = "d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f"
@@ -76,6 +78,29 @@ def test_protocol_rejects_preregistered_semantic_drift() -> None:
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered"):
             replace(protocol, **mutation)
+
+
+def test_protocol_loader_is_strict_and_round_trips(tmp_path: Path) -> None:
+    protocol = canonical_ppo_global_btc_regime_protocol()
+    payload = protocol.to_payload()
+    path = tmp_path / "ppo-global-btc-regime-prereg.json"
+
+    path.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    reconstructed = load_ppo_global_btc_regime_protocol(path)
+    assert reconstructed.to_payload() == payload
+    assert reconstructed.digest == protocol.digest
+
+    unknown = dict(payload)
+    unknown["instrument_profile"] = {"volatility_30d": True}
+    path.write_text(
+        json.dumps(unknown, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="keys|unknown|preregistered"):
+        load_ppo_global_btc_regime_protocol(path)
 
 
 def test_protocol_payload_contains_no_result_or_rescue_authority() -> None:

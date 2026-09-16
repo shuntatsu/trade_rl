@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 
 from tools.branch_hygiene import (
+    RETENTION_BRANCH,
     BranchDecision,
     BranchInfo,
     OpenPullRequestRefs,
-    RETENTION_BRANCH,
     anchor_branch_names,
     anchor_shas,
     apply_cleanup,

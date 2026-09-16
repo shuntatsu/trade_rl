@@ -1,0 +1,99 @@
+name: tmp Issue 621 stochastic execution fix
+
+on:
+  push:
+    branches:
+      - feature/issue621-ppo-interleaved-training
+    paths:
+      - .github/workflows/tmp-issue621-stochastic-execution-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feature/issue621-ppo-interleaved-training
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply minimal fail-closed gate and reviewed docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          ppo = Path('trade_rl/strategies/rl/ppo.py')
+          text = ppo.read_text()
+          old = '''    else:\n        symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)\n        rollout_steps = _validated_interleaved_rollout_steps(\n'''
+          new = '''    else:\n        if execution_cost is not None and execution_cost.slippage_std > 0.0:\n            raise ValueError(\n                "interleaved training requires deterministic execution slippage"\n            )\n        symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)\n        rollout_steps = _validated_interleaved_rollout_steps(\n'''
+          if text.count(old) != 1:
+              raise SystemExit('PPO interleaved insertion point drifted')
+          ppo.write_text(text.replace(old, new))
+
+          lean = Path('docs/architecture/lean-core.md')
+          text = lean.read_text()
+          old = '''このlayoutは学習sampleの並び方を変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layoutとrollout stepsを別Controlled Factorとして結果前にpreregisterする。'''
+          new = old + ''' interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。'''
+          if text.count(old) != 1:
+              raise SystemExit('lean-core interleaved paragraph drifted')
+          lean.write_text(text.replace(old, new))
+
+          status = Path('docs/research/current-status.md')
+          text = status.read_text()
+          old = '''現時点でinterleavedがbetter performanceやprofitabilityを示した証拠はなく、development比較にはexact layout/rollout stepsを別途result-blind preregisterする必要がある。'''
+          new = old + ''' また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。'''
+          if text.count(old) != 1:
+              raise SystemExit('current-status interleaved paragraph drifted')
+          status.write_text(text.replace(old, new))
+
+          page = Path('guide/content/pages/implementation-ppo.md')
+          text = page.read_text()
+          old = '''これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。'''
+          new = old + ''' なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。'''
+          if text.count(old) != 1:
+              raise SystemExit('Guide interleaved paragraph drifted')
+          page.write_text(text.replace(old, new))
+
+          meta_path = Path('guide/content/meta/implementation-ppo.json')
+          meta = json.loads(meta_path.read_text())
+          fit = next(item for item in meta['code_references'] if item['id'] == 'fit-ppo')
+          description = fit['description_ja']
+          suffix = ' vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。'
+          if suffix.strip() not in description:
+              fit['description_ja'] = description + suffix
+          meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
+          PY
+          uv run ruff check trade_rl/strategies/rl/ppo.py tests/strategies/test_ppo_interleaved_training.py
+          uv run ruff format --check trade_rl/strategies/rl/ppo.py tests/strategies/test_ppo_interleaved_training.py
+          uv run mypy trade_rl/strategies/rl/ppo.py
+          uv run pytest -q tests/strategies/test_ppo_intent.py tests/strategies/test_ppo_interleaved_training.py
+          set +e
+          python3 guide/tools/content_contract.py --refresh implementation-ppo >/tmp/guide-refresh.out 2>&1
+          refresh_rc=$?
+          set -e
+          cat /tmp/guide-refresh.out
+          test "$refresh_rc" -ne 0
+          grep -Fq 'stale code source digest in topic implementation-ppo: trade_rl.strategies.rl.ppo.fit_ppo_strategy' /tmp/guide-refresh.out
+          python3 guide/tools/content_contract.py --refresh-code implementation-ppo
+          python3 guide/tools/content_contract.py --check
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/tmp-issue621-stochastic-execution-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/strategies/rl/ppo.py docs/architecture/lean-core.md docs/research/current-status.md guide/content/pages/implementation-ppo.md guide/content/meta/implementation-ppo.json
+          git diff --cached --check
+          git commit -m 'fix: keep interleaved PPO execution deterministic'
+          git push origin HEAD:feature/issue621-ppo-interleaved-training

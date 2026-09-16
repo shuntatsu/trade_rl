@@ -10,14 +10,14 @@ from pathlib import Path
 from statistics import median
 from typing import cast
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.hashing import content_digest
 from tools.tmp_issue610_exact_once_orchestrator import PRECOMPUTE_RUN_ID, SEEDS, SYMBOLS
 from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
     ACCEPT_CANDIDATE,
     INVALID,
     KEEP_BASELINE,
 )
+from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
 
 ISSUE_NUMBER = 610
 AUDIT_SCHEMA = "issue610_interpretation_final_audit_v1"
@@ -32,9 +32,7 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or any(
-        not isinstance(key, str) for key in value
-    ):
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise RuntimeError(f"{field} malformed")
     return cast(Mapping[str, object], value)
 
@@ -212,10 +210,13 @@ def audit_interpretation(
         ("live_trading_authorized", False),
         ("merge_authorized", False),
     ):
-        _require(candidate.get(field) is expected, f"candidate boundary mismatch: {field}")
+        _require(
+            candidate.get(field) is expected, f"candidate boundary mismatch: {field}"
+        )
 
     _require(
-        recovery_binding.get("candidate_execution_run_id") == candidate_execution_run_id,
+        recovery_binding.get("candidate_execution_run_id")
+        == candidate_execution_run_id,
         "recovery binding candidate run mismatch",
     )
     _require(
@@ -366,7 +367,9 @@ def audit_interpretation(
     v2_digest: str | None = None
 
     if invalid:
-        _require(resolved_decision == INVALID, "invalid strict evidence was not INVALID")
+        _require(
+            resolved_decision == INVALID, "invalid strict evidence was not INVALID"
+        )
         _require(
             decision.get("economic_values_interpreted") is False,
             "invalid strict evidence interpreted economics",
@@ -375,7 +378,9 @@ def audit_interpretation(
             decision.get("v2_result_content_digest") is None,
             "invalid strict evidence unexpectedly has v2 digest",
         )
-        _require(not v2_path.exists(), "invalid strict evidence unexpectedly has v2 result")
+        _require(
+            not v2_path.exists(), "invalid strict evidence unexpectedly has v2 result"
+        )
     else:
         _require(v2_path.is_file(), "valid strict evidence missing v2 result")
         v2 = _load_canonical(v2_path)
@@ -402,7 +407,8 @@ def audit_interpretation(
             "v2 precompute artifact digest mismatch",
         )
         _require(
-            v2.get("candidate_authority_content_digest") == candidate.get("content_digest"),
+            v2.get("candidate_authority_content_digest")
+            == candidate.get("content_digest"),
             "v2 candidate authority mismatch",
         )
         _require(
@@ -411,7 +417,8 @@ def audit_interpretation(
             "v2 candidate evidence fingerprint mismatch",
         )
         _require(
-            v2.get("precompute_authority_content_digest") == precompute.get("content_digest"),
+            v2.get("precompute_authority_content_digest")
+            == precompute.get("content_digest"),
             "v2 precompute authority mismatch",
         )
         _require(
@@ -429,7 +436,9 @@ def audit_interpretation(
 
         comparison = _mapping(v2.get("comparison"), field="v2 comparison")
         comparison_digest = comparison.get("analysis_digest")
-        _require(isinstance(comparison_digest, str), "comparison analysis digest missing")
+        _require(
+            isinstance(comparison_digest, str), "comparison analysis digest missing"
+        )
         comparison_unsigned = dict(comparison)
         comparison_unsigned.pop("analysis_digest", None)
         _require(
@@ -508,7 +517,9 @@ def audit_interpretation(
 
 
 def self_check() -> None:
-    _require(AUDIT_SCHEMA == "issue610_interpretation_final_audit_v1", "audit schema drift")
+    _require(
+        AUDIT_SCHEMA == "issue610_interpretation_final_audit_v1", "audit schema drift"
+    )
     _require(
         VALID_DECISIONS == frozenset({ACCEPT_CANDIDATE, KEEP_BASELINE, INVALID}),
         "decision roster drift",

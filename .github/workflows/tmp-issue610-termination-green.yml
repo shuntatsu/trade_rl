@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: 9b777d6550d7a85495a194f7599d9dd2c19dccdf
+  TARGET_SHA: 3408951c36e45b51642fb7bc7c6ce08be3b5f95b
   MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
   TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
 

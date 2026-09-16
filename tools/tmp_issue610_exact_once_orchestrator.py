@@ -177,11 +177,11 @@ def install_artifact_bridge(artifact_module_path: Path) -> ModuleType:
     ):
         if not callable(getattr(module, name, None)):
             raise RuntimeError(f"external artifact contract missing callable: {name}")
-    evidence_module.publish_candidate_run = module.publish_candidate_run  # type: ignore[attr-defined]
-    evidence_module.load_candidate_run_artifact = module.load_candidate_run_artifact  # type: ignore[attr-defined]
+    evidence_module.publish_candidate_run = module.publish_candidate_run
+    evidence_module.load_candidate_run_artifact = module.load_candidate_run_artifact
     evidence_module.inspect_candidate_run_artifact = (
         module.inspect_candidate_run_artifact
-    )  # type: ignore[attr-defined]
+    )
     return module
 
 

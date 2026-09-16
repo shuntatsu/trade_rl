@@ -54,3 +54,5 @@ jobs:
           echo EVALUATION_PNL_INSPECTED=false
           echo EVALUATION_EXECUTION_AUTHORIZED=false
           echo FINAL_TEST_ACCESSED=false
+
+# connector-triggered exact focused verification

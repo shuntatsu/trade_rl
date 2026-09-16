@@ -153,9 +153,7 @@ class GitHubApi:
 
     def current_branch(self, name: str) -> BranchInfo | None:
         encoded = urllib.parse.quote(name, safe="")
-        payload = self._request_json(
-            "GET", f"branches/{encoded}", allow_not_found=True
-        )
+        payload = self._request_json("GET", f"branches/{encoded}", allow_not_found=True)
         if payload is None:
             return None
         if not isinstance(payload, dict):
@@ -285,7 +283,9 @@ def apply_cleanup(
 def render_summary(
     decisions: Sequence[BranchDecision], *, deleted: Sequence[str], apply: bool
 ) -> str:
-    delete_candidates = [item.branch.name for item in decisions if item.action == "delete"]
+    delete_candidates = [
+        item.branch.name for item in decisions if item.action == "delete"
+    ]
     unique = [
         item.branch.name
         for item in decisions
@@ -314,7 +314,9 @@ def render_summary(
             lines.append(f"- … and {len(deleted) - 100} more")
         lines.append("")
     if unique:
-        lines.extend(["### Kept because the tip is not reachable from a durable anchor", ""])
+        lines.extend(
+            ["### Kept because the tip is not reachable from a durable anchor", ""]
+        )
         lines.extend(f"- `{name}`" for name in unique[:100])
         if len(unique) > 100:
             lines.append(f"- … and {len(unique) - 100} more")
@@ -326,7 +328,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Delete only remote branches whose tip is already reachable from a durable anchor."
     )
-    parser.add_argument("--repository", required=True, help="GitHub repository in owner/name form")
+    parser.add_argument(
+        "--repository", required=True, help="GitHub repository in owner/name form"
+    )
     parser.add_argument(
         "--api-url",
         default=os.environ.get("GITHUB_API_URL", "https://api.github.com"),

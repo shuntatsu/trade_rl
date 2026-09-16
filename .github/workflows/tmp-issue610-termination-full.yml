@@ -1,0 +1,55 @@
+name: tmp Issue 610 termination full verification
+
+on:
+  push:
+    branches:
+      - verify/issue610-termination-full
+    paths:
+      - .github/workflows/tmp-issue610-termination-full.yml
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: 358b4917e988561f9a5601ef25a6d53291e07585
+  TARGET_SHA: fe121c2758ace93da5da7b1e0b5c0b364d7e9760
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  full:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact diff scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin "$BASE_SHA" --no-tags
+          changed="$(git diff --name-only "$BASE_SHA..$TARGET_SHA" | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST" | sort)"
+          test "$changed" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Targeted static and semantic verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+      - name: Full repository type and test regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run mypy trade_rl
+          uv run pytest -q

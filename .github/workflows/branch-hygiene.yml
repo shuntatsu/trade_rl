@@ -1,20 +1,21 @@
 name: Branch hygiene
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "17 3 * * *"
-  pull_request_target:
-    types:
-      - closed
   workflow_dispatch:
     inputs:
       apply:
-        description: Delete branches proven redundant instead of reporting only
+        description: Apply safe branch cleanup instead of reporting only
         required: true
         type: boolean
         default: false
 
 permissions:
+  actions: read
   contents: write
   pull-requests: read
 
@@ -24,9 +25,9 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Delete only proven-redundant branches
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.merged == true
+    name: Archive and delete proven-safe branches
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout default branch policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

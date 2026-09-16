@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 

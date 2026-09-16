@@ -1,0 +1,144 @@
+name: tmp Issue 616 prereg contract hardening
+
+on:
+  push:
+    branches:
+      - automation/issue616-prereg-contract-hardening
+    paths:
+      - .github/workflows/tmp-issue616-prereg-contract-hardening.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue616-ridge-economic-gate-prereg
+  EXPECTED_HEAD: 1185e4b64e3fe6ef07b5bb3d21417cc22c730512
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg.py
+  AUTH_TEST: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg_authority.py
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - name: Add missing pairwise and termination invariants tests-first
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          test = Path("tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_prereg.py")
+          text = test.read_text()
+          old = '''    assert protocol.require_full_evaluation_cost_constancy is True\n    assert protocol.future_row_economics_read_by_strategy is False\n'''
+          new = '''    assert protocol.require_full_evaluation_cost_constancy is True\n    assert protocol.cost_constancy_scope == "full_evaluation_decision_and_execution_boundary"\n    assert protocol.future_row_economics_read_by_strategy is False\n    assert protocol.same_dataset_required is True\n    assert protocol.same_executor_required is True\n    assert protocol.same_hard_risk_required is True\n    assert protocol.same_accounting_required is True\n'''
+          if text.count(old) != 1:
+              raise SystemExit("single-transition test insertion point drift")
+          text = text.replace(old, new)
+          old = '''    assert protocol.reject_max_drawdown_nonworse_symbols == 2\n    assert protocol.absolute_positive_symbol_count_is_decision_input is False\n'''
+          new = '''    assert protocol.reject_max_drawdown_nonworse_symbols == 2\n    assert protocol.reject_on_new_termination is True\n    assert protocol.absolute_positive_symbol_count_is_decision_input is False\n'''
+          if text.count(old) != 1:
+              raise SystemExit("decision test insertion point drift")
+          text = text.replace(old, new)
+          old = '''        {"future_row_economics_read_by_strategy": True},\n        {"one_slot_only": False},\n'''
+          new = '''        {"future_row_economics_read_by_strategy": True},\n        {"same_dataset_required": False},\n        {"same_executor_required": False},\n        {"same_hard_risk_required": False},\n        {"same_accounting_required": False},\n        {"reject_on_new_termination": False},\n        {"one_slot_only": False},\n'''
+          if text.count(old) != 1:
+              raise SystemExit("mutation insertion point drift")
+          test.write_text(text.replace(old, new))
+          PY
+      - name: Confirm tests are RED before implementation hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" "$AUTH_TEST" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -E "(cost_constancy_scope|same_dataset_required|reject_on_new_termination)" /tmp/red.out >/dev/null
+          echo ISSUE616_HARDENING_RED=PASS
+      - name: Add only the frozen contract fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_prereg.py")
+          text = path.read_text()
+
+          old = '''    "require_full_evaluation_cost_constancy": True,\n    "future_row_economics_read_by_strategy": False,\n    "unaffected_strategies": _UNAFFECTED_STRATEGIES,\n'''
+          new = '''    "require_full_evaluation_cost_constancy": True,\n    "cost_constancy_scope": "full_evaluation_decision_and_execution_boundary",\n    "future_row_economics_read_by_strategy": False,\n    "same_dataset_required": True,\n    "same_executor_required": True,\n    "same_hard_risk_required": True,\n    "same_accounting_required": True,\n    "unaffected_strategies": _UNAFFECTED_STRATEGIES,\n'''
+          if text.count(old) != 1:
+              raise SystemExit("canonical pairwise insertion point drift")
+          text = text.replace(old, new)
+
+          old = '''    "reject_max_drawdown_nonworse_symbols": 2,\n    "absolute_positive_symbol_count_is_decision_input": False,\n'''
+          new = '''    "reject_max_drawdown_nonworse_symbols": 2,\n    "reject_on_new_termination": True,\n    "absolute_positive_symbol_count_is_decision_input": False,\n'''
+          if text.count(old) != 1:
+              raise SystemExit("canonical termination insertion point drift")
+          text = text.replace(old, new)
+
+          old = '''    require_full_evaluation_cost_constancy: bool\n    future_row_economics_read_by_strategy: bool\n    unaffected_strategies: tuple[str, ...]\n'''
+          new = '''    require_full_evaluation_cost_constancy: bool\n    cost_constancy_scope: str\n    future_row_economics_read_by_strategy: bool\n    same_dataset_required: bool\n    same_executor_required: bool\n    same_hard_risk_required: bool\n    same_accounting_required: bool\n    unaffected_strategies: tuple[str, ...]\n'''
+          if text.count(old) != 1:
+              raise SystemExit("dataclass pairwise insertion point drift")
+          text = text.replace(old, new)
+
+          old = '''    reject_max_drawdown_nonworse_symbols: int\n    absolute_positive_symbol_count_is_decision_input: bool\n'''
+          new = '''    reject_max_drawdown_nonworse_symbols: int\n    reject_on_new_termination: bool\n    absolute_positive_symbol_count_is_decision_input: bool\n'''
+          if text.count(old) != 1:
+              raise SystemExit("dataclass termination insertion point drift")
+          text = text.replace(old, new)
+
+          old = '''            "require_full_evaluation_cost_constancy",\n            "future_row_economics_read_by_strategy",\n            "promote_requires_positive_median_excess",\n'''
+          new = '''            "require_full_evaluation_cost_constancy",\n            "future_row_economics_read_by_strategy",\n            "same_dataset_required",\n            "same_executor_required",\n            "same_hard_risk_required",\n            "same_accounting_required",\n            "promote_requires_positive_median_excess",\n'''
+          if text.count(old) != 1:
+              raise SystemExit("boolean pairwise insertion point drift")
+          text = text.replace(old, new)
+
+          old = '''            "reject_on_nonpositive_median_excess",\n            "absolute_positive_symbol_count_is_decision_input",\n'''
+          new = '''            "reject_on_nonpositive_median_excess",\n            "reject_on_new_termination",\n            "absolute_positive_symbol_count_is_decision_input",\n'''
+          if text.count(old) != 1:
+              raise SystemExit("boolean termination insertion point drift")
+          path.write_text(text.replace(old, new))
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Format and verify focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check --fix "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run ruff format "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run ruff check "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run ruff format --check "$MODULE" "$TEST" "$AUTH_TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST" "$AUTH_TEST"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$TEST" "$MODULE" | sort)"
+          test "$changed" = "$expected"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE" "$TEST"
+          git commit -m 'research: harden Issue 616 preregistration invariants'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

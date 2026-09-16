@@ -187,6 +187,7 @@ def test_interleaved_fit_uses_one_fixed_env_per_fit_symbol(
     ("overrides", "message"),
     [
         ({"training_layout": "unknown"}, "training_layout"),
+        ({"training_layout": True}, "training_layout"),
         (
             {"training_layout": "sequential", "rollout_steps_per_env": 32},
             "sequential",

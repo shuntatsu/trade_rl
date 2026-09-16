@@ -113,15 +113,11 @@ class PPOGlobalBTCRegimeEvaluationProtocol:
     ppo_hyperparameters_may_change: bool = False
     execution_economics_may_change: bool = False
 
-    factor_effect_statistic: str = (
-        "per_symbol_median_matched_seed_excess_total_return"
-    )
+    factor_effect_statistic: str = "per_symbol_median_matched_seed_excess_total_return"
     candidate_return_statistic: str = (
         "per_symbol_median_candidate_total_return_across_matched_seeds"
     )
-    seed_robustness_statistic: str = (
-        "per_seed_cross_symbol_median_excess_total_return"
-    )
+    seed_robustness_statistic: str = "per_seed_cross_symbol_median_excess_total_return"
     positive_threshold: float = 0.0
     positive_comparison: str = "strictly_greater_than"
     termination_rule: str = (

@@ -1,0 +1,54 @@
+name: tmp Issue 610 termination verifier format
+
+on:
+  push:
+    branches:
+      - automation/issue610-termination-verifier-format
+    paths:
+      - .github/workflows/tmp-issue610-termination-verifier-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-termination-verifier
+  TARGET_SHA: 45b030ddfd916ac67df30b4c06fdb5eb41a8f0a6
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+      - name: Guard exact remote target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only termination verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE"
+          uv run ruff check "$MODULE"
+          uv run ruff format --check "$MODULE"
+          test "$(git diff --name-only)" = "$MODULE"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE"
+          git commit -m "style: format Issue 610 termination verifier"
+          git push origin HEAD:"refs/heads/$TARGET_BRANCH"

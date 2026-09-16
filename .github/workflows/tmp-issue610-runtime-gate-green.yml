@@ -1,0 +1,136 @@
+name: tmp Issue 610 runtime gate GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue610-runtime-gate-green
+    paths:
+      - .github/workflows/tmp-issue610-runtime-gate-green.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-execution-orchestrator-clean
+  TARGET_SHA: cc383340a2106b9083c1dcd2fc73f182d177b05e
+  RED_TEST_SHA: 46d4043e6c398d94512a638c0f7215da841cb100
+  MODULE: tools/tmp_issue610_exact_once_orchestrator.py
+  TEST: tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+      - name: Bind exact target and RED oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git fetch origin "$RED_TEST_SHA" --no-tags
+          git show "$RED_TEST_SHA:$TEST" > "$TEST"
+      - name: Implement runtime gate and remove obsolete cross-version ignores
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/tmp_issue610_exact_once_orchestrator.py')
+          text = path.read_text()
+          if text.count('# type: ignore[attr-defined]') != 3:
+              raise SystemExit('unexpected artifact bridge ignore count')
+          text = text.replace('  # type: ignore[attr-defined]', '')
+
+          anchor = '''def install_artifact_bridge(artifact_module_path: Path) -> ModuleType:\n'''
+          addition = '''def validate_exactly_once_invocation(\n    *,\n    run_number: object,\n    run_attempt: object,\n) -> tuple[str, ...]:\n    \"\"\"Require the first workflow run and first attempt before candidate economics.\"\"\"\n\n    violations: list[str] = []\n    if (\n        isinstance(run_number, bool)\n        or not isinstance(run_number, int)\n        or run_number != 1\n    ):\n        violations.append(\"economic publisher must use GitHub run number 1\")\n    if (\n        isinstance(run_attempt, bool)\n        or not isinstance(run_attempt, int)\n        or run_attempt != 1\n    ):\n        violations.append(\"economic publisher must use GitHub run attempt 1\")\n    return tuple(violations)\n\n\n'''
+          if anchor not in text:
+              raise SystemExit('artifact bridge anchor missing')
+          text = text.replace(anchor, addition + anchor, 1)
+
+          old_signature = '''    artifact_module_path: Path,\n    execution_run_id: int,\n    precompute_artifact_id: int,\n'''
+          new_signature = '''    artifact_module_path: Path,\n    execution_run_id: int,\n    run_number: int,\n    run_attempt: int,\n    precompute_artifact_id: int,\n'''
+          if old_signature not in text:
+              raise SystemExit('execute signature anchor missing')
+          text = text.replace(old_signature, new_signature, 1)
+
+          old_body = '''    \"\"\"Execute the candidate exactly once after strict result-blind gates.\"\"\"\n\n    install_artifact_bridge(artifact_module_path)\n'''
+          new_body = '''    \"\"\"Execute the candidate exactly once after strict result-blind gates.\"\"\"\n\n    invocation_violations = validate_exactly_once_invocation(\n        run_number=run_number,\n        run_attempt=run_attempt,\n    )\n    if invocation_violations:\n        raise RuntimeError(\n            \"exactly-once runtime gate failed: \" + \"; \".join(invocation_violations)\n        )\n    install_artifact_bridge(artifact_module_path)\n'''
+          if old_body not in text:
+              raise SystemExit('execute body anchor missing')
+          text = text.replace(old_body, new_body, 1)
+
+          authority_anchor = '''        \"execution_run_id\": execution_run_id,\n        \"precompute_run_id\": PRECOMPUTE_RUN_ID,\n'''
+          authority_replacement = '''        \"execution_run_id\": execution_run_id,\n        \"execution_run_number\": run_number,\n        \"execution_run_attempt\": run_attempt,\n        \"precompute_run_id\": PRECOMPUTE_RUN_ID,\n'''
+          if authority_anchor not in text:
+              raise SystemExit('authority anchor missing')
+          text = text.replace(authority_anchor, authority_replacement, 1)
+
+          self_check_anchor = '''    baseline_entry = {\n'''
+          self_check_addition = '''    if validate_exactly_once_invocation(run_number=1, run_attempt=1):\n        raise RuntimeError(\"valid exactly-once invocation was rejected\")\n    if not validate_exactly_once_invocation(run_number=2, run_attempt=1):\n        raise RuntimeError(\"invalid workflow run number was accepted\")\n    if not validate_exactly_once_invocation(run_number=1, run_attempt=2):\n        raise RuntimeError(\"invalid workflow run attempt was accepted\")\n\n'''
+          if self_check_anchor not in text:
+              raise SystemExit('self-check anchor missing')
+          text = text.replace(self_check_anchor, self_check_addition + self_check_anchor, 1)
+
+          parser_anchor = '''    execute.add_argument(\"--execution-run-id\", type=int, required=True)\n    execute.add_argument(\"--precompute-artifact-id\", type=int, required=True)\n'''
+          parser_replacement = '''    execute.add_argument(\"--execution-run-id\", type=int, required=True)\n    execute.add_argument(\"--run-number\", type=int, required=True)\n    execute.add_argument(\"--run-attempt\", type=int, required=True)\n    execute.add_argument(\"--precompute-artifact-id\", type=int, required=True)\n'''
+          if parser_anchor not in text:
+              raise SystemExit('parser anchor missing')
+          text = text.replace(parser_anchor, parser_replacement, 1)
+
+          main_anchor = '''            execution_run_id=args.execution_run_id,\n            precompute_artifact_id=args.precompute_artifact_id,\n'''
+          main_replacement = '''            execution_run_id=args.execution_run_id,\n            run_number=args.run_number,\n            run_attempt=args.run_attempt,\n            precompute_artifact_id=args.precompute_artifact_id,\n'''
+          if main_anchor not in text:
+              raise SystemExit('main anchor missing')
+          text = text.replace(main_anchor, main_replacement, 1)
+          path.write_text(text)
+          PY
+      - name: Extend oracle to prove gate precedes every external side effect
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/tools/test_tmp_issue610_exact_once_orchestrator.py')
+          text = path.read_text()
+          text = text.replace('from copy import deepcopy\nfrom types import SimpleNamespace\n', 'from copy import deepcopy\nfrom pathlib import Path\nfrom types import SimpleNamespace\n\nimport pytest\n')
+          text = text.replace('    termination_violations,\n', '    execute_candidate,\n    termination_violations,\n')
+          anchor = '''def test_termination_gate_delegates_to_verified_reason_oracle() -> None:\n'''
+          addition = '''def test_runtime_gate_runs_before_artifact_or_source_side_effects() -> None:\n    with pytest.raises(RuntimeError, match=\"exactly-once runtime gate failed\"):\n        execute_candidate(\n            source_root=Path(\"missing-source\"),\n            precompute_path=Path(\"missing-precompute.json\"),\n            output_root=Path(\"missing-output\"),\n            artifact_module_path=Path(\"missing-artifact.py\"),\n            execution_run_id=123,\n            run_number=2,\n            run_attempt=1,\n            precompute_artifact_id=456,\n            precompute_artifact_digest=\"sha256:\" + \"0\" * 64,\n        )\n\n\n'''
+          if anchor not in text:
+              raise SystemExit('termination test anchor missing')
+          text = text.replace(anchor, addition + anchor, 1)
+          path.write_text(text)
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static and semantic GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$MODULE" "$TEST"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+          uv run python "$MODULE" self-check
+          changed="$(git diff --name-only)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST" | sort)"
+          test "$(printf '%s\n' "$changed" | sort)" = "$expected"
+      - name: Publish non-force if clean target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MODULE" "$TEST"
+          git commit -m "research: enforce Issue 610 runtime exactly-once gate"
+          git push origin HEAD:"refs/heads/$TARGET_BRANCH"

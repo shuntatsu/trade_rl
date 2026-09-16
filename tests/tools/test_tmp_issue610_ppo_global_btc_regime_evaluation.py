@@ -237,18 +237,14 @@ def test_candidate_ppo_returns_require_complete_finite_nonempty_cells() -> None:
 
 def test_candidate_ppo_returns_reject_extra_seed_and_symbol_roster() -> None:
     candidate = _return_matrix()
-    candidate[99] = {
-        key: values.copy() for key, values in candidate[0].items()
-    }
+    candidate[99] = {key: values.copy() for key, values in candidate[0].items()}
     violations = validate_candidate_ppo_returns(
         candidate, seeds=_SEEDS, symbols=_SYMBOLS
     )
     assert violations == ("candidate seed roster/order mismatch",)
 
     candidate = _return_matrix()
-    candidate[0][("SOLUSDT", "ppo")] = np.array(
-        [0.0, 0.01, -0.005], dtype=np.float64
-    )
+    candidate[0][("SOLUSDT", "ppo")] = np.array([0.0, 0.01, -0.005], dtype=np.float64)
     violations = validate_candidate_ppo_returns(
         candidate, seeds=_SEEDS, symbols=_SYMBOLS
     )

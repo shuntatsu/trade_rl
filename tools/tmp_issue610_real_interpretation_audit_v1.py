@@ -95,7 +95,7 @@ def _validate_absolute_diagnostic(v2: Mapping[str, object]) -> None:
         "absolute diagnostic unexpectedly gates development decision",
     )
     by_symbol = _mapping(diagnostic.get("by_symbol"), field="absolute by_symbol")
-    _require(tuple(by_symbol) == SYMBOLS, "absolute diagnostic symbol roster drift")
+    _require(set(by_symbol) == set(SYMBOLS), "absolute diagnostic symbol roster drift")
 
     medians: list[float] = []
     for symbol in SYMBOLS:

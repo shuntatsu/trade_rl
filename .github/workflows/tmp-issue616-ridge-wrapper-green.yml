@@ -1,0 +1,39 @@
+name: tmp Issue 616 ridge wrapper GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue616-ridge-wrapper-green
+
+permissions:
+  contents: read
+
+env:
+  GREEN_HEAD: 6e244f396f03a0f7dbc859917da9fca13e223a09
+  MODULE: trade_rl/strategies/forecasts/ridge_economic_gate.py
+  TEST_FILE: tests/strategies/test_ridge_economic_gate.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.GREEN_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact GREEN head
+        run: test "$(git rev-parse HEAD)" = "$GREEN_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Focused wrapper verification
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST_FILE"
+          uv run ruff format --check "$MODULE" "$TEST_FILE"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST_FILE"

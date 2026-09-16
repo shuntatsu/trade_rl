@@ -1,0 +1,342 @@
+name: Issue 610 pre-execution recovery authority v1
+
+on:
+  push:
+    branches:
+      - recovery/issue610-preexecution-authority-v1
+    paths:
+      - .github/workflows/issue610-preexecution-recovery-authority-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMPLEMENTATION_SHA: 1ae494ce182189c5be61e8007dc956f912d8b9d5
+  ORCHESTRATOR_SHA: 75e09e0d71a164130a527783619e85a37eb883af
+  ORCHESTRATOR_VERIFY_RUN: '35101595997'
+  FAILED_RUN: '35102237151'
+  FAILED_HEAD: 04ed40fc97bde2ce7e1ebabebb30adb9ccbaffac
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_PRODUCER_ID: '10447243668'
+  PRECOMPUTE_PRODUCER_NAME: issue610-precompute-authority-v1-35098793118
+  PRECOMPUTE_PRODUCER_API_DIGEST: sha256:d8f6198763b3b1312e5a6f74c8f9905422c0a454f8bca6b68ec6b616c99554f3
+  PRECOMPUTE_FRESH_ID: '10447607272'
+  PRECOMPUTE_FRESH_NAME: issue610-precompute-authority-fresh-v1-35098793118
+  PRECOMPUTE_FRESH_API_DIGEST: sha256:8b8d909facf14e453853cfc29d64275674779172cfa84c22b0e9541007c563ec
+  STALE_PRODUCER_DIGEST: sha256:d8f619832df05f57925cef24db47d8069f4ab66e98e2808f52ee22ca6ee0e780
+  STALE_FRESH_DIGEST: sha256:8b8db027bddd5a64c38df18a54eade86ec344d5570b09240d6d587db8c690a4c
+
+jobs:
+  producer:
+    name: Produce provenance-only recovery authority
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Prove the failed run stopped before all economic work
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN")"
+          test "$(jq -r .status <<<"$failed")" = completed
+          test "$(jq -r .conclusion <<<"$failed")" = failure
+          test "$(jq -r .head_sha <<<"$failed")" = "$FAILED_HEAD"
+          test "$(jq -r .run_number <<<"$failed")" = 1
+          test "$(jq -r .run_attempt <<<"$failed")" = 1
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN/jobs?per_page=100")"
+          test "$(jq -r '.jobs[] | select(.name=="Exactly-once candidate execution") | .conclusion' <<<"$jobs")" = failure
+          candidate="$(jq -c '.jobs[] | select(.name=="Exactly-once candidate execution")' <<<"$jobs")"
+          test "$(jq -r '.steps[] | select(.name=="Enforce exactly-once economic execution envelope") | .conclusion' <<<"$candidate")" = success
+          test "$(jq -r '.steps[] | select(.name=="Bind exact code, artifact contract, orchestrator verification, and precompute authority") | .conclusion' <<<"$candidate")" = failure
+          for step in \
+            'Run uv sync --extra dev --extra forecast-gbm --extra train-sb3' \
+            'Reprove cross-version artifact bridge immediately before economic execution' \
+            'Execute sealed candidate exactly once without interpreting economic values' \
+            'Bind candidate evidence and closed interpretation boundary' \
+            'Publish immutable candidate evidence before interpretation'; do
+            test "$(jq -r --arg step "$step" '.steps[] | select(.name==$step) | .conclusion' <<<"$candidate")" = skipped
+          done
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN/artifacts?per_page=100")"
+          test "$(jq -r .total_count <<<"$artifacts")" = 0
+          echo FAILED_RUN_CANDIDATE_TRAINING_PERFORMED=false
+          echo FAILED_RUN_ECONOMIC_VALUES_INTERPRETED=false
+          echo FAILED_RUN_CANDIDATE_ARTIFACT_PUBLISHED=false
+      - name: Rebind current immutable precompute and orchestrator authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORCHESTRATOR_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$ORCHESTRATOR_SHA"
+          precompute="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRECOMPUTE_RUN")"
+          test "$(jq -r .status <<<"$precompute")" = completed
+          test "$(jq -r .conclusion <<<"$precompute")" = success
+          check() {
+            local id="$1" name="$2" digest="$3"
+            local p
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$PRECOMPUTE_RUN"
+            test "$(jq -r .expired <<<"$p")" = false
+          }
+          check "$PRECOMPUTE_PRODUCER_ID" "$PRECOMPUTE_PRODUCER_NAME" "$PRECOMPUTE_PRODUCER_API_DIGEST"
+          check "$PRECOMPUTE_FRESH_ID" "$PRECOMPUTE_FRESH_NAME" "$PRECOMPUTE_FRESH_API_DIGEST"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result|fresh-result)-v1-' <<<"$names"
+      - name: Materialize canonical recovery authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recovery
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          payload = {
+              'schema_version': 'issue610_preexecution_recovery_authority_v1',
+              'issue_number': 610,
+              'recovery_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'failed_execution_run_id': int(os.environ['FAILED_RUN']),
+              'failed_execution_head_sha': os.environ['FAILED_HEAD'],
+              'failed_execution_run_number': 1,
+              'failed_execution_run_attempt': 1,
+              'failure_stage': 'pre_execution_authority_binding',
+              'failure_class': 'stale_precompute_api_digest_binding',
+              'stale_precompute_producer_digest': os.environ['STALE_PRODUCER_DIGEST'],
+              'correct_precompute_producer_api_digest': os.environ['PRECOMPUTE_PRODUCER_API_DIGEST'],
+              'stale_precompute_fresh_digest': os.environ['STALE_FRESH_DIGEST'],
+              'correct_precompute_fresh_api_digest': os.environ['PRECOMPUTE_FRESH_API_DIGEST'],
+              'precompute_run_id': int(os.environ['PRECOMPUTE_RUN']),
+              'precompute_producer_artifact_id': int(os.environ['PRECOMPUTE_PRODUCER_ID']),
+              'precompute_fresh_artifact_id': int(os.environ['PRECOMPUTE_FRESH_ID']),
+              'orchestrator_git_sha': os.environ['ORCHESTRATOR_SHA'],
+              'orchestrator_verification_run_id': int(os.environ['ORCHESTRATOR_VERIFY_RUN']),
+              'failed_run_candidate_training_performed': False,
+              'failed_run_economic_values_interpreted': False,
+              'failed_run_candidate_artifact_published': False,
+              'failed_run_final_test_accessed': False,
+              'prior_issue610_candidate_or_result_artifacts': 0,
+              'recovery_candidate_execution_authorized': True,
+              'recovery_requires_distinct_workflow': True,
+              'recovery_requires_run_number_one': True,
+              'recovery_requires_run_attempt_one': True,
+              'baseline_retraining_authorized': False,
+              'final_test_access_authorized': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          payload['content_digest'] = content_digest(payload)
+          Path('/tmp/recovery/authority.json').write_bytes(canonical_json_bytes(payload))
+          print('ISSUE610_PREEXECUTION_RECOVERY_AUTHORITY=PASS')
+          print('RECOVERY_CANDIDATE_EXECUTION_AUTHORIZED=true')
+          print('FAILED_RUN_CANDIDATE_TRAINING_PERFORMED=false')
+          PY
+      - id: name
+        run: echo "artifact_name=issue610-preexecution-recovery-authority-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/recovery
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  fresh:
+    name: Independently reconstruct recovery authority
+    needs: producer
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.IMPLEMENTATION_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Independently prove failed-run non-execution and corrected metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN")"
+          test "$(jq -r .conclusion <<<"$failed")" = failure
+          test "$(jq -r .run_number <<<"$failed")" = 1
+          test "$(jq -r .run_attempt <<<"$failed")" = 1
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN/jobs?per_page=100")"
+          candidate="$(jq -c '.jobs[] | select(.name=="Exactly-once candidate execution")' <<<"$jobs")"
+          test "$(jq -r '.steps[] | select(.name=="Execute sealed candidate exactly once without interpreting economic values") | .conclusion' <<<"$candidate")" = skipped
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILED_RUN/artifacts?per_page=100" --jq .total_count)" = 0
+          for spec in \
+            "$PRECOMPUTE_PRODUCER_ID|$PRECOMPUTE_PRODUCER_NAME|$PRECOMPUTE_PRODUCER_API_DIGEST" \
+            "$PRECOMPUTE_FRESH_ID|$PRECOMPUTE_FRESH_NAME|$PRECOMPUTE_FRESH_API_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .digest <<<"$p")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$PRECOMPUTE_RUN"
+          done
+          producer="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ID")"
+          test "$(jq -r .name <<<"$producer")" = "$PRODUCER_NAME"
+          api_digest="$(jq -r .digest <<<"$producer")"
+          case "$PRODUCER_DIGEST" in
+            sha256:*) test "$api_digest" = "$PRODUCER_DIGEST" ;;
+            *) test "$api_digest" = "sha256:$PRODUCER_DIGEST" ;;
+          esac
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+      - name: Reconstruct identical canonical bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+
+          payload = {
+              'schema_version': 'issue610_preexecution_recovery_authority_v1',
+              'issue_number': 610,
+              'recovery_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'failed_execution_run_id': int(os.environ['FAILED_RUN']),
+              'failed_execution_head_sha': os.environ['FAILED_HEAD'],
+              'failed_execution_run_number': 1,
+              'failed_execution_run_attempt': 1,
+              'failure_stage': 'pre_execution_authority_binding',
+              'failure_class': 'stale_precompute_api_digest_binding',
+              'stale_precompute_producer_digest': os.environ['STALE_PRODUCER_DIGEST'],
+              'correct_precompute_producer_api_digest': os.environ['PRECOMPUTE_PRODUCER_API_DIGEST'],
+              'stale_precompute_fresh_digest': os.environ['STALE_FRESH_DIGEST'],
+              'correct_precompute_fresh_api_digest': os.environ['PRECOMPUTE_FRESH_API_DIGEST'],
+              'precompute_run_id': int(os.environ['PRECOMPUTE_RUN']),
+              'precompute_producer_artifact_id': int(os.environ['PRECOMPUTE_PRODUCER_ID']),
+              'precompute_fresh_artifact_id': int(os.environ['PRECOMPUTE_FRESH_ID']),
+              'orchestrator_git_sha': os.environ['ORCHESTRATOR_SHA'],
+              'orchestrator_verification_run_id': int(os.environ['ORCHESTRATOR_VERIFY_RUN']),
+              'failed_run_candidate_training_performed': False,
+              'failed_run_economic_values_interpreted': False,
+              'failed_run_candidate_artifact_published': False,
+              'failed_run_final_test_accessed': False,
+              'prior_issue610_candidate_or_result_artifacts': 0,
+              'recovery_candidate_execution_authorized': True,
+              'recovery_requires_distinct_workflow': True,
+              'recovery_requires_run_number_one': True,
+              'recovery_requires_run_attempt_one': True,
+              'baseline_retraining_authorized': False,
+              'final_test_access_authorized': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          payload['content_digest'] = content_digest(payload)
+          raw = canonical_json_bytes(payload)
+          Path('/tmp/fresh/authority.json').write_bytes(raw)
+          assert raw == Path('/tmp/producer/authority.json').read_bytes()
+          print('ISSUE610_PREEXECUTION_RECOVERY_FRESH=PASS')
+          PY
+      - id: name
+        run: echo "artifact_name=issue610-preexecution-recovery-authority-fresh-v1-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: /tmp/fresh
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+
+  audit:
+    name: Final pre-execution recovery audit
+    needs: [producer, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind independently reconstructed recovery authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_ID: ${{ needs.producer.outputs.artifact_id }}
+          PRODUCER_NAME: ${{ needs.producer.outputs.artifact_name }}
+          PRODUCER_DIGEST: ${{ needs.producer.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_NAME: ${{ needs.fresh.outputs.artifact_name }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          check_current() {
+            local id="$1" name="$2" digest="$3"
+            local p api_digest
+            p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$p")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$p")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$p")" = false
+            api_digest="$(jq -r .digest <<<"$p")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          }
+          check_current "$PRODUCER_ID" "$PRODUCER_NAME" "$PRODUCER_DIGEST"
+          check_current "$FRESH_ID" "$FRESH_NAME" "$FRESH_DIGEST"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: /tmp/producer
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require byte identity and closed downstream boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/producer/authority.json /tmp/fresh/authority.json
+          test "$(jq -r .failed_run_candidate_training_performed /tmp/producer/authority.json)" = false
+          test "$(jq -r .failed_run_economic_values_interpreted /tmp/producer/authority.json)" = false
+          test "$(jq -r .failed_run_candidate_artifact_published /tmp/producer/authority.json)" = false
+          test "$(jq -r .recovery_candidate_execution_authorized /tmp/producer/authority.json)" = true
+          test "$(jq -r .recovery_requires_distinct_workflow /tmp/producer/authority.json)" = true
+          test "$(jq -r .recovery_requires_run_number_one /tmp/producer/authority.json)" = true
+          test "$(jq -r .recovery_requires_run_attempt_one /tmp/producer/authority.json)" = true
+          test "$(jq -r .baseline_retraining_authorized /tmp/producer/authority.json)" = false
+          test "$(jq -r .final_test_access_authorized /tmp/producer/authority.json)" = false
+          test "$(jq -r .production_eligible /tmp/producer/authority.json)" = false
+          test "$(jq -r .live_trading_authorized /tmp/producer/authority.json)" = false
+          test "$(jq -r .merge_authorized /tmp/producer/authority.json)" = false
+          echo ISSUE610_PREEXECUTION_RECOVERY_AUDIT=PASS

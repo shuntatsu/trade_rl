@@ -1,0 +1,59 @@
+name: Temporary Issue 603 final format-debt proof
+
+on:
+  push:
+    branches:
+      - verify/issue603-exact-d153ff7
+    paths:
+      - .github/workflows/tmp-issue603-format-debt-final.yml
+
+permissions:
+  contents: read
+
+env:
+  FINAL_SHA: d153ff7ee27a7628d1bdeeef6990f8496b7ed51f
+  BASE_SHA: c707be853480e57362f6a3d64f116e4056c3553f
+  RESEARCH_BRANCH: research/issue603-premium-pressure-calibration-v2
+
+jobs:
+  prove_format_debt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FINAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Compare only violating format paths on base and final
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$RESEARCH_BRANCH | cut -f1)" = "$FINAL_SHA"
+          git checkout --detach "$BASE_SHA"
+          set +e
+          uv run ruff format --check . >/tmp/base.out 2>&1
+          base_code=$?
+          set -e
+          test "$base_code" -ne 0
+          grep '^Would reformat:' /tmp/base.out > /tmp/base.paths
+
+          git checkout --detach "$FINAL_SHA"
+          set +e
+          uv run ruff format --check . >/tmp/final.out 2>&1
+          final_code=$?
+          set -e
+          test "$final_code" -ne 0
+          grep '^Would reformat:' /tmp/final.out > /tmp/final.paths
+
+          diff -u /tmp/base.paths /tmp/final.paths
+          test "$(wc -l < /tmp/final.paths)" -eq 3
+          grep -Fx 'Would reformat: guide/tools/bundle_budget.py' /tmp/final.paths
+          grep -Fx 'Would reformat: guide/tools/code_symbols.py' /tmp/final.paths
+          grep -Fx 'Would reformat: guide/tools/content_contract.py' /tmp/final.paths
+          ! grep -F 'premium_pressure_calibration.py' /tmp/final.paths
+          echo 'ISSUE603_GLOBAL_FORMAT_FAILURE_PREEXISTING=true'

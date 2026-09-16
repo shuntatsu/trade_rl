@@ -1,0 +1,94 @@
+name: tmp Issue 610 orchestrator clean compose
+
+on:
+  push:
+    branches:
+      - automation/issue610-orchestrator-clean-compose
+    paths:
+      - .github/workflows/tmp-issue610-orchestrator-clean-compose.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: prepare/issue610-execution-orchestrator-clean
+  TARGET_SHA: 077aca86dab0d2565d9113db5e4c9eb99b113ccf
+  BASE_SHA: 358b4917e988561f9a5601ef25a6d53291e07585
+  TERMINATION_SHA: 1fd0f60f8946fdcd4e587c35c4e21b18d61e8fcf
+  ORCHESTRATOR: tools/tmp_issue610_exact_once_orchestrator.py
+  TERMINATION_MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+  TERMINATION_TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+      - name: Guard exact target and import verified termination authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git fetch origin "$TERMINATION_SHA" "$BASE_SHA" --no-tags
+          git show "$TERMINATION_SHA:$TERMINATION_MODULE" > "$TERMINATION_MODULE"
+          git show "$TERMINATION_SHA:$TERMINATION_TEST" > "$TERMINATION_TEST"
+      - name: Replace duplicate termination logic with verified verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/tmp_issue610_exact_once_orchestrator.py')
+          text = path.read_text()
+          text = text.replace('from collections import Counter\n', '')
+          anchor = '''from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (\n    EXPECTED_SEMANTIC_CHANGED_FIELDS,\n    build_candidate_carrier_plan,\n    candidate_run_config_from_resolved,\n    evaluate_frozen_gate,\n    execute_candidate_after_precompute_gate,\n    validate_candidate_ppo_returns,\n    validate_controlled_semantic_delta,\n    validate_unaffected_raw_returns,\n)\n'''
+          replacement = anchor + '''from tools.tmp_issue610_ppo_global_btc_regime_termination import (\n    validate_no_new_ppo_terminations,\n)\n'''
+          if anchor not in text:
+              raise SystemExit('evaluation import anchor missing')
+          text = text.replace(anchor, replacement, 1)
+          start = text.index('def _strategy_entry(')
+          end = text.index('\ndef execute_candidate(', start)
+          wrapper = '''def termination_violations(baseline: Any, candidate: Any) -> tuple[str, ...]:\n    \"\"\"Apply the independently verified fail-closed termination oracle.\"\"\"\n\n    return validate_no_new_ppo_terminations(\n        baseline.runs,\n        candidate.runs,\n        seeds=SEEDS,\n        symbols=SYMBOLS,\n    )\n\n'''
+          text = text[:start] + wrapper + text[end + 1:]
+          path.write_text(text)
+          PY
+      - name: Remove verification workflows from execution authority diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-issue610-execution-orchestrator-verify.yml
+          rm -f .github/workflows/tmp-issue610-orchestrator-format-fix.yml
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format and verify exact clean execution-control diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+          uv run ruff check "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+          uv run ruff format --check "$ORCHESTRATOR" "$TERMINATION_MODULE" "$TERMINATION_TEST" tests/tools/test_tmp_issue610_exact_once_orchestrator.py
+          git diff --name-only "$BASE_SHA" | sort > /tmp/changed
+          printf '%s\n' \
+            tests/tools/test_tmp_issue610_exact_once_orchestrator.py \
+            tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py \
+            tools/tmp_issue610_exact_once_orchestrator.py \
+            tools/tmp_issue610_ppo_global_btc_regime_termination.py | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/changed
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "research: compose clean Issue 610 execution orchestrator"
+          git push origin HEAD:"refs/heads/$TARGET_BRANCH"

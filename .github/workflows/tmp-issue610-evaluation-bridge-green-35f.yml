@@ -1,0 +1,51 @@
+name: tmp Issue 610 evaluation bridge GREEN 35f
+
+on:
+  push:
+    branches:
+      - verify/issue610-evaluation-bridge-green-35f
+    paths:
+      - .github/workflows/tmp-issue610-evaluation-bridge-green-35f.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 35f393b3ad3f3c2332dba15bcebcfcc310573f4e
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+  HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -f "$TEST"
+          test -f "$HELPER"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static contract checks
+        run: |
+          uv run ruff check "$HELPER" "$TEST"
+          uv run ruff format --check "$HELPER" "$TEST"
+          uv run mypy "$HELPER"
+      - name: Synthetic GREEN and authority regression
+        run: |
+          uv run pytest -q \
+            "$TEST" \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_authority.py \
+            tests/evaluation/experiments/test_ppo_global_btc_regime_evaluation_stage_separation.py
+      - name: Closed economic boundary
+        run: |
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo ECONOMIC_EXECUTION_PERFORMED=false
+          echo MARKET_DATA_ARTIFACT_ACCESSED=false

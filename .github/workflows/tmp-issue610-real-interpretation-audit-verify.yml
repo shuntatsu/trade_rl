@@ -63,3 +63,5 @@ jobs:
           echo ECONOMIC_VALUES_INTERPRETED=false
           echo CANDIDATE_RETRAINED=false
           echo FINAL_TEST_ACCESSED=false
+
+# Connector-triggered verification of the fixed helper target above.

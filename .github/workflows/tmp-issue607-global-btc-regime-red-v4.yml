@@ -1,0 +1,59 @@
+name: Temporary Issue 607 hardened semantic RED
+
+on:
+  push:
+    branches: [verify/issue607-global-btc-regime-red-run-v4]
+    paths: [.github/workflows/tmp-issue607-global-btc-regime-red-v4.yml]
+
+permissions:
+  contents: read
+
+env:
+  RED_SHA: b3f547e23b929a56885ea12ccd335a48cbfb0df5
+  BASE_SHA: d84235185c5e79327ea7ced7073f0026970ba46b
+
+jobs:
+  semantic_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind hardened test-only RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          actual="$(git diff --name-only "$BASE_SHA..$RED_SHA" | sort)"
+          expected="$(printf '%s\n%s\n%s\n' \
+            tests/evaluation/experiments/test_delta.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/strategies/test_ppo_global_btc_regime.py | sort)"
+          test "$actual" = "$expected"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static gates
+        run: |
+          uv run ruff check tests/strategies/test_ppo_global_btc_regime.py tests/evaluation/test_issue607_candidate_config.py tests/evaluation/experiments/test_delta.py
+          uv run ruff format --check tests/strategies/test_ppo_global_btc_regime.py tests/evaluation/test_issue607_candidate_config.py tests/evaluation/experiments/test_delta.py
+      - name: Require hardened semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/strategies/test_ppo_global_btc_regime.py \
+            tests/evaluation/test_issue607_candidate_config.py \
+            tests/evaluation/experiments/test_delta.py::test_global_btc_regime_context_is_controlled_and_all_non_ppo_is_invariant \
+            >/tmp/red.out 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          cat /tmp/red.out
+          grep -E "PPO_GLOBAL_BTC_REGIME_CONTEXT|ppo_global_context|unsupported resolved-run config schema" /tmp/red.out
+          echo ISSUE607_HARDENED_RED=PASS

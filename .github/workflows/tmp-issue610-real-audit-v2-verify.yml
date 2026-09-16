@@ -1,0 +1,218 @@
+name: tmp Issue 610 hardened real audit verify
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-interpretation-audit-v2
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-v2-verify.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: e25e5f384fb5f41ef9e6045bb8eeba9fe7767212
+  BASE_SHA: 59eab454011a1108ad9b5c5223c064b81ac57ae6
+  INTERPRETATION_RUN: '35116022231'
+  CANDIDATE_RUN: '35103004952'
+  CANDIDATE_ID: '10453782249'
+  CANDIDATE_NAME: issue610-ppo-global-btc-regime-candidate-v1-35103004952
+  PRECOMPUTE_RUN: '35098793118'
+  PRECOMPUTE_ID: '10447243668'
+  PRECOMPUTE_NAME: issue610-precompute-authority-v1-35098793118
+  PRODUCER_ID: '10455728296'
+  PRODUCER_NAME: issue610-ppo-global-btc-regime-result-v3-35116022231
+  FRESH_ID: '10454484504'
+  FRESH_NAME: issue610-ppo-global-btc-regime-fresh-result-v3-35116022231
+
+jobs:
+  contract-and-real-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Static, targeted, and self-check verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run ruff check tools/tmp_issue610_real_interpretation_audit_v1.py tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py
+          uv run ruff format --check tools/tmp_issue610_real_interpretation_audit_v1.py tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py
+          uv run mypy tools/tmp_issue610_real_interpretation_audit_v1.py
+          uv run pytest -q tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 self-check
+      - id: bind
+        name: API-bind immutable Issue 610 artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bind() {
+            local id="$1" expected_name="$2" expected_run="$3" output="$4"
+            local meta digest
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$expected_name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$expected_run"
+            test "$(jq -r .expired <<<"$meta")" = false
+            digest="$(jq -r .digest <<<"$meta")"
+            case "$digest" in sha256:????????????????????????????????????????????????????????????????) ;; *) exit 1 ;; esac
+            echo "$output=$digest" >> "$GITHUB_OUTPUT"
+          }
+          bind "$CANDIDATE_ID" "$CANDIDATE_NAME" "$CANDIDATE_RUN" candidate_digest
+          bind "$PRECOMPUTE_ID" "$PRECOMPUTE_NAME" "$PRECOMPUTE_RUN" precompute_digest
+          bind "$PRODUCER_ID" "$PRODUCER_NAME" "$INTERPRETATION_RUN" producer_digest
+          bind "$FRESH_ID" "$FRESH_NAME" "$INTERPRETATION_RUN" fresh_digest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRODUCER_NAME }}
+          path: /tmp/producer
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: /tmp/fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.INTERPRETATION_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CANDIDATE_NAME }}
+          path: /tmp/candidate
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CANDIDATE_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRECOMPUTE_NAME }}
+          path: /tmp/precompute
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PRECOMPUTE_RUN }}
+      - name: Audit immutable real artifacts without revealing decision
+        shell: bash
+        env:
+          CANDIDATE_DIGEST: ${{ steps.bind.outputs.candidate_digest }}
+          PRECOMPUTE_DIGEST: ${{ steps.bind.outputs.precompute_digest }}
+          PRODUCER_DIGEST: ${{ steps.bind.outputs.producer_digest }}
+          FRESH_DIGEST: ${{ steps.bind.outputs.fresh_digest }}
+        run: |
+          set -euo pipefail
+          uv run python -m tools.tmp_issue610_real_interpretation_audit_v1 audit \
+            --producer-root /tmp/producer \
+            --fresh-root /tmp/fresh \
+            --candidate-root /tmp/candidate \
+            --precompute /tmp/precompute/authority.json \
+            --output-root /tmp/audit \
+            --interpretation-run-id "$INTERPRETATION_RUN" \
+            --candidate-execution-run-id "$CANDIDATE_RUN" \
+            --candidate-artifact-id "$CANDIDATE_ID" \
+            --candidate-artifact-digest "$CANDIDATE_DIGEST" \
+            --precompute-artifact-id "$PRECOMPUTE_ID" \
+            --precompute-artifact-digest "$PRECOMPUTE_DIGEST" \
+            --producer-result-artifact-id "$PRODUCER_ID" \
+            --producer-result-artifact-digest "$PRODUCER_DIGEST" \
+            --fresh-result-artifact-id "$FRESH_ID" \
+            --fresh-result-artifact-digest "$FRESH_DIGEST" \
+            | tee /tmp/audit.log
+          grep -Fx 'ISSUE610_REAL_INTERPRETATION_AUDIT_V1=PASS' /tmp/audit.log
+          grep -Fx 'DECISION_REVEALED=false' /tmp/audit.log
+          ! grep -E '^DECISION=' /tmp/audit.log
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          path = Path('/tmp/audit/audit.json')
+          raw = path.read_bytes()
+          payload = json.loads(raw)
+          assert canonical_json_bytes(payload) == raw
+          unsigned = dict(payload)
+          digest = unsigned.pop('content_digest')
+          assert content_digest(unsigned) == digest
+          assert payload['schema_version'] == 'issue610_interpretation_final_audit_v1'
+          assert payload['final_test_accessed'] is False
+          assert payload['production_eligible'] is False
+          assert payload['live_trading_authorized'] is False
+          assert payload['merge_authorized'] is False
+          assert payload['decision'] in {'ACCEPT_CANDIDATE', 'KEEP_BASELINE', 'INVALID'}
+          print('ISSUE610_REAL_ARTIFACT_AUDIT_CLOSURE=PASS')
+          PY
+
+  full-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind intended target delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git -C base rev-parse HEAD)" = "$BASE_SHA"
+          git -C target diff --name-only "$BASE_SHA..$TARGET_SHA" | sort > /tmp/changed.txt
+          printf '%s\n' \
+            tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py \
+            tools/tmp_issue610_real_interpretation_audit_v1.py \
+            | sort > /tmp/expected.txt
+          cmp /tmp/expected.txt /tmp/changed.txt
+          test "$(git -C target rev-parse "$BASE_SHA:.github/workflows")" = "$(git -C target rev-parse "$TARGET_SHA:.github/workflows")"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Run complete target pytest
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          set +e
+          uv run pytest -q > /tmp/target-pytest.log 2>&1
+          echo "$?" > /tmp/target-pytest.rc
+          set -e
+          cat /tmp/target-pytest.log
+      - name: Run complete base pytest
+        working-directory: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          set +e
+          uv run pytest -q > /tmp/base-pytest.log 2>&1
+          echo "$?" > /tmp/base-pytest.rc
+          set -e
+          cat /tmp/base-pytest.log
+      - name: Require no new full-suite failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep '^FAILED ' /tmp/target-pytest.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/target-failures.txt || true
+          grep '^FAILED ' /tmp/base-pytest.log | sed 's/^FAILED //' | sed 's/ - .*//' | sort > /tmp/base-failures.txt || true
+          cmp /tmp/base-failures.txt /tmp/target-failures.txt
+          if test "$(cat /tmp/base-pytest.rc)" -eq 0; then
+            test "$(cat /tmp/target-pytest.rc)" -eq 0
+          fi
+          echo ISSUE610_AUDIT_NO_NEW_FULL_PYTEST_FAILURES=PASS

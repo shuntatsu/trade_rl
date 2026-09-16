@@ -77,7 +77,9 @@ def test_changed_termination_reason_is_new() -> None:
 def test_malformed_termination_evidence_fails_closed() -> None:
     module = _module()
     malformed = _run(reason=None)
-    malformed.summary["by_symbol"][0]["strategies"][0]["metrics"]["termination_count"] = 1
+    malformed.summary["by_symbol"][0]["strategies"][0]["metrics"][
+        "termination_count"
+    ] = 1
 
     violations = module.validate_no_new_ppo_terminations(
         {0: _run(reason=None)},

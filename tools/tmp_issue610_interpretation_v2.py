@@ -15,11 +15,8 @@ from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 from statistics import median
-from typing import Any, cast
+from typing import Any
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
 from tools.tmp_issue610_exact_once_orchestrator import (
     ISSUE_NUMBER,
     PRECOMPUTE_RUN_ID,
@@ -42,6 +39,9 @@ from tools.tmp_issue610_ppo_global_btc_regime_evaluation import (
     validate_controlled_semantic_delta,
     validate_unaffected_raw_returns,
 )
+from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
 
 RESULT_SCHEMA = "issue610_development_evaluation_result_v2"
 ABSOLUTE_DIAGNOSTIC_SCHEMA = "issue610_absolute_candidate_ppo_diagnostic_v1"
@@ -289,9 +289,7 @@ def interpret_candidate_v2(
         raise RuntimeError("comparison analysis digest mismatch")
 
     validity_violations = (
-        tuple(semantic_violations)
-        + tuple(ppo_violations)
-        + tuple(termination_validity)
+        tuple(semantic_violations) + tuple(ppo_violations) + tuple(termination_validity)
     )
     gate = evaluate_frozen_gate(
         comparison,

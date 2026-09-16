@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.hashing import content_digest
 from tools.tmp_issue610_interpretation_v2 import (
     ABSOLUTE_DIAGNOSTIC_SCHEMA,
     RECOVERY_BINDING_SCHEMA,
@@ -14,6 +12,8 @@ from tools.tmp_issue610_interpretation_v2 import (
     classify_termination_evidence,
     validate_recovery_binding,
 )
+from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
 
 
 def _loaded(
@@ -88,7 +88,9 @@ def test_absolute_candidate_diagnostic_publishes_each_symbol_seed_median() -> No
     for index, symbol in enumerate(SYMBOLS):
         entry = by_symbol[symbol]
         assert entry["median_candidate_total_return"] == symbol_medians[index]
-        assert tuple(entry["by_seed_total_return"]) == tuple(str(seed) for seed in SEEDS)
+        assert tuple(entry["by_seed_total_return"]) == tuple(
+            str(seed) for seed in SEEDS
+        )
     cross = diagnostic["cross_symbol"]
     assert cross["symbol_count"] == 5
     assert cross["positive_symbol_count"] == 5
@@ -154,4 +156,6 @@ def test_recovery_binding_requires_result_blind_consistency(tmp_path: Path) -> N
     forged["content_digest"] = content_digest(forged)
     (tmp_path / "recovery-binding.json").write_bytes(canonical_json_bytes(forged))
     violations = validate_recovery_binding(tmp_path, candidate_authority)
-    assert "candidate recovery binding mismatch: economic_values_interpreted" in violations
+    assert (
+        "candidate recovery binding mismatch: economic_values_interpreted" in violations
+    )

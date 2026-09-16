@@ -73,7 +73,7 @@ def test_anchor_selection_preserves_durable_refs() -> None:
     }
 
 
-def test_cleanup_archives_only_unique_transient_tips() -> None:
+def test_cleanup_archives_every_unique_non_anchor_tip() -> None:
     branches = (
         BranchInfo("main", "a" * 40, False),
         BranchInfo("feature/open", "b" * 40, False),
@@ -112,8 +112,10 @@ def test_cleanup_archives_only_unique_transient_tips() -> None:
     assert by_name["feature/merged"].action == "delete"
     assert by_name["tmp/unique-red"].action == "archive-delete"
     assert by_name["automation/unique"].action == "archive-delete"
-    assert by_name["feature/unique"].action == "keep"
-    assert by_name["feature/unique"].reason == "unique-unmerged-tip"
+    assert by_name["tmp/unique-red"].reason == "unique-non-anchor-tip"
+    assert by_name["automation/unique"].reason == "unique-non-anchor-tip"
+    assert by_name["feature/unique"].action == "archive-delete"
+    assert by_name["feature/unique"].reason == "unique-non-anchor-tip"
 
 
 def test_fork_pr_and_active_workflow_refs_are_preserved() -> None:
@@ -208,7 +210,7 @@ def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
     api = FakeCleanupApi((main, archived, direct))
     decisions = (
         BranchDecision(main, "keep", "default-branch"),
-        BranchDecision(archived, "archive-delete", "transient-unique-tip"),
+        BranchDecision(archived, "archive-delete", "unique-non-anchor-tip"),
         BranchDecision(direct, "delete", "tip-reachable-from-anchor"),
     )
 

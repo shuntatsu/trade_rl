@@ -120,7 +120,7 @@ jobs:
           uv run ruff format --check "$MODULE" "$TEST"
           uv run mypy "$MODULE"
           uv run pytest -q "$TEST"
-          uv run python "$MODULE" self-check
+          uv run python -m tools.tmp_issue610_exact_once_orchestrator self-check
           changed="$(git diff --name-only)"
           expected="$(printf '%s\n%s\n' "$MODULE" "$TEST" | sort)"
           test "$(printf '%s\n' "$changed" | sort)" = "$expected"

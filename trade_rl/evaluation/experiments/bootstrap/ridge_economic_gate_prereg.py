@@ -264,7 +264,11 @@ class RidgeEconomicGateProtocol:
             "evaluation_stop_exclusive",
         ):
             _require_aware(getattr(self, field_name), field=field_name)
-        if not self.fit_cutoff == self.evaluation_start < self.evaluation_stop_exclusive:
+        if (
+            not self.fit_cutoff
+            == self.evaluation_start
+            < self.evaluation_stop_exclusive
+        ):
             raise ValueError("preregistered research clock is invalid")
 
         if len(self.feature_names) != len(self.feature_indices):

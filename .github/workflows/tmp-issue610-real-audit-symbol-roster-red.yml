@@ -1,0 +1,51 @@
+name: tmp Issue 610 real audit symbol roster RED
+
+on:
+  push:
+    branches:
+      - verify/issue610-real-audit-symbol-roster-red
+    paths:
+      - .github/workflows/tmp-issue610-real-audit-symbol-roster-red.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: f9df1b74ba02c8598554fe45f1d2683c69ba7c07
+  HELPER: tools/tmp_issue610_real_interpretation_audit_v1.py
+  TEST: tests/tools/test_tmp_issue610_real_interpretation_audit_symbol_roster.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Require static-clean test oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$HELPER" "$TEST"
+          uv run ruff format --check "$HELPER" "$TEST"
+      - name: Require canonical-key-order case as the semantic RED
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          uv run pytest -q "$TEST" > /tmp/red.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/red.log
+          test "$rc" -ne 0
+          grep -q 'test_canonical_sorted_symbol_keys_are_accepted' /tmp/red.log
+          grep -q 'absolute diagnostic symbol roster drift' /tmp/red.log
+          grep -q '1 failed, 2 passed' /tmp/red.log
+          echo ISSUE610_AUDIT_SYMBOL_ROSTER_RED=PASS

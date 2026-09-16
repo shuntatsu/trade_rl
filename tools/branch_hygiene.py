@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,10 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 PRESERVED_PREFIXES = ("research/", "seal/", "freeze/", "run/")
+TRANSIENT_PREFIXES = ("verify/", "automation/", "tmp/")
+RETENTION_BRANCH = "provenance/branch-retention"
+RETENTION_BATCH_SIZE = 20
+DELETE_DELAY_SECONDS = 0.5
 API_VERSION = "2022-11-28"
 
 
@@ -63,24 +68,28 @@ class GitHubApi:
         suffix: str,
         *,
         query: dict[str, str] | None = None,
-        allow_not_found: bool = False,
+        body: dict[str, Any] | None = None,
     ) -> Any:
+        data = None
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self._token}",
+            "User-Agent": "trade-rl-branch-hygiene",
+            "X-GitHub-Api-Version": API_VERSION,
+        }
+        if body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         request = urllib.request.Request(
             self._url(suffix, query),
+            data=data,
             method=method,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {self._token}",
-                "User-Agent": "trade-rl-branch-hygiene",
-                "X-GitHub-Api-Version": API_VERSION,
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = response.read()
         except urllib.error.HTTPError as exc:
-            if allow_not_found and exc.code == 404:
-                return None
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(
                 f"GitHub API {method} {suffix} failed: HTTP {exc.code}: {detail}"
@@ -156,10 +165,15 @@ class GitHubApi:
             head_name: str | None = None
             head_sha: str | None = None
             head_repo = head.get("repo")
-            if isinstance(head_repo, dict) and head_repo.get("full_name") == self._repository:
+            if (
+                isinstance(head_repo, dict)
+                and head_repo.get("full_name") == self._repository
+            ):
                 raw_head_name = head.get("ref")
                 raw_head_sha = head.get("sha")
-                if not isinstance(raw_head_name, str) or not isinstance(raw_head_sha, str):
+                if not isinstance(raw_head_name, str) or not isinstance(
+                    raw_head_sha, str
+                ):
                     raise RuntimeError("pull request head ref has an invalid shape")
                 head_name = raw_head_name
                 head_sha = raw_head_sha
@@ -174,13 +188,94 @@ class GitHubApi:
             )
         return tuple(result)
 
+    def active_workflow_branch_names(self) -> frozenset[str]:
+        names: set[str] = set()
+        for status in ("in_progress", "queued"):
+            page = 1
+            while True:
+                payload = self._request_json(
+                    "GET",
+                    "actions/runs",
+                    query={
+                        "status": status,
+                        "per_page": "100",
+                        "page": str(page),
+                    },
+                )
+                if not isinstance(payload, dict):
+                    raise RuntimeError("workflow run list is not an object")
+                runs = payload.get("workflow_runs")
+                if not isinstance(runs, list):
+                    raise RuntimeError("workflow_runs is not a list")
+                for run in runs:
+                    if not isinstance(run, dict):
+                        raise RuntimeError("workflow run entry is not an object")
+                    head_branch = run.get("head_branch")
+                    if isinstance(head_branch, str) and head_branch:
+                        names.add(head_branch)
+                if len(runs) < 100:
+                    break
+                page += 1
+        return frozenset(names)
+
+    def git_commit_tree_sha(self, commit_sha: str) -> str:
+        encoded = urllib.parse.quote(commit_sha, safe="")
+        payload = self._request_json("GET", f"git/commits/{encoded}")
+        if not isinstance(payload, dict):
+            raise RuntimeError("git commit lookup is not an object")
+        tree = payload.get("tree")
+        if not isinstance(tree, dict):
+            raise RuntimeError("git commit tree is missing")
+        tree_sha = tree.get("sha")
+        if not isinstance(tree_sha, str) or not tree_sha:
+            raise RuntimeError("git commit tree SHA is missing")
+        return tree_sha
+
+    def create_retention_commit(
+        self,
+        *,
+        tree_sha: str,
+        parent_shas: Sequence[str],
+        message: str,
+    ) -> str:
+        payload = self._request_json(
+            "POST",
+            "git/commits",
+            body={"message": message, "tree": tree_sha, "parents": list(parent_shas)},
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("created git commit is not an object")
+        sha = payload.get("sha")
+        if not isinstance(sha, str) or not sha:
+            raise RuntimeError("created git commit SHA is missing")
+        return sha
+
+    def create_branch_ref(self, name: str, sha: str) -> None:
+        self._request_json(
+            "POST",
+            "git/refs",
+            body={"ref": f"refs/heads/{name}", "sha": sha},
+        )
+
+    def update_branch_ref(self, name: str, sha: str) -> None:
+        encoded = urllib.parse.quote(name, safe="/")
+        self._request_json(
+            "PATCH",
+            f"git/refs/heads/{encoded}",
+            body={"sha": sha, "force": False},
+        )
+
     def delete_branch(self, name: str) -> None:
         encoded = urllib.parse.quote(name, safe="/")
         self._request_json("DELETE", f"git/refs/heads/{encoded}")
 
 
 def is_preserved_branch(name: str) -> bool:
-    return name.startswith(PRESERVED_PREFIXES)
+    return name == RETENTION_BRANCH or name.startswith(PRESERVED_PREFIXES)
+
+
+def is_transient_branch(name: str) -> bool:
+    return name.startswith(TRANSIENT_PREFIXES)
 
 
 def open_pull_request_branch_names(
@@ -196,6 +291,7 @@ def anchor_branch_names(
     *,
     default_branch: str,
     open_pull_request_refs: Sequence[OpenPullRequestRefs],
+    active_workflow_branches: frozenset[str],
 ) -> frozenset[str]:
     open_names = open_pull_request_branch_names(open_pull_request_refs)
     return frozenset(
@@ -204,6 +300,7 @@ def anchor_branch_names(
         if branch.name == default_branch
         or branch.protected
         or branch.name in open_names
+        or branch.name in active_workflow_branches
         or is_preserved_branch(branch.name)
     )
 
@@ -213,11 +310,13 @@ def anchor_shas(
     *,
     default_branch: str,
     open_pull_request_refs: Sequence[OpenPullRequestRefs],
+    active_workflow_branches: frozenset[str],
 ) -> frozenset[str]:
     names = anchor_branch_names(
         branches,
         default_branch=default_branch,
         open_pull_request_refs=open_pull_request_refs,
+        active_workflow_branches=active_workflow_branches,
     )
     shas = {branch.sha for branch in branches if branch.name in names}
     shas.update(ref.base_sha for ref in open_pull_request_refs)
@@ -250,6 +349,7 @@ def plan_cleanup(
     *,
     default_branch: str,
     open_pull_request_refs: Sequence[OpenPullRequestRefs],
+    active_workflow_branches: frozenset[str],
     reachable_from_anchors: frozenset[str],
 ) -> tuple[BranchDecision, ...]:
     open_names = open_pull_request_branch_names(open_pull_request_refs)
@@ -261,28 +361,124 @@ def plan_cleanup(
             decision = BranchDecision(branch, "keep", "protected")
         elif branch.name in open_names:
             decision = BranchDecision(branch, "keep", "open-pr-ref")
+        elif branch.name in active_workflow_branches:
+            decision = BranchDecision(branch, "keep", "active-workflow")
         elif is_preserved_branch(branch.name):
-            decision = BranchDecision(branch, "keep", "research-provenance")
+            decision = BranchDecision(branch, "keep", "provenance")
         elif branch.sha in reachable_from_anchors:
             decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")
+        elif is_transient_branch(branch.name):
+            decision = BranchDecision(
+                branch, "archive-delete", "transient-unique-tip"
+            )
         else:
             decision = BranchDecision(branch, "keep", "unique-unmerged-tip")
         decisions.append(decision)
     return tuple(decisions)
 
 
+def chunks(items: Sequence[BranchInfo], size: int) -> Iterable[Sequence[BranchInfo]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def retention_message(branches: Sequence[BranchInfo]) -> str:
+    lines = [
+        "Archive transient branch tips before ref cleanup",
+        "",
+        "Each mapping below preserves the deleted remote branch name and exact tip SHA.",
+        "Restore with: git branch <name> <sha>",
+        "",
+    ]
+    lines.extend(f"{branch.name}\t{branch.sha}" for branch in branches)
+    return "\n".join(lines)
+
+
+def archive_transient_tips(
+    api: GitHubApi,
+    *,
+    default_branch: str,
+    current_by_name: dict[str, BranchInfo],
+    branches: Sequence[BranchInfo],
+) -> str | None:
+    if not branches:
+        retention = current_by_name.get(RETENTION_BRANCH)
+        return retention.sha if retention is not None else None
+
+    default = current_by_name.get(default_branch)
+    if default is None:
+        raise RuntimeError("default branch disappeared before archival")
+    retention = current_by_name.get(RETENTION_BRANCH)
+    parent_sha = retention.sha if retention is not None else default.sha
+    tree_sha = api.git_commit_tree_sha(parent_sha)
+    retention_exists = retention is not None
+
+    for batch in chunks(tuple(branches), RETENTION_BATCH_SIZE):
+        unique_tip_shas = tuple(dict.fromkeys(branch.sha for branch in batch))
+        commit_sha = api.create_retention_commit(
+            tree_sha=tree_sha,
+            parent_shas=(parent_sha, *unique_tip_shas),
+            message=retention_message(batch),
+        )
+        if retention_exists:
+            api.update_branch_ref(RETENTION_BRANCH, commit_sha)
+        else:
+            api.create_branch_ref(RETENTION_BRANCH, commit_sha)
+            retention_exists = True
+        parent_sha = commit_sha
+
+    return parent_sha
+
+
 def apply_cleanup(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
+    *,
+    default_branch: str,
 ) -> tuple[str, ...]:
-    current_by_name = {branch.name: branch for branch in api.branches()}
-    open_names = open_pull_request_branch_names(api.open_pull_request_refs())
-    deleted: list[str] = []
+    first_snapshot = {branch.name: branch for branch in api.branches()}
+    first_open_names = open_pull_request_branch_names(api.open_pull_request_refs())
+    first_active_names = api.active_workflow_branch_names()
+
+    archive_candidates: list[BranchInfo] = []
     for decision in decisions:
-        if decision.action != "delete":
+        if decision.action != "archive-delete":
             continue
         expected = decision.branch
-        if expected.name in open_names:
+        current = first_snapshot.get(expected.name)
+        if (
+            expected.name not in first_open_names
+            and expected.name not in first_active_names
+            and current is not None
+            and not current.protected
+            and current.sha == expected.sha
+        ):
+            archive_candidates.append(expected)
+
+    retention_sha = archive_transient_tips(
+        api,
+        default_branch=default_branch,
+        current_by_name=first_snapshot,
+        branches=archive_candidates,
+    )
+
+    current_by_name = {branch.name: branch for branch in api.branches()}
+    open_names = open_pull_request_branch_names(api.open_pull_request_refs())
+    active_names = api.active_workflow_branch_names()
+    if archive_candidates:
+        retention = current_by_name.get(RETENTION_BRANCH)
+        if retention is None or retention.sha != retention_sha:
+            raise RuntimeError("retention branch did not reach the expected archive commit")
+
+    archived_names = {branch.name for branch in archive_candidates}
+    deleted: list[str] = []
+    for decision in decisions:
+        if decision.action not in {"delete", "archive-delete"}:
+            continue
+        expected = decision.branch
+        if decision.action == "archive-delete" and expected.name not in archived_names:
+            continue
+        if expected.name in open_names or expected.name in active_names:
             continue
         current = current_by_name.get(expected.name)
         if current is None:
@@ -291,6 +487,7 @@ def apply_cleanup(
             continue
         api.delete_branch(expected.name)
         deleted.append(expected.name)
+        time.sleep(DELETE_DELAY_SECONDS)
 
     remaining_names = {branch.name for branch in api.branches()}
     unexpectedly_remaining = sorted(set(deleted) & remaining_names)
@@ -303,8 +500,11 @@ def apply_cleanup(
 def render_summary(
     decisions: Sequence[BranchDecision], *, deleted: Sequence[str], apply: bool
 ) -> str:
-    delete_candidates = [
+    direct_candidates = [
         item.branch.name for item in decisions if item.action == "delete"
+    ]
+    archive_candidates = [
+        item.branch.name for item in decisions if item.action == "archive-delete"
     ]
     unique = [
         item.branch.name
@@ -322,9 +522,11 @@ def render_summary(
         f"- mode: {'apply' if apply else 'dry-run'}",
         f"- branches inspected: {len(decisions)}",
         f"- durable anchors kept: {len(anchors)}",
-        f"- unique/unmerged branches kept: {len(unique)}",
-        f"- safe deletion candidates: {len(delete_candidates)}",
+        f"- unique non-transient branches kept: {len(unique)}",
+        f"- direct deletion candidates: {len(direct_candidates)}",
+        f"- archive-then-delete candidates: {len(archive_candidates)}",
         f"- branches deleted: {len(deleted)}",
+        f"- retention branch: `{RETENTION_BRANCH}`",
         "",
     ]
     if deleted:
@@ -334,9 +536,7 @@ def render_summary(
             lines.append(f"- … and {len(deleted) - 100} more")
         lines.append("")
     if unique:
-        lines.extend(
-            ["### Kept because the tip is not reachable from a durable anchor", ""]
-        )
+        lines.extend(["### Kept unique non-transient branches", ""])
         lines.extend(f"- `{name}`" for name in unique[:100])
         if len(unique) > 100:
             lines.append(f"- … and {len(unique) - 100} more")
@@ -346,7 +546,10 @@ def render_summary(
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Delete only remote branches whose tip is already reachable from a durable anchor."
+        description=(
+            "Delete redundant remote branches and archive unique transient tips "
+            "before deleting their refs."
+        )
     )
     parser.add_argument(
         "--repository", required=True, help="GitHub repository in owner/name form"
@@ -372,19 +575,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     default_branch = api.repository_default_branch()
     branches = api.branches()
     open_refs = api.open_pull_request_refs()
+    active_branches = api.active_workflow_branch_names()
     anchors = anchor_shas(
         branches,
         default_branch=default_branch,
         open_pull_request_refs=open_refs,
+        active_workflow_branches=active_branches,
     )
     reachable = reachable_commits(anchors)
     decisions = plan_cleanup(
         branches,
         default_branch=default_branch,
         open_pull_request_refs=open_refs,
+        active_workflow_branches=active_branches,
         reachable_from_anchors=reachable,
     )
-    deleted = apply_cleanup(api, decisions) if args.apply else ()
+    deleted = (
+        apply_cleanup(api, decisions, default_branch=default_branch)
+        if args.apply
+        else ()
+    )
     summary = render_summary(decisions, deleted=deleted, apply=args.apply)
     print(summary)
     if args.summary is not None:

@@ -1,0 +1,39 @@
+name: tmp Issue 610 termination GREEN v2
+
+on:
+  push:
+    branches:
+      - verify/issue610-termination-green-v2
+    paths:
+      - .github/workflows/tmp-issue610-termination-green-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: fe121c2758ace93da5da7b1e0b5c0b364d7e9760
+  MODULE: tools/tmp_issue610_ppo_global_btc_regime_termination.py
+  TEST: tests/tools/test_tmp_issue610_ppo_global_btc_regime_termination.py
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static and semantic GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"

@@ -1,0 +1,97 @@
+name: tmp Issue 621 real SB3 integration
+
+on:
+  push:
+    branches:
+      - feature/issue621-ppo-interleaved-training
+    paths:
+      - .github/workflows/tmp-issue621-real-sb3-integration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feature/issue621-ppo-interleaved-training
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Train one synthetic interleaved PPO rollout with real SB3
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import numpy as np
+
+          from trade_rl.data.market import MarketDataset
+          from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
+
+          n_bars = 10
+          close = np.column_stack(
+              (
+                  np.linspace(100.0, 109.0, n_bars),
+                  np.linspace(200.0, 191.0, n_bars),
+              )
+          )
+          features = np.zeros((n_bars, 2, 1), dtype=np.float32)
+          features[:, 0, 0] = np.linspace(-1.0, 1.0, n_bars, dtype=np.float32)
+          features[:, 1, 0] = np.linspace(1.0, -1.0, n_bars, dtype=np.float32)
+          dataset = MarketDataset(
+              dataset_id='7' * 64,
+              symbols=('BTCUSDT', 'ETHUSDT'),
+              timestamps=np.datetime64('2022-01-01', 'ns')
+              + np.arange(n_bars) * np.timedelta64(1, 'h'),
+              features=features,
+              global_features=np.zeros((n_bars, 1), dtype=np.float32),
+              open=close.copy(),
+              high=close.copy(),
+              low=close.copy(),
+              close=close,
+              volume=np.full((n_bars, 2), 1_000_000.0),
+              funding_rate=np.zeros((n_bars, 2)),
+              tradable=np.ones((n_bars, 2), dtype=np.bool_),
+              feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+              feature_names=('signal',),
+              global_feature_names=('unused',),
+              periods_per_year=8_760,
+          )
+          strategy = fit_ppo_strategy(
+              dataset,
+              feature_indices=(0,),
+              fit_symbol_indices=(0, 1),
+              start_index=0,
+              stop_index=9,
+              gross_budget=0.5,
+              total_timesteps=64,
+              seed=17,
+              training_layout='interleaved',
+              rollout_steps_per_env=32,
+          )
+          assert isinstance(strategy, PPOIntentStrategy)
+          policy = strategy.policy
+          assert getattr(policy, 'n_envs') == 2
+          assert getattr(policy, 'n_steps') == 32
+          assert getattr(policy, 'batch_size') == 64
+          assert getattr(policy, 'num_timesteps') == 64
+          print('ISSUE621_REAL_SB3_INTERLEAVED_INTEGRATION=PASS')
+          print('REAL_MARKET_DATA_ACCESSED=false')
+          print('DEVELOPMENT_PNL_EVALUATED=false')
+          print('FINAL_TEST_ACCESSED=false')
+          PY
+      - name: Remove temporary integration workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/tmp-issue621-real-sb3-integration.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'ci: remove Issue 621 integration verifier'
+          git push origin HEAD:feature/issue621-ppo-interleaved-training

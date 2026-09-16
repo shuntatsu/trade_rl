@@ -67,6 +67,7 @@ def _loaded(*, count: int, reasons: list[str]) -> SimpleNamespace:
     for seed in SEEDS:
         runs[seed] = SimpleNamespace(
             summary={
+                "symbols": list(SYMBOLS),
                 "by_symbol": [
                     {
                         "symbol": symbol,
@@ -79,7 +80,7 @@ def _loaded(*, count: int, reasons: list[str]) -> SimpleNamespace:
                         ],
                     }
                     for symbol in SYMBOLS
-                ]
+                ],
             }
         )
     return SimpleNamespace(runs=runs)
@@ -102,25 +103,30 @@ def test_precompute_authority_accepts_only_result_blind_exact_binding() -> None:
         assert validate_precompute_authority(forged)
 
 
-def test_termination_gate_rejects_new_count_or_new_reason() -> None:
+def test_termination_gate_delegates_to_verified_reason_oracle() -> None:
     baseline = _loaded(count=1, reasons=["risk_limit"])
     equal = _loaded(count=1, reasons=["risk_limit"])
     assert termination_violations(baseline, equal) == ()
 
-    higher_count = _loaded(count=2, reasons=["risk_limit", "risk_limit"])
-    assert any(
-        "new PPO termination count" in item
-        for item in termination_violations(baseline, higher_count)
-    )
-
     new_reason = _loaded(count=1, reasons=["economic_floor"])
+    violations = termination_violations(baseline, new_reason)
     assert any(
-        "new PPO termination reason" in item
-        for item in termination_violations(baseline, new_reason)
+        item == "new PPO termination: seed=0 BTCUSDT reason=economic_floor"
+        for item in violations
     )
 
 
-def test_termination_gate_allows_fewer_existing_terminations() -> None:
-    baseline = _loaded(count=2, reasons=["risk_limit", "risk_limit"])
-    candidate = _loaded(count=1, reasons=["risk_limit"])
+def test_termination_gate_fails_closed_on_count_reason_inconsistency() -> None:
+    baseline = _loaded(count=0, reasons=[])
+    malformed = _loaded(count=1, reasons=[])
+    violations = termination_violations(baseline, malformed)
+    assert any(
+        item == "candidate PPO termination evidence malformed: seed=0 BTCUSDT"
+        for item in violations
+    )
+
+
+def test_termination_gate_allows_removed_existing_termination() -> None:
+    baseline = _loaded(count=1, reasons=["risk_limit"])
+    candidate = _loaded(count=0, reasons=[])
     assert termination_violations(baseline, candidate) == ()

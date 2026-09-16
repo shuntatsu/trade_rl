@@ -18,7 +18,7 @@ Agent作業で `main` へのforce-push、history rewrite、branch削除を行わ
 
 Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。
 
-`main`、open PR head、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance refは自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、それらanchorのいずれかからtip commitへ到達できることがGit graph上で証明でき、かつdefault/protected/open-PR/provenance branchではないremote branchだけを削除してよい。tipが変化した、open PRになった、protectedになった、または到達可能性を証明できないbranchはfail-closedで残す。これはAgentによる手動branch削除の許可ではない。
+`main`、open PRのhead/base、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance refは自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、それらanchorのいずれかからtip commitへ到達できることがGit graph上で証明でき、かつdefault/protected/open-PR/provenance branchではないremote branchだけを削除してよい。tipが変化した、open PRのhead/baseになった、protectedになった、または到達可能性を証明できないbranchはfail-closedで残す。これはAgentによる手動branch削除の許可ではない。
 
 このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
 

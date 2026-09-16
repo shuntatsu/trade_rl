@@ -1,3 +1,4 @@
+# Exact-head GREEN verification after the canonical map-roster fix.
 name: tmp Issue 610 real audit canonical roster verification
 
 on:

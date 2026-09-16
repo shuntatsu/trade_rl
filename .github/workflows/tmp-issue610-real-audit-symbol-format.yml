@@ -53,3 +53,5 @@ jobs:
           git add "$HELPER"
           git commit -m 'style: format Issue 610 audit symbol roster fix'
           git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+
+# Connector-triggered mechanical formatting only.

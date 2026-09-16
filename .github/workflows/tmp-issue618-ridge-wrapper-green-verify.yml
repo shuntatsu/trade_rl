@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_SHA: e74a6c7e88a1dcb058d2966cfb7421deab5d62e4
+  TARGET_SHA: 0d340721aa6972a73c7bd563d2502c24483954c8
   TARGET_MODULE: trade_rl/strategies/forecasts/ridge_economic_gate.py
   TARGET_TEST: tests/strategies/test_ridge_economic_gate.py
 
@@ -55,4 +55,4 @@ jobs:
           echo EVALUATION_EXECUTION_AUTHORIZED=false
           echo FINAL_TEST_ACCESSED=false
 
-# connector-triggered exact focused verification
+# rerun on formatted wrapper head

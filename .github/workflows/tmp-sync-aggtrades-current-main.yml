@@ -1,0 +1,48 @@
+name: tmp sync aggTrades evidence with current main
+
+on:
+  push:
+    branches:
+      - feat/binance-aggtrades-evidence
+    paths:
+      - .github/workflows/tmp-sync-aggtrades-current-main.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/binance-aggtrades-evidence
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Merge exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "6c90186c90199beb2313f6dfb7035c5074b7ebc4"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git merge --no-ff --no-edit origin/main
+      - name: Verify aggTrades and stacked provider boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check trade_rl/integrations/binance/agg_trades.py trade_rl/integrations/binance/book_depth.py tests/integrations/test_binance_agg_trades.py tests/integrations/test_binance_book_depth.py tests/integrations/test_binance_book_depth_causality.py tests/architecture/test_lean_binance_layout.py
+          uv run ruff format --check trade_rl/integrations/binance/agg_trades.py trade_rl/integrations/binance/book_depth.py tests/integrations/test_binance_agg_trades.py tests/integrations/test_binance_book_depth.py tests/integrations/test_binance_book_depth_causality.py tests/architecture/test_lean_binance_layout.py
+          uv run mypy trade_rl/integrations/binance/agg_trades.py trade_rl/integrations/binance/book_depth.py
+          uv run pytest -q tests/integrations/test_binance_agg_trades.py tests/integrations/test_binance_book_depth.py tests/integrations/test_binance_book_depth_causality.py tests/integrations/test_binance_cache.py tests/architecture/test_lean_binance_layout.py
+          git diff --check origin/main...HEAD
+          git status --short
+      - name: Push synchronized branch
+        shell: bash
+        run: git push origin HEAD:feat/binance-aggtrades-evidence

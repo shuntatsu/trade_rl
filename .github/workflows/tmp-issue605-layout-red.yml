@@ -41,7 +41,7 @@ jobs:
           cat /tmp/red.log
           test "$status" -ne 0
           grep -q "candidate_observation_schema" /tmp/red.log
-          grep -q "unexpected keyword argument" /tmp/red.log
+          grep -q "candidate_observation_layout" /tmp/red.log
           grep -q "2 failed" /tmp/red.log
       - run: |
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"

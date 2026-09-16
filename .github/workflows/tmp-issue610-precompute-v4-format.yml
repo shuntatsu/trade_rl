@@ -1,0 +1,55 @@
+name: tmp Issue 610 precompute v4 format
+
+on:
+  push:
+    branches:
+      - automation/issue610-precompute-v4-format
+    paths:
+      - .github/workflows/tmp-issue610-precompute-v4-format.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: verify/issue610-precompute-authority-v4
+  TARGET_SHA: 9d9d58217ccb1cefa3a24efa6840299247fee297
+  SCRIPT: tools/tmp_issue610_precompute_authority_v4.py
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+      - name: Guard exact remote target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only the verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$SCRIPT"
+          uv run ruff check "$SCRIPT"
+          uv run ruff format --check "$SCRIPT"
+          changed="$(git diff --name-only)"
+          test "$changed" = "$SCRIPT"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$SCRIPT"
+          git commit -m "style: format Issue 610 precompute verifier v4"
+          git push origin HEAD:"refs/heads/$TARGET_BRANCH"

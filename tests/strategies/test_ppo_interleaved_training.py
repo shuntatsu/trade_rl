@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.rl.ppo import PPOIntentStrategy, PPOTradingEnv, fit_ppo_strategy
+from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
 
 
 class FakePPO:

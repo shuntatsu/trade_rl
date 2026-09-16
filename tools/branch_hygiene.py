@@ -57,7 +57,9 @@ class GitHubApi:
     def _url(self, suffix: str, query: dict[str, str] | None = None) -> str:
         owner = urllib.parse.quote(self._owner, safe="")
         name = urllib.parse.quote(self._name, safe="")
-        url = f"{self._api_url}/repos/{owner}/{name}/{suffix.lstrip('/')}"
+        base_url = f"{self._api_url}/repos/{owner}/{name}"
+        path = suffix.lstrip("/")
+        url = f"{base_url}/{path}" if path else base_url
         if query:
             url = f"{url}?{urllib.parse.urlencode(query)}"
         return url

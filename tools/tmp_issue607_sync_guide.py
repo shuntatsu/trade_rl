@@ -42,7 +42,10 @@ def main() -> None:
         raise SystemExit("implementation-ppo code_references is malformed")
     by_id = {ref.get("id"): ref for ref in refs if isinstance(ref, dict)}
     if "encode-global-btc-regime" not in by_id:
-        insert_at = next(i for i, ref in enumerate(refs) if ref.get("id") == "encode-observation") + 1
+        insert_at = (
+            next(i for i, ref in enumerate(refs) if ref.get("id") == "encode-observation")
+            + 1
+        )
         refs.insert(
             insert_at,
             {
@@ -61,7 +64,9 @@ def main() -> None:
         )
     by_id = {ref.get("id"): ref for ref in refs if isinstance(ref, dict)}
     if "global-btc-regime-channels" not in by_id:
-        insert_at = next(i for i, ref in enumerate(refs) if ref.get("id") == "encode-global-btc-regime")
+        insert_at = next(
+            i for i, ref in enumerate(refs) if ref.get("id") == "encode-global-btc-regime"
+        )
         refs.insert(
             insert_at,
             {
@@ -95,7 +100,9 @@ def main() -> None:
                 "実行時も学習時と同じglobal_context設定で観測を作り、deterministic predictのactionを"
                 "SHORT・FLAT・LONGの売買意図へ戻します。"
             )
-    META.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    META.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
     page = PAGE.read_text(encoding="utf-8")
     page = _replace_once(
@@ -112,11 +119,9 @@ def main() -> None:
 
 #607のControlled Factorで`global_context=\"ppo_global_btc_regime_context\"`を明示した場合だけ、`local_staleness`と現在stateの間へ次の3チャネルを追加します。
 
-| 順番 | 追加区分 | 意味 |
-| ---: | --- | --- |
-| 4 | `global_reference_value` | 同じDataset rowの`BTCUSDT / 1h__log_return_24bar`。利用不能時は0 |
-| 5 | `global_reference_available_and_finite` | availabilityとfinite判定を満たすときだけ1 |
-| 6 | `global_reference_normalized_staleness` | Datasetに既に保存された同じ参照featureのstaleness |
+- `global_reference_value`: 同じDataset rowの`BTCUSDT / 1h__log_return_24bar`。利用不能時は0。
+- `global_reference_available_and_finite`: availabilityとfinite判定を満たすときだけ1。
+- `global_reference_normalized_staleness`: Datasetに既に保存された同じ参照featureのstaleness。
 
 ```text
 Observation v2の local 3区分

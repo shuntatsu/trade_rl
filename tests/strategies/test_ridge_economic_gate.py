@@ -209,5 +209,7 @@ def test_wrapper_api_has_no_dataset_economics_or_hard_risk_inputs() -> None:
         "exit_threshold",
         "one_way_explicit_cost",
     }
-    decide_parameters = set(inspect.signature(RidgeEconomicGateStrategy.decide).parameters)
+    decide_parameters = set(
+        inspect.signature(RidgeEconomicGateStrategy.decide).parameters
+    )
     assert decide_parameters == {"self", "observation"}

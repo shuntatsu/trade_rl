@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-import tools.branch_hygiene as branch_hygiene
 from tools.branch_hygiene import (
     BranchDecision,
     BranchInfo,
@@ -194,14 +193,15 @@ class FakeCleanupApi:
         self.events.append(f"update-ref:{name}:{sha}")
         self._branches[name] = BranchInfo(name, sha, False)
 
-    def delete_branch(self, name: str) -> None:
-        self.events.append(f"delete:{name}")
-        self.deleted.append(name)
-        self._branches.pop(name)
+    def delete_branches_with_leases(self, branches: tuple[BranchInfo, ...]) -> None:
+        names = ",".join(branch.name for branch in branches)
+        self.events.append(f"delete:{names}")
+        for branch in branches:
+            self.deleted.append(branch.name)
+            self._branches.pop(branch.name)
 
 
-def test_apply_cleanup_archives_unique_tip_before_delete(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(branch_hygiene, "DELETE_DELAY_SECONDS", 0.0)
+def test_apply_cleanup_archives_unique_tip_before_delete() -> None:
     main = BranchInfo("main", "a" * 40, False)
     archived = BranchInfo("verify/unique", "b" * 40, False)
     direct = BranchInfo("feature/merged", "c" * 40, False)
@@ -219,17 +219,16 @@ def test_apply_cleanup_archives_unique_tip_before_delete(monkeypatch: pytest.Mon
         index for index, event in enumerate(api.events) if event.startswith("create-ref:")
     )
     delete_event = next(
-        index for index, event in enumerate(api.events) if event == f"delete:{archived.name}"
+        index
+        for index, event in enumerate(api.events)
+        if event.startswith("delete:") and archived.name in event
     )
     assert archive_event < delete_event
     assert RETENTION_BRANCH in {branch.name for branch in api.branches()}
     assert f"{archived.name}\t{archived.sha}" in api.messages[0]
 
 
-def test_apply_cleanup_revalidates_open_refs_and_exact_sha(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(branch_hygiene, "DELETE_DELAY_SECONDS", 0.0)
+def test_apply_cleanup_revalidates_open_refs_and_exact_sha() -> None:
     main = BranchInfo("main", "a" * 40, False)
     original = BranchInfo("verify/redundant", "b" * 40, False)
     moved = BranchInfo("automation/moved", "c" * 40, False)
@@ -260,6 +259,49 @@ def test_apply_cleanup_revalidates_open_refs_and_exact_sha(
 
     assert deleted == (original.name,)
     assert api.deleted == [original.name]
+
+
+def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    observed: dict[str, object] = {}
+
+    class Process:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command: list[str], **kwargs: object) -> Process:
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        return Process()
+
+    monkeypatch.setattr("tools.branch_hygiene.subprocess.run", fake_run)
+    api = GitHubApi(
+        repository="owner/repo",
+        token="secret-token",
+        api_url="https://api.github.com",
+    )
+    branches = (
+        BranchInfo("verify/one", "1" * 40, False),
+        BranchInfo("tmp/two", "2" * 40, False),
+    )
+
+    api.delete_branches_with_leases(branches)
+
+    command = observed["command"]
+    assert isinstance(command, list)
+    assert "--atomic" in command
+    assert "--porcelain" in command
+    assert (
+        f"--force-with-lease=refs/heads/{branches[0].name}:{branches[0].sha}" in command
+    )
+    assert (
+        f"--force-with-lease=refs/heads/{branches[1].name}:{branches[1].sha}" in command
+    )
+    assert f":refs/heads/{branches[0].name}" in command
+    assert f":refs/heads/{branches[1].name}" in command
+    assert all("secret-token" not in part for part in command)
 
 
 def test_branch_hygiene_workflow_runs_from_default_branch() -> None:

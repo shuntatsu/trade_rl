@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import pytest
+
+import tools.branch_hygiene as branch_hygiene
 from tools.branch_hygiene import (
     BranchDecision,
     BranchInfo,
     OpenPullRequestRefs,
+    RETENTION_BRANCH,
     anchor_branch_names,
     anchor_shas,
     apply_cleanup,
@@ -11,9 +15,7 @@ from tools.branch_hygiene import (
 )
 
 
-def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs() -> (
-    None
-):
+def test_anchor_selection_preserves_durable_refs() -> None:
     branches = (
         BranchInfo("main", "a" * 40, False),
         BranchInfo("protected/release", "b" * 40, True),
@@ -23,7 +25,8 @@ def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs(
         BranchInfo("seal/protocol", "f" * 40, False),
         BranchInfo("freeze/source", "1" * 40, False),
         BranchInfo("run/evaluation", "2" * 40, False),
-        BranchInfo("verify/redundant", "3" * 40, False),
+        BranchInfo(RETENTION_BRANCH, "3" * 40, False),
+        BranchInfo("verify/redundant", "4" * 40, False),
     )
     open_refs = (
         OpenPullRequestRefs(
@@ -38,11 +41,13 @@ def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs(
         branches,
         default_branch="main",
         open_pull_request_refs=open_refs,
+        active_workflow_branches=frozenset(),
     )
     shas = anchor_shas(
         branches,
         default_branch="main",
         open_pull_request_refs=open_refs,
+        active_workflow_branches=frozenset(),
     )
 
     assert names == {
@@ -54,6 +59,7 @@ def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs(
         "seal/protocol",
         "freeze/source",
         "run/evaluation",
+        RETENTION_BRANCH,
     }
     assert shas == {
         "a" * 40,
@@ -64,18 +70,21 @@ def test_anchor_selection_preserves_default_protected_open_pr_and_research_refs(
         "f" * 40,
         "1" * 40,
         "2" * 40,
+        "3" * 40,
     }
 
 
-def test_cleanup_deletes_only_non_anchor_tips_reachable_from_durable_anchor() -> None:
+def test_cleanup_archives_only_unique_transient_tips() -> None:
     branches = (
         BranchInfo("main", "a" * 40, False),
         BranchInfo("feature/open", "b" * 40, False),
         BranchInfo("stack/base", "c" * 40, False),
         BranchInfo("verify/absorbed", "d" * 40, False),
         BranchInfo("tmp/unique-red", "e" * 40, False),
-        BranchInfo("feature/merged", "f" * 40, False),
-        BranchInfo("research/evidence", "1" * 40, False),
+        BranchInfo("automation/unique", "f" * 40, False),
+        BranchInfo("feature/unique", "1" * 40, False),
+        BranchInfo("feature/merged", "2" * 40, False),
+        BranchInfo("research/evidence", "3" * 40, False),
     )
     open_refs = (
         OpenPullRequestRefs(
@@ -89,8 +98,9 @@ def test_cleanup_deletes_only_non_anchor_tips_reachable_from_durable_anchor() ->
         branches,
         default_branch="main",
         open_pull_request_refs=open_refs,
+        active_workflow_branches=frozenset(),
         reachable_from_anchors=frozenset(
-            {"a" * 40, "b" * 40, "c" * 40, "d" * 40, "f" * 40}
+            {"a" * 40, "b" * 40, "c" * 40, "d" * 40, "2" * 40}
         ),
     )
 
@@ -98,17 +108,20 @@ def test_cleanup_deletes_only_non_anchor_tips_reachable_from_durable_anchor() ->
     assert by_name["main"].reason == "default-branch"
     assert by_name["feature/open"].reason == "open-pr-ref"
     assert by_name["stack/base"].reason == "open-pr-ref"
-    assert by_name["research/evidence"].reason == "research-provenance"
+    assert by_name["research/evidence"].reason == "provenance"
     assert by_name["verify/absorbed"].action == "delete"
     assert by_name["feature/merged"].action == "delete"
-    assert by_name["tmp/unique-red"].action == "keep"
-    assert by_name["tmp/unique-red"].reason == "unique-unmerged-tip"
+    assert by_name["tmp/unique-red"].action == "archive-delete"
+    assert by_name["automation/unique"].action == "archive-delete"
+    assert by_name["feature/unique"].action == "keep"
+    assert by_name["feature/unique"].reason == "unique-unmerged-tip"
 
 
-def test_fork_pr_still_protects_target_base_branch() -> None:
+def test_fork_pr_and_active_workflow_refs_are_preserved() -> None:
     branches = (
         BranchInfo("main", "a" * 40, False),
         BranchInfo("release/base", "b" * 40, False),
+        BranchInfo("verify/running", "c" * 40, False),
     )
     open_refs = (
         OpenPullRequestRefs(
@@ -123,26 +136,13 @@ def test_fork_pr_still_protects_target_base_branch() -> None:
         branches,
         default_branch="main",
         open_pull_request_refs=open_refs,
-        reachable_from_anchors=frozenset({"a" * 40, "b" * 40}),
+        active_workflow_branches=frozenset({"verify/running"}),
+        reachable_from_anchors=frozenset({"a" * 40, "b" * 40, "c" * 40}),
     )
 
     by_name = {decision.branch.name: decision for decision in decisions}
-    assert by_name["release/base"].action == "keep"
     assert by_name["release/base"].reason == "open-pr-ref"
-
-
-def test_cleanup_is_fail_closed_when_reachability_is_not_proven() -> None:
-    branch = BranchInfo("automation/orphan", "9" * 40, False)
-    decisions = plan_cleanup(
-        (BranchInfo("main", "a" * 40, False), branch),
-        default_branch="main",
-        open_pull_request_refs=(),
-        reachable_from_anchors=frozenset({"a" * 40}),
-    )
-
-    decision = next(item for item in decisions if item.branch.name == branch.name)
-    assert decision.action == "keep"
-    assert decision.reason == "unique-unmerged-tip"
+    assert by_name["verify/running"].reason == "active-workflow"
 
 
 class FakeCleanupApi:
@@ -153,7 +153,10 @@ class FakeCleanupApi:
     ) -> None:
         self._branches = {branch.name: branch for branch in branches}
         self._open_refs = open_refs
+        self._commit_index = 0
         self.deleted: list[str] = []
+        self.events: list[str] = []
+        self.messages: list[str] = []
 
     def branches(self) -> tuple[BranchInfo, ...]:
         return tuple(self._branches.values())
@@ -161,54 +164,118 @@ class FakeCleanupApi:
     def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
         return self._open_refs
 
+    def active_workflow_branch_names(self) -> frozenset[str]:
+        return frozenset()
+
+    def git_commit_tree_sha(self, commit_sha: str) -> str:
+        self.events.append(f"tree:{commit_sha}")
+        return "f" * 40
+
+    def create_retention_commit(
+        self,
+        *,
+        tree_sha: str,
+        parent_shas: tuple[str, ...],
+        message: str,
+    ) -> str:
+        assert tree_sha == "f" * 40
+        assert parent_shas
+        self._commit_index += 1
+        sha = f"{self._commit_index:040x}"
+        self.events.append(f"commit:{sha}")
+        self.messages.append(message)
+        return sha
+
+    def create_branch_ref(self, name: str, sha: str) -> None:
+        self.events.append(f"create-ref:{name}:{sha}")
+        self._branches[name] = BranchInfo(name, sha, False)
+
+    def update_branch_ref(self, name: str, sha: str) -> None:
+        self.events.append(f"update-ref:{name}:{sha}")
+        self._branches[name] = BranchInfo(name, sha, False)
+
     def delete_branch(self, name: str) -> None:
+        self.events.append(f"delete:{name}")
         self.deleted.append(name)
         self._branches.pop(name)
 
 
-def test_apply_cleanup_revalidates_open_refs_protection_and_exact_sha() -> None:
-    original = BranchInfo("verify/redundant", "a" * 40, False)
-    changed = BranchInfo("automation/moved", "b" * 40, False)
-    protected = BranchInfo("feature/protected", "c" * 40, False)
+def test_apply_cleanup_archives_unique_tip_before_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(branch_hygiene, "DELETE_DELAY_SECONDS", 0.0)
+    main = BranchInfo("main", "a" * 40, False)
+    archived = BranchInfo("verify/unique", "b" * 40, False)
+    direct = BranchInfo("feature/merged", "c" * 40, False)
+    api = FakeCleanupApi((main, archived, direct))
+    decisions = (
+        BranchDecision(main, "keep", "default-branch"),
+        BranchDecision(archived, "archive-delete", "transient-unique-tip"),
+        BranchDecision(direct, "delete", "tip-reachable-from-anchor"),
+    )
+
+    deleted = apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
+
+    assert set(deleted) == {archived.name, direct.name}
+    archive_event = next(
+        index for index, event in enumerate(api.events) if event.startswith("create-ref:")
+    )
+    delete_event = next(
+        index for index, event in enumerate(api.events) if event == f"delete:{archived.name}"
+    )
+    assert archive_event < delete_event
+    assert RETENTION_BRANCH in {branch.name for branch in api.branches()}
+    assert f"{archived.name}\t{archived.sha}" in api.messages[0]
+
+
+def test_apply_cleanup_revalidates_open_refs_and_exact_sha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(branch_hygiene, "DELETE_DELAY_SECONDS", 0.0)
+    main = BranchInfo("main", "a" * 40, False)
+    original = BranchInfo("verify/redundant", "b" * 40, False)
+    moved = BranchInfo("automation/moved", "c" * 40, False)
+    protected_by_pr = BranchInfo("tmp/open", "d" * 40, False)
     api = FakeCleanupApi(
         (
+            main,
             original,
-            BranchInfo(changed.name, "d" * 40, False),
-            protected,
+            BranchInfo(moved.name, "e" * 40, False),
+            protected_by_pr,
         ),
         (
             OpenPullRequestRefs(
-                head_name=protected.name,
-                head_sha=protected.sha,
+                head_name=protected_by_pr.name,
+                head_sha=protected_by_pr.sha,
                 base_name="main",
-                base_sha="e" * 40,
+                base_sha=main.sha,
             ),
         ),
     )
     decisions = (
         BranchDecision(original, "delete", "tip-reachable-from-anchor"),
-        BranchDecision(changed, "delete", "tip-reachable-from-anchor"),
-        BranchDecision(protected, "delete", "tip-reachable-from-anchor"),
+        BranchDecision(moved, "delete", "tip-reachable-from-anchor"),
+        BranchDecision(protected_by_pr, "delete", "tip-reachable-from-anchor"),
     )
 
-    deleted = apply_cleanup(api, decisions)  # type: ignore[arg-type]
+    deleted = apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
 
     assert deleted == (original.name,)
     assert api.deleted == [original.name]
 
 
-def test_branch_hygiene_workflow_never_checks_out_pull_request_head() -> None:
+def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     workflow = (repository_root / ".github/workflows/branch-hygiene.yml").read_text(
         encoding="utf-8"
     )
 
-    assert "pull_request_target:" in workflow
+    assert "push:" in workflow
+    assert "- main" in workflow
     assert "schedule:" in workflow
     assert "workflow_dispatch:" in workflow
+    assert "pull_request_target:" not in workflow
     assert "contents: write" in workflow
     assert "pull-requests: read" in workflow
+    assert "actions: read" in workflow
     assert "ref: ${{ github.event.repository.default_branch }}" in workflow
     assert "persist-credentials: false" in workflow
-    assert "github.event.pull_request.head.sha" not in workflow
     assert "python3 -m tools.branch_hygiene" in workflow

@@ -66,6 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          uv run ruff check --fix "$TEST_FILE"
           uv run ruff format "$TEST_FILE"
           uv run ruff check "$TEST_FILE"
           uv run ruff format --check "$TEST_FILE"

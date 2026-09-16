@@ -1,0 +1,47 @@
+name: tmp Issue 616 evaluator semantic RED
+
+on:
+  push:
+    branches:
+      - verify/issue616-evaluator-red
+
+permissions:
+  contents: read
+
+env:
+  RED_HEAD: a8d99826de4fc827d6147e87f94b6aa4169eaf6e
+  TEST_FILE: tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact RED head
+        run: test "$(git rev-parse HEAD)" = "$RED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static gates must already be green
+        run: |
+          set -euo pipefail
+          uv run ruff check "$TEST_FILE"
+          uv run ruff format --check "$TEST_FILE"
+      - name: Require missing evaluator production module RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST_FILE" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -F "No module named 'trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation'" /tmp/red.out >/dev/null
+          echo ISSUE616_EVALUATOR_SEMANTIC_RED=PASS

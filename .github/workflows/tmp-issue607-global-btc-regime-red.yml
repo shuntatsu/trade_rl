@@ -1,0 +1,57 @@
+name: Temporary Issue 607 global BTC regime RED
+
+on:
+  push:
+    branches:
+      - verify/issue607-global-btc-regime-red-run
+    paths:
+      - .github/workflows/tmp-issue607-global-btc-regime-red.yml
+
+permissions:
+  contents: read
+
+env:
+  RED_SHA: 444907f2bf892d7b8f0a45e0acb3dabfdbd2c4f7
+  TEST_STRATEGY: tests/strategies/test_ppo_global_btc_regime.py
+  TEST_CONFIG: tests/evaluation/test_issue607_candidate_config.py
+
+jobs:
+  semantic_red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_SHA }}
+          persist-credentials: false
+      - name: Assert test-only RED authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RED_SHA"
+          test ! -f trade_rl/strategies/rl/ppo_global_btc_regime.py
+          git diff --exit-code d84235185c5e79327ea7ced7073f0026970ba46b..HEAD -- \
+            trade_rl/strategies/rl/ppo.py \
+            trade_rl/evaluation/runs/config.py \
+            trade_rl/evaluation/runs/candidate_suite.py \
+            trade_rl/evaluation/experiments/contracts/run.py \
+            trade_rl/evaluation/experiments/delta.py
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static test gates
+        run: |
+          uv run ruff check "$TEST_STRATEGY" "$TEST_CONFIG"
+          uv run ruff format --check "$TEST_STRATEGY" "$TEST_CONFIG"
+      - name: Require semantic RED from missing sealed factor path
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST_STRATEGY" "$TEST_CONFIG" >/tmp/issue607-red.out 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          cat /tmp/issue607-red.out
+          grep -E "PPO_GLOBAL_BTC_REGIME_CONTEXT|ppo_global_context|unexpected keyword argument 'global_context'|unknown config keys|unsupported resolved-run config schema" /tmp/issue607-red.out

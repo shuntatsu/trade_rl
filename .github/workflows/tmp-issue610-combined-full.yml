@@ -1,0 +1,120 @@
+name: tmp Issue 610 combined full verification
+
+on:
+  push:
+    branches:
+      - verify/issue610-combined-full
+
+permissions:
+  contents: read
+
+env:
+  TARGET_HEAD: 358b4917e988561f9a5601ef25a6d53291e07585
+  BASE_HEAD: 02fd08798b3f23cc3db13d96ac27778e93592019
+  HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+  TEST1: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+  TEST2: tests/tools/test_tmp_issue610_execution_safety.py
+
+jobs:
+  targeted:
+    name: Exact helper semantics
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run ruff check "$HELPER" "$TEST1" "$TEST2"
+      - run: uv run ruff format --check "$HELPER" "$TEST1" "$TEST2"
+      - run: uv run mypy "$HELPER"
+      - run: uv run pytest -q "$TEST1" "$TEST2"
+
+  full-mypy:
+    name: Exact-head full mypy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run mypy trade_rl
+
+  full-pytest:
+    name: Exact-head full pytest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run pytest -q
+
+  style-debt:
+    name: Prove global style debt unchanged
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Compare global Ruff violations on base and target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$BASE_HEAD"
+          set +e
+          uv run ruff check . --output-format concise >/tmp/base-ruff 2>&1
+          base_code=$?
+          set -e
+          git checkout --detach "$TARGET_HEAD"
+          set +e
+          uv run ruff check . --output-format concise >/tmp/target-ruff 2>&1
+          target_code=$?
+          set -e
+          test "$base_code" -eq "$target_code"
+          diff -u /tmp/base-ruff /tmp/target-ruff
+      - name: Compare global format violating paths on base and target
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract_paths() {
+            sed -n -E 's/^Would reformat: (.*)$/\1/p' "$1" | sort -u
+          }
+          git checkout --detach "$BASE_HEAD"
+          set +e
+          uv run ruff format --check . >/tmp/base-format 2>&1
+          base_code=$?
+          set -e
+          extract_paths /tmp/base-format >/tmp/base-format-paths
+          git checkout --detach "$TARGET_HEAD"
+          set +e
+          uv run ruff format --check . >/tmp/target-format 2>&1
+          target_code=$?
+          set -e
+          extract_paths /tmp/target-format >/tmp/target-format-paths
+          test "$base_code" -eq "$target_code"
+          diff -u /tmp/base-format-paths /tmp/target-format-paths

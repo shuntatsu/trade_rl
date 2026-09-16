@@ -1,0 +1,29 @@
+name: Issue 609 GREEN format helper
+
+on:
+  push:
+    branches:
+      - automation/issue609-green-format-helper
+
+permissions:
+  contents: read
+
+jobs:
+  format_diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Format authority module and print exact diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/evaluation/experiments/ppo_global_btc_regime_evaluation_prereg.py
+          git diff -- trade_rl/evaluation/experiments/ppo_global_btc_regime_evaluation_prereg.py

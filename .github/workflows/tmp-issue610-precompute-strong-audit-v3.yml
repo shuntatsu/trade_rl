@@ -1,0 +1,88 @@
+name: tmp Issue 610 precompute strong audit v3
+
+on:
+  push:
+    branches:
+      - verify/issue610-precompute-strong-audit-v3
+    paths:
+      - .github/workflows/tmp-issue610-precompute-strong-audit-v3.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SOURCE_RUN: '35100398093'
+  SOURCE_HEAD: 06e216ce277e52a2081915a3cff4e0c952f30f70
+  SOURCE_JOB: Strong independent content verification
+  ARTIFACT_ID: '10448181864'
+  ARTIFACT_NAME: issue610-precompute-strong-v2-35100398093
+  ARTIFACT_DIGEST: sha256:bc318f6b77fd144dc79d8fe64b3afc3d41c6c345e65223fdf116fbb20e286ca3
+
+jobs:
+  audit:
+    name: Independent strong precompute artifact audit
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Bind successful strong producer and immutable artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")"
+          test "$(jq -r .head_sha <<<"$run")" = "$SOURCE_HEAD"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs?per_page=100")"
+          test "$(jq -r --arg job "$SOURCE_JOB" '.jobs[] | select(.name==$job) | .conclusion' <<<"$jobs")" = success
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$artifact")" = "$ARTIFACT_NAME"
+          test "$(jq -r .digest <<<"$artifact")" = "$ARTIFACT_DIGEST"
+          test "$(jq -r .workflow_run.id <<<"$artifact")" = "$SOURCE_RUN"
+          test "$(jq -r .expired <<<"$artifact")" = false
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[] | select(.expired==false) | .name')"
+          ! grep -E '^issue610-ppo-global-btc-regime-(candidate|result)-v1-' <<<"$names"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: /tmp/strong
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Verify content digest and closed economic boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/strong/authority.json
+          test -f /tmp/strong/baseline-resolved.json
+          test -f /tmp/strong/candidate-resolved.json
+          test -f /tmp/strong/candidate-carrier-study.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          raw = Path('/tmp/strong/authority.json').read_bytes()
+          payload = json.loads(raw)
+          assert isinstance(payload, dict)
+          recorded = payload.pop('content_digest')
+          canonical = json.dumps(
+              payload,
+              ensure_ascii=False,
+              allow_nan=False,
+              sort_keys=True,
+              separators=(',', ':'),
+          ).encode()
+          assert hashlib.sha256(canonical).hexdigest() == recorded
+          assert payload['prior_issue610_economic_artifacts'] == 0
+          assert payload['baseline_retrained'] is False
+          assert payload['candidate_trained'] is False
+          assert payload['economic_values_interpreted'] is False
+          assert payload['final_test_accessed'] is False
+          assert payload['production_eligible'] is False
+          assert payload['live_trading_authorized'] is False
+          assert payload['merge_authorized'] is False
+          assert payload['implementation_git_sha'] == '1ae494ce182189c5be61e8007dc956f912d8b9d5'
+          assert payload['helper_git_sha'] == '358b4917e988561f9a5601ef25a6d53291e07585'
+          assert payload['evaluation_prereg_head'] == '02fd08798b3f23cc3db13d96ac27778e93592019'
+          print('ISSUE610_STRONG_POSTAUDIT=PASS')
+          PY

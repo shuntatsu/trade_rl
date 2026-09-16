@@ -1,0 +1,104 @@
+name: Temporary generic branch archival patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: github.head_ref == 'chore/branch-hygiene-all-nonanchors'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout work branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply generic archival policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('tools/branch_hygiene.py')
+          source = source_path.read_text(encoding='utf-8')
+          source = source.replace('TRANSIENT_PREFIXES = ("verify/", "automation/", "tmp/")\n', '')
+          source = source.replace(
+              '''\n\ndef is_transient_branch(name: str) -> bool:\n    return name.startswith(TRANSIENT_PREFIXES)\n''',
+              '',
+          )
+          old = '''        elif branch.sha in reachable_from_anchors:\n            decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")\n        elif is_transient_branch(branch.name):\n            decision = BranchDecision(branch, "archive-delete", "transient-unique-tip")\n        else:\n            decision = BranchDecision(branch, "keep", "unique-unmerged-tip")\n'''
+          new = '''        elif branch.sha in reachable_from_anchors:\n            decision = BranchDecision(branch, "delete", "tip-reachable-from-anchor")\n        else:\n            decision = BranchDecision(branch, "archive-delete", "unique-non-anchor-tip")\n'''
+          if source.count(old) != 1:
+              raise SystemExit('plan_cleanup replacement target mismatch')
+          source = source.replace(old, new)
+          source = source.replace('def archive_transient_tips(', 'def archive_unique_tips(')
+          source = source.replace('retention_sha = archive_transient_tips(', 'retention_sha = archive_unique_tips(')
+          source = source.replace(
+              '"Archive transient branch tips before ref cleanup",',
+              '"Archive unique non-anchor branch tips before ref cleanup",',
+          )
+          source = source.replace(
+              '"Delete redundant remote branches and archive unique transient tips "',
+              '"Delete redundant remote branches and archive unique non-anchor tips "',
+          )
+          old_summary = '''    unique = [\n        item.branch.name\n        for item in decisions\n        if item.action == "keep" and item.reason == "unique-unmerged-tip"\n    ]\n    anchors = [\n        item.branch.name\n        for item in decisions\n        if item.action == "keep" and item.reason != "unique-unmerged-tip"\n    ]\n'''
+          new_summary = '''    anchors = [item.branch.name for item in decisions if item.action == "keep"]\n'''
+          if source.count(old_summary) != 1:
+              raise SystemExit('render_summary collection target mismatch')
+          source = source.replace(old_summary, new_summary)
+          source = source.replace('        f"- unique non-transient branches kept: {len(unique)}",\n', '')
+          old_unique_block = '''    if unique:\n        lines.extend(["### Kept unique non-transient branches", ""])\n        lines.extend(f"- `{name}`" for name in unique[:100])\n        if len(unique) > 100:\n            lines.append(f"- … and {len(unique) - 100} more")\n        lines.append("")\n'''
+          if source.count(old_unique_block) != 1:
+              raise SystemExit('render_summary unique block target mismatch')
+          source = source.replace(old_unique_block, '')
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tests/tools/test_branch_hygiene.py')
+          tests = test_path.read_text(encoding='utf-8')
+          tests = tests.replace(
+              'def test_cleanup_archives_only_unique_transient_tips() -> None:',
+              'def test_cleanup_archives_every_unique_non_anchor_tip() -> None:',
+          )
+          tests = tests.replace(
+              '    assert by_name["feature/unique"].action == "keep"\n'
+              '    assert by_name["feature/unique"].reason == "unique-unmerged-tip"\n',
+              '    assert by_name["tmp/unique-red"].reason == "unique-non-anchor-tip"\n'
+              '    assert by_name["automation/unique"].reason == "unique-non-anchor-tip"\n'
+              '    assert by_name["feature/unique"].action == "archive-delete"\n'
+              '    assert by_name["feature/unique"].reason == "unique-non-anchor-tip"\n',
+          )
+          tests = tests.replace('"transient-unique-tip"', '"unique-non-anchor-tip"')
+          test_path.write_text(tests, encoding='utf-8')
+
+          agents_path = Path('AGENTS.md')
+          agents = agents_path.read_text(encoding='utf-8')
+          old_agents = '`verify/`・`automation/`・`tmp/` に固有tipがある場合は、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ先に保存し、retention refの更新をread-backしてから元refだけを削除する。固有tipを持つその他のbranchはfail-closedで残す。'
+          new_agents = 'anchorに含まれない固有tipはprefixに依存せず、そのexact tip SHAと元branch名を `provenance/branch-retention` のmerge-historyとcommit messageへ先に保存し、retention refの更新をread-backしてから元refだけを削除する。'
+          if agents.count(old_agents) != 1:
+              raise SystemExit('AGENTS branch policy target mismatch')
+          agents_path.write_text(agents.replace(old_agents, new_agents), encoding='utf-8')
+          PY
+
+      - name: Targeted verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q tools/branch_hygiene.py tests/tools/test_branch_hygiene.py
+          git diff --check
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tools/branch_hygiene.py tests/tools/test_branch_hygiene.py AGENTS.md
+          git commit -m 'chore: archive every unique non-anchor branch tip'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

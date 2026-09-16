@@ -77,16 +77,12 @@ def _validated_training_layout(
         PPO_TRAINING_LAYOUT_SEQUENTIAL,
         PPO_TRAINING_LAYOUT_INTERLEAVED,
     }:
-        raise ValueError(
-            "training_layout must be 'sequential' or 'interleaved'"
-        )
+        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
     if (
         training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
         and rollout_steps_per_env is not None
     ):
-        raise ValueError(
-            "sequential training does not accept rollout_steps_per_env"
-        )
+        raise ValueError("sequential training does not accept rollout_steps_per_env")
     return training_layout
 
 

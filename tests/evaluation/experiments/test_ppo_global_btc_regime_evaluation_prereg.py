@@ -1,15 +1,11 @@
 from __future__ import annotations
 
+import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
-from trade_rl.evaluation.experiments.ppo_global_btc_regime_evaluation_prereg import (
-    canonical_ppo_global_btc_regime_evaluation_protocol,
-    load_ppo_global_btc_regime_evaluation_protocol,
-)
 
 
 _PREREG_HEAD = "d84235185c5e79327ea7ced7073f0026970ba46b"
@@ -29,8 +25,14 @@ _BASELINE_EVIDENCE_FINGERPRINT = (
 )
 
 
+def _module():
+    return importlib.import_module(
+        "trade_rl.evaluation.experiments.ppo_global_btc_regime_evaluation_prereg"
+    )
+
+
 def test_protocol_binds_prereg_implementation_and_portable_baseline_authorities() -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.schema_version == "ppo_global_btc_regime_evaluation_prereg_v1"
     assert protocol.issue_number == 609
@@ -48,7 +50,7 @@ def test_protocol_binds_prereg_implementation_and_portable_baseline_authorities(
 
 
 def test_protocol_freezes_exact_one_factor_candidate_and_existing_analysis_contract() -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.controlled_factor == "FEATURE_SET"
     assert protocol.semantic_factor == "ppo_global_btc_regime_context"
@@ -84,7 +86,7 @@ def test_protocol_freezes_exact_one_factor_candidate_and_existing_analysis_contr
 
 
 def test_protocol_freezes_strict_robust_profit_decision_rule() -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.accept_requires_positive_factor_effect_symbols == 5
     assert protocol.accept_requires_positive_candidate_return_symbols == 5
@@ -100,7 +102,7 @@ def test_protocol_freezes_strict_robust_profit_decision_rule() -> None:
 
 
 def test_protocol_keeps_forbidden_boundaries_closed() -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
 
     assert protocol.economic_execution_authorized is False
     assert protocol.economic_result_inspected is False
@@ -111,7 +113,7 @@ def test_protocol_keeps_forbidden_boundaries_closed() -> None:
 
 
 def test_protocol_rejects_any_authority_or_decision_rule_drift() -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    protocol = _module().canonical_ppo_global_btc_regime_evaluation_protocol()
     mutations: tuple[dict[str, object], ...] = (
         {"factor_prereg_head": "0" * 40},
         {"factor_prereg_protocol_digest": "0" * 64},
@@ -153,7 +155,8 @@ def test_protocol_rejects_any_authority_or_decision_rule_drift() -> None:
 
 
 def test_protocol_loader_is_canonical_strict_and_result_blind(tmp_path: Path) -> None:
-    protocol = canonical_ppo_global_btc_regime_evaluation_protocol()
+    module = _module()
+    protocol = module.canonical_ppo_global_btc_regime_evaluation_protocol()
     payload = protocol.to_payload()
     path = tmp_path / "ppo-global-btc-regime-evaluation-prereg.json"
     path.write_text(
@@ -161,7 +164,7 @@ def test_protocol_loader_is_canonical_strict_and_result_blind(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    reconstructed = load_ppo_global_btc_regime_evaluation_protocol(path)
+    reconstructed = module.load_ppo_global_btc_regime_evaluation_protocol(path)
     assert reconstructed.to_payload() == payload
     assert reconstructed.digest == protocol.digest
 
@@ -184,4 +187,4 @@ def test_protocol_loader_is_canonical_strict_and_result_blind(tmp_path: Path) ->
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="keys|unknown|preregistered"):
-        load_ppo_global_btc_regime_evaluation_protocol(path)
+        module.load_ppo_global_btc_regime_evaluation_protocol(path)

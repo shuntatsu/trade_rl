@@ -76,7 +76,9 @@ def test_config_preserves_exact_ridge_proposal_model_and_thresholds() -> None:
     assert strategy.proposal.controller.config.exit_threshold == 0.0005
 
 
-def test_flat_to_long_is_allowed_only_when_forecast_edge_strictly_exceeds_cost() -> None:
+def test_flat_to_long_is_allowed_only_when_forecast_edge_strictly_exceeds_cost() -> (
+    None
+):
     strategy = _strategy()
 
     assert strategy.decide(_observation(0.01)) is PositionIntent.LONG

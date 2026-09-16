@@ -1,0 +1,56 @@
+name: tmp Issue 610 orchestrator mypy fix
+
+on:
+  push:
+    branches:
+      - verify/issue610-execution-orchestrator-v1
+    paths:
+      - .github/workflows/tmp-issue610-orchestrator-mypy-fix.yml
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_PARENT: 62bfaacab44d264b82b3f2ae7f1c9ff59b029e67
+  TARGET: tools/tmp_issue610_exact_once_orchestrator.py
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue610-execution-orchestrator-v1
+          fetch-depth: 0
+      - name: Guard exact starting head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git diff --name-only "$EXPECTED_PARENT..HEAD")" = ".github/workflows/tmp-issue610-orchestrator-mypy-fix.yml"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Remove only obsolete mypy suppressions and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(grep -c '# type: ignore\[attr-defined\]' "$TARGET")"
+          test "$count" = 3
+          sed -i 's/  # type: ignore\[attr-defined\]$//' "$TARGET"
+          ! grep -n '# type: ignore\[attr-defined\]' "$TARGET"
+          uv run ruff check "$TARGET"
+          uv run ruff format --check "$TARGET"
+          uv run mypy "$TARGET"
+          test "$(git diff --name-only)" = "$TARGET"
+      - name: Commit branch-only type cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TARGET"
+          git commit -m 'fix: remove obsolete Issue 610 mypy suppressions'
+          git push origin HEAD:verify/issue610-execution-orchestrator-v1

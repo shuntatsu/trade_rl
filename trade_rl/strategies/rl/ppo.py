@@ -457,6 +457,10 @@ def fit_ppo_strategy(
             execution_cost=execution_cost,
         )
     else:
+        if execution_cost is not None and execution_cost.slippage_std > 0.0:
+            raise ValueError(
+                "interleaved training requires deterministic execution slippage"
+            )
         symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)
         rollout_steps = _validated_interleaved_rollout_steps(
             rollout_steps_per_env,

@@ -29,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "098f537992de79b2be7b31b06d19f175ded9f49ea7fedff8ef34e1bec86eebfb"
+      "sha256": "c751c364dcd879b9fcd3624dfce641929ca330abfe17caf8808ef299e9f71db6"
     }
   ],
   "code_references": [
@@ -113,9 +113,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "3a8ebd54bf8be7d7056f423066c8ac610d7097f64a8cdf0282835e42bb65d84b",
+      "source_sha256": "6e7cb48bccabb3f6d2c4e41fc9cd51ed4604c311c3afc9bf1ac487b482490701",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOを学習します。",
+      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOを学習します。 vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
       "variables": [
         {
           "name": "training_layout",

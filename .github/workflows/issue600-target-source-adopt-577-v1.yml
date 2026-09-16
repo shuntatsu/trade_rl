@@ -1,0 +1,234 @@
+name: Issue 600 target-source authority from Issue 577
+
+on:
+  push:
+    branches:
+      - audit/issue600-target-source-from-577-v1
+    paths:
+      - .github/workflows/issue600-target-source-adopt-577-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PREREG_HEAD: 6ffc414baa10e91f34df258fe5cfabacce65fd77
+  PREREG_FULL_RUN: "34959430185"
+  PREREG_SEAL_RUN: "34959849347"
+  PREREG_SEAL_ARTIFACT_ID: "10392936042"
+  PREREG_SEAL_ARTIFACT_DIGEST: sha256:4b611462f8d4f9bb4d23ab15bb4d8a20525d4093e590c1afb62d1b74ca875e15
+  PREREG_FRESH_ARTIFACT_ID: "10391714897"
+  PREREG_FRESH_ARTIFACT_DIGEST: sha256:858e930a03e442f047556801c3d9a536fbc89435b5f261cba621988dd8062acd
+  SOURCE_RUN: "34908073064"
+  SOURCE_PUBLISHER_ID: "10373058552"
+  SOURCE_PUBLISHER_NAME: issue577-source-preflight-publisher-34908073064
+  SOURCE_PUBLISHER_DIGEST: sha256:d6f5e6eaa7aa46b21b0f41dd75a0dec9022cebc839df881c4d8c5307dc89ab8d
+  SOURCE_FRESH_ID: "10373388372"
+  SOURCE_FRESH_NAME: issue577-source-preflight-fresh-34908073064
+  SOURCE_FRESH_DIGEST: sha256:513e183bdc23ef823f29cfc5a93f2803c997d51b1eb243e1fbefb1381378b407
+  TOOL: tools/tmp_issue600_adopt_target_source.py
+
+jobs:
+  publisher:
+    name: Offline target-source publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact preregistration and immutable source evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PREREG_HEAD" HEAD
+          changed="$(git diff --name-only "$PREREG_HEAD..HEAD")"
+          test -z "$(printf '%s\n' "$changed" | grep -v -E '^(.github/workflows/issue600-target-source-adopt-577-v1.yml|tools/tmp_issue600_adopt_target_source.py)$' || true)"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_FULL_RUN --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PREREG_SEAL_RUN --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN --jq .conclusion)" = success
+          for spec in "$PREREG_SEAL_ARTIFACT_ID|$PREREG_SEAL_ARTIFACT_DIGEST" "$PREREG_FRESH_ARTIFACT_ID|$PREREG_FRESH_ARTIFACT_DIGEST" "$SOURCE_PUBLISHER_ID|$SOURCE_PUBLISHER_DIGEST" "$SOURCE_FRESH_ID|$SOURCE_FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Reprove protocol and helper quality before adoption
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format --check "$TOOL"
+          uv run ruff check "$TOOL"
+          uv run mypy "$TOOL"
+          uv run python - <<'PY'
+          from trade_rl.evaluation.experiments.bootstrap.premium_pressure_prereg import canonical_premium_pressure_protocol
+          p = canonical_premium_pressure_protocol()
+          assert p.digest == '18bf9625502eccbe475d157df90635f1c4645d3c4cced48ec0fc565723206731'
+          assert p.target_source_market == 'USD_M'
+          assert p.target_source_family == 'klines'
+          assert p.target_interval == '1h'
+          assert p.target_source_replacement_allowed is False
+          assert p.training_relation_executed is False
+          assert p.evaluation_pnl_inspected is False
+          PY
+      - name: Download frozen Issue 577 manifests only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/source-publisher /tmp/source-fresh
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "$SOURCE_PUBLISHER_NAME" --dir /tmp/source-publisher
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "$SOURCE_FRESH_NAME" --dir /tmp/source-fresh
+      - name: Build structural-only Issue 600 target authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/authority
+          uv run python "$TOOL" \
+            --publisher-manifest /tmp/source-publisher/source-manifest.json \
+            --fresh-manifest /tmp/source-fresh/source-manifest.json \
+            --output /tmp/authority/target-source-authority.json
+      - id: meta
+        run: echo "name=issue600-target-source-authority-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable target authority
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/authority/target-source-authority.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  fresh:
+    name: Fresh offline target-source reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/published
+      - name: Bind source artifacts again
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$SOURCE_PUBLISHER_ID|$SOURCE_PUBLISHER_DIGEST" "$SOURCE_FRESH_ID|$SOURCE_FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$digest"
+          done
+          mkdir -p /tmp/source-publisher /tmp/source-fresh
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "$SOURCE_PUBLISHER_NAME" --dir /tmp/source-publisher
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "$SOURCE_FRESH_NAME" --dir /tmp/source-fresh
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Independently reconstruct identical authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fresh-authority
+          uv run python "$TOOL" \
+            --publisher-manifest /tmp/source-publisher/source-manifest.json \
+            --fresh-manifest /tmp/source-fresh/source-manifest.json \
+            --output /tmp/fresh-authority/target-source-authority.json
+          cmp /tmp/published/target-source-authority.json /tmp/fresh-authority/target-source-authority.json
+      - id: meta
+        run: echo "name=issue600-target-source-authority-fresh-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Upload fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: /tmp/fresh-authority/target-source-authority.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+  audit:
+    name: Final Issue 600 target-source audit
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: API-bind publisher and fresh authority artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUB_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUB_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in "$PUB_ID|$PUB_DIGEST" "$FRESH_ID|$FRESH_DIGEST"; do
+            IFS='|' read -r id digest <<<"$spec"
+            artifact="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            api_digest="$(jq -r .digest <<<"$artifact")"
+            case "$digest" in
+              sha256:*) test "$api_digest" = "$digest" ;;
+              *) test "$api_digest" = "sha256:$digest" ;;
+            esac
+          done
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.publisher.outputs.artifact_name }}
+          path: /tmp/publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: /tmp/fresh
+      - name: Require byte equality and structural PASS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/publisher/target-source-authority.json /tmp/fresh/target-source-authority.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          raw = Path('/tmp/publisher/target-source-authority.json').read_bytes()
+          payload = json.loads(raw)
+          assert raw == json.dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()
+          digest = payload.pop('content_digest')
+          assert hashlib.sha256(json.dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == digest
+          assert payload['status'] == 'PASS_PREMIUM_TARGET_SOURCE_AUTHORITY'
+          assert payload['planned_target_archives'] == 120
+          assert payload['available_target_archives'] == 120
+          assert payload['checksum_verified_target_archives'] == 120
+          assert payload['structurally_valid_target_archives'] == 120
+          assert payload['missing_native_grid_rows_by_symbol'] == {'BTCUSDT': 0, 'ETHUSDT': 0, 'BNBUSDT': 0, 'XRPUSDT': 120, 'ADAUSDT': 0}
+          assert len(payload['target_entries']) == 120
+          for key in ('premium_economic_values_inspected','target_prices_or_returns_computed','training_relation_executed','evaluation_pnl_inspected','final_test_authorized','production_eligible','live_trading_authorized','market_data_network_fetch_performed_by_this_adoption'):
+              assert payload[key] is False
+          print('ISSUE600_TARGET_SOURCE_AUTHORITY=PASS')
+          print('CONTENT_DIGEST=' + digest)
+          print('MARKET_DATA_NETWORK_FETCH_PERFORMED_BY_THIS_ADOPTION=false')
+          PY

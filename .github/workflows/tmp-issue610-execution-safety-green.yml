@@ -1,0 +1,83 @@
+name: tmp Issue 610 execution safety GREEN
+on:
+  push:
+    branches:
+      - automation/issue610-execution-safety-green
+permissions:
+  contents: write
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_BRANCH: prepare/issue610-ppo-global-btc-regime-evaluation
+      TARGET_SHA: 483fc0ae25892f525ca30fe207254ea286461409
+      HELPER: tools/tmp_issue610_ppo_global_btc_regime_evaluation.py
+      TEST1: tests/tools/test_tmp_issue610_ppo_global_btc_regime_evaluation.py
+      TEST2: tests/tools/test_tmp_issue610_execution_safety.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 483fc0ae25892f525ca30fe207254ea286461409
+          fetch-depth: 0
+      - name: Guard exact remote head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+      - name: Apply minimal production patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tools/tmp_issue610_ppo_global_btc_regime_evaluation.py")
+          text = path.read_text()
+          text = text.replace(
+              "from collections.abc import Mapping\nfrom statistics import median\nfrom typing import TypeAlias\n",
+              "from collections.abc import Callable, Mapping\nfrom statistics import median\nfrom typing import TypeAlias, TypeVar\n",
+          )
+          text = text.replace(
+              "from trade_rl.evaluation.experiments.contracts import ResolvedRunConfig, StudyPlan\n",
+              "from trade_rl.evaluation.experiments.contracts import ResolvedRunConfig, StudyPlan\nfrom trade_rl.evaluation.runs import CandidateRunConfig\n",
+          )
+          anchor = '''ReturnMatrix: TypeAlias = Mapping[\n    int,\n    Mapping[tuple[str, str], np.ndarray],\n]\n\n\n'''
+          addition = '''ReturnMatrix: TypeAlias = Mapping[\n    int,\n    Mapping[tuple[str, str], np.ndarray],\n]\n_T = TypeVar("_T")\n\n\ndef candidate_run_config_from_resolved(\n    resolved: ResolvedRunConfig,\n) -> CandidateRunConfig:\n    """Project one resolved candidate contract back to executable raw config."""\n\n    return CandidateRunConfig(\n        signal_name=resolved.signal_name,\n        feature_names=resolved.feature_names,\n        fit_symbol_names=resolved.fit_symbol_names,\n        fit_cutoff=np.datetime64(resolved.fit_cutoff, "ns"),\n        evaluation_start=np.datetime64(resolved.evaluation_start, "ns"),\n        evaluation_stop_exclusive=np.datetime64(\n            resolved.evaluation_stop_exclusive, "ns"\n        ),\n        rule_entry_threshold=resolved.rule_entry_threshold,\n        rule_exit_threshold=resolved.rule_exit_threshold,\n        forecast_entry_threshold=resolved.forecast_entry_threshold,\n        forecast_exit_threshold=resolved.forecast_exit_threshold,\n        ppo_total_timesteps=resolved.ppo_total_timesteps,\n        ppo_seed=resolved.ppo_seed,\n        gross_budget=resolved.gross_budget,\n        initial_capital=resolved.initial_capital,\n        ppo_global_context=resolved.ppo_global_context,\n    )\n\n\ndef execute_candidate_after_precompute_gate(\n    *,\n    precompute_violations: tuple[str, ...],\n    candidate_executor: Callable[[], _T],\n) -> _T:\n    """Execute the candidate exactly once only after every precompute gate is green."""\n\n    if precompute_violations:\n        raise RuntimeError(\n            "precompute gate failed: " + "; ".join(precompute_violations)\n        )\n    return candidate_executor()\n\n\n'''
+          if anchor not in text:
+              raise SystemExit("ReturnMatrix anchor missing")
+          text = text.replace(anchor, addition, 1)
+          text = text.replace(
+              '    "build_candidate_carrier_plan",\n',
+              '    "build_candidate_carrier_plan",\n    "candidate_run_config_from_resolved",\n    "execute_candidate_after_precompute_gate",\n',
+              1,
+          )
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "$HELPER"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and semantic GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format "$HELPER"
+          uv run ruff check "$HELPER" "$TEST1" "$TEST2"
+          uv run ruff format --check "$HELPER" "$TEST1" "$TEST2"
+          uv run mypy "$HELPER"
+          uv run pytest -q "$TEST1" "$TEST2"
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "$HELPER"
+      - name: Publish non-force if branch unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/$TARGET_BRANCH | cut -f1)" = "$TARGET_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$HELPER"
+          git commit -m "research: enforce Issue 610 precompute execution safety"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH

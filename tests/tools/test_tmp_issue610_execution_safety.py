@@ -63,7 +63,9 @@ def test_candidate_run_config_projection_preserves_executable_semantics() -> Non
     assert projected.fit_symbol_names == resolved.fit_symbol_names
     assert str(projected.fit_cutoff) == resolved.fit_cutoff
     assert str(projected.evaluation_start) == resolved.evaluation_start
-    assert str(projected.evaluation_stop_exclusive) == resolved.evaluation_stop_exclusive
+    assert (
+        str(projected.evaluation_stop_exclusive) == resolved.evaluation_stop_exclusive
+    )
     assert projected.rule_entry_threshold == resolved.rule_entry_threshold
     assert projected.rule_exit_threshold == resolved.rule_exit_threshold
     assert projected.forecast_entry_threshold == resolved.forecast_entry_threshold
@@ -92,7 +94,9 @@ def test_precompute_failure_never_calls_candidate_executor() -> None:
     assert calls == 0
 
 
-def test_candidate_executor_is_called_exactly_once_after_green_precompute_gate() -> None:
+def test_candidate_executor_is_called_exactly_once_after_green_precompute_gate() -> (
+    None
+):
     calls = 0
     sentinel = object()
 

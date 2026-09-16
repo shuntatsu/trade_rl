@@ -1,0 +1,50 @@
+name: tmp Issue 610 termination classification RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue610-termination-classification-red-v2
+    paths:
+      - .github/workflows/tmp-issue610-termination-classification-red-v2.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: bfc78436d883d6a71b4e051fe6d79133e7aad563
+  MODULE: tools/tmp_issue610_exact_once_orchestrator.py
+  TEST: tests/tools/test_tmp_issue610_termination_classification_red.py
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Require static-clean RED oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+      - name: Require missing classifier as the semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          try:
+              from tools.tmp_issue610_exact_once_orchestrator import partition_termination_violations
+          except ImportError as error:
+              assert 'partition_termination_violations' in str(error), str(error)
+              print('ISSUE610_TERMINATION_CLASSIFICATION_RED=PASS')
+          else:
+              raise SystemExit('termination classifier unexpectedly already exists')
+          PY

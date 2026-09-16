@@ -14,6 +14,12 @@ Agentによる実装作業は専用branchまたはworktreeで行い、PRを通�
 
 Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。mergeは明示的なユーザー許可を要する。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
 
+## Remote branch hygiene
+
+Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。
+
+`main`、open PR head、protected branch、`research/`・`seal/`・`freeze/`・`run/` の研究provenance refは自動cleanupのdurable anchorとして保持する。`.github/workflows/branch-hygiene.yml` は、それらanchorのいずれかからtip commitへ到達できることがGit graph上で証明でき、かつdefault/protected/open-PR/provenance branchではないremote branchだけを削除してよい。tipが変化した、open PRになった、protectedになった、または到達可能性を証明できないbranchはfail-closedで残す。これはAgentによる手動branch削除の許可ではない。
+
 このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
 
 コード構造を変更した場合は対応するcurrent docsと `tests/architecture/` の契約を同じ変更で更新する。研究上の前提・比較対象・評価手順・研究状態を変更した場合は `docs/research/current-status.md` を更新する。

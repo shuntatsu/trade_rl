@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
+
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 RUNNER = Path(".github/scripts/issue638_ppo_baseline_runner.py")
 
@@ -101,3 +104,99 @@ def test_canonical_evidence_bytes_reject_candidate_or_seed_drift() -> None:
     evidence.training_layout = "interleaved"
     with pytest.raises(ValueError, match="sequential"):
         module.canonical_baseline_evidence_bytes(evidence, seed=2)
+
+
+def test_activation_claim_is_canonical_pretraining_and_seed_bound() -> None:
+    module = _load_runner()
+    helper_head = "a" * 40
+    helper_blob_sha = "b" * 40
+    raw = module.activation_claim_bytes(
+        seed=2,
+        run_id=12345,
+        run_attempt=1,
+        helper_head=helper_head,
+        helper_blob_sha=helper_blob_sha,
+    )
+    payload = json.loads(raw)
+    assert raw == canonical_json_bytes(payload)
+    assert payload["schema_version"] == "issue638_ppo_sequential_baseline_activation_v1"
+    assert payload["issue_number"] == 638
+    assert payload["seed"] == 2
+    assert payload["workflow_run_id"] == 12345
+    assert payload["workflow_run_attempt"] == 1
+    assert payload["helper_head"] == helper_head
+    assert payload["helper_blob_sha"] == helper_blob_sha
+    assert payload["arm"] == "baseline"
+    assert payload["training_layout"] == "sequential"
+    assert payload["rollout_steps_per_env"] is None
+    assert payload["caller_total_timesteps"] == 100_000
+    assert payload["evaluator_started_at_claim"] is False
+    assert payload["real_dataset_loaded_at_claim"] is False
+    assert payload["result_artifact_published_at_claim"] is False
+    assert payload["candidate_training_authorized"] is False
+    assert payload["economic_result_interpreted"] is False
+    assert payload["final_test_accessed"] is False
+    assert payload["production_eligible"] is False
+    assert payload["live_trading_authorized"] is False
+    assert payload["merge_authorized"] is False
+
+
+@pytest.mark.parametrize(
+    ("run_id", "run_attempt", "helper_head", "helper_blob_sha"),
+    [
+        (0, 1, "a" * 40, "b" * 40),
+        (True, 1, "a" * 40, "b" * 40),
+        (1, 2, "a" * 40, "b" * 40),
+        (1, True, "a" * 40, "b" * 40),
+        (1, 1, "short", "b" * 40),
+        (1, 1, "a" * 40, "short"),
+    ],
+)
+def test_activation_claim_rejects_non_first_or_ambiguous_lineage(
+    run_id: object,
+    run_attempt: object,
+    helper_head: object,
+    helper_blob_sha: object,
+) -> None:
+    module = _load_runner()
+    with pytest.raises(ValueError):
+        module.activation_claim_bytes(
+            seed=2,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            helper_head=helper_head,
+            helper_blob_sha=helper_blob_sha,
+        )
+
+
+def test_slot_state_consumes_activation_before_training_and_blocks_reactivation() -> (
+    None
+):
+    module = _load_runner()
+    module._validate_slot_state(
+        slot="empty", activation_count=0, result_count=0, fresh_count=0
+    )
+    module._validate_slot_state(
+        slot="claimed", activation_count=1, result_count=0, fresh_count=0
+    )
+    module._validate_slot_state(
+        slot="published", activation_count=1, result_count=1, fresh_count=0
+    )
+
+    invalid = (
+        ("empty", 1, 0, 0),
+        ("empty", 0, 1, 0),
+        ("claimed", 0, 0, 0),
+        ("claimed", 1, 1, 0),
+        ("published", 0, 1, 0),
+        ("published", 1, 0, 0),
+        ("published", 1, 1, 1),
+    )
+    for slot, activation_count, result_count, fresh_count in invalid:
+        with pytest.raises(SystemExit):
+            module._validate_slot_state(
+                slot=slot,
+                activation_count=activation_count,
+                result_count=result_count,
+                fresh_count=fresh_count,
+            )

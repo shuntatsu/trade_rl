@@ -97,8 +97,17 @@ source/control evidence and actual terminal flatness. Fee headroom is assessed
 on the realized trajectory, not a separate doubled-fee strategy replay. Minute
 observations cannot guarantee intraminute risk. Status output is operational;
 only full offline replay at the fixed deadline may decide the paper screen.
-No formal prospective study has yet been sealed or started, and no future profit
-or deployment qualification has been established.
+The first formal prospective screen is sealed under protocol
+`843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7`.
+Its fixed UTC start is 2026-09-17 20:05, close is 2026-12-16 20:05, and terminal
+observation deadline is 20:08 that day. The dedicated detached worktree
+`funding-carry-forward-20260918` and its private locked environment remain frozen;
+the collector was launched before start. Its source implementation digest is
+`5e093425ee775639b2ac840831e8a71f30c34966b6150367e40bdc0b7f6ed349`
+and runtime environment digest is
+`0c56fc67d16f583d49b5dea7a3878e3fcba0f58e6abd0e9dd66e51393c994cc9`.
+The declared period is not complete. No future profit or deployment qualification
+has been established, and neither a partial return nor software CI can pass it.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
@@ -109,6 +118,12 @@ New capture uses an explicitly versioned 100-level profile; the old v1 reader
 remains available for evidence verification. This expands observed price levels,
 while retaining 10% participation, costs, risk and qualification conditions.
 It does not establish that later quotes would have filled the earlier orders.
+The separate 100-level software probe then completed its whole minute cadence
+and terminal grace, with four completed cycles, six journal events and eight
+fills. It reopened identically, ended actually flat and had no quality failure.
+Final cash was 9987.8380018 USDT, fees 7.4237759 and funding zero. This remains
+excluded from the formal economic screen. The dedicated study environment also
+passed all 155 paper and forward-source tests before sealing.
 
 ### Directional development study under a 20% drawdown budget
 

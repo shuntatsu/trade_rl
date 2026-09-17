@@ -1,0 +1,29 @@
+name: tmp format Issue 640 audit
+
+on:
+  push:
+    branches:
+      - verify/issue640-directional-harness-v1
+    paths:
+      - .github/workflows/tmp-format-issue640-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 39a29b5de7608b373d5a95d78bf13f46c96271fe
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff format .github/scripts/issue640_audit.py
+          git diff -- .github/scripts/issue640_audit.py

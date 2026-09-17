@@ -18,7 +18,10 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation impo
     shared_cash_return_sha256,
 )
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.strategies.forecasts.ridge import RidgeForecastModel, RidgeForecastStrategy
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastModel,
+    RidgeForecastStrategy,
+)
 from trade_rl.strategies.forecasts.ridge_economic_gate import RidgeEconomicGateStrategy
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
@@ -45,7 +48,9 @@ def _git_blob_sha(path: str) -> str:
 
 
 def _feature_names() -> tuple[str, ...]:
-    return tuple(_FEATURE_INDEX_TO_NAME.get(index, f"unused_{index}") for index in range(119))
+    return tuple(
+        _FEATURE_INDEX_TO_NAME.get(index, f"unused_{index}") for index in range(119)
+    )
 
 
 def _dataset() -> MarketDataset:
@@ -162,9 +167,12 @@ def test_carrier_sources_match_sealed_runtime_authorities() -> None:
     assert _git_blob_sha("trade_rl/evaluation/runs/__init__.py") == (
         "c64142b8e7b2dce82f00f70dc883ceced35123a2"
     )
-    assert _git_blob_sha(
-        "trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py"
-    ) == "947de729df3e0937cd09d7340c48da20fd567eea"
+    assert (
+        _git_blob_sha(
+            "trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py"
+        )
+        == "947de729df3e0937cd09d7340c48da20fd567eea"
+    )
 
 
 def test_canonical_spec_binds_protocol_and_execution_authorities() -> None:
@@ -248,11 +256,16 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
     baseline_strategies = replay_calls[0]["strategies"]
     candidate_strategies = replay_calls[1]["strategies"]
     assert all(isinstance(item, RidgeForecastStrategy) for item in baseline_strategies)
-    assert all(isinstance(item, RidgeEconomicGateStrategy) for item in candidate_strategies)
+    assert all(
+        isinstance(item, RidgeEconomicGateStrategy) for item in candidate_strategies
+    )
     assert all(item.model is model for item in baseline_strategies)
     assert all(item.model is model for item in candidate_strategies)
     assert replay_calls[0]["execution_cost"] is replay_calls[1]["execution_cost"]
-    assert getattr(replay_calls[0]["execution_cost"], "processing_bar_volume_capacity") is False
+    assert (
+        getattr(replay_calls[0]["execution_cost"], "processing_bar_volume_capacity")
+        is False
+    )
     for call in replay_calls:
         assert call["start_index"] == 1
         assert call["stop_index"] == 4

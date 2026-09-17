@@ -1,0 +1,39 @@
+name: Verify Issue 645 accounting RED
+
+on:
+  push:
+    branches:
+      - verify/issue645-accounting-red
+    paths:
+      - .github/workflows/verify-issue645-accounting-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Prove repeated accepted lot fills fail on pre-fix execution
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/simulation/test_lot_accounting.py::test_valid_lot_fills_remain_on_grid_and_close_without_residual \
+            > "$RUNNER_TEMP/red.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/red.log"
+          test "$code" -ne 0
+          grep -q "FAILED" "$RUNNER_TEMP/red.log"
+          ! grep -q "ERROR" "$RUNNER_TEMP/red.log"
+          echo ISSUE645_ACCOUNTING_RED=PASS

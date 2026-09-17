@@ -1,0 +1,184 @@
+name: tmp Issue 630 shared-cash falsification v1
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-falsification-v1
+    paths:
+      - .github/workflows/tmp-issue630-falsification-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  falsify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add tests first and run current implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py')
+          text = path.read_text()
+          old = '''    evaluate_ridge_shared_cash,\n    shared_cash_return_sha256,\n)\n'''
+          new = '''    evaluate_ridge_shared_cash,\n    shared_cash_return_sha256,\n    shared_cash_status,\n)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('import insertion point drifted')
+          text = text.replace(old, new)
+          addition = r'''
+
+@pytest.mark.parametrize(
+    "gate",
+    (
+        "candidate_positive_total",
+        "candidate_beats_baseline_total",
+        "candidate_2023_positive_and_better",
+        "candidate_2024_positive_and_better",
+        "cost_lower",
+        "turnover_lower",
+        "drawdown_nonworse",
+        "equal_period_count",
+    ),
+)
+def test_each_frozen_shared_cash_gate_can_force_stop(gate: str) -> None:
+    baseline = _arm(
+        "baseline",
+        (0.01, 0.01),
+        total_cost=10.0,
+        turnover=4.0,
+        max_drawdown=0.20,
+        year_returns=((2023, 0.01), (2024, 0.01)),
+    )
+    candidate = _arm(
+        "candidate",
+        (0.02, 0.02),
+        total_cost=5.0,
+        turnover=2.0,
+        max_drawdown=0.10,
+        year_returns=((2023, 0.02), (2024, 0.02)),
+    )
+
+    if gate == "candidate_positive_total":
+        candidate = _arm(
+            "candidate",
+            (-0.01, -0.01),
+            total_cost=5.0,
+            turnover=2.0,
+            max_drawdown=0.10,
+            year_returns=((2023, 0.02), (2024, 0.02)),
+        )
+    elif gate == "candidate_beats_baseline_total":
+        candidate = _arm(
+            "candidate",
+            (0.005, 0.005),
+            total_cost=5.0,
+            turnover=2.0,
+            max_drawdown=0.10,
+            year_returns=((2023, 0.02), (2024, 0.02)),
+        )
+    elif gate == "candidate_2023_positive_and_better":
+        candidate = replace(
+            candidate,
+            calendar_year_returns=((2023, 0.0), (2024, 0.02)),
+        )
+    elif gate == "candidate_2024_positive_and_better":
+        candidate = replace(
+            candidate,
+            calendar_year_returns=((2023, 0.02), (2024, 0.01)),
+        )
+    elif gate == "cost_lower":
+        candidate = replace(candidate, total_cost=10.0)
+    elif gate == "turnover_lower":
+        candidate = replace(candidate, turnover_total=4.0)
+    elif gate == "drawdown_nonworse":
+        candidate = replace(candidate, max_drawdown=0.21)
+    elif gate == "equal_period_count":
+        candidate = _arm(
+            "candidate",
+            (0.02,),
+            total_cost=5.0,
+            turnover=2.0,
+            max_drawdown=0.10,
+            year_returns=((2023, 0.02), (2024, 0.02)),
+        )
+    else:  # pragma: no cover - parametrization is closed above
+        raise AssertionError(gate)
+
+    assert shared_cash_status(baseline, candidate) == "STOP_BEFORE_UNUSED_VALIDATION"
+
+
+def test_dataset_identity_drift_fails_before_fit_or_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as module
+
+    dataset = replace(_dataset(), dataset_id="f" * 64)
+    calls = {"fit": 0, "replay": 0}
+
+    def forbidden_fit(*args: object, **kwargs: object) -> object:
+        calls["fit"] += 1
+        raise AssertionError("fit must not run after Dataset identity drift")
+
+    def forbidden_replay(*args: object, **kwargs: object) -> object:
+        calls["replay"] += 1
+        raise AssertionError("replay must not run after Dataset identity drift")
+
+    monkeypatch.setattr(module, "fit_ridge_forecast", forbidden_fit)
+    monkeypatch.setattr(module, "run_shared_cash_replay", forbidden_replay)
+
+    with pytest.raises(ValueError, match="Dataset identity"):
+        evaluate_ridge_shared_cash(dataset)
+    assert calls == {"fit": 0, "replay": 0}
+
+
+def test_feature_identity_drift_fails_before_fit_or_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as module
+
+    source = _dataset()
+    names = list(source.feature_names)
+    names[0] = "tampered_feature"
+    dataset = replace(source, feature_names=tuple(names))
+    calls = {"fit": 0, "replay": 0}
+
+    def forbidden_fit(*args: object, **kwargs: object) -> object:
+        calls["fit"] += 1
+        raise AssertionError("fit must not run after feature identity drift")
+
+    def forbidden_replay(*args: object, **kwargs: object) -> object:
+        calls["replay"] += 1
+        raise AssertionError("replay must not run after feature identity drift")
+
+    monkeypatch.setattr(module, "fit_ridge_forecast", forbidden_fit)
+    monkeypatch.setattr(module, "run_shared_cash_replay", forbidden_replay)
+
+    with pytest.raises(ValueError, match="feature identity"):
+        evaluate_ridge_shared_cash(dataset)
+    assert calls == {"fit": 0, "replay": 0}
+'''
+          if 'test_each_frozen_shared_cash_gate_can_force_stop' in text:
+              raise SystemExit('falsification tests already present')
+          path.write_text(text + addition)
+          PY
+          uv run ruff format tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run ruff check tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          git diff --cached --check
+          git commit -m 'test: harden ridge shared-cash decision falsification'
+          git push origin HEAD:research/issue630-shared-cash-evaluator

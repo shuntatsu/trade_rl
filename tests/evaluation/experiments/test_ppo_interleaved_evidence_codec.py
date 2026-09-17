@@ -7,8 +7,8 @@ import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
-    PPOSeedEvidence,
     PPOReturnPathEvidence,
+    PPOSeedEvidence,
     PPOSymbolEvidence,
     canonical_ppo_interleaved_evaluator_spec,
     return_path_sha256,

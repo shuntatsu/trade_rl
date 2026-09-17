@@ -1,0 +1,459 @@
+name: Issue 634 Ridge Shared-Cash Evaluation v2
+
+on:
+  push:
+    branches:
+      - run/issue634-ridge-shared-cash-evaluation-v1
+    paths:
+      - .github/issue634-ridge-shared-cash-evaluation-v2.authorized
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue634-ridge-shared-cash-evaluation-v2
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: d1bf25fd66834289ffddb36063b0d5cef649f444
+  BASE_SHA: d18434799651cfc6c07e0840c40600dcf1dfa763
+  PREVIOUS_PREFLIGHT_RUN: '35215537166'
+  RESULT_NAME: issue634-ridge-shared-cash-result-v1
+  FRESH_NAME: issue634-ridge-shared-cash-fresh-v1
+  DECISION_NAME: issue634-ridge-shared-cash-decision-v1
+  SUCCESSOR_RUN: '34803217815'
+  SUCCESSOR_NAME: issue510-successor-calibrated-34803217815
+  SUCCESSOR_ID: '10331899302'
+  SUCCESSOR_API_DIGEST: 89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  COST_RUN: '35200841490'
+  COST_NAME: issue618-ridge-cost-authority-35200841490
+  COST_ID: '10488425531'
+  COST_API_DIGEST: 7b4e0749b783fa29e50c3b92f0a21541148c80b8b4f4ed6b0586b0d5b52f64fb
+  COST_AUTHORITY_DIGEST: bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04
+  TRIGGER_RUN: '35201639813'
+  TRIGGER_RESULT_NAME: issue626-ridge-economic-result-35201639813
+  TRIGGER_RESULT_ID: '10487739534'
+  TRIGGER_RESULT_API_DIGEST: 787362841f4ff9b68235f157ba82a9e02edc1e995b6bedb54ec05149b6d59148
+  TRIGGER_FRESH_NAME: issue626-ridge-economic-fresh-verification-35201639813
+  TRIGGER_FRESH_ID: '10488427586'
+  TRIGGER_FRESH_API_DIGEST: 178bdd2575ab1d22d033a22a15f96b8a613fd786688b6d28647544352afee703
+  TRIGGER_RESULT_DIGEST: 78a39790c4d11dc903ac48f6044b0ebab46d2d6d26cbd8cf2c380be983b90d4b
+  IMPL_AUTH_RUN: '35214002467'
+  IMPL_PRIMARY_NAME: issue630-final-authority-primary-v2
+  IMPL_PRIMARY_ID: '10493392861'
+  IMPL_PRIMARY_API_DIGEST: 3b1f1e0f3001085545acc6008a3693d9978db33fc5d501abc58a8316efdd1baf
+  IMPL_FRESH_NAME: issue630-final-authority-fresh-v2
+  IMPL_FRESH_ID: '10493118083'
+  IMPL_FRESH_API_DIGEST: fe727e1b7753b827e7ad5cee5e1bdb726f2d1a63321cf8e9b1234b52526591c7
+  IMPL_DOCUMENT_SHA: 746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85
+  IMPL_SEAL_SHA: 82f931041be3a2b7aeedd85e1bc3b6ae683365af2ae28d6d3adb60ac0103231a
+  IMPL_AUDIT_RUN: '35214226479'
+  IMPL_AUDIT_A_NAME: issue630-final-authority-audit-a-v1
+  IMPL_AUDIT_A_ID: '10494458180'
+  IMPL_AUDIT_B_NAME: issue630-final-authority-audit-b-v1
+  IMPL_AUDIT_B_ID: '10494448132'
+  IMPL_AUDIT_API_DIGEST: 9480bf851092f48eb132c2f49d01fab13505fea3e2e729e17739a13d0953b581
+  PROTOCOL_RUN: '35211715033'
+  PROTOCOL_PRIMARY_ID: '10491893357'
+  PROTOCOL_PRIMARY_API_DIGEST: 0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841
+  PROTOCOL_FRESH_ID: '10492645772'
+  PROTOCOL_FRESH_API_DIGEST: ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56
+  PROTOCOL_HEAD: 65eb3c90e0a5fe1cea952279c28024160838da08
+  PROTOCOL_DIGEST: c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88
+  PROTOCOL_SEAL_SHA: b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903
+
+jobs:
+  preflight:
+    name: Result-blind authority preflight recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Prove previous preflight failure consumed no economic slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_PREFLIGHT_RUN")"
+          test "$(jq -r .conclusion <<<"$previous")" = failure
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_PREFLIGHT_RUN/artifacts" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$RESULT_NAME" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$FRESH_NAME" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$DECISION_NAME" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Bind immutable source and artifact metadata before PnL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          test "$(git rev-parse HEAD:trade_rl/evaluation/replay.py)" = 73c15bc8555bb9d1cbf124bf13df9d8ec6c1f15e
+          test "$(git rev-parse HEAD:trade_rl/strategies/forecasts/ridge_economic_gate.py)" = db4fac918a421ce5223fa77257adcc234dadee66
+          test "$(git rev-parse HEAD:trade_rl/evaluation/runs/execute.py)" = 24dc24970502a598c6c74c75efe0a348f11cb51d
+          test "$(git rev-parse HEAD:trade_rl/evaluation/runs/__init__.py)" = c64142b8e7b2dce82f00f70dc883ceced35123a2
+          test "$(git rev-parse HEAD:trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py)" = 208e4d45b64ce4e92cd8eca59a5c427dc8be7029
+          check_artifact() {
+            local id="$1" run="$2" digest="$3"
+            local meta
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .expired <<<"$meta")" = false
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run"
+            test "$(jq -r .digest <<<"$meta")" = "sha256:$digest"
+          }
+          check_artifact "$SUCCESSOR_ID" "$SUCCESSOR_RUN" "$SUCCESSOR_API_DIGEST"
+          check_artifact "$COST_ID" "$COST_RUN" "$COST_API_DIGEST"
+          check_artifact "$TRIGGER_RESULT_ID" "$TRIGGER_RUN" "$TRIGGER_RESULT_API_DIGEST"
+          check_artifact "$TRIGGER_FRESH_ID" "$TRIGGER_RUN" "$TRIGGER_FRESH_API_DIGEST"
+          check_artifact "$IMPL_PRIMARY_ID" "$IMPL_AUTH_RUN" "$IMPL_PRIMARY_API_DIGEST"
+          check_artifact "$IMPL_FRESH_ID" "$IMPL_AUTH_RUN" "$IMPL_FRESH_API_DIGEST"
+          check_artifact "$IMPL_AUDIT_A_ID" "$IMPL_AUDIT_RUN" "$IMPL_AUDIT_API_DIGEST"
+          check_artifact "$IMPL_AUDIT_B_ID" "$IMPL_AUDIT_RUN" "$IMPL_AUDIT_API_DIGEST"
+          check_artifact "$PROTOCOL_PRIMARY_ID" "$PROTOCOL_RUN" "$PROTOCOL_PRIMARY_API_DIGEST"
+          check_artifact "$PROTOCOL_FRESH_ID" "$PROTOCOL_RUN" "$PROTOCOL_FRESH_API_DIGEST"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SUCCESSOR_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.COST_NAME }}
+          path: /tmp/cost
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.COST_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.TRIGGER_RESULT_NAME }}
+          path: /tmp/trigger-result
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.TRIGGER_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.TRIGGER_FRESH_NAME }}
+          path: /tmp/trigger-fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.TRIGGER_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_PRIMARY_NAME }}
+          path: /tmp/impl-primary
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_AUTH_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_FRESH_NAME }}
+          path: /tmp/impl-fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_AUTH_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_AUDIT_A_NAME }}
+          path: /tmp/audit-a
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_AUDIT_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.IMPL_AUDIT_B_NAME }}
+          path: /tmp/audit-b
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.IMPL_AUDIT_RUN }}
+      - name: Validate result-blind authorities and load Dataset without evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/impl-primary/implementation.json /tmp/impl-fresh/implementation.json
+          cmp /tmp/impl-primary/seal.json /tmp/impl-fresh/seal.json
+          cmp /tmp/audit-a/audit.json /tmp/audit-b/audit.json
+          test "$(sha256sum /tmp/impl-primary/implementation.json | cut -d' ' -f1)" = "$IMPL_DOCUMENT_SHA"
+          test "$(sha256sum /tmp/impl-primary/seal.json | cut -d' ' -f1)" = "$IMPL_SEAL_SHA"
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data.artifacts import read_market_dataset
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import canonical_ridge_shared_cash_evaluation_spec
+          from trade_rl.evaluation.experiments.codec import read_study_plan
+
+          spec=canonical_ridge_shared_cash_evaluation_spec()
+          assert spec.protocol_head == os.environ['PROTOCOL_HEAD']
+          assert spec.protocol_digest == os.environ['PROTOCOL_DIGEST']
+          assert spec.protocol_seal_sha256 == os.environ['PROTOCOL_SEAL_SHA']
+          assert spec.trigger_result_digest == os.environ['TRIGGER_RESULT_DIGEST']
+          assert spec.expected_n_periods == 17_544
+          assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))
+          assert spec.execution_max_leverage == 1.0
+          impl=json.loads(Path('/tmp/impl-primary/implementation.json').read_text())
+          audit=json.loads(Path('/tmp/audit-a/audit.json').read_text())
+          assert impl['implementation_head'] == os.environ['TARGET_SHA']
+          assert impl['evidence_schema']['expected_n_periods'] == 17_544
+          assert impl['evidence_schema']['calendar_year_period_counts'] == [[2023,8760],[2024,8784]]
+          assert audit['implementation_head'] == os.environ['TARGET_SHA']
+          assert audit['primary_fresh_byte_identical'] is True
+          assert audit['boundaries_validated'] is True
+          trigger_prov=json.loads(Path('/tmp/trigger-result/provenance.json').read_text())
+          trigger_result=json.loads(Path('/tmp/trigger-result/result.json').read_text())
+          trigger_verify=json.loads(Path('/tmp/trigger-fresh/verification.json').read_text())
+          assert trigger_prov['result_digest'] == spec.trigger_result_digest
+          assert trigger_verify['result_digest'] == spec.trigger_result_digest
+          assert trigger_result['status'] == 'PROMOTE_RESEARCH_REFERENCE'
+          cost=json.loads(Path('/tmp/cost/cost-authority.json').read_text())
+          assert content_digest(cost) == os.environ['COST_AUTHORITY_DIGEST']
+          assert cost['verified'] is True
+          assert cost['dataset_id'] == spec.dataset_id
+          assert cost['dataset_artifact_digest'] == spec.dataset_artifact_digest
+          assert cost['one_way_explicit_cost'] == spec.one_way_explicit_cost == 0.0007
+          dataset=read_market_dataset('/tmp/successor/dataset')
+          plan=read_study_plan('/tmp/successor/study/plan.json')
+          assert dataset.dataset_id == spec.dataset_id
+          assert dataset.artifact_digest == spec.dataset_artifact_digest
+          assert plan.digest == spec.study_digest
+          assert [p.relative_to('/tmp/successor/study').as_posix() for p in sorted(Path('/tmp/successor/study').rglob('*')) if p.is_file()] == ['plan.json']
+          print('ISSUE634_RESULT_BLIND_PREFLIGHT_RECOVERY=PASS')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+
+  publisher:
+    name: Exactly-once shared-cash publisher
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Recheck unique result slot immediately before economic execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$RESULT_NAME" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$FRESH_NAME" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SUCCESSOR_RUN }}
+      - name: Execute sealed evaluator once and write result bytes without reveal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.data.artifacts import read_market_dataset
+          import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as mod
+
+          dataset=read_market_dataset('/tmp/successor/dataset')
+          spec=mod.canonical_ridge_shared_cash_evaluation_spec()
+          fit_calls=[]; replay_calls=[]
+          original_fit=mod.fit_ridge_forecast; original_replay=mod.run_shared_cash_replay
+          def counted_fit(*args, **kwargs): fit_calls.append(1); return original_fit(*args, **kwargs)
+          def counted_replay(*args, **kwargs): replay_calls.append(tuple(type(item).__name__ for item in tuple(args[1]))); return original_replay(*args, **kwargs)
+          mod.fit_ridge_forecast=counted_fit; mod.run_shared_cash_replay=counted_replay
+          result=mod.evaluate_ridge_shared_cash(dataset)
+          if len(fit_calls)!=1 or len(replay_calls)!=2: raise SystemExit('formal evaluator call-count contract violated')
+          if set(replay_calls[0])!={'RidgeForecastStrategy'} or set(replay_calls[1])!={'RidgeEconomicGateStrategy'}: raise SystemExit('baseline/candidate replay order drifted')
+          raw=(json.dumps(result.to_payload(),allow_nan=False,sort_keys=True,separators=(',',':'))+'\n').encode()
+          result_sha=hashlib.sha256(raw).hexdigest(); Path('out/result.json').write_bytes(raw)
+          provenance={'schema_version':'issue634_ridge_shared_cash_result_provenance_v1','issue_number':634,'formal_run_id':int(os.environ['GITHUB_RUN_ID']),'implementation_head':os.environ['TARGET_SHA'],'spec_digest':spec.digest,'protocol_digest':spec.protocol_digest,'dataset_id':spec.dataset_id,'dataset_artifact_digest':spec.dataset_artifact_digest,'study_digest':spec.study_digest,'cost_authority_digest':spec.cost_authority_digest,'trigger_result_digest':spec.trigger_result_digest,'result_digest':result.digest,'result_sha256':result_sha,'fit_call_count':len(fit_calls),'shared_cash_replay_call_count':len(replay_calls),'baseline_then_candidate':True,'result_revealed_before_upload':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          Path('out/provenance.json').write_text(json.dumps(provenance,allow_nan=False,sort_keys=True,separators=(',',':'))+'\n')
+          print('SEALED_EVALUATOR_EXECUTION_COMPLETE=true'); print('RESULT_REVEALED=false')
+          PY
+          test -s out/result.json
+          test -s out/provenance.json
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Confirm immutable result publication without reveal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          UPLOAD_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$meta")" = false
+          test "$(jq -r .digest <<<"$meta")" = "sha256:$UPLOAD_DIGEST"
+          echo RESULT_ARTIFACT_PUBLISHED=true
+          echo RESULT_REVEALED=false
+
+  fresh:
+    name: Fresh independent shared-cash reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Require one published result and unused fresh slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$RESULT_NAME" --jq .total_count)" = 1
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$FRESH_NAME" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SUCCESSOR_NAME }}
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SUCCESSOR_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: primary
+      - name: Independently reconstruct and require exact result bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fresh
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.data.artifacts import read_market_dataset
+          import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as mod
+          dataset=read_market_dataset('/tmp/successor/dataset'); spec=mod.canonical_ridge_shared_cash_evaluation_spec()
+          fit_calls=[]; replay_calls=[]; original_fit=mod.fit_ridge_forecast; original_replay=mod.run_shared_cash_replay
+          def counted_fit(*args, **kwargs): fit_calls.append(1); return original_fit(*args, **kwargs)
+          def counted_replay(*args, **kwargs): replay_calls.append(tuple(type(item).__name__ for item in tuple(args[1]))); return original_replay(*args, **kwargs)
+          mod.fit_ridge_forecast=counted_fit; mod.run_shared_cash_replay=counted_replay
+          result=mod.evaluate_ridge_shared_cash(dataset)
+          if len(fit_calls)!=1 or len(replay_calls)!=2: raise SystemExit('fresh call-count contract violated')
+          raw=(json.dumps(result.to_payload(),allow_nan=False,sort_keys=True,separators=(',',':'))+'\n').encode(); primary=Path('primary/result.json').read_bytes()
+          if raw!=primary: raise SystemExit('fresh result bytes differ')
+          result_sha=hashlib.sha256(raw).hexdigest(); primary_prov=json.loads(Path('primary/provenance.json').read_text())
+          if result_sha!=primary_prov['result_sha256'] or result.digest!=primary_prov['result_digest']: raise SystemExit('fresh result digest differs')
+          Path('fresh/result.json').write_bytes(raw)
+          verification={'schema_version':'issue634_ridge_shared_cash_fresh_verification_v1','formal_run_id':int(os.environ['GITHUB_RUN_ID']),'implementation_head':os.environ['TARGET_SHA'],'spec_digest':spec.digest,'result_digest':result.digest,'result_sha256':result_sha,'fit_call_count':len(fit_calls),'shared_cash_replay_call_count':len(replay_calls),'primary_fresh_byte_equal':True,'result_revealed':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          Path('fresh/verification.json').write_text(json.dumps(verification,allow_nan=False,sort_keys=True,separators=(',',':'))+'\n')
+          print('FRESH_RECONSTRUCTION_BYTE_EQUAL=true'); print('RESULT_REVEALED=false')
+          PY
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Final independent audit and reveal
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+      - name: Audit fixed artifacts, recompute decision, then reveal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp primary/result.json fresh/result.json
+          pmeta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID")"; fmeta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ID")"
+          test "$(jq -r .workflow_run.id <<<"$pmeta")" = "$GITHUB_RUN_ID"; test "$(jq -r .workflow_run.id <<<"$fmeta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .digest <<<"$pmeta")" = "sha256:$PRIMARY_UPLOAD_DIGEST"; test "$(jq -r .digest <<<"$fmeta")" = "sha256:$FRESH_UPLOAD_DIGEST"
+          mkdir -p decision
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import RidgeSharedCashArmEvidence, RidgeSharedCashEvaluation, shared_cash_status
+          payload=json.loads(Path('primary/result.json').read_text()); prov=json.loads(Path('primary/provenance.json').read_text()); verify=json.loads(Path('fresh/verification.json').read_text())
+          def arm(p):
+              return RidgeSharedCashArmEvidence(schema_version=p['schema_version'],arm=p['arm'],returns=tuple(p['returns']),return_sha256=p['return_sha256'],total_return=p['total_return'],calendar_year_returns=tuple((x['year'],x['return']) for x in p['calendar_year_returns']),calendar_year_period_counts=tuple((x['year'],x['count']) for x in p['calendar_year_period_counts']),total_cost=p['total_cost'],turnover_total=p['turnover_total'],max_drawdown=p['max_drawdown'],termination_count=p['termination_count'],termination_reasons=tuple(p['termination_reasons']),n_periods=p['n_periods'])
+          baseline=arm(payload['baseline']); candidate=arm(payload['candidate'])
+          result=RidgeSharedCashEvaluation(schema_version=payload['schema_version'],spec_digest=payload['spec_digest'],dataset_id=payload['dataset_id'],symbols=tuple(payload['symbols']),baseline=baseline,candidate=candidate,status=payload['status'],unused_data_accessed=payload['unused_data_accessed'],final_test_accessed=payload['final_test_accessed'],final_test_authorized=payload['final_test_authorized'],operational_eligibility_established=payload['operational_eligibility_established'],production_eligible=payload['production_eligible'],live_trading_authorized=payload['live_trading_authorized'],merge_authorized=payload['merge_authorized'])
+          raw=Path('primary/result.json').read_bytes(); result_sha=hashlib.sha256(raw).hexdigest()
+          if result.to_payload()!=payload: raise SystemExit('round-trip result drift')
+          if result.digest!=prov['result_digest'] or result_sha!=prov['result_sha256']: raise SystemExit('publisher digest drift')
+          if result.digest!=verify['result_digest'] or result_sha!=verify['result_sha256'] or verify['primary_fresh_byte_equal'] is not True: raise SystemExit('fresh verification drift')
+          if shared_cash_status(baseline,candidate)!=result.status: raise SystemExit('status recomputation drift')
+          decision={'schema_version':'issue634_ridge_shared_cash_decision_v1','formal_run_id':int(os.environ['GITHUB_RUN_ID']),'status':result.status,'baseline_total_return':baseline.total_return,'candidate_total_return':candidate.total_return,'baseline_calendar_year_returns':[{'year':y,'return':v} for y,v in baseline.calendar_year_returns],'candidate_calendar_year_returns':[{'year':y,'return':v} for y,v in candidate.calendar_year_returns],'baseline_total_cost':baseline.total_cost,'candidate_total_cost':candidate.total_cost,'baseline_turnover_total':baseline.turnover_total,'candidate_turnover_total':candidate.turnover_total,'baseline_max_drawdown':baseline.max_drawdown,'candidate_max_drawdown':candidate.max_drawdown,'baseline_termination_reasons':list(baseline.termination_reasons),'candidate_termination_reasons':list(candidate.termination_reasons),'baseline_n_periods':baseline.n_periods,'candidate_n_periods':candidate.n_periods,'baseline_return_sha256':baseline.return_sha256,'candidate_return_sha256':candidate.return_sha256,'result_digest':result.digest,'result_sha256':result_sha,'primary_fresh_byte_equal':True,'unused_data_accessed':False,'final_test_accessed':False,'final_test_authorized':False,'operational_eligibility_established':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          Path('decision/decision.json').write_text(json.dumps(decision,allow_nan=False,sort_keys=True,separators=(',',':'))+'\n')
+          print('DECISION='+result.status); print('BASELINE_TOTAL_RETURN='+repr(baseline.total_return)); print('CANDIDATE_TOTAL_RETURN='+repr(candidate.total_return))
+          for year,value in baseline.calendar_year_returns: print(f'BASELINE_{year}_RETURN={value!r}')
+          for year,value in candidate.calendar_year_returns: print(f'CANDIDATE_{year}_RETURN={value!r}')
+          print('BASELINE_TOTAL_COST='+repr(baseline.total_cost)); print('CANDIDATE_TOTAL_COST='+repr(candidate.total_cost)); print('BASELINE_TURNOVER_TOTAL='+repr(baseline.turnover_total)); print('CANDIDATE_TURNOVER_TOTAL='+repr(candidate.turnover_total)); print('BASELINE_MAX_DRAWDOWN='+repr(baseline.max_drawdown)); print('CANDIDATE_MAX_DRAWDOWN='+repr(candidate.max_drawdown)); print('BASELINE_TERMINATIONS='+repr(baseline.termination_reasons)); print('CANDIDATE_TERMINATIONS='+repr(candidate.termination_reasons)); print('PERIODS='+repr(candidate.n_periods)); print('UNUSED_DATA_ACCESSED=false'); print('PRODUCTION_ELIGIBLE=false')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.DECISION_NAME }}
+          path: decision/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

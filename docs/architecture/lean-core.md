@@ -179,6 +179,14 @@ closed in profile mode; use explicit stateful orders. Side permissions, funding,
 costs and margin keep their existing owners. The profile is not a complete live
 exchange-filter emulator or a strategy qualification.
 
+Shared-cash directional evaluation accepts this optional profile through the
+common replay/executor path. Explicit-profile results use
+`directional_market_profile_arm_v1`, bind the evaluated policy/profile identity,
+and retain exact terminal quantities. Their flatness gate requires exact zeros;
+the omitted-profile `directional_arm_v1` result and historical float tolerance
+remain unchanged. Strategy factories, costs, hard risk and training are not
+altered by passing a profile.
+
 Stateful execution rechecks exact inventory immediately before each closing fill:
 margin handling after a previous fill can invalidate precomputed allocations.
 An exhausted or newly insufficient position expires the closing remainder without

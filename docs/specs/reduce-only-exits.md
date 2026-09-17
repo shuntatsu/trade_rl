@@ -1,6 +1,6 @@
 # Explicit reduce-only exits
 
-Status: Active implementation; Stage A integrated, Stage B in progress
+Status: Active implementation; Stages A/B integrated, Stage C in progress
 
 ## Objective and evidence
 
@@ -189,6 +189,15 @@ evidence. No financial replay runs until this implementation and its fresh proto
 are frozen separately from the preserved diagnostic.
 
 ## Stage C: fresh economic evidence
+
+The shared-cash replay and directional arm evaluator accept an optional verified
+market-order profile and pass it to the common executor. Omission retains existing
+result schema and behavior. Explicit profile results use a distinct schema and
+record the actual execution-policy identity, complete profile payload/digest and
+exact terminal quantities. In this new schema, terminal flatness requires every
+exact quantity to be zero; the legacy float tolerance is not changed retroactively.
+This closes the gap between a profile artifact and the actual evaluated execution
+path. No reward, strategy, training model or hard-risk rule changes in this adapter.
 
 Freeze the source, runtime, data, full candidate/control roster and saved model
 hashes or fitting budgets before replay. Keep both years, full clock, costs,

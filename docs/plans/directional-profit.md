@@ -6,8 +6,8 @@ Specification: [directional-profit.md](../specs/directional-profit.md).
 
 - [x] Confirm the user-selected 20% drawdown tolerance and competing work.
 - [x] Freeze candidate roster, risk, data/time scope, budget and stop rule.
-- [ ] Test and implement causal channels and the single breakout strategy.
-- [ ] Compose reproducible shared-account comparison and immutable evidence.
+- [x] Test and implement causal channels and the single breakout strategy.
+- [x] Compose reproducible shared-account comparison and immutable evidence.
 - [ ] Execute all fixed arms, report failures, and apply the frozen screen.
 - [ ] Run stress and individual-symbol diagnostics for eligible arms only.
 - [ ] Update current docs/Guide; full verification and exact-head PR review.

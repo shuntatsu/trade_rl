@@ -1,5 +1,8 @@
 # Trade RL documentation
 
+Active PPO preprocessing: [design](specs/ppo-feature-standardization.md) and
+[plan](plans/ppo-feature-standardization.md).
+
 ## 結論
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。

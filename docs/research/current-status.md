@@ -78,6 +78,17 @@ cost omission: the current PPO reward already uses log net return after costs.
 Fill counts combine policy and risk actions and cannot alone diagnose churning.
 Feature-scale normalization and the sealed interleaved experiment remain separate.
 
+An opt-in fit-only PPO feature standardizer and bound model-bundle capability
+are implemented separately from the completed, immutable risk comparison.
+The design is `docs/specs/ppo-feature-standardization.md`. Synthetic scope,
+masking, default compatibility, balanced statistics and model/transform reload
+checks pass; normalized real-data training has not started. Since the risk-only
+treatment returned KEEP_BASELINE, the next comparison retains the original
+default-risk baseline. It must first freeze this preprocessing factor and its
+protocol, keep the original data, budget and evaluation contract, retain all five
+seeds, and preserve the profit/drawdown/execution gates. It does not provide
+operational profit evidence or reopen the sealed interleaved study.
+
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,
 artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable

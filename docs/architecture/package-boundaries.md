@@ -60,7 +60,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
-│   └── rl/ppo.py
+│   └── rl/{ppo.py,ppo_normalization.py,ppo_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── metrics.py
@@ -108,6 +108,12 @@ bounds and availability belong to data; the rule consumes them as observations.
 the completed directional baseline. It reuses the same fit and replay owners,
 checks source/runtime isolation, and reports relative loss reduction separately
 from the existing absolute qualification gate.
+
+`strategies/rl/ppo_normalization.py` owns optional fit-only local-feature
+standardization and its immutable metadata. `ppo.py` applies one shared fitted
+transform in training and inference while keeping the raw v2 default unchanged.
+`ppo_artifact.py` binds normalized policy bytes and preprocessing metadata under
+one manifest digest; load validates that digest and the feed feature schema.
 
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 

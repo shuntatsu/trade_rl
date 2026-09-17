@@ -83,6 +83,21 @@ Observation contractは暗黙のimplementation detailにしない。新規Candid
 
 ### PPO training layout
 
+`fit_ppo_strategy(normalize_features=True)` explicitly fits one immutable
+local-feature standardizer on finite/available training decisions in the selected
+symbol/window scope. Each symbol contributes equal total weight per feature;
+the pooled variance includes between-symbol mean differences. Scales at most
+1e-12 use 1; clipping and online statistic updates are absent. Both layouts and
+the returned strategy share that fitted transform. Missing inputs stay zero,
+and masks/staleness/intent/weight keep their v2 semantics. The default remains
+the raw v2 encoder and persisted default observation payload.
+
+Normalized models require their preprocessing state. `save_normalized_ppo` binds
+policy bytes and transform metadata in a write-once bundle. `load_normalized_ppo`
+requires the expected manifest digest and the feed's full ordered feature names,
+checks both before policy deserialization, and validates policy spaces. Changing
+evaluation statistics or loading a model without its transform is not supported.
+
 PPO environment/fitter callers can explicitly provide an immutable
 `PreTradeRiskConfig` via `risk_config`. The same configuration applies when the
 environment is created and after every reset, in both sequential and interleaved

@@ -61,6 +61,8 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/lightgbm.py",
         "rl/__init__.py",
         "rl/ppo.py",
+        "rl/ppo_normalization.py",
+        "rl/ppo_artifact.py",
     ):
         assert (STRATEGIES / relative).is_file(), relative
 

@@ -189,9 +189,28 @@ jobs:
       - name: Browser UX and accessibility
         working-directory: guide
         run: npm run e2e
-      - name: Exact clean target
+      - name: Exact target with generated-output hygiene
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "221858f189cad7e9bc908382efd69b87e2108221"
+          test "$(git rev-parse HEAD)" = "$GUIDE_SOURCE_REV"
+          python - <<'PY'
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          status = subprocess.check_output(
+              ['git', 'status', '--porcelain', '--untracked-files=all'], text=True
+          ).splitlines()
+          for line in status:
+              if len(line) < 4:
+                  raise SystemExit(f'unexpected git status line: {line!r}')
+              code = line[:2]
+              path = line[3:]
+              if code != '??' or not path.startswith('guide/.generated/'):
+                  raise SystemExit(f'unexpected Guide worktree mutation: {line!r}')
+          shutil.rmtree(Path('guide/.generated'), ignore_errors=True)
+          print('ISSUE632_GUIDE_GENERATED_OUTPUT_SCOPE=PASS')
+          PY
+          test "$(git rev-parse HEAD)" = "$GUIDE_SOURCE_REV"
           test -z "$(git status --porcelain)"

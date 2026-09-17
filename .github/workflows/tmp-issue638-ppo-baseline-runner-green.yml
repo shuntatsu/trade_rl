@@ -40,6 +40,7 @@ jobs:
         run: uv sync --extra dev
       - name: Overlay runner/test without changing evaluator authority
         run: |
+          mkdir -p impl/.github/scripts impl/tests/tools
           cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
           cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
       - name: Static and synthetic GREEN

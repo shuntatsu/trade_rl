@@ -1,0 +1,72 @@
+name: tmp Issue 638 successor authority fix
+
+on:
+  push:
+    branches:
+      - automation/issue638-successor-authority-fix
+    paths:
+      - .github/workflows/tmp-issue638-successor-authority-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          fetch-depth: 0
+      - name: Guard exact preparation head
+        run: test "$(git rev-parse HEAD)" = e2d7ae66dc94e808e1a7e1f6047aae1c9ed90f1b
+      - name: Bind producer job + recovered fresh verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/issue638_ppo_baseline_runner.py')
+          text = path.read_text()
+          anchor = '''SOURCE_API_DIGEST = (\n    "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"\n)\n'''
+          addition = anchor + '''SOURCE_VERIFY_RUN = 34_803_432_434\nSOURCE_VERIFY_ID = 10_332_575_500\nSOURCE_VERIFY_NAME = "issue539-calibrated-causal-fresh-verify-v3-34803432434"\nSOURCE_VERIFY_API_DIGEST = (\n    "sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589"\n)\n'''
+          if anchor not in text:
+              raise SystemExit('source constants anchor drift')
+          text = text.replace(anchor, addition, 1)
+
+          anchor = '''def _artifact_count(name: str) -> int:\n'''
+          helper = '''def _assert_source_authority() -> None:\n    \"\"\"Validate the publisher-bound successor plus verification-only recovery.\"\"\"\n\n    producer = _api(f"actions/runs/{SOURCE_RUN}")\n    if producer.get("status") != "completed" or producer.get("conclusion") != "failure":\n        raise SystemExit("calibrated successor producer run history drift")\n    jobs = _api(f"actions/runs/{SOURCE_RUN}/jobs?per_page=100").get("jobs")\n    if not isinstance(jobs, list):\n        raise SystemExit("calibrated successor producer jobs unavailable")\n    conclusions = {\n        item.get("name"): item.get("conclusion")\n        for item in jobs\n        if isinstance(item, dict)\n    }\n    required = {\n        "Exact Human Guide": "success",\n        "Exact Lean Core": "success",\n        "Materialize and seal successor": "success",\n        "Fresh independent reverify": "failure",\n        "Audit fresh verification": "skipped",\n    }\n    if any(conclusions.get(name) != expected for name, expected in required.items()):\n        raise SystemExit("calibrated successor producer job authority drift")\n    _assert_artifact(\n        SOURCE_ID,\n        name=SOURCE_NAME,\n        digest=SOURCE_API_DIGEST,\n        run_id=SOURCE_RUN,\n    )\n\n    _assert_run_success(SOURCE_VERIFY_RUN, label="successor verification recovery")\n    verify_jobs = _api(f"actions/runs/{SOURCE_VERIFY_RUN}/jobs?per_page=100").get("jobs")\n    if not isinstance(verify_jobs, list):\n        raise SystemExit("successor recovery jobs unavailable")\n    verify_conclusions = {\n        item.get("name"): item.get("conclusion")\n        for item in verify_jobs\n        if isinstance(item, dict)\n    }\n    for name in (\n        "Fresh independent reverify existing bundle",\n        "Audit recovered fresh verification",\n    ):\n        if verify_conclusions.get(name) != "success":\n            raise SystemExit(f"successor recovered verification drift: {name}")\n    _assert_artifact(\n        SOURCE_VERIFY_ID,\n        name=SOURCE_VERIFY_NAME,\n        digest=SOURCE_VERIFY_API_DIGEST,\n        run_id=SOURCE_VERIFY_RUN,\n    )\n\n\n'''
+          if anchor not in text:
+              raise SystemExit('source authority helper anchor drift')
+          text = text.replace(anchor, helper + anchor, 1)
+          old = '    _assert_run_success(SOURCE_RUN, label="calibrated successor authority")\n'
+          new = '    _assert_source_authority()\n'
+          if old not in text:
+              raise SystemExit('source run assertion anchor drift')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Mechanical helper checks
+        run: |
+          uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py
+          uv run python -m py_compile .github/scripts/issue638_ppo_baseline_runner.py
+          git diff --check
+      - name: Publish helper-only correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git rev-parse FETCH_HEAD)" = e2d7ae66dc94e808e1a7e1f6047aae1c9ed90f1b
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue638_ppo_baseline_runner.py
+          git commit -m "research: bind Issue 638 to successor recovery authority"
+          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

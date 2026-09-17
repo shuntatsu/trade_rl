@@ -110,6 +110,12 @@ def test_prepare_fails_runtime_preflight_before_source_or_output_side_effects(
         raise AssertionError("source must not load before runtime preflight")
 
     monkeypatch.setattr(
+        directional_study,
+        "official_activation_from_environment",
+        lambda: {"workflow_run_id": 1},
+        raising=False,
+    )
+    monkeypatch.setattr(
         directional_study, "validate_required_runtime", fail_runtime, raising=False
     )
     monkeypatch.setattr(
@@ -119,4 +125,83 @@ def test_prepare_fails_runtime_preflight_before_source_or_output_side_effects(
     with pytest.raises(RuntimeError, match="stable-baselines3"):
         directional_study.prepare_study(tmp_path / "source", output)
     assert loaded == []
+    assert not output.exists()
+
+
+def _activation_environment() -> dict[str, str]:
+    return {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF_NAME": "run/issue641-directional-study-v1",
+        "GITHUB_RUN_ID": "123456789",
+        "GITHUB_RUN_NUMBER": "1",
+        "GITHUB_RUN_ATTEMPT": "1",
+        "GITHUB_SHA": "a" * 40,
+        "GITHUB_WORKFLOW_REF": (
+            "shuntatsu/trade_rl/.github/workflows/issue641-directional-study-v1.yml"
+            "@refs/heads/run/issue641-directional-study-v1"
+        ),
+    }
+
+
+def test_official_activation_accepts_only_first_exact_actions_run() -> None:
+    environment = _activation_environment()
+    activation = directional_study.official_activation_from_environment(environment)
+    assert activation == {
+        "schema_version": "directional_development_activation_v1",
+        "workflow_run_id": 123456789,
+        "workflow_run_number": 1,
+        "workflow_run_attempt": 1,
+        "workflow_event": "push",
+        "workflow_ref": environment["GITHUB_WORKFLOW_REF"],
+        "ref_name": "run/issue641-directional-study-v1",
+        "head_sha": "a" * 40,
+    }
+
+    for key, value in (
+        ("GITHUB_ACTIONS", "false"),
+        ("GITHUB_EVENT_NAME", "workflow_dispatch"),
+        ("GITHUB_REF_NAME", "scratch/directional-study"),
+        ("GITHUB_RUN_NUMBER", "2"),
+        ("GITHUB_RUN_ATTEMPT", "2"),
+        ("GITHUB_SHA", "short"),
+    ):
+        changed = dict(environment)
+        changed[key] = value
+        with pytest.raises(RuntimeError, match="official activation"):
+            directional_study.official_activation_from_environment(changed)
+
+
+def test_prepare_rejects_nonofficial_activation_before_runtime_or_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    touched: list[str] = []
+
+    def fail_activation() -> dict[str, object]:
+        raise RuntimeError("official activation is unavailable")
+
+    def forbidden_runtime() -> dict[str, str]:
+        touched.append("runtime")
+        raise AssertionError("runtime must not run after activation failure")
+
+    def forbidden_load(path: Path) -> object:
+        touched.append(f"load:{path}")
+        raise AssertionError("source must not load after activation failure")
+
+    monkeypatch.setattr(
+        directional_study,
+        "official_activation_from_environment",
+        fail_activation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        directional_study, "validate_required_runtime", forbidden_runtime
+    )
+    monkeypatch.setattr(
+        directional_study, "load_market_dataset_artifact", forbidden_load
+    )
+    output = tmp_path / "study"
+    with pytest.raises(RuntimeError, match="official activation"):
+        directional_study.prepare_study(tmp_path / "source", output)
+    assert touched == []
     assert not output.exists()

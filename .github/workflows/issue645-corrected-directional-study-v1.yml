@@ -20,6 +20,16 @@ concurrency:
 env:
   TARGET_SHA: 928ee0886c404cdbb1383f440f731d7221c277ef
   HARDENING_VERIFY_RUN: '35286382568'
+  IMPLEMENTATION_SEAL_RUN: '35286608859'
+  IMPLEMENTATION_PRIMARY_ID: '10525290101'
+  IMPLEMENTATION_PRIMARY_NAME: issue645-corrected-accounting-primary-v1
+  IMPLEMENTATION_PRIMARY_DIGEST: sha256:69699dcb68c06fc8ba86c69cdb77cc43813adc02ff9f88f65425fbdf44bfcc82
+  IMPLEMENTATION_FRESH_ID: '10525050310'
+  IMPLEMENTATION_FRESH_NAME: issue645-corrected-accounting-fresh-v1
+  IMPLEMENTATION_FRESH_DIGEST: sha256:792cb7c100ab3166fbdacd5177680a1add5ac30ccefe6b6906c57ae14a30bd31
+  IMPLEMENTATION_AUDIT_ID: '10524726805'
+  IMPLEMENTATION_AUDIT_NAME: issue645-corrected-accounting-audit-v1
+  IMPLEMENTATION_AUDIT_DIGEST: sha256:9611dc12a556fe05961071692239d59ca930081ab3e2047924255361a1c51e88
   PRODUCER_RUN: '34803217815'
   PRODUCER_ARTIFACT_ID: '10331899302'
   PRODUCER_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
@@ -114,6 +124,23 @@ jobs:
           test "$(jq -r .conclusion <<<"$hardening")" = success
           test "$(jq -r .head_sha <<<"$hardening")" = 31029ddf466fd716d39c42c3224260cc5782a5fa
 
+          implementation_seal="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$IMPLEMENTATION_SEAL_RUN")"
+          test "$(jq -r .status <<<"$implementation_seal")" = completed
+          test "$(jq -r .conclusion <<<"$implementation_seal")" = success
+          test "$(jq -r .head_sha <<<"$implementation_seal")" = 78cfad19b2bb2eb66291aec0d6de8a7ffaa0a3f6
+          for row in \
+            "$IMPLEMENTATION_PRIMARY_ID|$IMPLEMENTATION_PRIMARY_NAME|$IMPLEMENTATION_PRIMARY_DIGEST" \
+            "$IMPLEMENTATION_FRESH_ID|$IMPLEMENTATION_FRESH_NAME|$IMPLEMENTATION_FRESH_DIGEST" \
+            "$IMPLEMENTATION_AUDIT_ID|$IMPLEMENTATION_AUDIT_NAME|$IMPLEMENTATION_AUDIT_DIGEST"
+          do
+            IFS="|" read -r artifact_id artifact_name artifact_digest <<<"$row"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id")"
+            test "$(jq -r .name <<<"$artifact")" = "$artifact_name"
+            test "$(jq -r .workflow_run.id <<<"$artifact")" = "$IMPLEMENTATION_SEAL_RUN"
+            test "$(jq -r .expired <<<"$artifact")" = false
+            test "$(jq -r .digest <<<"$artifact")" = "$artifact_digest"
+          done
+
           producer="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ARTIFACT_ID")"
           test "$(jq -r .name <<<"$producer")" = "$PRODUCER_ARTIFACT_NAME"
           test "$(jq -r .workflow_run.id <<<"$producer")" = "$PRODUCER_RUN"
@@ -146,6 +173,41 @@ jobs:
           print('ISSUE645_REMOTE_ACTIVATION_SLOT=EMPTY')
           print('REAL_DATASET_LOADED=false')
           print('ECONOMIC_ARM_STARTED=false')
+          PY
+
+      - name: Download sealed implementation audit before Dataset load
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-accounting-audit-v1
+          path: ${{ runner.temp }}/implementation-audit
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35286608859'
+
+      - name: Re-read implementation seal boundary before Dataset load
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUDIT="$RUNNER_TEMP/implementation-audit/audit.json" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(os.environ["AUDIT"]).read_text())
+          assert payload["schema_version"] == "issue645_corrected_accounting_implementation_audit_v1"
+          assert payload["issue_number"] == 645
+          assert payload["target_head"] == "928ee0886c404cdbb1383f440f731d7221c277ef"
+          assert payload["byte_identical"] is True
+          assert payload["primary_sha256"] == payload["fresh_sha256"]
+          assert len(payload["primary_sha256"]) == 64
+          assert payload["real_dataset_loaded"] is False
+          assert payload["economic_result_inspected"] is False
+          assert payload["production_eligible"] is False
+          assert payload["live_trading_authorized"] is False
+          print("ISSUE645_IMPLEMENTATION_SEAL_BOUND=true")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          print("ECONOMIC_REPLAY_PERFORMED=false")
           PY
 
       - name: Download exact calibrated causal successor without loading Dataset

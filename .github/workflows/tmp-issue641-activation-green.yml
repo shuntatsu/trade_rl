@@ -1,0 +1,95 @@
+name: tmp Issue 641 activation GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue641-activation-green-v1
+    paths:
+      - .github/workflows/tmp-issue641-activation-green.yml
+
+permissions:
+  contents: write
+  actions: read
+  issues: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue641-activation-green-v1
+          fetch-depth: 0
+      - name: Apply official activation gate and remote claim helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('trade_rl/evaluation/directional_study.py')
+          s=p.read_text()
+          s=s.replace('import json\n', 'import json\nimport os\n')
+          s=s.replace('from pathlib import Path\n', 'from collections.abc import Mapping\nfrom pathlib import Path\n')
+          anchor='''_REQUIRED_RUNTIME = (\n    ("lightgbm", "lightgbm", "4.7.0"),\n    ("stable-baselines3", "stable_baselines3", "2.3.2"),\n    ("torch", "torch", "2.4.1"),\n    ("scikit-learn", "sklearn", None),\n)\n\n\n'''
+          addition=anchor+'''_OFFICIAL_REF_NAME = "run/issue641-directional-study-v1"\n_OFFICIAL_WORKFLOW_REF = (\n    "shuntatsu/trade_rl/.github/workflows/issue641-directional-study-v1.yml"\n    "@refs/heads/run/issue641-directional-study-v1"\n)\n\n\ndef official_activation_from_environment(\n    environment: Mapping[str, str] | None = None,\n) -> dict[str, object]:\n    """Return the unique first-run GitHub Actions identity for official execution."""\n\n    env: Mapping[str, str] = os.environ if environment is None else environment\n    try:\n        run_id = int(env["GITHUB_RUN_ID"])\n        run_number = int(env["GITHUB_RUN_NUMBER"])\n        run_attempt = int(env["GITHUB_RUN_ATTEMPT"])\n        head_sha = env["GITHUB_SHA"]\n        workflow_ref = env["GITHUB_WORKFLOW_REF"]\n        ref_name = env["GITHUB_REF_NAME"]\n    except (KeyError, ValueError) as error:\n        raise RuntimeError("official activation environment is incomplete") from error\n    if (\n        env.get("GITHUB_ACTIONS") != "true"\n        or env.get("GITHUB_EVENT_NAME") != "push"\n        or ref_name != _OFFICIAL_REF_NAME\n        or workflow_ref != _OFFICIAL_WORKFLOW_REF\n        or run_id <= 0\n        or run_number != 1\n        or run_attempt != 1\n        or len(head_sha) != 40\n        or head_sha != head_sha.lower()\n        or any(ch not in "0123456789abcdef" for ch in head_sha)\n    ):\n        raise RuntimeError("official activation identity is invalid")\n    return {\n        "schema_version": "directional_development_activation_v1",\n        "workflow_run_id": run_id,\n        "workflow_run_number": run_number,\n        "workflow_run_attempt": run_attempt,\n        "workflow_event": "push",\n        "workflow_ref": workflow_ref,\n        "ref_name": ref_name,\n        "head_sha": head_sha,\n    }\n\n\n'''
+          if anchor not in s:
+              raise SystemExit('runtime anchor drift')
+          s=s.replace(anchor,addition,1)
+          old='''def prepare_study(source: Path, output: Path) -> None:\n    from trade_rl.data.artifacts import inspect_published_market_dataset_artifact\n\n    validate_required_runtime()\n    dataset = load_market_dataset_artifact(source / "dataset")\n'''
+          new='''def prepare_study(source: Path, output: Path) -> None:\n    from trade_rl.data.artifacts import inspect_published_market_dataset_artifact\n\n    activation = official_activation_from_environment()\n    validate_required_runtime()\n    dataset = load_market_dataset_artifact(source / "dataset")\n'''
+          if old not in s:
+              raise SystemExit('prepare anchor drift')
+          s=s.replace(old,new,1)
+          s=s.replace('    protocol = expected_protocol(source)\n    reserve_study(output, protocol)\n', '    protocol = expected_protocol(source, activation=activation)\n    reserve_study(output, protocol)\n',1)
+          old2='''def expected_protocol(source: Path) -> dict[str, Any]:\n    required_runtime = validate_required_runtime()\n'''
+          new2='''def expected_protocol(\n    source: Path, *, activation: dict[str, object] | None = None\n) -> dict[str, Any]:\n    required_runtime = validate_required_runtime()\n    if activation is None:\n        activation = official_activation_from_environment()\n'''
+          if old2 not in s:
+              raise SystemExit('protocol anchor drift')
+          s=s.replace(old2,new2,1)
+          s=s.replace('        "required_runtime_packages": required_runtime,\n', '        "required_runtime_packages": required_runtime,\n        "official_activation": activation,\n',1)
+          p.write_text(s)
+
+          helper=Path('.github/scripts/issue640_directional_activation.py')
+          helper.parent.mkdir(parents=True, exist_ok=True)
+          helper.write_text('''from __future__ import annotations\n\nfrom typing import Any\n\nfrom trade_rl.artifacts import canonical_json_bytes, content_digest\n\nACTIVATION_ARTIFACT_NAME = "issue640-directional-study-activation-v1"\n\n\ndef _sha40(value: object, *, field: str) -> str:\n    if (\n        not isinstance(value, str)\n        or len(value) != 40\n        or value != value.lower()\n        or any(ch not in "0123456789abcdef" for ch in value)\n    ):\n        raise ValueError(f"{field} must be a lowercase 40-character git SHA")\n    return value\n\n\ndef _protocol_fields(protocol: object) -> dict[str, Any]:\n    if not isinstance(protocol, dict):\n        raise ValueError("protocol must be an object")\n    runtime = protocol.get("required_runtime_packages")\n    provenance = protocol.get("provenance")\n    arms = protocol.get("arms")\n    if (\n        not isinstance(runtime, dict)\n        or not runtime\n        or any(not isinstance(k, str) or not isinstance(v, str) or not v for k, v in runtime.items())\n    ):\n        raise ValueError("runtime roster is incomplete")\n    if not isinstance(provenance, dict):\n        raise ValueError("protocol provenance is missing")\n    implementation_digest = provenance.get("implementation_digest")\n    runtime_digest = provenance.get("runtime_environment_digest")\n    if not isinstance(implementation_digest, str) or not implementation_digest:\n        raise ValueError("implementation provenance is missing")\n    if not isinstance(runtime_digest, str) or not runtime_digest:\n        raise ValueError("runtime provenance is missing")\n    if not isinstance(arms, list) or not arms or any(not isinstance(x, str) for x in arms):\n        raise ValueError("arm roster is invalid")\n    for field in ("source_dataset_id", "source_artifact_digest", "source_study_digest"):\n        if not isinstance(protocol.get(field), str) or not protocol[field]:\n            raise ValueError(f"protocol {field} is invalid")\n    if protocol.get("unused_data_accessed") is not False or protocol.get("production_eligible") is not False:\n        raise ValueError("protocol research boundary is invalid")\n    return {\n        "runtime": dict(runtime),\n        "implementation_digest": implementation_digest,\n        "runtime_environment_digest": runtime_digest,\n        "arms": list(arms),\n    }\n\n\ndef build_activation_claim(\n    protocol: object,\n    *,\n    workflow_run_id: object,\n    workflow_run_attempt: object,\n    implementation_head: object,\n) -> dict[str, object]:\n    fields = _protocol_fields(protocol)\n    if isinstance(workflow_run_id, bool) or not isinstance(workflow_run_id, int) or workflow_run_id <= 0:\n        raise ValueError("workflow_run_id must be a positive integer")\n    if type(workflow_run_attempt) is not int or workflow_run_attempt != 1:\n        raise ValueError("workflow run attempt must be exactly 1")\n    head = _sha40(implementation_head, field="implementation_head")\n    assert isinstance(protocol, dict)\n    return {\n        "schema_version": "issue640_directional_activation_v1",\n        "issue_number": 640,\n        "workflow_run_id": workflow_run_id,\n        "workflow_run_attempt": workflow_run_attempt,\n        "implementation_head": head,\n        "protocol_digest": content_digest(protocol),\n        "implementation_digest": fields["implementation_digest"],\n        "runtime_environment_digest": fields["runtime_environment_digest"],\n        "source_dataset_id": protocol["source_dataset_id"],\n        "source_artifact_digest": protocol["source_artifact_digest"],\n        "source_study_digest": protocol["source_study_digest"],\n        "required_runtime_packages": fields["runtime"],\n        "arm_roster": fields["arms"],\n        "local_output_root_is_authority": False,\n        "economic_execution_started": False,\n        "economic_result_inspected": False,\n        "unused_data_accessed": False,\n        "final_test_accessed": False,\n        "production_eligible": False,\n        "live_trading_authorized": False,\n        "merge_authorized": False,\n    }\n\n\ndef activation_claim_bytes(claim: object) -> bytes:\n    if not isinstance(claim, dict):\n        raise ValueError("activation claim must be an object")\n    return canonical_json_bytes(claim)\n\n\ndef validate_remote_slot(\n    listing: object, *, state: str, workflow_run_id: int | None = None\n) -> dict[str, object] | None:\n    if not isinstance(listing, dict):\n        raise RuntimeError("remote activation listing is invalid")\n    total = listing.get("total_count")\n    artifacts = listing.get("artifacts")\n    if isinstance(total, bool) or not isinstance(total, int) or not isinstance(artifacts, list):\n        raise RuntimeError("remote activation listing is invalid")\n    if state == "empty":\n        if total != 0 or artifacts:\n            raise RuntimeError("remote activation is already claimed")\n        return None\n    if state != "claimed":\n        raise ValueError("state must be empty or claimed")\n    if total != 1 or len(artifacts) != 1 or not isinstance(artifacts[0], dict):\n        raise RuntimeError("remote activation claim cardinality is invalid")\n    artifact = artifacts[0]\n    if artifact.get("name") != ACTIVATION_ARTIFACT_NAME or artifact.get("expired") is not False:\n        raise RuntimeError("remote activation Artifact identity is invalid")\n    run = artifact.get("workflow_run")\n    if not isinstance(run, dict) or workflow_run_id is None or run.get("id") != workflow_run_id:\n        raise RuntimeError("remote activation workflow identity differs")\n    return artifact\n\n\ndef validate_activation_claim(\n    claim: object,\n    protocol: object,\n    *,\n    workflow_run_id: int,\n    implementation_head: str,\n) -> None:\n    if not isinstance(claim, dict):\n        raise ValueError("activation claim must be an object")\n    if claim.get("workflow_run_id") != workflow_run_id:\n        raise ValueError("workflow_run_id differs from activation claim")\n    attempt = claim.get("workflow_run_attempt")\n    expected = build_activation_claim(\n        protocol,\n        workflow_run_id=workflow_run_id,\n        workflow_run_attempt=attempt,\n        implementation_head=implementation_head,\n    )\n    if claim != expected:\n        raise ValueError("protocol or execution identity differs from activation claim")\n\n\n__all__ = [\n    "ACTIVATION_ARTIFACT_NAME",\n    "activation_claim_bytes",\n    "build_activation_claim",\n    "validate_activation_claim",\n    "validate_remote_slot",\n]\n''')
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install full frozen trainer runtime
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static and targeted GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          uv run ruff format trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          uv run ruff check trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          uv run ruff format --check trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          uv run mypy trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py
+          uv run pytest -q tests/evaluation/test_directional_study.py tests/evaluation/test_directional.py tests/evaluation/test_directional_selection.py tests/tools/test_issue640_directional_activation.py
+      - name: Real runtime preflight only, no market data
+        run: |
+          uv run python - <<'PY'
+          from trade_rl.evaluation.directional_study import validate_required_runtime
+          versions=validate_required_runtime()
+          assert versions['lightgbm']=='4.7.0'
+          assert versions['stable-baselines3']=='2.3.2'
+          assert versions['torch']=='2.4.1'
+          assert versions['scikit-learn']=='1.9.0'
+          print('ISSUE641_RUNTIME_PREFLIGHT=PASS')
+          print('REAL_MARKET_DATA_LOADED=false')
+          print('ECONOMIC_ARM_EXECUTED=false')
+          PY
+      - name: Commit verified durable files only
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/evaluation/directional_study.py .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          git diff --cached --name-only | sort > "$RUNNER_TEMP/files"
+          printf '%s\n' .github/scripts/issue640_directional_activation.py tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py trade_rl/evaluation/directional_study.py | sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/files"
+          git commit -m 'research: harden directional runtime and remote activation'
+          git push origin HEAD:automation/issue641-activation-green-v1

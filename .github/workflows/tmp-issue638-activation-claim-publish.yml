@@ -1,0 +1,47 @@
+name: tmp Issue 638 publish activation claim
+
+on:
+  push:
+    branches:
+      - automation/issue638-activation-claim-green-v1
+    paths:
+      - .github/workflows/tmp-issue638-activation-claim-publish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout verified activation source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 289c23b995ba154b257311c19d7323d3c156f287
+          path: source
+          persist-credentials: false
+      - name: Checkout exact prepare target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          path: target
+          fetch-depth: 0
+      - name: Require unchanged prepare head and copy two verified files
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = 6356e7ca72fa94fd91b99d903db6d907d32914c6
+          cp source/.github/scripts/issue638_ppo_baseline_runner.py target/.github/scripts/issue638_ppo_baseline_runner.py
+          cp source/tests/tools/test_issue638_ppo_baseline_runner.py target/tests/tools/test_issue638_ppo_baseline_runner.py
+          git -C target status --short
+      - name: Commit and non-force publish source/test only
+        working-directory: target
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          git diff --cached --name-only > "$RUNNER_TEMP/files"
+          printf '%s\n' .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/files"
+          git commit -m 'research: add fail-closed Issue 638 activation claim'
+          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

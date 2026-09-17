@@ -167,12 +167,17 @@ def audit(
     winner: str | None = None
     decision: str | None = None
     if complete:
-        if not selection_path.is_file() or execution.get("selection_published") is not True:
+        if (
+            not selection_path.is_file()
+            or execution.get("selection_published") is not True
+        ):
             raise ValueError("complete study is missing selection")
         expected = select_development_candidates(results)
         expected["protocol_digest"] = protocol_digest
         expected["result_sha256"] = {
-            arm: _sha256(arms_root / f"issue640-directional-arm-{arm}-v1" / "result.json")
+            arm: _sha256(
+                arms_root / f"issue640-directional-arm-{arm}-v1" / "result.json"
+            )
             for arm in ARMS
         }
         if canonical_json_bytes(expected) != selection_path.read_bytes():

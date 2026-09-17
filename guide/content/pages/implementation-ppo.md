@@ -30,6 +30,24 @@ local_values
 
 初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。
 
+## 学習時の銘柄スケジュールは2方式
+
+`fit_ppo_strategy`の既定は従来どおり`sequential`です。1つの`PPOTradingEnv`がfit対象銘柄をfull-window episodeごとにround-robinするため、既存のStudyやcandidateの意味は変わりません。
+
+`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Observation v2、reward、hard risk、約定・会計、network、entropy係数は変えません。
+
+```text
+sequential（既定）
+  1つのenv: BTC full window → ETH full window → ...
+
+interleaved（opt-in）
+  BTC固定env ─┐
+  ETH固定env ─┼─ DummyVecEnv → 同じPPO policy update
+  ...         ─┘
+```
+
+これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。 なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+
 ## 学習stepの全体像
 
 ```text

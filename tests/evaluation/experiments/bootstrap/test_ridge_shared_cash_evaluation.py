@@ -166,7 +166,7 @@ def test_carrier_sources_match_sealed_runtime_authorities() -> None:
         _git_blob_sha(
             "trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py"
         )
-        == "e848a0f4eec434f534455f88244eda75d97f4d04"
+        == "208e4d45b64ce4e92cd8eca59a5c427dc8be7029"
     )
 
 
@@ -174,22 +174,22 @@ def test_canonical_spec_binds_protocol_and_execution_authorities() -> None:
     spec = canonical_ridge_shared_cash_evaluation_spec()
 
     assert spec.issue_number == 630
-    assert spec.protocol_head == "6615e30773cd3035a3f2e67e608aef2afc4e143c"
+    assert spec.protocol_head == "65eb3c90e0a5fe1cea952279c28024160838da08"
     assert spec.protocol_digest == (
-        "14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a"
+        "c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88"
     )
-    assert spec.protocol_module_blob == "e848a0f4eec434f534455f88244eda75d97f4d04"
-    assert spec.protocol_seal_run_id == 35209118815
-    assert spec.protocol_primary_artifact_id == 10490873666
+    assert spec.protocol_module_blob == "208e4d45b64ce4e92cd8eca59a5c427dc8be7029"
+    assert spec.protocol_seal_run_id == 35211715033
+    assert spec.protocol_primary_artifact_id == 10491893357
     assert spec.protocol_primary_artifact_api_digest == (
-        "9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0"
+        "0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841"
     )
-    assert spec.protocol_fresh_artifact_id == 10491447310
+    assert spec.protocol_fresh_artifact_id == 10492645772
     assert spec.protocol_fresh_artifact_api_digest == (
-        "e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e"
+        "ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56"
     )
     assert spec.protocol_seal_sha256 == (
-        "a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27"
+        "b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903"
     )
     assert spec.ridge_implementation_head == (
         "222a082ee28f4f0fd35081912a33649cce27c585"
@@ -198,6 +198,7 @@ def test_canonical_spec_binds_protocol_and_execution_authorities() -> None:
     assert spec.execution_overlay == (
         "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
     )
+    assert spec.execution_max_leverage == 1.0
     assert spec.symbols == _SYMBOLS
     assert spec.feature_indices == tuple(_FEATURE_INDEX_TO_NAME)
     assert spec.gross_budget == 0.5
@@ -290,6 +291,7 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
         getattr(replay_calls[0]["execution_cost"], "processing_bar_volume_capacity")
         is False
     )
+    assert getattr(replay_calls[0]["execution_cost"], "max_leverage") == 1.0
     for call in replay_calls:
         assert call["start_index"] == 1
         assert call["stop_index"] == 732

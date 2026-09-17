@@ -12,6 +12,7 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation impo
     shared_cash_return_sha256,
     shared_cash_status,
 )
+from trade_rl.simulation import ExecutionCostConfig
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _FEATURE_INDEX_TO_NAME = {
@@ -204,4 +205,35 @@ def test_authority_drift_fails_before_fit_or_replay(
 
     with pytest.raises(ValueError, match=message):
         evaluate_ridge_shared_cash(dataset)
+    assert calls == {"fit": 0, "replay": 0}
+
+
+def test_execution_max_leverage_drift_fails_before_fit_or_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as module
+
+    calls = {"fit": 0, "replay": 0}
+
+    def forbidden_fit(*args: object, **kwargs: object) -> object:
+        calls["fit"] += 1
+        raise AssertionError("fit must not run after execution authority drift")
+
+    def forbidden_replay(*args: object, **kwargs: object) -> object:
+        calls["replay"] += 1
+        raise AssertionError("replay must not run after execution authority drift")
+
+    def drifted_cost(_: str) -> ExecutionCostConfig:
+        return replace(
+            ExecutionCostConfig.zero(),
+            max_leverage=0.5,
+            processing_bar_volume_capacity=False,
+        )
+
+    monkeypatch.setattr(module, "execution_cost_for_overlay", drifted_cost)
+    monkeypatch.setattr(module, "fit_ridge_forecast", forbidden_fit)
+    monkeypatch.setattr(module, "run_shared_cash_replay", forbidden_replay)
+
+    with pytest.raises(ValueError, match="max leverage"):
+        evaluate_ridge_shared_cash(_dataset())
     assert calls == {"fit": 0, "replay": 0}

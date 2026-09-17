@@ -55,15 +55,15 @@ _SPEC_VALUES: dict[str, object] = {
     "schema_version": _SPEC_SCHEMA,
     "issue_number": 630,
     "protocol_issue_number": 627,
-    "protocol_head": "6615e30773cd3035a3f2e67e608aef2afc4e143c",
-    "protocol_module_blob": "e848a0f4eec434f534455f88244eda75d97f4d04",
-    "protocol_digest": "14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a",
-    "protocol_seal_run_id": 35209118815,
-    "protocol_primary_artifact_id": 10490873666,
-    "protocol_primary_artifact_api_digest": "9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0",
-    "protocol_fresh_artifact_id": 10491447310,
-    "protocol_fresh_artifact_api_digest": "e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e",
-    "protocol_seal_sha256": "a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27",
+    "protocol_head": "65eb3c90e0a5fe1cea952279c28024160838da08",
+    "protocol_module_blob": "208e4d45b64ce4e92cd8eca59a5c427dc8be7029",
+    "protocol_digest": "c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88",
+    "protocol_seal_run_id": 35211715033,
+    "protocol_primary_artifact_id": 10491893357,
+    "protocol_primary_artifact_api_digest": "0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841",
+    "protocol_fresh_artifact_id": 10492645772,
+    "protocol_fresh_artifact_api_digest": "ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56",
+    "protocol_seal_sha256": "b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903",
     "trigger_run_id": 35201639813,
     "trigger_result_artifact_id": 10487739534,
     "trigger_result_artifact_api_digest": "787362841f4ff9b68235f157ba82a9e02edc1e995b6bedb54ec05149b6d59148",
@@ -94,6 +94,7 @@ _SPEC_VALUES: dict[str, object] = {
     "cost_authority_artifact_api_digest": "7b4e0749b783fa29e50c3b92f0a21541148c80b8b4f4ed6b0586b0d5b52f64fb",
     "cost_authority_digest": "bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04",
     "execution_overlay": _EXECUTION_OVERLAY,
+    "execution_max_leverage": 1.0,
     "symbols": _SYMBOLS,
     "feature_names": _FEATURE_NAMES,
     "feature_indices": _FEATURE_INDICES,
@@ -181,6 +182,7 @@ class RidgeSharedCashEvaluationSpec:
     cost_authority_artifact_api_digest: str
     cost_authority_digest: str
     execution_overlay: str
+    execution_max_leverage: float
     symbols: tuple[str, ...]
     feature_names: tuple[str, ...]
     feature_indices: tuple[int, ...]
@@ -561,6 +563,11 @@ def evaluate_ridge_shared_cash(dataset: MarketDataset) -> RidgeSharedCashEvaluat
 
     spec = canonical_ridge_shared_cash_evaluation_spec()
     start, stop = _validate_dataset(dataset, spec)
+    execution_cost = execution_cost_for_overlay(spec.execution_overlay)
+    if execution_cost.max_leverage != spec.execution_max_leverage:
+        raise ValueError(
+            "execution max leverage differs from frozen shared-cash authority"
+        )
     model = fit_ridge_forecast(
         dataset,
         feature_indices=spec.feature_indices,
@@ -597,7 +604,6 @@ def evaluate_ridge_shared_cash(dataset: MarketDataset) -> RidgeSharedCashEvaluat
     if not all(item.model is model for item in candidate):
         raise RuntimeError("candidate arm must share the exact fitted Ridge model")
 
-    execution_cost = execution_cost_for_overlay(spec.execution_overlay)
     baseline_replay = run_shared_cash_replay(
         dataset,
         baseline,

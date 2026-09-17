@@ -38,11 +38,7 @@ _PPO_SEEDS = (0, 1, 2, 3, 4)
 
 
 def _bounded_count(value: object, *, field: str, upper: int) -> int:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 0 <= value <= upper
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= upper:
         raise ValueError(f"{field} must be an integer within [0, {upper}]")
     return value
 
@@ -125,9 +121,7 @@ class PPOInterleavedEvaluationProtocol:
     candidate_training_authorized: bool = False
     economic_result_inspected: bool = False
 
-    factor_effect_statistic: str = (
-        "per_symbol_median_matched_seed_excess_total_return"
-    )
+    factor_effect_statistic: str = "per_symbol_median_matched_seed_excess_total_return"
     seed_robustness_statistic: str = "per_seed_cross_symbol_median_excess_total_return"
     candidate_profitability_statistic: str = (
         "cross_symbol_median_of_per_symbol_median_candidate_total_return"
@@ -190,14 +184,11 @@ class PPOInterleavedEvaluationProtocol:
 
 def _canonical_field_values() -> dict[str, object]:
     return {
-        field.name: field.default
-        for field in fields(PPOInterleavedEvaluationProtocol)
+        field.name: field.default for field in fields(PPOInterleavedEvaluationProtocol)
     }
 
 
-def canonical_ppo_interleaved_evaluation_protocol() -> (
-    PPOInterleavedEvaluationProtocol
-):
+def canonical_ppo_interleaved_evaluation_protocol() -> PPOInterleavedEvaluationProtocol:
     return PPOInterleavedEvaluationProtocol()
 
 

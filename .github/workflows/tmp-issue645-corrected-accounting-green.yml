@@ -1,0 +1,66 @@
+name: tmp Issue 645 corrected-accounting GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue645-corrected-accounting-green-v1
+    paths:
+      - .github/workflows/tmp-issue645-corrected-accounting-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b192fc8cfc52dfd9e6551021d8fea1360aac24a8
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Prove isolated #643 correction bytes and frozen directional semantics
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/shuntatsu/trade_rl.git             c80652a126780580990bf46bb206155ba469e043             95a4831bfbd5dfac2b77371b0c99d6894edc4d3a
+          expected=$(cat <<'EOF'
+          tests/simulation/test_lot_accounting.py
+          tests/simulation/test_stateful_execution_characterization.py
+          trade_rl/simulation/accounting.py
+          trade_rl/simulation/execution.py
+          trade_rl/simulation/liquidity.py
+          trade_rl/simulation/orders/admission.py
+          trade_rl/simulation/orders/model.py
+          trade_rl/simulation/quantities.py
+          trade_rl/simulation/stateful/symbol_fills.py
+          EOF
+          )
+          actual=$(git diff --name-only c80652a126780580990bf46bb206155ba469e043 HEAD | sort)
+          test "$actual" = "$(printf '%s\n' "$expected" | sed 's/^          //' | sort)"
+          for p in             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py
+          do
+            test "$(git rev-parse HEAD:"$p")" = "$(git rev-parse 95a4831bfbd5dfac2b77371b0c99d6894edc4d3a:"$p")"
+          done
+          for p in             trade_rl/evaluation/directional_study.py             trade_rl/evaluation/directional_selection.py             trade_rl/evaluation/directional_candidates.py             trade_rl/evaluation/directional.py
+          do
+            test "$(git rev-parse HEAD:"$p")" = "$(git rev-parse c80652a126780580990bf46bb206155ba469e043:"$p")"
+          done
+          echo ISSUE645_FACTOR_ISOLATION=PASS
+      - name: Static and type checks
+        run: |
+          set -euo pipefail
+          uv run ruff check             tests/simulation/test_lot_accounting.py             tests/simulation/test_stateful_execution_characterization.py             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py
+          uv run ruff format --check             tests/simulation/test_lot_accounting.py             tests/simulation/test_stateful_execution_characterization.py             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py
+          uv run mypy             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py
+      - name: Simulation regression GREEN
+        run: uv run pytest -q tests/simulation
+      - name: Exact clean target
+        run: |
+          test "$(git rev-parse HEAD)" = b192fc8cfc52dfd9e6551021d8fea1360aac24a8
+          test -z "$(git status --porcelain)"

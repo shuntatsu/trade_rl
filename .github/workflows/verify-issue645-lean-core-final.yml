@@ -1,0 +1,117 @@
+name: Verify Issue 645 canonical Lean Core
+
+on:
+  push:
+    branches:
+      - verify/issue645-lean-core-final
+    paths:
+      - .github/workflows/verify-issue645-lean-core-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 66e93dd4e4a393e2a6fe56631bedbd8af192c282
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Exact single-factor scope
+        run: |
+          python - <<'PY'
+          import subprocess
+          expected = sorted([
+              'tests/architecture/test_lean_simulation_layout.py',
+              'tests/simulation/test_lot_accounting.py',
+              'tests/simulation/test_stateful_execution_characterization.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ])
+          actual = sorted(subprocess.check_output([
+              'git','diff','--name-only','c80652a126780580990bf46bb206155ba469e043...HEAD'
+          ], text=True).splitlines())
+          assert actual == expected, actual
+          PY
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Core tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version('trade-rl') == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          from trade_rl.simulation.quantities import quantize_quantity
+          assert quantize_quantity(0.003, 0.001) == (0.003, 3)
+          print('ISSUE645_CLEAN_INSTALLED_CORE=PASS')
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+      - name: Result-blind boundary
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ISSUE640_RESULT_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false
+          echo FINAL_TEST_ACCESSED=false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false

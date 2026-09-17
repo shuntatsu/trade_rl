@@ -1,0 +1,42 @@
+name: tmp PR628 format preregistration
+
+on:
+  push:
+    branches:
+      - research/issue627-shared-cash-prereg
+    paths:
+      - .github/workflows/tmp-pr628-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue627-shared-cash-prereg
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only preregistration module
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py'
+          uv run ruff format "$target"
+          uv run ruff format --check "$target"
+          uv run ruff check "$target"
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          git commit -m 'style: format shared-cash preregistration'
+          git push origin HEAD:research/issue627-shared-cash-prereg

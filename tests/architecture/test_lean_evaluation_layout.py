@@ -64,6 +64,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "ppo_risk_study.py",
         "paper/__init__.py",
         "paper/store.py",
+        "paper/account.py",
+        "paper/engine.py",
         "comparison/__init__.py",
         "comparison/bootstrap.py",
         "comparison/paired.py",

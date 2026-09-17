@@ -74,9 +74,14 @@ The separate recorded-depth paper matcher models partial bid/ask fills, declared
 fees and adverse pricing on the canonical account. These are software components;
 current public-rule capture and verified snapshot readers are available, while
 an append-only protocol-bound journal has been implemented and tested with
-concurrent writes and interrupted transactions. Full strategy/account composition
-and the future economic gate remain unimplemented. No paper positions have been
-started.
+concurrent writes and interrupted transactions. The deterministic paper engine
+now composes saved decisions, verified later quotes, partial fills and settled
+funding on the existing account, and verifies every committed result on restart.
+Funding uses exact quantities held before the settlement timestamp, including
+when payment evidence arrives after an exit. Revisions, late/missing funding and
+observation gaps remain visible permanent quality failures. A standalone
+source/runtime-bound collector, study sealing and future economic gate remain
+unimplemented. These software tests have not started prospective paper positions.
 
 ### Directional development study under a 20% drawdown budget
 

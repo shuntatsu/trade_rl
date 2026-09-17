@@ -79,7 +79,7 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
-    ├── paper/{__init__.py,store.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -131,8 +131,12 @@ module consumes a trading account or authorizes an order.
 with canonical JSON hashes, contiguous sequence/parent checks, atomic
 compare-and-append and idempotency. Reopening permits SQLite recovery only after
 validating the expected protocol digest. This is an evidence store, not another
-financial ledger or a completed paper runner; economic transitions remain the
-responsibility of a future composition using canonical strategy/accounting.
+financial ledger. `paper/account.py` composes the existing FundingCarryBot,
+BookState and depth matcher, tracks exact fill-time holdings for later funding
+receipts, and owns permanent risk/quality stops. `paper/engine.py` binds verified
+source references to saved commands, commits isolated account transitions, and
+replays every result on restart. It has no network loop or production routing;
+prospective study sealing and collection supervision remain separate work.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

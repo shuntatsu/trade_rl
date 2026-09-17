@@ -19,7 +19,7 @@ _FEATURE_INDICES = (0, 1, 2, 4, 5, 6, 7, 10, 60, 63, 114, 118)
 def test_protocol_binds_upstream_and_shared_cash_authority() -> None:
     protocol = canonical_ridge_shared_cash_protocol()
 
-    assert protocol.schema_version == "ridge_shared_cash_prereg_v1"
+    assert protocol.schema_version == "ridge_shared_cash_prereg_v2"
     assert protocol.issue_number == 627
     assert protocol.trigger_issue == 626
     assert protocol.trigger_status == "PROMOTE_RESEARCH_REFERENCE"
@@ -67,6 +67,9 @@ def test_protocol_freezes_model_account_and_decision_rule() -> None:
     assert protocol.forecast_entry_threshold == 0.0025
     assert protocol.forecast_exit_threshold == 0.0005
     assert protocol.one_way_explicit_cost == pytest.approx(0.0007)
+    assert protocol.execution_overlay == (
+        "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
+    )
 
     assert protocol.fit_ridge_exactly_once is True
     assert protocol.baseline_candidate_share_same_model_object is True
@@ -129,6 +132,7 @@ def test_protocol_rejects_semantic_drift() -> None:
         {"ridge_alpha": 2.0},
         {"forecast_entry_threshold": 0.003},
         {"one_way_explicit_cost": 0.001},
+        {"execution_overlay": "legacy_dataset_execution_overlay"},
         {"fit_ridge_exactly_once": False},
         {"baseline_candidate_share_same_model_object": False},
         {"distinct_strategy_instance_per_symbol": False},

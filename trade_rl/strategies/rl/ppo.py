@@ -236,8 +236,11 @@ class PPOTradingEnv(gym.Env):
         gross_budget: float,
         initial_capital: float = 100_000.0,
         execution_cost: ExecutionCostConfig | None = None,
+        risk_config: PreTradeRiskConfig | None = None,
     ) -> None:
         super().__init__()
+        if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
+            raise ValueError("risk_config must be a PreTradeRiskConfig or None")
         if dataset.n_symbols <= 0:
             raise ValueError("PPOTradingEnv requires at least one symbol")
         if (
@@ -262,6 +265,14 @@ class PPOTradingEnv(gym.Env):
         self.gross_budget = gross_budget
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
+        self.risk_config = risk_config
+        if risk_config is not None and (
+            risk_config.max_gross > self.execution_cost.max_leverage
+            or risk_config.max_abs_weight > self.execution_cost.max_leverage
+        ):
+            raise ValueError(
+                "risk max_gross/max_abs_weight must not exceed execution max_leverage"
+            )
 
         observation_size = 3 * len(self.feature_indices) + 2
         self.observation_space = spaces.Box(
@@ -275,7 +286,11 @@ class PPOTradingEnv(gym.Env):
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
-        self.risk = _default_risk(self.executor)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
@@ -333,7 +348,11 @@ class PPOTradingEnv(gym.Env):
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
             self.executor.reset_random_state(seed)
-        self.risk = _default_risk(self.executor)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
@@ -430,6 +449,7 @@ def fit_ppo_strategy(
     execution_cost: ExecutionCostConfig | None = None,
     training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL,
     rollout_steps_per_env: int | None = None,
+    risk_config: PreTradeRiskConfig | None = None,
 ) -> PPOIntentStrategy:
     """Fit one teacher-free policy with an explicit multi-symbol training layout."""
 
@@ -455,6 +475,7 @@ def fit_ppo_strategy(
             gross_budget=gross_budget,
             initial_capital=initial_capital,
             execution_cost=execution_cost,
+            risk_config=risk_config,
         )
     else:
         if execution_cost is not None and execution_cost.slippage_std > 0.0:
@@ -485,6 +506,7 @@ def fit_ppo_strategy(
                     gross_budget=gross_budget,
                     initial_capital=initial_capital,
                     execution_cost=execution_cost,
+                    risk_config=risk_config,
                 )
                 for symbol_index in symbol_indices
             ]

@@ -83,6 +83,15 @@ Observation contractは暗黙のimplementation detailにしない。新規Candid
 
 ### PPO training layout
 
+PPO environment/fitter callers can explicitly provide an immutable
+`PreTradeRiskConfig` via `risk_config`. The same configuration applies when the
+environment is created and after every reset, in both sequential and interleaved
+layouts. Omission preserves the legacy execution-leverage-limited risk with
+drawdown start/stop 1.0. This is a training-only opt-in; it does not alter policy
+observations, rewards, action meanings, or replay risk. Research callers must
+bind the explicit training configuration in their protocol and separately verify
+that evaluation risk matches the intended deployment objective.
+
 `fit_ppo_strategy` の既定は従来どおり `sequential` であり、単一 `PPOTradingEnv` がfit symbolをfull-window episode単位でround-robinする。既存Studyやcandidateがlayoutを明示しない場合の意味は変えない。
 
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
@@ -151,6 +160,17 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
+
+## Separate directional development composition
+
+`data.features.price_channels` appends prior-window high/low boundaries relative
+to the current completed close. It excludes the decision candle from extrema,
+requires every window member to have been available, and derives a new content
+identity while preserving source prices and economic arrays. The channel rule
+only emits intent. The directional evaluator uses the existing shared-cash
+executor, records ledger drawdown, and schedules real terminal closing orders.
+Failed terminal fills remain holdings and fail the screen. This composition
+does not change the canonical five-candidate suite or its historical decisions.
 
 ## 非目標
 

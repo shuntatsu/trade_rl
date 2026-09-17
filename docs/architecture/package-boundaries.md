@@ -28,7 +28,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -58,7 +58,7 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
-│   ├── rules/{trend.py,mean_reversion.py}
+│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
 │   └── rl/ppo.py
 └── evaluation/
@@ -66,6 +66,11 @@ trade_rl/
     ├── metrics.py
     ├── evidence.py
     ├── series.py
+    ├── directional.py
+    ├── directional_candidates.py
+    ├── directional_selection.py
+    ├── directional_study.py
+    ├── ppo_risk_study.py
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -91,6 +96,18 @@ trade_rl/
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
 
 ## Provider evidence boundary
+
+The directional development CLI composes the existing shared-cash replay and
+maintained strategy fitters. `directional.py` owns terminal-close scheduling and
+screen metrics, `directional_candidates.py` owns the fixed fit roster,
+`directional_selection.py` owns family aggregation, and `directional_study.py`
+owns write-once study evidence. These modules do not own execution accounting,
+exchange connectivity, or the canonical Study lifecycle. Price-channel rolling
+bounds and availability belong to data; the rule consumes them as observations.
+`ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
+the completed directional baseline. It reuses the same fit and replay owners,
+checks source/runtime isolation, and reports relative loss reduction separately
+from the existing absolute qualification gate.
 
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 

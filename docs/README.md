@@ -14,7 +14,7 @@
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Human Guideはこの `docs/` の正本と現行source/testsから派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。GuideはMarkdown本文・静的flow・表を主役にし、必要な実装詳細だけを記事末尾のdisclosureから辿る。本文は `guide/content/pages/*.md`、machine metadataは `guide/content/meta/*.json` に分離し、Markdown section fingerprintとPython symbol/source digestを別々にfail-closed検証する。source linkはbuildしたexact revisionへ固定する。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
 
-現在Activeな独立spec / implementation planはない。新しい未実装designや実装中の独立planが必要になった場合だけ `specs/` / `plans/` を作り、完了後は恒久契約へ昇格してcurrent treeから削除する。
+完了したdirectional studyとPPO risk-alignmentの契約・結果は `architecture/lean-core.md`、`architecture/package-boundaries.md`、`research/current-status.md` に昇格済みである。新しい未実装designや実装中の独立planが必要になった場合だけ `specs/` / `plans/` を作り、完了後は恒久契約へ昇格してcurrent treeから削除する。
 
 Human Guide PagesとMarkdown-firstコード連動Guideの恒久運用契約は `.github/workflows/deploy-guide.yml`、`guide/README.md`、`docs/AGENTS.md`、architecture/contract testsへ昇格済みである。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 

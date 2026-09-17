@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-13 (JST)
+更新基準: 2026-09-18 (JST)
 
 ## 結論
 
@@ -19,12 +19,61 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ### Directional development study under a 20% drawdown budget
 
+The complete 13-arm study returned `NO_QUALIFIED_CANDIDATE`; all five PPO seeds
+lost money. Their net returns were -17.1134%, -15.4319%, -13.3033%, -13.7667%,
+and -15.0823%, with median -15.0823%. Channel breakout returned +1.4456% but
+failed the 2024-positive and terminal-flat gates; the constant-long control
+returned +14.8059% and also retained terminal holdings. No stress replay was
+reached because no candidate passed the base screen. Independent raw-return
+arithmetic and file/model hashes passed; this is not an independent order-ledger
+reconstruction. The original immutable protocol is
+`aa9bf63e43668a2edbc0c8a54a5c6e689a277de4fb9e2af7862892914e783000`.
+
+The subsequent five-seed risk-only comparison completed under separately frozen
+protocol `eafa0327189021986116aefce33936a34e56409de7b3b53e8ba337c969e149c4`,
+bound to all baseline result hashes and the completed selection. Its frozen
+source passed both permanent CI jobs; exact source revision, workflow identity,
+and raw snapshot hashes are retained with the study's run-context evidence.
+This software verification is not economic evidence.
+Its decision is `KEEP_BASELINE`: paired net-return improvements occurred for only
+three of five seeds, below the registered four-seed requirement. Candidate net
+returns were +12.2341%, +4.3244%, -12.5830%, -19.5275%, and -17.5039%; the median
+was -12.5830%. The median paired improvement was +0.7203 percentage points;
+this differs from subtracting the two family medians. No seed passed all base
+gates, so stress replays were not reached. Seed 0 had positive full and both-year
+returns but retained terminal holdings. All five completed 262144 training steps
+and all 17544 evaluation intervals. The independent audit verified saved model
+parameters, raw-return arithmetic, hashes, and the aggregate decision, but did
+not independently reconstruct an order ledger. Positive individual seeds do not
+qualify this PPO family. The default training risk remains unchanged.
+
+The risk-only relative gate requires at least four paired net-return wins,
+a positive five-seed median paired delta, complete baseline and candidate
+replays, candidate ledger drawdowns at most 20%, and no increased termination
+count per seed. Cost and turnover are diagnostics. The absolute profitability,
+terminal-flat, and stress gates remain separate; relative improvement alone
+never authorizes deployment. Baseline model/result/selection hashes, dataset,
+source snapshot, and identical runtime are frozen before fitting candidates.
+
+Source and synthetic execution diagnostics also identified an admission/ledger
+quantity inconsistency: accumulated floating-point lot additions/subtractions
+can leave approximately one lot that admission accepts but fill allocation
+rejects. Genuine below-minimum-notional residuals are a separate issue under the
+current execution contract. Neither terminal holdings nor thresholds are altered
+in the risk comparison. A seed that did end flat still lost 13.7667%, so terminal
+flatness alone does not explain the observed lack of profitability. A future
+execution fix requires its own reviewed contract and fresh evidence; historical
+results remain unchanged.
+
 The user subsequently explicitly prioritized PPO and data/training improvements.
 A train-only feature audit and source audit found that the default training risk
 does not match the directional evaluator: training allows gross/per-symbol 1.0
 and drawdown start/stop 1.0, while evaluation uses gross 0.5, per-symbol 0.1,
-drawdown start 0.1 and stop 0.2. The next isolated factor is optional training-risk
-alignment, specified in `docs/specs/ppo-risk-alignment.md`. This is not a reward
+drawdown start 0.1 and stop 0.2. The completed comparison changed only these
+training risk settings. Training still has one active symbol per account while
+evaluation shares cash across five, and policy inputs lack account drawdown.
+The optional risk configuration does not resolve these remaining mismatches.
+This is not a reward
 cost omission: the current PPO reward already uses log net return after costs.
 Fill counts combine policy and risk actions and cannot alone diagnose churning.
 Feature-scale normalization and the sealed interleaved experiment remain separate.
@@ -32,7 +81,8 @@ Feature-scale normalization and the sealed interleaved experiment remain separat
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,
 artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable
-protocol is defined in `docs/specs/directional-profit.md` while work is active.
+protocol is assembled by `directional_study.expected_protocol` and is retained
+with the raw study evidence; the maintained contract is described here.
 This study uses 10000 USDT simulated capital and one shared account; it does
 not replace the earlier independent-symbol Study or reopen sealed experiments.
 It compares the five maintained families, a fixed 20/10-day channel breakout,
@@ -46,6 +96,26 @@ prospective paper eligibility. PPO needs four of five seeds passing both base
 and stress gates; medians always include all five. There is no profitable
 candidate claim before the write-once selection artifact completes, and even
 a qualified development candidate requires prospective paper evidence.
+
+The channel entry uses the prior 480 hourly bars and exit the prior 240 bars,
+excluding the decision bar from both extrema. Qualification ranks full net
+return, then turnover, then fixed complexity order (trend, mean reversion,
+channel breakout, ridge24, lightgbm24, PPO); controls cannot win. Risk reduction
+starts at 10% historical maximum drawdown and requests flat at 20%, but price
+gaps can exceed the bound and therefore fail the gate. A terminal next-open
+mark/close at 2025-01-01 00:00 is the endpoint of the last 2024 interval; no later
+2025 or 2026 evaluation is performed by these studies.
+
+The write-once CLI entrypoints are
+`python -m trade_rl.evaluation.directional_study` and
+`python -m trade_rl.evaluation.ppo_risk_study`. Both expose `prepare`, `run`,
+and `finalize` with required `--source` and `--output`; `run` additionally takes
+one frozen `--arm`. The risk-only CLI also requires `--baseline` pointing to the
+completed original study with its exact source snapshot and model/result hashes.
+It accepts only that registered baseline, not an arbitrary profitable rerun.
+An output directory or arm cannot be overwritten. Production source/runtime
+must remain byte-identical between prepare and final publication; raw source
+snapshots permit later independent inspection after main advances.
 
 一つの銘柄ID非依存strategy/model/policyを学習・凍結し、各銘柄へ独立に適用する。その結果がpoint-in-time data、同一execution/accounting、hard risk、明示的なexecution-cost assumptionsの下でcontrolsを超え、unused dataでも再現するかを検証する。
 

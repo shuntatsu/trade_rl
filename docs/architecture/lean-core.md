@@ -161,9 +161,7 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
 
-## 非目標
-
-### Separate directional development composition
+## Separate directional development composition
 
 `data.features.price_channels` appends prior-window high/low boundaries relative
 to the current completed close. It excludes the decision candle from extrema,
@@ -173,6 +171,8 @@ only emits intent. The directional evaluator uses the existing shared-cash
 executor, records ledger drawdown, and schedules real terminal closing orders.
 Failed terminal fills remain holdings and fail the screen. This composition
 does not change the canonical five-candidate suite or its historical decisions.
+
+## 非目標
 
 Lean coreが保証しないもの:
 

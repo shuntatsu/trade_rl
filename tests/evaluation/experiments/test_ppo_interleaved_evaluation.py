@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -10,9 +9,8 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
-    PPOInterleavedEvaluatorSpec,
-    PPOSeedEvidence,
     PPOReturnPathEvidence,
+    PPOSeedEvidence,
     PPOSymbolEvidence,
     canonical_ppo_interleaved_evaluator_spec,
     evaluate_ppo_training_seed,
@@ -78,9 +76,7 @@ def _dataset(*, corrupt_feature_index: int | None = None) -> MarketDataset:
         volume=np.full((n_bars, n_symbols), 1_000_000.0, dtype=np.float64),
         funding_rate=np.zeros((n_bars, n_symbols), dtype=np.float64),
         tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
-        feature_available=np.ones(
-            (n_bars, n_symbols, n_features), dtype=np.bool_
-        ),
+        feature_available=np.ones((n_bars, n_symbols, n_features), dtype=np.bool_),
         feature_names=_feature_names(corrupt_index=corrupt_feature_index),
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -428,7 +424,9 @@ def test_symbol_evidence_derives_control_equality_from_exact_paths() -> None:
 
 def test_seed_evidence_fails_closed_on_timestep_roster_and_authorization() -> None:
     spec = canonical_ppo_interleaved_evaluator_spec()
-    rows = tuple(_symbol_evidence(symbol, index) for index, symbol in enumerate(_SYMBOLS))
+    rows = tuple(
+        _symbol_evidence(symbol, index) for index, symbol in enumerate(_SYMBOLS)
+    )
     result = PPOSeedEvidence(
         spec_digest=spec.digest,
         protocol_head=spec.protocol_head,

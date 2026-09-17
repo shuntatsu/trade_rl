@@ -1,0 +1,186 @@
+name: PR625 PRE-PnL Authority Closure Recovery
+
+on:
+  push:
+    branches:
+      - agent/pr625-prepnl-authority-selfhosted-2026-09-17
+    paths:
+      - .github/workflows/pr625-prepnl-authority-closure-recovery.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover-closure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify prior authority run and immutable artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: '35202604966'
+          PRIMARY_ARTIFACT_ID: '10488278210'
+          PRIMARY_API_DIGEST: 'sha256:8315548c13910eaf50dc8d52c57bde3e9782b8d9431ff0c746cf16c1ccfec085'
+          FRESH_ARTIFACT_ID: '10487868840'
+          FRESH_API_DIGEST: 'sha256:e476269b8d88ec3adb32a43738f0904747e45235b816f5acfcac33a4987320c1'
+          AUTHORITY_SEAL_SHA256: '6eee6aa5573b55c705eac8d1d7a21902f64015ad5dfcd6c018fa55893b26c802'
+          AUTHORITY_DIGEST: 'cfadb882b8ec42c332ab7934d3a4cd1ae8d5889966a48ccf3fd9930851a3c48c'
+          IMPLEMENTATION_HEAD: '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+        run: |
+          set -euo pipefail
+          mkdir audit
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100" \
+            > audit/jobs.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('audit/jobs.json').read_text())
+          jobs = {job['name']: job for job in data.get('jobs', [])}
+          required = {
+              'primary-authority': 'success',
+              'fresh-reconstruction': 'success',
+              'closure-audit': 'failure',
+          }
+          for name, conclusion in required.items():
+              job = jobs.get(name)
+              if job is None or job.get('conclusion') != conclusion:
+                  raise SystemExit(f'prior run job binding mismatch: {name}')
+          closure = jobs['closure-audit']
+          steps = {step['name']: step for step in closure.get('steps', [])}
+          step = steps.get('Read back artifacts and verify canonical closure')
+          if step is None or step.get('conclusion') != 'failure':
+              raise SystemExit('prior closure failure location drift')
+          print('PRIOR_PRIMARY_SUCCESS=true')
+          print('PRIOR_FRESH_SUCCESS=true')
+          print('PRIOR_FAILURE_WAS_CLOSURE_ONLY=true')
+          PY
+          for side in primary fresh; do
+            if [ "$side" = primary ]; then
+              id="$PRIMARY_ARTIFACT_ID"; expected="$PRIMARY_API_DIGEST"
+            else
+              id="$FRESH_ARTIFACT_ID"; expected="$FRESH_API_DIGEST"
+            fi
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}" \
+              > "audit/${side}-metadata.json"
+            python - "$side" "$id" "$expected" <<'PY'
+          import json, sys
+          from pathlib import Path
+          side, expected_id, expected_digest = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          data = json.loads(Path(f'audit/{side}-metadata.json').read_text())
+          if data.get('id') != expected_id:
+              raise SystemExit(f'{side} artifact id drift')
+          actual = data.get('digest')
+          if actual != expected_digest:
+              raise SystemExit(f'{side} artifact API digest drift: {actual!r}')
+          if data.get('expired') is not False:
+              raise SystemExit(f'{side} artifact expired')
+          PY
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "audit/${side}.zip"
+          done
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          def inner(path: str) -> bytes:
+              with zipfile.ZipFile(path) as z:
+                  files = [i for i in z.infolist() if not i.is_dir()]
+                  if len(files) != 1:
+                      raise SystemExit(f'{path} must contain exactly one file')
+                  return z.read(files[0])
+          for side, expected in (
+              ('primary', os.environ['PRIMARY_API_DIGEST']),
+              ('fresh', os.environ['FRESH_API_DIGEST']),
+          ):
+              actual = 'sha256:' + hashlib.sha256(Path(f'audit/{side}.zip').read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'{side} downloaded ZIP digest mismatch')
+          primary = inner('audit/primary.zip')
+          fresh = inner('audit/fresh.zip')
+          if primary != fresh:
+              raise SystemExit('primary/fresh authority bytes differ')
+          internal_sha = hashlib.sha256(primary).hexdigest()
+          if internal_sha != os.environ['AUTHORITY_SEAL_SHA256']:
+              raise SystemExit('authority seal SHA drift')
+          doc = json.loads(primary)
+          payload = doc.get('payload') or {}
+          if payload.get('authority_digest') != os.environ['AUTHORITY_DIGEST']:
+              raise SystemExit('authority digest drift')
+          if payload.get('implementation_head') != os.environ['IMPLEMENTATION_HEAD']:
+              raise SystemExit('implementation head drift')
+          if payload.get('authority_run_id') != int(os.environ['SOURCE_RUN_ID']):
+              raise SystemExit('authority run id drift')
+          if (payload.get('authority') or {}).get('authority_run_id') != int(os.environ['SOURCE_RUN_ID']):
+              raise SystemExit('nested authority run id drift')
+          if (payload.get('authority') or {}).get('authority_implementation_head') != os.environ['IMPLEMENTATION_HEAD']:
+              raise SystemExit('nested authority implementation head drift')
+          if (payload.get('authority') or {}).get('n_evaluation_rows') != 17544:
+              raise SystemExit('evaluation row count drift')
+          for field in (
+              'study_files_extracted','study_content_read','candidate_result_content_read',
+              'model_fit_performed','evaluation_execution_performed','evaluation_pnl_inspected',
+              'final_test_accessed','shared_cash_profitability_established',
+              'operational_eligibility_established','production_eligible',
+              'live_trading_authorized','merge_authorized',
+          ):
+              if payload.get(field) is not False:
+                  raise SystemExit(f'boundary flag drift: {field}')
+          closure = {
+              'schema_version': 'issue616_real_pre_pnl_cost_authority_closure_recovery_v1',
+              'source_authority_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'source_authority_run_primary_success': True,
+              'source_authority_run_fresh_success': True,
+              'source_authority_run_closure_only_failure': True,
+              'failure_cause': 'upload-artifact output used bare hex while Artifact API returns sha256-prefixed digest',
+              'primary_artifact_id': int(os.environ['PRIMARY_ARTIFACT_ID']),
+              'primary_api_digest': os.environ['PRIMARY_API_DIGEST'],
+              'fresh_artifact_id': int(os.environ['FRESH_ARTIFACT_ID']),
+              'fresh_api_digest': os.environ['FRESH_API_DIGEST'],
+              'authority_seal_sha256': internal_sha,
+              'authority_digest': os.environ['AUTHORITY_DIGEST'],
+              'primary_fresh_byte_equal': True,
+              'artifact_recomputed': False,
+              'dataset_refetched': False,
+              'model_fit_performed': False,
+              'evaluation_execution_performed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('pre-pnl-cost-authority-closure-recovery.json').write_text(
+              json.dumps(closure, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n'
+          )
+          print('ISSUE616_REAL_PRE_PNL_AUTHORITY_CLOSURE_RECOVERY=PASS')
+          print('PRIMARY_FRESH_BYTE_EQUAL=true')
+          print('ARTIFACT_RECOMPUTED=false')
+          print('DATASET_REFETCHED=false')
+          print('MODEL_FIT_PERFORMED=false')
+          print('EVALUATION_EXECUTION_PERFORMED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY
+
+      - name: Upload closure recovery record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue616-pre-pnl-cost-authority-closure-recovery-${{ github.run_id }}
+          path: pre-pnl-cost-authority-closure-recovery.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

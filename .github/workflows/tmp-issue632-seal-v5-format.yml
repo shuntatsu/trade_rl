@@ -1,0 +1,44 @@
+name: tmp Issue 632 seal v5 format
+
+on:
+  push:
+    branches:
+      - automation/issue632-seal-v5-format
+    paths:
+      - .github/workflows/tmp-issue632-seal-v5-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: seal/issue632-ppo-interleaved-evaluator-v5
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format and statically verify generator
+        run: |
+          uv run ruff format .github/scripts/issue632_implementation_seal_v4.py
+          uv run ruff check .github/scripts/issue632_implementation_seal_v4.py
+          uv run ruff format --check .github/scripts/issue632_implementation_seal_v4.py
+          uv run mypy .github/scripts/issue632_implementation_seal_v4.py
+          uv run python -m py_compile .github/scripts/issue632_implementation_seal_v4.py
+          git diff --check
+      - name: Publish formatted generator to v5
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse refs/remotes/origin/seal/issue632-ppo-interleaved-evaluator-v5)" = 373db9c2ac4595d1afa11a0c26c7c7163cf1c636
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue632_implementation_seal_v4.py
+          git diff --cached --quiet && { echo 'formatter made no change'; exit 1; }
+          git commit -m "ci: format Issue 632 final seal generator"
+          git push origin HEAD:seal/issue632-ppo-interleaved-evaluator-v5

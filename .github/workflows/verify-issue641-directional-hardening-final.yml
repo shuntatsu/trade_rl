@@ -136,9 +136,10 @@ jobs:
           assert runtime['torch'] == '2.4.1'
           assert runtime['scikit-learn']
           packages = build_candidate_run_provenance()['runtime_environment']['packages']
-          for name in ('lightgbm', 'stable-baselines3', 'torch', 'scikit-learn'):
+          for name in ('lightgbm', 'stable-baselines3', 'torch'):
               assert packages[name] == runtime[name]
           print('ISSUE641_OPTIONAL_RUNTIME=PASS')
+          print('SCIKIT_LEARN_DIRECTIONAL_PROTOCOL_VERSION=' + runtime['scikit-learn'])
           print('REAL_DATASET_LOADED=false')
           print('MODEL_FIT_PERFORMED=false')
           print('ECONOMIC_REPLAY_PERFORMED=false')

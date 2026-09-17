@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import subprocess
 from pathlib import Path
 
@@ -13,9 +12,9 @@ from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
     canonical_ppo_interleaved_evaluator_spec,
 )
 
-TARGET_HEAD = "221858f189cad7e9bc908382efd69b87e2108221"
+TARGET_HEAD = "3387e0343998520a0b9226c61d9a7f1462bb9389"
 MAIN_HEAD = "d18434799651cfc6c07e0840c40600dcf1dfa763"
-VERIFICATION_RUN_ID = 35_224_496_405
+VERIFICATION_RUN_ID = 35_225_923_531
 PROTOCOL_HEAD = "f1187dacae78e679a322cc53cbf03f3371f457b1"
 PROTOCOL_DIGEST = "a34aee66bf3f51ce02675b955f835c292b023770aab841f25b46815f9b399c2c"
 PROTOCOL_SEAL_RUN_ID = 35_205_354_305
@@ -38,6 +37,7 @@ DURABLE_PATHS = (
     "guide/content/meta/implementation-ppo.json",
     "guide/content/pages/implementation-ppo.md",
     "tests/architecture/test_runs_capability_facade.py",
+    "tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py",
     "tests/evaluation/experiments/test_ppo_interleaved_evaluation.py",
     "tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py",
     "tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg_hardening.py",
@@ -79,7 +79,15 @@ def build_authority(
     if _git(target_root, "rev-parse", "HEAD") != TARGET_HEAD:
         raise ValueError("Issue 632 target head drifted")
     subprocess.run(
-        ["git", "-C", str(target_root), "merge-base", "--is-ancestor", MAIN_HEAD, TARGET_HEAD],
+        [
+            "git",
+            "-C",
+            str(target_root),
+            "merge-base",
+            "--is-ancestor",
+            MAIN_HEAD,
+            TARGET_HEAD,
+        ],
         check=True,
     )
     if _git(target_root, "status", "--porcelain"):
@@ -115,7 +123,7 @@ def build_authority(
         for path in DURABLE_PATHS
     ]
     implementation = {
-        "schema_version": "issue632_ppo_interleaved_evaluator_authority_v1",
+        "schema_version": "issue632_ppo_interleaved_evaluator_authority_v2",
         "issue_number": 632,
         "target_head": TARGET_HEAD,
         "main_head": MAIN_HEAD,
@@ -139,6 +147,7 @@ def build_authority(
         "economic_result_inspected": False,
         "unused_data_accessed": False,
         "final_test_accessed": False,
+        "shared_cash_profitability_established": False,
         "production_eligible": False,
         "live_trading_authorized": False,
         "merge_authorized": False,
@@ -146,7 +155,7 @@ def build_authority(
     implementation_bytes = canonical_json_bytes(implementation)
     implementation_sha256 = _sha256(implementation_bytes)
     seal = {
-        "schema_version": "issue632_ppo_interleaved_evaluator_seal_v1",
+        "schema_version": "issue632_ppo_interleaved_evaluator_seal_v2",
         "issue_number": 632,
         "authority_run_id": authority_run_id,
         "target_head": TARGET_HEAD,
@@ -163,6 +172,7 @@ def build_authority(
         "economic_result_inspected": False,
         "unused_data_accessed": False,
         "final_test_accessed": False,
+        "shared_cash_profitability_established": False,
         "production_eligible": False,
         "live_trading_authorized": False,
         "merge_authorized": False,

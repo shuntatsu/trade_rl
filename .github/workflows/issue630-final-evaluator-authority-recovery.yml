@@ -1,0 +1,219 @@
+name: Issue 630 Final Evaluator Authority Publication Recovery
+
+on:
+  push:
+    branches:
+      - seal/issue630-final-evaluator-authority
+    paths:
+      - .github/issue630-final-evaluator.recovery-authorized
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue630-final-evaluator-authority-recovery
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: d1bf25fd66834289ffddb36063b0d5cef649f444
+  BASE_SHA: d18434799651cfc6c07e0840c40600dcf1dfa763
+  VERIFY_RUN: '35213065827'
+  PR_NUMBER: '633'
+  PROTOCOL_HEAD: 65eb3c90e0a5fe1cea952279c28024160838da08
+  PROTOCOL_DIGEST: c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88
+  PROTOCOL_BLOB: 208e4d45b64ce4e92cd8eca59a5c427dc8be7029
+  PROTOCOL_SEAL_RUN: '35211715033'
+  PROTOCOL_PRIMARY_ID: '10491893357'
+  PROTOCOL_PRIMARY_DIGEST: 0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841
+  PROTOCOL_FRESH_ID: '10492645772'
+  PROTOCOL_FRESH_DIGEST: ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56
+  PROTOCOL_SEAL_SHA: b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903
+  PRIMARY_NAME: issue630-final-authority-primary-v2
+  FRESH_NAME: issue630-final-authority-fresh-v2
+  PREVIOUS_FAILED_RUN: '35213806759'
+  EXPECTED_IMPLEMENTATION_SHA: 746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85
+  EXPECTED_SEAL_SHA: 82f931041be3a2b7aeedd85e1bc3b6ae683365af2ae28d6d3adb60ac0103231a
+
+jobs:
+  primary:
+    name: Recover primary publication from canonical generator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      implementation_sha: ${{ steps.build.outputs.implementation_sha }}
+      seal_sha: ${{ steps.build.outputs.seal_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Prove prior failure consumed no artifact slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_FAILED_RUN")"
+          test "$(jq -r .conclusion <<<"$previous")" = failure
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREVIOUS_FAILED_RUN/artifacts" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$PRIMARY_NAME" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$FRESH_NAME" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - working-directory: target
+        run: uv sync --extra dev
+      - name: Extract previously validated authority scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RB'
+          doc=YAML.load_file('source/.github/workflows/issue630-final-evaluator-authority.yml')
+          steps=doc.fetch('jobs').fetch('primary').fetch('steps')
+          {'Bind exact result-blind authorities'=>'/tmp/bind.sh','Build canonical implementation authority'=>'/tmp/build.sh'}.each do |name,out|
+            step=steps.find{|s| s['name']==name}
+            raise "missing #{name}" unless step
+            File.write(out,step.fetch('run'))
+          end
+          RB
+      - name: Re-run exact binding logic
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash /tmp/bind.sh
+      - id: build
+        name: Re-run exact canonical generator
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/build.sh
+          test "$(sha256sum ../primary/implementation.json | cut -d' ' -f1)" = "$EXPECTED_IMPLEMENTATION_SHA"
+          test "$(sha256sum ../primary/seal.json | cut -d' ' -f1)" = "$EXPECTED_SEAL_SHA"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Recover fresh independent reconstruction
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      implementation_sha: ${{ steps.build.outputs.implementation_sha }}
+      seal_sha: ${{ steps.build.outputs.seal_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Require unused fresh artifact slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$FRESH_NAME" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - working-directory: target
+        run: uv sync --extra dev
+      - name: Extract fresh reconstruction script
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RB'
+          doc=YAML.load_file('source/.github/workflows/issue630-final-evaluator-authority.yml')
+          step=doc.fetch('jobs').fetch('fresh').fetch('steps').find{|s| s['id']=='build'}
+          raise 'missing fresh build' unless step
+          File.write('/tmp/fresh.sh',step.fetch('run'))
+          RB
+      - id: build
+        working-directory: target
+        env:
+          PRIMARY_IMPL: ${{ needs.primary.outputs.implementation_sha }}
+          PRIMARY_SEAL: ${{ needs.primary.outputs.seal_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/fresh.sh
+          test "$(sha256sum ../fresh/implementation.json | cut -d' ' -f1)" = "$EXPECTED_IMPLEMENTATION_SHA"
+          test "$(sha256sum ../fresh/seal.json | cut -d' ' -f1)" = "$EXPECTED_SEAL_SHA"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Recover final authority audit
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+      - name: Extract exact audit script
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RB'
+          doc=YAML.load_file('source/.github/workflows/issue630-final-evaluator-authority.yml')
+          step=doc.fetch('jobs').fetch('audit').fetch('steps').find{|s| s['name']=='Audit byte identity, API identity and boundaries'}
+          raise 'missing audit step' unless step
+          File.write('/tmp/audit.sh',step.fetch('run'))
+          RB
+      - name: Run exact final audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+          IMPL_SHA: ${{ needs.primary.outputs.implementation_sha }}
+          SEAL_SHA: ${{ needs.primary.outputs.seal_sha }}
+        shell: bash
+        run: bash /tmp/audit.sh

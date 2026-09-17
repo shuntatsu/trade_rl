@@ -1,0 +1,163 @@
+name: Issue 630 shared-cash evaluator implementation seal v3
+
+on:
+  push:
+    branches:
+      - seal/issue630-shared-cash-evaluator-v1
+    paths:
+      - .github/workflows/issue630-shared-cash-evaluator-seal-v3.yml
+      - .github/scripts/issue630_implementation_seal.py
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+env:
+  TARGET_SHA: e0470b4e04fc16c14391e4cc327e27e1d612edc7
+
+jobs:
+  primary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      implementation_sha256: ${{ steps.build.outputs.implementation_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout seal harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: seal/issue630-shared-cash-evaluator-v1
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact implementation runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - id: build
+        name: Build primary immutable implementation manifest
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          uv run python ../helper/.github/scripts/issue630_implementation_seal.py build \
+            --output-dir "$RUNNER_TEMP/issue630-primary"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../helper status --porcelain)"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue630-shared-cash-evaluator-primary-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue630-primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      implementation_sha256: ${{ steps.build.outputs.implementation_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout seal harness independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: seal/issue630-shared-cash-evaluator-v1
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install fresh exact implementation runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - id: build
+        name: Independently reconstruct identical manifest
+        working-directory: impl
+        env:
+          PRIMARY_IMPLEMENTATION_SHA256: ${{ needs.primary.outputs.implementation_sha256 }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary.outputs.seal_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          uv run python ../helper/.github/scripts/issue630_implementation_seal.py build \
+            --output-dir "$RUNNER_TEMP/issue630-fresh"
+          test "$(sha256sum "$RUNNER_TEMP/issue630-fresh/implementation.json" | awk '{print $1}')" = "$PRIMARY_IMPLEMENTATION_SHA256"
+          test "$(sha256sum "$RUNNER_TEMP/issue630-fresh/seal.json" | awk '{print $1}')" = "$PRIMARY_SEAL_SHA256"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../helper status --porcelain)"
+          echo PRIMARY_FRESH_RECONSTRUCTION_EQUAL=true
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue630-shared-cash-evaluator-fresh-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue630-fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout audit harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: seal/issue630-shared-cash-evaluator-v1
+          path: helper
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-shared-cash-evaluator-primary-${{ github.run_id }}
+          path: primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-shared-cash-evaluator-fresh-${{ github.run_id }}
+          path: fresh
+      - name: Verify external authority, API digests, bytes and boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMPLEMENTATION_SHA256: ${{ needs.primary.outputs.implementation_sha256 }}
+          SEAL_SHA256: ${{ needs.primary.outputs.seal_sha256 }}
+          PRIMARY_ARTIFACT_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ARTIFACT_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          python helper/.github/scripts/issue630_implementation_seal.py audit \
+            --primary-dir primary \
+            --fresh-dir fresh \
+            --closure closure.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue630-shared-cash-evaluator-seal-closure-${{ github.run_id }}
+          path: closure.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

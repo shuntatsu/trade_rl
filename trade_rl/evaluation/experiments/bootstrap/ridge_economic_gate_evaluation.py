@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from statistics import median
 
@@ -14,7 +14,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
-from trade_rl.evaluation.runs.execute import _execution_cost_for_overlay
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
@@ -712,7 +712,10 @@ def evaluate_ridge_economic_gate(
             one_way_explicit_cost=resolved_spec.one_way_explicit_cost,
         )
     )
-    execution_cost = _execution_cost_for_overlay(resolved_spec.execution_overlay)
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        processing_bar_volume_capacity=False,
+    )
     comparison = compare_strategies_by_symbol(
         dataset,
         {"baseline": baseline, "candidate": candidate},

@@ -52,6 +52,7 @@ trade_rl/
 │   ├── bar_path.py
 │   ├── liquidity.py
 │   ├── quantities.py
+│   ├── depth.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
 │   ├── targets/{execution.py,exposure_controller.py}
@@ -130,6 +131,12 @@ state parsing, conservative float projection and lot quantization. Liquidity
 allocations carry accepted integer lots and their quantum; accounting and the
 pending-order state consume that same signed fill. Exact state is part of the
 book clone and pending-order persistence contract, not strategy preprocessing.
+`simulation/depth.py` is a provider-independent paper depth matcher. It submits
+accepted integer-lot fills to BookState, owns displayed-size participation and
+bid/ask weighted prices, and preserves unfilled lots. It owns no source capture,
+journal, policy, or independent account. Callers must prohibit snapshot-capacity
+reuse. Optional fill valuation prices in BookState separate cash execution from
+position marks without changing the default historical execution contract.
 `ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
 the completed directional baseline. It reuses the same fit and replay owners,
 checks source/runtime isolation, and reports relative loss reduction separately

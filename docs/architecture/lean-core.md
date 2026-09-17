@@ -234,6 +234,22 @@ five seconds old at final receipt, with at most one second of forward clock skew
 Spot REST depth is explicitly receipt-timed because its payload has no exchange
 event timestamp. Quoted funding rates remain distinct from settled payments.
 
+Recorded-depth paper matching uses only quotes received after a saved decision,
+at most five seconds before execution and ten seconds after decision. Signed
+integer lots consume a bounded fraction of the appropriate ordered bid/ask side.
+Capacity accumulates exact decimal quantities across levels before lot rounding;
+partial residuals remain explicit. The weighted fill includes an adverse buffer,
+and taker fees are charged once with contract multipliers. Quantity and notional
+admission can reject an order without altering the account. Market-notional
+averaging and account-specific venue restrictions remain unmodeled.
+
+The canonical book accepts optional independent valuation prices for a fill;
+cash changes at the execution price while existing positions retain their marks.
+The historical default still marks at fill prices. Paper execution must not
+create a temporary equity peak by revaluing an existing holding at a new order's
+fill price. Displayed depth is a modeling input, not a guarantee of real fills.
+One snapshot's instrument capacity may be consumed only once by its future journal.
+
 ## 非目標
 
 Lean coreが保証しないもの:

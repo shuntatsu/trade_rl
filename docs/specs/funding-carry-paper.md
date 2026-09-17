@@ -40,6 +40,29 @@ minimum observation duration and decision rule before forward paper positions.
 
 ## Paper execution design still to implement
 
+### Recorded-depth execution contract
+
+The provider-independent depth executor belongs in `simulation/depth.py`.
+It consumes one signed integer-lot order and a later recorded bid/ask book;
+the journal must permit at most one order per instrument per observation.
+Quote receipt follows the saved decision, execution follows receipt, receipt
+age at execution is at most five seconds, and decision-to-execution delay is
+at most ten seconds. These are paper timing rules, not a venue fill guarantee.
+Use the correct side, consume only 10% of displayed size, and retain partial
+quantities. Capacity sums exact decimal sizes across levels before applying the
+order lot quantum; small individual levels must not disappear through per-level
+lot rounding. Charge the recorded weighted price plus a fixed adverse 5bp buffer
+and the declared taker fee once. Do not separately charge the quoted spread.
+
+Lot/minimum/maximum quantity and minimum/maximum notional are explicit paper
+admission rules. A rejected or empty-capacity order leaves the book unchanged.
+Published market-notional averaging and account-specific restrictions are not
+reproduced by this depth-only primitive and remain production limitations.
+Execution updates the canonical BookState using accepted lot evidence. Value
+existing positions at the independently supplied marks, never temporarily at the
+new fill price: a transient fill-price mark must not manufacture an equity peak.
+No invented liquidity or automatic removal of an unfilled residual is allowed.
+
 Reuse FundingCarryBot and BookState; do not introduce another financial ledger.
 Decisions precede simulated executable quotes. Match each leg against recorded
 bid/ask depth after the decision, record partial/asymmetric fills and stop when

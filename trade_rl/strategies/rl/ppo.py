@@ -23,6 +23,10 @@ from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
+from trade_rl.strategies.rl.ppo_normalization import (
+    PPOFeatureNormalizer,
+    fit_ppo_feature_normalizer,
+)
 
 PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
@@ -109,6 +113,7 @@ def _validated_interleaved_rollout_steps(
 def _encode_observation(
     observation: StrategyObservation,
     feature_indices: tuple[int, ...],
+    feature_normalizer: PPOFeatureNormalizer | None = None,
 ) -> np.ndarray:
     indices = _validated_indices(feature_indices)
     if max(indices) >= observation.features.size:
@@ -128,6 +133,8 @@ def _encode_observation(
     finite = np.isfinite(selected)
     usable = available & finite
     values = np.where(usable, selected, 0.0)
+    if feature_normalizer is not None:
+        values = feature_normalizer.transform(selected, usable)
 
     state = np.asarray(
         [float(observation.current_intent), observation.current_weight],
@@ -207,14 +214,19 @@ class PPOIntentStrategy:
         policy: _PredictPolicy,
         *,
         feature_indices: tuple[int, ...],
+        feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         self.policy = policy
         self.feature_indices = _validated_indices(feature_indices)
+        if feature_normalizer is not None:
+            feature_normalizer.validate_features(self.feature_indices)
+        self.feature_normalizer = feature_normalizer
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
         encoded = _encode_observation(
             observation,
             self.feature_indices,
+            self.feature_normalizer,
         )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
@@ -237,6 +249,7 @@ class PPOTradingEnv(gym.Env):
         initial_capital: float = 100_000.0,
         execution_cost: ExecutionCostConfig | None = None,
         risk_config: PreTradeRiskConfig | None = None,
+        feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         super().__init__()
         if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
@@ -266,6 +279,12 @@ class PPOTradingEnv(gym.Env):
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
         self.risk_config = risk_config
+        if feature_normalizer is not None:
+            feature_normalizer.validate_features(self.feature_indices)
+            feature_normalizer.validate_training_scope(
+                dataset, self.symbol_indices, start_index, stop_index
+            )
+        self.feature_normalizer = feature_normalizer
         if risk_config is not None and (
             risk_config.max_gross > self.execution_cost.max_leverage
             or risk_config.max_abs_weight > self.execution_cost.max_leverage
@@ -331,6 +350,7 @@ class PPOTradingEnv(gym.Env):
         return _encode_observation(
             self._strategy_observation(),
             self.feature_indices,
+            self.feature_normalizer,
         ).copy()
 
     def reset(
@@ -450,6 +470,7 @@ def fit_ppo_strategy(
     training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL,
     rollout_steps_per_env: int | None = None,
     risk_config: PreTradeRiskConfig | None = None,
+    normalize_features: bool = False,
 ) -> PPOIntentStrategy:
     """Fit one teacher-free policy with an explicit multi-symbol training layout."""
 
@@ -464,6 +485,19 @@ def fit_ppo_strategy(
     layout = _validated_training_layout(training_layout, rollout_steps_per_env)
 
     indices = validated_feature_indices(dataset, feature_indices)
+    if not isinstance(normalize_features, bool):
+        raise ValueError("normalize_features must be boolean")
+    normalizer = (
+        fit_ppo_feature_normalizer(
+            dataset,
+            feature_indices=indices,
+            fit_symbol_indices=fit_symbol_indices,
+            start_index=start_index,
+            stop_index=stop_index,
+        )
+        if normalize_features
+        else None
+    )
     ppo_options: dict[str, object] = {}
     if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
         env: object = PPOTradingEnv(
@@ -476,6 +510,7 @@ def fit_ppo_strategy(
             initial_capital=initial_capital,
             execution_cost=execution_cost,
             risk_config=risk_config,
+            feature_normalizer=normalizer,
         )
     else:
         if execution_cost is not None and execution_cost.slippage_std > 0.0:
@@ -507,6 +542,7 @@ def fit_ppo_strategy(
                     initial_capital=initial_capital,
                     execution_cost=execution_cost,
                     risk_config=risk_config,
+                    feature_normalizer=normalizer,
                 )
                 for symbol_index in symbol_indices
             ]
@@ -537,6 +573,7 @@ def fit_ppo_strategy(
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
+        feature_normalizer=normalizer,
     )
 
 

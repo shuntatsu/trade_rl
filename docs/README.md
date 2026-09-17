@@ -1,5 +1,8 @@
 # Trade RL documentation
 
+Active PPO preprocessing: [design](specs/ppo-feature-standardization.md) and
+[plan](plans/ppo-feature-standardization.md).
+
 Active directional study: [design](specs/directional-profit.md) and
 [implementation plan](plans/directional-profit.md). These documents remain
 active while the fixed development experiment and final verification run.

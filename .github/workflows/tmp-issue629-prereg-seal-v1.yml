@@ -1,0 +1,272 @@
+name: tmp Issue 629 prereg seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue629-ppo-interleaved-prereg-v1
+    paths:
+      - .github/workflows/tmp-issue629-prereg-seal-v1.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  primary:
+    name: Primary preregistration seal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      protocol_digest: ${{ steps.build.outputs.protocol_digest }}
+      protocol_json_sha256: ${{ steps.build.outputs.protocol_json_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      module_blob: ${{ steps.build.outputs.module_blob }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f1187dacae78e679a322cc53cbf03f3371f457b1
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - id: build
+        name: Independently reconstruct primary protocol seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f1187dacae78e679a322cc53cbf03f3371f457b1"
+          git fetch origin cddef3532dd582d0f1066a61006f64265f0cabbe
+          mapfile -t files < <(git diff --name-only cddef3532dd582d0f1066a61006f64265f0cabbe...HEAD)
+          test "${#files[@]}" -eq 3
+          ! printf '%s\n' "${files[@]}" | grep '^\.github/workflows/'
+          python3 - <<'PY'
+          import json, os, urllib.request
+          token=os.environ['GH_TOKEN']
+          def get(url):
+              req=urllib.request.Request(url,headers={
+                  'Authorization':f'Bearer {token}',
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28',
+              })
+              with urllib.request.urlopen(req) as response:
+                  return json.load(response)
+          expected={
+              105148833149:(35205106287,'Exact Lean Core'),
+              105148833367:(35205106287,'Exact Human Guide'),
+              105148833049:(35205106287,'Draft PR authority'),
+          }
+          for job_id,(run_id,name) in expected.items():
+              job=get(f'https://api.github.com/repos/shuntatsu/trade_rl/actions/jobs/{job_id}')
+              assert (job['run_id'],job['name'],job['conclusion'])==(run_id,name,'success')
+          issue=get('https://api.github.com/repos/shuntatsu/trade_rl/issues/629')
+          assert issue['state']=='open'
+          pr=get('https://api.github.com/repos/shuntatsu/trade_rl/pulls/631')
+          assert pr['state']=='open' and pr['draft'] is True and pr['mergeable'] is True
+          assert pr['base']['sha']=='cddef3532dd582d0f1066a61006f64265f0cabbe'
+          assert pr['head']['sha']=='f1187dacae78e679a322cc53cbf03f3371f457b1'
+          assert pr['changed_files']==3
+          capability=get('https://api.github.com/repos/shuntatsu/trade_rl/pulls/624')
+          assert capability['state']=='open' and capability['draft'] is True
+          assert capability['head']['sha']=='cddef3532dd582d0f1066a61006f64265f0cabbe'
+          PY
+          uv run python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.ppo_interleaved_evaluation_prereg import canonical_ppo_interleaved_evaluation_protocol
+
+          protocol=canonical_ppo_interleaved_evaluation_protocol()
+          protocol_bytes=canonical_json_bytes(protocol.to_payload())
+          protocol_sha=hashlib.sha256(protocol_bytes).hexdigest()
+          module_path='trade_rl/evaluation/experiments/ppo_interleaved_evaluation_prereg.py'
+          module_blob=subprocess.check_output(['git','rev-parse',f'HEAD:{module_path}'],text=True).strip()
+          seal={
+              'schema_version':'issue629_ppo_interleaved_prereg_seal_v1',
+              'issue_number':629,
+              'pull_request_number':631,
+              'protocol_head':'f1187dacae78e679a322cc53cbf03f3371f457b1',
+              'protocol_module_blob':module_blob,
+              'protocol_digest':protocol.digest,
+              'protocol_json_sha256':protocol_sha,
+              'implementation_head':'cddef3532dd582d0f1066a61006f64265f0cabbe',
+              'verification_run_id':35205106287,
+              'verification_core_job_id':105148833149,
+              'verification_guide_job_id':105148833367,
+              'verification_pr_authority_job_id':105148833049,
+              'seal_run_id':int(os.environ['GITHUB_RUN_ID']),
+              'baseline_training_authorized':False,
+              'candidate_training_authorized':False,
+              'economic_result_inspected':False,
+              'final_test_accessed':False,
+              'shared_cash_profitability_established':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          seal_bytes=canonical_json_bytes(seal)
+          seal_sha=hashlib.sha256(seal_bytes).hexdigest()
+          out=Path('seal-primary'); out.mkdir()
+          (out/'protocol.json').write_bytes(protocol_bytes)
+          (out/'seal.json').write_bytes(seal_bytes)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write(f'protocol_digest={protocol.digest}\n')
+              output.write(f'protocol_json_sha256={protocol_sha}\n')
+              output.write(f'seal_sha256={seal_sha}\n')
+              output.write(f'module_blob={module_blob}\n')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue629-prereg-seal-primary-${{ github.run_id }}
+          path: seal-primary/
+          if-no-files-found: error
+          retention-days: 90
+
+  fresh:
+    name: Fresh preregistration reconstruction
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      protocol_digest: ${{ steps.build.outputs.protocol_digest }}
+      protocol_json_sha256: ${{ steps.build.outputs.protocol_json_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      module_blob: ${{ steps.build.outputs.module_blob }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f1187dacae78e679a322cc53cbf03f3371f457b1
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - id: build
+        name: Independently reconstruct fresh protocol seal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f1187dacae78e679a322cc53cbf03f3371f457b1"
+          git fetch origin cddef3532dd582d0f1066a61006f64265f0cabbe
+          test "$(git diff --name-only cddef3532dd582d0f1066a61006f64265f0cabbe...HEAD | wc -l)" -eq 3
+          python3 - <<'PY'
+          import json, os, urllib.request
+          token=os.environ['GH_TOKEN']
+          def get(url):
+              req=urllib.request.Request(url,headers={
+                  'Authorization':f'Bearer {token}',
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28',
+              })
+              with urllib.request.urlopen(req) as response:
+                  return json.load(response)
+          for job_id,run_id,name in [
+              (105148833149,35205106287,'Exact Lean Core'),
+              (105148833367,35205106287,'Exact Human Guide'),
+              (105148833049,35205106287,'Draft PR authority'),
+          ]:
+              job=get(f'https://api.github.com/repos/shuntatsu/trade_rl/actions/jobs/{job_id}')
+              assert (job['run_id'],job['name'],job['conclusion'])==(run_id,name,'success')
+          pr=get('https://api.github.com/repos/shuntatsu/trade_rl/pulls/631')
+          assert (pr['state'],pr['draft'],pr['base']['sha'],pr['head']['sha'],pr['changed_files']) == (
+              'open',True,
+              'cddef3532dd582d0f1066a61006f64265f0cabbe',
+              'f1187dacae78e679a322cc53cbf03f3371f457b1',3,
+          )
+          PY
+          uv run python - <<'PY'
+          import hashlib, os, subprocess
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.ppo_interleaved_evaluation_prereg import canonical_ppo_interleaved_evaluation_protocol
+
+          protocol=canonical_ppo_interleaved_evaluation_protocol()
+          protocol_bytes=canonical_json_bytes(protocol.to_payload())
+          protocol_sha=hashlib.sha256(protocol_bytes).hexdigest()
+          module_path='trade_rl/evaluation/experiments/ppo_interleaved_evaluation_prereg.py'
+          module_blob=subprocess.check_output(['git','rev-parse',f'HEAD:{module_path}'],text=True).strip()
+          seal={
+              'schema_version':'issue629_ppo_interleaved_prereg_seal_v1',
+              'issue_number':629,
+              'pull_request_number':631,
+              'protocol_head':'f1187dacae78e679a322cc53cbf03f3371f457b1',
+              'protocol_module_blob':module_blob,
+              'protocol_digest':protocol.digest,
+              'protocol_json_sha256':protocol_sha,
+              'implementation_head':'cddef3532dd582d0f1066a61006f64265f0cabbe',
+              'verification_run_id':35205106287,
+              'verification_core_job_id':105148833149,
+              'verification_guide_job_id':105148833367,
+              'verification_pr_authority_job_id':105148833049,
+              'seal_run_id':int(os.environ['GITHUB_RUN_ID']),
+              'baseline_training_authorized':False,
+              'candidate_training_authorized':False,
+              'economic_result_inspected':False,
+              'final_test_accessed':False,
+              'shared_cash_profitability_established':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          seal_bytes=canonical_json_bytes(seal)
+          seal_sha=hashlib.sha256(seal_bytes).hexdigest()
+          out=Path('seal-fresh'); out.mkdir()
+          (out/'protocol.json').write_bytes(protocol_bytes)
+          (out/'seal.json').write_bytes(seal_bytes)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write(f'protocol_digest={protocol.digest}\n')
+              output.write(f'protocol_json_sha256={protocol_sha}\n')
+              output.write(f'seal_sha256={seal_sha}\n')
+              output.write(f'module_blob={module_blob}\n')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue629-prereg-seal-fresh-${{ github.run_id }}
+          path: seal-fresh/
+          if-no-files-found: error
+          retention-days: 90
+
+  audit:
+    name: Final preregistration seal audit
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue629-prereg-seal-primary-${{ github.run_id }}
+          path: /tmp/primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue629-prereg-seal-fresh-${{ github.run_id }}
+          path: /tmp/fresh
+      - name: Require independent byte-identical reconstruction
+        env:
+          PRIMARY_PROTOCOL_DIGEST: ${{ needs.primary.outputs.protocol_digest }}
+          FRESH_PROTOCOL_DIGEST: ${{ needs.fresh.outputs.protocol_digest }}
+          PRIMARY_PROTOCOL_SHA: ${{ needs.primary.outputs.protocol_json_sha256 }}
+          FRESH_PROTOCOL_SHA: ${{ needs.fresh.outputs.protocol_json_sha256 }}
+          PRIMARY_SEAL_SHA: ${{ needs.primary.outputs.seal_sha256 }}
+          FRESH_SEAL_SHA: ${{ needs.fresh.outputs.seal_sha256 }}
+          PRIMARY_MODULE_BLOB: ${{ needs.primary.outputs.module_blob }}
+          FRESH_MODULE_BLOB: ${{ needs.fresh.outputs.module_blob }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIMARY_PROTOCOL_DIGEST"
+          test "$PRIMARY_PROTOCOL_DIGEST" = "$FRESH_PROTOCOL_DIGEST"
+          test "$PRIMARY_PROTOCOL_SHA" = "$FRESH_PROTOCOL_SHA"
+          test "$PRIMARY_SEAL_SHA" = "$FRESH_SEAL_SHA"
+          test "$PRIMARY_MODULE_BLOB" = "$FRESH_MODULE_BLOB"
+          cmp /tmp/primary/protocol.json /tmp/fresh/protocol.json
+          cmp /tmp/primary/seal.json /tmp/fresh/seal.json
+          echo "ISSUE629_PPO_INTERLEAVED_PREREG_SEAL_V1=PASS"

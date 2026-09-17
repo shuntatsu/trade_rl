@@ -1,0 +1,118 @@
+name: tmp Issue 632 evaluator type fix
+
+on:
+  push:
+    branches:
+      - research/issue632-ppo-interleaved-evaluator-impl
+    paths:
+      - .github/workflows/tmp-issue632-evaluator-type-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue632-ppo-interleaved-evaluator-impl
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Repair type contracts without changing evaluator semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py')
+          text = path.read_text()
+          text = text.replace(
+              'from typing import Any, Literal\n',
+              'from typing import Any, Literal, cast\n',
+              1,
+          )
+          marker = 'from trade_rl.strategies.controls import ConstantIntentStrategy\n'
+          replacement = marker + 'from trade_rl.strategies.interface import SingleSymbolStrategy\n'
+          if marker not in text:
+              raise SystemExit('strategy import marker missing')
+          text = text.replace(marker, replacement, 1)
+          old = '''        for label, actual, expected in zip(
+            labels, actual_flags, expected_flags, strict=True
+        ):
+            if actual is not expected:
+                raise ValueError(f"{label} equality flag differs from exact raw paths")
+'''
+          new = '''        for label, actual, expected_flag in zip(
+            labels, actual_flags, expected_flags, strict=True
+        ):
+            if actual is not expected_flag:
+                raise ValueError(f"{label} equality flag differs from exact raw paths")
+'''
+          if old not in text:
+              raise SystemExit('equality loop marker missing')
+          text = text.replace(old, new, 1)
+          old = '''    strategies = {
+        "ppo": strategy,
+        "cash": ConstantIntentStrategy(PositionIntent.FLAT),
+        "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
+        "constant_short": ConstantIntentStrategy(PositionIntent.SHORT),
+    }
+'''
+          new = '''    strategies: dict[str, SingleSymbolStrategy] = {
+        "ppo": strategy,
+        "cash": ConstantIntentStrategy(PositionIntent.FLAT),
+        "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
+        "constant_short": ConstantIntentStrategy(PositionIntent.SHORT),
+    }
+'''
+          if old not in text:
+              raise SystemExit('strategies marker missing')
+          text = text.replace(old, new, 1)
+          old = '''        arm=arm,
+        seed=seed,
+'''
+          new = '''        arm=cast(Arm, arm),
+        seed=seed,
+'''
+          if old not in text:
+              raise SystemExit('arm marker missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/evaluation/runs/__init__.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/architecture/test_runs_capability_facade.py
+          uv run ruff format \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/evaluation/runs/__init__.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/architecture/test_runs_capability_facade.py
+          uv run mypy trade_rl
+          uv run pytest -q \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/architecture/test_runs_capability_facade.py \
+            tests/strategies/test_ppo_interleaved_training.py \
+            tests/evaluation/test_single_symbol_replay.py
+          git diff --check
+      - name: Commit repaired evaluator
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/evaluation/runs/__init__.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/architecture/test_runs_capability_facade.py
+          git commit -m 'fix: type PPO interleaved evaluator boundaries'
+          git push origin HEAD:research/issue632-ppo-interleaved-evaluator-impl

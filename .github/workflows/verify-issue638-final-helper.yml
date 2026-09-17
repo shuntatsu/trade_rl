@@ -1,0 +1,73 @@
+name: Verify final Issue 638 baseline helper
+
+on:
+  push:
+    branches:
+      - verify/issue638-final-helper
+    paths:
+      - .github/workflows/verify-issue638-final-helper.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact final helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f447e11fadf8546a5f7988cceba76bc9560bc939
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay helper without changing evaluator authority
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = f447e11fadf8546a5f7988cceba76bc9560bc939
+          test "$(git -C impl rev-parse HEAD)" = 97127952af3d01b71def695a4c8043eb301b2a33
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Static and synthetic GREEN
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
+      - name: Result-blind live empty-slot authority preflight
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed 0 --slot empty
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Prove sealed evaluator tree unchanged
+        run: |
+          set -euo pipefail
+          test -z "$(git -C impl status --porcelain --untracked-files=no)"
+          test -z "$(git -C helper status --porcelain)"

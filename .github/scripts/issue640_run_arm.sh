@@ -18,6 +18,7 @@ esac
 : "${GITHUB_REPOSITORY:?}"
 : "${GITHUB_RUN_ID:?}"
 : "${GITHUB_RUN_ATTEMPT:?}"
+: "${GITHUB_OUTPUT:?}"
 : "${SOURCE_SHA:?}"
 : "${RUNNER_TEMP:?}"
 : "${GH_TOKEN:?}"
@@ -76,4 +77,5 @@ payload = {
 (package / "attempt.json").write_bytes(canonical_json_bytes(payload))
 PY
 
-printf '%s\n' "$status"
+echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+exit 0

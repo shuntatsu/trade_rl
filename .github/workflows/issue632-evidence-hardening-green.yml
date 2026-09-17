@@ -1,0 +1,119 @@
+name: Issue 632 evidence hardening GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue632-evidence-hardening-green
+    paths:
+      - .github/workflows/issue632-evidence-hardening-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue632-ppo-interleaved-evaluator-impl
+          fetch-depth: 0
+          token: ${{ github.token }}
+      - name: Require exact target head
+        run: test "$(git rev-parse HEAD)" = 3387e0343998520a0b9226c61d9a7f1462bb9389
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply minimal evidence-schema v2 hardening
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py')
+          text = source.read_text()
+          replacements = [
+              ('_SEED_SCHEMA = "ppo_interleaved_seed_evidence_v1"', '_SEED_SCHEMA = "ppo_interleaved_seed_evidence_v2"'),
+              ('    execution_overlay: str\n    symbols: tuple[str, ...]', '    execution_overlay: str\n    slippage_std: float\n    symbols: tuple[str, ...]'),
+              ('            "execution_overlay": spec.execution_overlay,\n            "symbols": spec.symbols,', '            "execution_overlay": spec.execution_overlay,\n            "slippage_std": spec.slippage_std,\n            "symbols": spec.symbols,'),
+              ('            "execution_overlay": self.execution_overlay,\n            "symbols": list(self.symbols),', '            "execution_overlay": self.execution_overlay,\n            "slippage_std": self.slippage_std,\n            "symbols": list(self.symbols),'),
+              ('        execution_overlay=spec.execution_overlay,\n        symbols=spec.symbols,', '        execution_overlay=spec.execution_overlay,\n        slippage_std=spec.slippage_std,\n        symbols=spec.symbols,'),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'missing source anchor: {old!r}')
+              text = text.replace(old, new)
+          anchor = '''        for evidence, expected in expected_names:\n            if evidence.strategy_name != expected:\n                raise ValueError("strategy_name differs from PPO evidence role")\n'''
+          insert = anchor + '''        period_identities = {\n            (evidence.n_periods, evidence.periods_per_year)\n            for evidence, _ in expected_names\n        }\n        if len(period_identities) != 1:\n            raise ValueError("strategy period identity differs within symbol")\n'''
+          if anchor not in text:
+              raise SystemExit('missing period identity anchor')
+          text = text.replace(anchor, insert)
+          source.write_text(text)
+
+          codec = Path('trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py')
+          text = codec.read_text()
+          old = '''        execution_overlay=_string(\n            payload["execution_overlay"], field="seed_evidence.execution_overlay"\n        ),\n        symbols=_string_tuple(payload["symbols"], field="seed_evidence.symbols"),\n'''
+          new = '''        execution_overlay=_string(\n            payload["execution_overlay"], field="seed_evidence.execution_overlay"\n        ),\n        slippage_std=_number(\n            payload["slippage_std"], field="seed_evidence.slippage_std"\n        ),\n        symbols=_string_tuple(payload["symbols"], field="seed_evidence.symbols"),\n'''
+          if old not in text:
+              raise SystemExit('missing codec slippage anchor')
+          codec.write_text(text.replace(old, new))
+
+          for test_path in [
+              Path('tests/evaluation/experiments/test_ppo_interleaved_evaluation.py'),
+              Path('tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py'),
+              Path('tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py'),
+          ]:
+              text = test_path.read_text()
+              old = '        execution_overlay=spec.execution_overlay,\n        symbols=spec.symbols,'
+              if old in text:
+                  text = text.replace(
+                      old,
+                      '        execution_overlay=spec.execution_overlay,\n        slippage_std=spec.slippage_std,\n        symbols=spec.symbols,',
+                  )
+              test_path.write_text(text)
+
+          hardening = Path('tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py')
+          text = hardening.read_text()
+          addition = '''\n\ndef test_symbol_evidence_rejects_mixed_period_identity() -> None:\n    ppo = _path("ppo")\n    cash = replace(_path("cash"), returns=(0.0,), return_sha256=return_path_sha256((0.0,)), n_periods=1)\n    with pytest.raises(ValueError, match="period identity"):\n        PPOSymbolEvidence(\n            symbol_index=0,\n            symbol="BTCUSDT",\n            ppo=ppo,\n            cash=cash,\n            constant_long=_path("constant_long"),\n            constant_short=_path("constant_short"),\n            ppo_returns_equal_cash=False,\n            ppo_returns_equal_constant_long=True,\n            ppo_returns_equal_constant_short=True,\n        )\n\n\ndef test_seed_evidence_binds_slippage_identity() -> None:\n    evidence = _seed_evidence(arm="baseline")\n    spec = canonical_ppo_interleaved_evaluator_spec()\n    assert evidence.slippage_std == spec.slippage_std == 0.0\n    with pytest.raises(ValueError, match="slippage_std"):\n        replace(evidence, slippage_std=0.01)\n'''
+          if 'test_symbol_evidence_rejects_mixed_period_identity' in text:
+              raise SystemExit('hardening tests already present unexpectedly')
+          hardening.write_text(text + addition)
+
+          codec_test = Path('tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py')
+          text = codec_test.read_text()
+          addition = '''\n\ndef test_loader_rejects_slippage_identity_tampering() -> None:\n    payload = _evidence().to_payload()\n    payload["slippage_std"] = 0.01\n    with pytest.raises(ValueError, match="slippage_std"):\n        ppo_seed_evidence_from_payload(payload)\n'''
+          if 'test_loader_rejects_slippage_identity_tampering' not in text:
+              codec_test.write_text(text + addition)
+          PY
+      - name: Format and focused static checks
+        run: |
+          uv run ruff check --fix trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_evaluation.py tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          uv run ruff format trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_evaluation.py tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          uv run ruff check trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_evaluation.py tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          uv run ruff format --check trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_evaluation.py tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          uv run mypy trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py
+      - name: Focused GREEN
+        run: |
+          uv run pytest -q \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py \
+            tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py \
+            tests/architecture/test_runs_capability_facade.py
+      - name: Prove narrow patch and publish non-force
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only | sort)" = "$(printf '%s\n' \
+            tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py | sort)"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py tests/evaluation/experiments/test_ppo_interleaved_evaluation.py tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py
+          git commit -m 'research: bind PPO evidence period and slippage identity'
+          git push origin HEAD:research/issue632-ppo-interleaved-evaluator-impl

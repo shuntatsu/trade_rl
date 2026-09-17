@@ -9,10 +9,11 @@ from typing import Any
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.metrics import compound_return, evaluate_performance
 from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -40,6 +41,7 @@ def evaluate_directional_arm(
     latency_bars: int = 0,
     cost_multiplier: float = 1.0,
     symbol_index: int | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
 ) -> dict[str, Any]:
     """Evaluate one fixed arm; a pass is a development screen only."""
     if (
@@ -87,6 +89,7 @@ def evaluate_directional_arm(
         gross_budget=0.1,
         initial_capital=10_000.0,
         execution_cost=execution,
+        market_order_profile=market_order_profile,
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=0.5,
@@ -120,6 +123,8 @@ def evaluate_directional_arm(
         for year in sorted(set(years[: len(values)]))
     }
     terminal_flat = bool(np.all(np.abs(replay.book.quantities) <= 1e-10))
+    if market_order_profile is not None:
+        terminal_flat = all(quantity == 0 for quantity in replay.book.exact_quantities)
     qualified = bool(
         full_length
         and terminal_flat
@@ -129,7 +134,7 @@ def evaluate_directional_arm(
         and year_returns
         and all(value > 0 for value in year_returns.values())
     )
-    return {
+    result = {
         "schema": "directional_arm_v1",
         "dataset_id": dataset.dataset_id,
         "start_index": start_index,
@@ -152,3 +157,14 @@ def evaluate_directional_arm(
         "qualified": qualified,
         "production_eligible": False,
     }
+    if market_order_profile is not None:
+        result.update(
+            schema="directional_market_profile_arm_v1",
+            execution_policy_digest=MarketExecutor(
+                dataset, execution, market_order_profile=market_order_profile
+            ).execution_policy_digest,
+            market_order_profile_digest=market_order_profile.digest,
+            market_order_profile=market_order_profile.canonical_payload(),
+            terminal_exact_quantities=[str(q) for q in replay.book.exact_quantities],
+        )
+    return result

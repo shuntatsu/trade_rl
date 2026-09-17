@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
@@ -300,6 +301,7 @@ def run_shared_cash_replay(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
 ) -> SharedCashReplayResult:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -336,7 +338,11 @@ def run_shared_cash_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
-    executor = MarketExecutor(dataset, execution_cost or ExecutionCostConfig.zero())
+    executor = MarketExecutor(
+        dataset,
+        execution_cost or ExecutionCostConfig.zero(),
+        market_order_profile=market_order_profile,
+    )
     risk_controller = risk or _default_replay_risk(executor)
     _validate_risk_execution_compatibility(risk_controller, executor)
     current_intents = [PositionIntent.FLAT for _ in range(dataset.n_symbols)]

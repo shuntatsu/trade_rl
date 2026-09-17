@@ -257,6 +257,13 @@ behavior. Current exchange filters on historical bars are a declared assumption,
 not point-in-time source recovery. Synthetic verification establishes execution
 behavior only. Neither the original directional study nor the unchanged diagnostic
 has been rerun with this profile; its frozen economic comparison remains pending.
+The shared-cash directional evaluator now accepts the verified profile explicitly
+and records its actual execution-policy identity and exact terminal inventory in
+a distinct result schema. Its new flatness gate requires exact zero quantities;
+legacy results are not reinterpreted. Matched ordinary/reduce-only profile artifacts
+for the five-symbol successor Dataset have been saved and reloaded with raw-source
+verification. Model roster, full comparison protocol, runs and independent economic
+audit are still pending; this connection does not establish economic improvement.
 
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,

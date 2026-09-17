@@ -14,8 +14,10 @@ Status: Active
   retain existing minimum-notional rules at this stage.
 - [x] Verify synthetic boundaries, default compatibility, independent review,
   full repository CI and normal integration for Stage A.
-- [ ] Implement and independently review the evidence-bound Stage B profile,
+- [x] Implement and independently review the evidence-bound Stage B profile,
   retained MARKET quantity rules, per-order exception and activation behavior.
+- [ ] Connect the optional profile to shared-cash directional evaluation with
+  explicit result identity and exact terminal-flat evidence; verify and integrate.
 - [ ] Freeze and complete a fresh development comparison with independent
   ledger reconciliation and all declared qualification/stress gates.
 

@@ -1,0 +1,101 @@
+name: Attest Issue 638 seed0 pre-training failure
+
+on:
+  push:
+    branches:
+      - verify/issue638-seed0-pretraining-failure
+    paths:
+      - .github/workflows/verify-issue638-seed0-pretraining-failure.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+
+jobs:
+  attest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Bind failed run, failed job, and empty artifact slots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/35232657617)"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = failure
+          test "$(jq -r .run_attempt <<<"$run")" = 1
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/35232657617/artifacts --jq .total_count)" = 0
+          jobs="$(gh api 'repos/'$GITHUB_REPOSITORY'/actions/runs/35232657617/jobs?per_page=100')"
+          test "$(jq -r '.jobs[] | select(.id==105240486521) | .conclusion' <<<"$jobs")" = failure
+          test "$(jq -r '.jobs[] | select(.id==105240486521) | [.steps[] | select(.name=="Train and encode baseline seed 0 exactly once") | .conclusion][0]' <<<"$jobs")" = failure
+          test "$(jq -r '.jobs[] | select(.id==105240486521) | [.steps[] | select(.name=="Publish immutable seed-0 evidence before any downstream use") | .conclusion][0]' <<<"$jobs")" = skipped
+          test "$(gh api 'repos/'$GITHUB_REPOSITORY'/actions/artifacts?name=issue638-ppo-sequential-baseline-seed-0-v1' --jq .total_count)" = 0
+          test "$(gh api 'repos/'$GITHUB_REPOSITORY'/actions/artifacts?name=issue638-ppo-sequential-baseline-fresh-seed-0-v1' --jq .total_count)" = 0
+          test "$(gh api 'repos/'$GITHUB_REPOSITORY'/actions/artifacts?name=issue638-ppo-sequential-baseline-activation-seed-0-v1' --jq .total_count)" = 0
+      - name: Bind failure signature from exact failed job log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/$GITHUB_REPOSITORY/actions/jobs/105240486521/logs > "$RUNNER_TEMP/job.log"
+          grep -Fq "ModuleNotFoundError: No module named 'stable_baselines3'" "$RUNNER_TEMP/job.log"
+          grep -Fq "RuntimeError: stable-baselines3 is required; install the train-sb3 extra" "$RUNNER_TEMP/job.log"
+          ! grep -Fq 'ISSUE638_BASELINE_SEED_0_PUBLISHED=true' "$RUNNER_TEMP/job.log"
+      - name: Checkout exact evaluator and prove import precedes model construction and learn
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          persist-credentials: false
+      - name: Build canonical recovery attestation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          source=Path('trade_rl/strategies/rl/ppo.py').read_text()
+          backend=source.index('module = importlib.import_module("stable_baselines3")')
+          construct=source.index('model = ppo_class(', backend)
+          learn=source.index('model.learn(total_timesteps=total_timesteps)', construct)
+          assert backend < construct < learn
+          blob=hashlib.sha1((b'blob '+str(len(source.encode())).encode()+b'\0'+source.encode())).hexdigest()
+          assert blob == '2154932d500d85c9eccedb395708ac7e94956f36'
+          payload={
+            'schema_version':'issue638_seed0_pretraining_failure_attestation_v1',
+            'issue_number':638,
+            'failed_run_id':35232657617,
+            'failed_job_id':105240486521,
+            'failed_run_attempt':1,
+            'seed':0,
+            'evaluator_head':'97127952af3d01b71def695a4c8043eb301b2a33',
+            'ppo_source_blob_sha':'2154932d500d85c9eccedb395708ac7e94956f36',
+            'failure_signature':'stable_baselines3_import_missing',
+            'required_runtime_extra':'train-sb3',
+            'result_artifact_count':0,
+            'fresh_artifact_count':0,
+            'activation_artifact_count':0,
+            'ppo_model_constructed':False,
+            'ppo_learn_called':False,
+            'baseline_training_slot_consumed':False,
+            'candidate_training_authorized':False,
+            'economic_result_interpreted':False,
+            'final_test_accessed':False,
+            'production_eligible':False,
+            'live_trading_authorized':False,
+            'merge_authorized':False,
+          }
+          Path('attestation').mkdir()
+          Path('attestation/attestation.json').write_text(json.dumps(payload,sort_keys=True,separators=(',',':'))+'\n')
+          print('ISSUE638_SEED0_PRETRAINING_FAILURE_ATTESTED=true')
+          print('PPO_MODEL_CONSTRUCTED=false')
+          print('PPO_LEARN_CALLED=false')
+          print('BASELINE_TRAINING_SLOT_CONSUMED=false')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue638-seed0-pretraining-failure-attestation-v1
+          path: attestation/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

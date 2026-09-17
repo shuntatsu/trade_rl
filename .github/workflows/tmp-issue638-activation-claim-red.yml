@@ -1,0 +1,52 @@
+name: tmp Issue 638 activation claim RED
+
+on:
+  push:
+    branches:
+      - automation/issue638-activation-claim-v1
+    paths:
+      - .github/workflows/tmp-issue638-activation-claim-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout RED helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          path: impl
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay helper and RED tests
+        run: |
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Prove activation contract is RED
+        working-directory: impl
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py > "$RUNNER_TEMP/red.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/red.log"
+          test "$code" -ne 0
+          grep -Eq "activation_claim_bytes|_validate_slot_state" "$RUNNER_TEMP/red.log"
+          echo ISSUE638_ACTIVATION_CLAIM_RED=PASS

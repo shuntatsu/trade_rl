@@ -1,0 +1,213 @@
+name: Issue 630 Final Evaluator Independent Authority Audit
+
+on:
+  push:
+    branches:
+      - seal/issue630-final-evaluator-authority
+    paths:
+      - .github/issue630-final-evaluator.audit-authorized
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue630-final-evaluator-independent-audit
+  cancel-in-progress: false
+
+env:
+  AUTHORITY_RUN: '35214002467'
+  TARGET_SHA: d1bf25fd66834289ffddb36063b0d5cef649f444
+  VERIFY_RUN: '35213065827'
+  PROTOCOL_DIGEST: c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88
+  PRIMARY_NAME: issue630-final-authority-primary-v2
+  PRIMARY_ID: '10493392861'
+  PRIMARY_HEX: 3b1f1e0f3001085545acc6008a3693d9978db33fc5d501abc58a8316efdd1baf
+  FRESH_NAME: issue630-final-authority-fresh-v2
+  FRESH_ID: '10493118083'
+  FRESH_HEX: fe727e1b7753b827e7ad5cee5e1bdb726f2d1a63321cf8e9b1234b52526591c7
+  IMPLEMENTATION_SHA: 746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85
+  SEAL_SHA: 82f931041be3a2b7aeedd85e1bc3b6ae683365af2ae28d6d3adb60ac0103231a
+  AUDIT_A: issue630-final-authority-audit-a-v1
+  AUDIT_B: issue630-final-authority-audit-b-v1
+
+jobs:
+  audit-a:
+    name: Independent audit A
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Require unused audit A slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$AUDIT_A" --jq .total_count)" = 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: primary
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTHORITY_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTHORITY_RUN }}
+      - name: Audit fixed artifacts A
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp primary/implementation.json fresh/implementation.json
+          cmp primary/seal.json fresh/seal.json
+          test "$(sha256sum primary/implementation.json | cut -d' ' -f1)" = "$IMPLEMENTATION_SHA"
+          test "$(sha256sum primary/seal.json | cut -d' ' -f1)" = "$SEAL_SHA"
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID")"
+          f="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ID")"
+          test "$(jq -r .expired <<<"$p")" = false
+          test "$(jq -r .expired <<<"$f")" = false
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$AUTHORITY_RUN"
+          test "$(jq -r .workflow_run.id <<<"$f")" = "$AUTHORITY_RUN"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$PRIMARY_HEX"
+          test "$(jq -r .digest <<<"$f")" = "sha256:$FRESH_HEX"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          impl=json.loads(Path('primary/implementation.json').read_text())
+          seal=json.loads(Path('primary/seal.json').read_text())
+          assert impl['implementation_head']==os.environ['TARGET_SHA']
+          assert impl['verification_run_id']==int(os.environ['VERIFY_RUN'])
+          assert impl['protocol_v3']['digest']==os.environ['PROTOCOL_DIGEST']
+          assert impl['evidence_schema']['expected_n_periods']==17544
+          assert impl['evidence_schema']['calendar_year_period_counts']==[[2023,8760],[2024,8784]]
+          assert impl['evidence_schema']['annual_returns_bound_to_raw_returns_and_period_counts'] is True
+          assert impl['evidence_schema']['bool_numeric_alias_rejected'] is True
+          assert impl['evidence_schema']['partial_path_forces_stop'] is True
+          assert seal['implementation_sha256']==os.environ['IMPLEMENTATION_SHA']
+          for payload in (impl,seal):
+              for name in ('shared_cash_economic_execution_performed','shared_cash_economic_result_inspected','unused_data_accessed','final_test_accessed','production_eligible','live_trading_authorized','merge_authorized'):
+                  assert payload[name] is False, name
+          audit={'schema_version':'issue630_final_authority_audit_v1','authority_run_id':int(os.environ['AUTHORITY_RUN']),'implementation_head':os.environ['TARGET_SHA'],'verification_run_id':int(os.environ['VERIFY_RUN']),'protocol_digest':os.environ['PROTOCOL_DIGEST'],'primary_artifact_id':int(os.environ['PRIMARY_ID']),'primary_api_digest':'sha256:'+os.environ['PRIMARY_HEX'],'fresh_artifact_id':int(os.environ['FRESH_ID']),'fresh_api_digest':'sha256:'+os.environ['FRESH_HEX'],'implementation_sha256':os.environ['IMPLEMENTATION_SHA'],'seal_sha256':os.environ['SEAL_SHA'],'primary_fresh_byte_identical':True,'boundaries_validated':True,'shared_cash_economic_execution_performed':False,'shared_cash_economic_result_inspected':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          Path('audit-a').mkdir()
+          Path('audit-a/audit.json').write_text(json.dumps(audit,sort_keys=True,separators=(',',':'))+'\n')
+          print('INDEPENDENT_AUDIT_A=PASS')
+          PY
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.AUDIT_A }}
+          path: audit-a/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit-b:
+    name: Independent audit B
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Require unused audit B slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$AUDIT_B" --jq .total_count)" = 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: primary
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTHORITY_RUN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTHORITY_RUN }}
+      - name: Audit fixed artifacts B
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp primary/implementation.json fresh/implementation.json
+          cmp primary/seal.json fresh/seal.json
+          test "$(sha256sum primary/implementation.json | cut -d' ' -f1)" = "$IMPLEMENTATION_SHA"
+          test "$(sha256sum primary/seal.json | cut -d' ' -f1)" = "$SEAL_SHA"
+          p="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID")"
+          f="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ID")"
+          test "$(jq -r .expired <<<"$p")" = false
+          test "$(jq -r .expired <<<"$f")" = false
+          test "$(jq -r .workflow_run.id <<<"$p")" = "$AUTHORITY_RUN"
+          test "$(jq -r .workflow_run.id <<<"$f")" = "$AUTHORITY_RUN"
+          test "$(jq -r .digest <<<"$p")" = "sha256:$PRIMARY_HEX"
+          test "$(jq -r .digest <<<"$f")" = "sha256:$FRESH_HEX"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          impl=json.loads(Path('fresh/implementation.json').read_text())
+          seal=json.loads(Path('fresh/seal.json').read_text())
+          assert impl['implementation_head']==os.environ['TARGET_SHA']
+          assert impl['verification_run_id']==int(os.environ['VERIFY_RUN'])
+          assert impl['protocol_v3']['digest']==os.environ['PROTOCOL_DIGEST']
+          assert impl['evidence_schema']=={'spec_schema_version':'ridge_shared_cash_evaluation_spec_v2','expected_n_periods':17544,'calendar_year_period_counts':[[2023,8760],[2024,8784]],'annual_returns_bound_to_raw_returns_and_period_counts':True,'bool_numeric_alias_rejected':True,'partial_path_forces_stop':True}
+          assert seal['implementation_sha256']==os.environ['IMPLEMENTATION_SHA']
+          for payload in (impl,seal):
+              assert all(payload[name] is False for name in ('shared_cash_economic_execution_performed','shared_cash_economic_result_inspected','unused_data_accessed','final_test_accessed','production_eligible','live_trading_authorized','merge_authorized'))
+          audit={'schema_version':'issue630_final_authority_audit_v1','authority_run_id':int(os.environ['AUTHORITY_RUN']),'implementation_head':os.environ['TARGET_SHA'],'verification_run_id':int(os.environ['VERIFY_RUN']),'protocol_digest':os.environ['PROTOCOL_DIGEST'],'primary_artifact_id':int(os.environ['PRIMARY_ID']),'primary_api_digest':'sha256:'+os.environ['PRIMARY_HEX'],'fresh_artifact_id':int(os.environ['FRESH_ID']),'fresh_api_digest':'sha256:'+os.environ['FRESH_HEX'],'implementation_sha256':os.environ['IMPLEMENTATION_SHA'],'seal_sha256':os.environ['SEAL_SHA'],'primary_fresh_byte_identical':True,'boundaries_validated':True,'shared_cash_economic_execution_performed':False,'shared_cash_economic_result_inspected':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          Path('audit-b').mkdir()
+          Path('audit-b/audit.json').write_text(json.dumps(audit,sort_keys=True,separators=(',',':'))+'\n')
+          print('INDEPENDENT_AUDIT_B=PASS')
+          PY
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.AUDIT_B }}
+          path: audit-b/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  final:
+    name: Cross-auditor closure
+    needs: [audit-a, audit-b]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_A }}
+          path: a
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_B }}
+          path: b
+      - name: Require byte-identical independent audit closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          A_ID: ${{ needs.audit-a.outputs.artifact_id }}
+          A_DIGEST: ${{ needs.audit-a.outputs.artifact_digest }}
+          B_ID: ${{ needs.audit-b.outputs.artifact_id }}
+          B_DIGEST: ${{ needs.audit-b.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp a/audit.json b/audit.json
+          a_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$A_ID")"
+          b_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$B_ID")"
+          test "$(jq -r .workflow_run.id <<<"$a_meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .workflow_run.id <<<"$b_meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .digest <<<"$a_meta")" = "sha256:$A_DIGEST"
+          test "$(jq -r .digest <<<"$b_meta")" = "sha256:$B_DIGEST"
+          grep -q '"primary_fresh_byte_identical":true' a/audit.json
+          grep -q '"boundaries_validated":true' a/audit.json
+          echo ISSUE630_FINAL_INDEPENDENT_AUDIT=PASS

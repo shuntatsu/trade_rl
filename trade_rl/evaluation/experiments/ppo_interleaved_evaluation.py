@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass, fields
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.runs import execution_cost_for_overlay
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import fit_ppo_strategy
 
@@ -345,10 +346,10 @@ class PPOSymbolEvidence:
         if any(type(value) is not bool for value in actual_flags):
             raise ValueError("policy-mode equality flags must be booleans")
         labels = ("cash", "constant_long", "constant_short")
-        for label, actual, expected in zip(
+        for label, actual, expected_flag in zip(
             labels, actual_flags, expected_flags, strict=True
         ):
-            if actual is not expected:
+            if actual is not expected_flag:
                 raise ValueError(f"{label} equality flag differs from exact raw paths")
 
     def to_payload(self) -> dict[str, object]:
@@ -452,7 +453,9 @@ class PPOSeedEvidence:
         for field_name, expected in expected_identity.items():
             actual = getattr(self, field_name)
             if type(actual) is not type(expected) or actual != expected:
-                raise ValueError(f"{field_name} differs from sealed PPO evidence identity")
+                raise ValueError(
+                    f"{field_name} differs from sealed PPO evidence identity"
+                )
         if self.arm not in ("baseline", "candidate"):
             raise ValueError("arm must be baseline or candidate")
         if (
@@ -484,7 +487,9 @@ class PPOSeedEvidence:
         ):
             raise ValueError("realized_num_timesteps must be a positive integer")
         rows = tuple(self.by_symbol)
-        expected_symbols = tuple((index, symbol) for index, symbol in enumerate(spec.symbols))
+        expected_symbols = tuple(
+            (index, symbol) for index, symbol in enumerate(spec.symbols)
+        )
         actual_symbols = tuple((item.symbol_index, item.symbol) for item in rows)
         if actual_symbols != expected_symbols:
             raise ValueError("symbol roster/order differs from sealed PPO evidence")
@@ -501,7 +506,9 @@ class PPOSeedEvidence:
         ):
             value = getattr(self, field_name)
             if type(value) is not bool or value:
-                raise ValueError("research evaluator cannot authorize production/final/shared-cash use")
+                raise ValueError(
+                    "research evaluator cannot authorize production/final/shared-cash use"
+                )
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -575,18 +582,26 @@ def _validate_dataset(
     if dataset.dataset_id != spec.dataset_id:
         raise ValueError("dataset id differs from sealed PPO evaluator identity")
     if tuple(dataset.symbols) != spec.symbols:
-        raise ValueError("dataset symbol roster differs from sealed PPO evaluator identity")
+        raise ValueError(
+            "dataset symbol roster differs from sealed PPO evaluator identity"
+        )
     for index, name in zip(spec.feature_indices, spec.feature_names, strict=True):
         if index >= len(dataset.feature_names) or dataset.feature_names[index] != name:
-            raise ValueError("dataset feature identity differs from sealed PPO evaluator identity")
+            raise ValueError(
+                "dataset feature identity differs from sealed PPO evaluator identity"
+            )
     fit_cutoff = _datetime64(spec.fit_cutoff)
     eligible = np.flatnonzero(
         np.asarray(dataset.timestamps, dtype="datetime64[ns]") < fit_cutoff
     )
     if eligible.size < 2:
-        raise ValueError("dataset must contain at least two pre-cutoff PPO training rows")
+        raise ValueError(
+            "dataset must contain at least two pre-cutoff PPO training rows"
+        )
     train_stop = int(eligible[-1])
-    evaluation_start = _exact_index(dataset, spec.evaluation_start, field="evaluation_start")
+    evaluation_start = _exact_index(
+        dataset, spec.evaluation_start, field="evaluation_start"
+    )
     evaluation_stop = _exact_index(
         dataset,
         spec.evaluation_stop_exclusive,
@@ -594,9 +609,13 @@ def _validate_dataset(
     )
     if not 0 <= train_stop < evaluation_start < evaluation_stop < dataset.n_bars:
         raise ValueError("PPO training/evaluation clock differs from sealed authority")
-    symbol_indices = tuple(dataset.symbols.index(name) for name in spec.fit_symbol_names)
+    symbol_indices = tuple(
+        dataset.symbols.index(name) for name in spec.fit_symbol_names
+    )
     if symbol_indices != tuple(range(len(spec.symbols))):
-        raise ValueError("fit symbol identity differs from sealed PPO evaluator authority")
+        raise ValueError(
+            "fit symbol identity differs from sealed PPO evaluator authority"
+        )
     return train_stop, evaluation_start, evaluation_stop, symbol_indices
 
 
@@ -655,11 +674,15 @@ def evaluate_ppo_training_seed(
         raise ValueError("spec differs from sealed PPO evaluator authority")
     if arm not in ("baseline", "candidate"):
         raise ValueError("arm must be baseline or candidate")
-    if isinstance(seed, bool) or not isinstance(seed, int) or seed not in spec.ppo_seeds:
+    if (
+        isinstance(seed, bool)
+        or not isinstance(seed, int)
+        or seed not in spec.ppo_seeds
+    ):
         raise ValueError("seed must be one of the sealed PPO seeds")
 
-    train_stop, evaluation_start, evaluation_stop, fit_symbol_indices = _validate_dataset(
-        dataset, spec
+    train_stop, evaluation_start, evaluation_stop, fit_symbol_indices = (
+        _validate_dataset(dataset, spec)
     )
     execution_cost = execution_cost_for_overlay(spec.execution_overlay)
     if (
@@ -695,7 +718,7 @@ def evaluate_ppo_training_seed(
     )
     realized_num_timesteps = _realized_num_timesteps(strategy)
 
-    strategies = {
+    strategies: dict[str, SingleSymbolStrategy] = {
         "ppo": strategy,
         "cash": ConstantIntentStrategy(PositionIntent.FLAT),
         "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
@@ -765,7 +788,7 @@ def evaluate_ppo_training_seed(
         evaluation_stop_exclusive=spec.evaluation_stop_exclusive,
         gross_budget=spec.gross_budget,
         initial_capital=spec.initial_capital,
-        arm=arm,
+        arm=cast(Arm, arm),
         seed=seed,
         training_layout=training_layout,
         rollout_steps_per_env=rollout_steps,

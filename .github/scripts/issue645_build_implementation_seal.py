@@ -110,8 +110,7 @@ def build(repo: Path) -> dict[str, object]:
 
     code_map = json.loads((repo / "guide/content/meta/code-map.json").read_text())
     references = {
-        item["symbol"]: item["source_sha256"]
-        for item in code_map["code_references"]
+        item["symbol"]: item["source_sha256"] for item in code_map["code_references"]
     }
     if (
         references.get("trade_rl.simulation.execution.MarketExecutor")

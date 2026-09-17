@@ -215,8 +215,7 @@ jobs:
         id: arm_cash
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh cash)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh cash
       - name: Publish cash immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -230,8 +229,7 @@ jobs:
         id: arm_constant_long
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh constant_long)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh constant_long
       - name: Publish constant_long immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -245,8 +243,7 @@ jobs:
         id: arm_constant_short
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh constant_short)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh constant_short
       - name: Publish constant_short immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -260,8 +257,7 @@ jobs:
         id: arm_trend
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh trend)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh trend
       - name: Publish trend immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -275,8 +271,7 @@ jobs:
         id: arm_mean_reversion
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh mean_reversion)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh mean_reversion
       - name: Publish mean_reversion immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -290,8 +285,7 @@ jobs:
         id: arm_ridge24
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ridge24)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ridge24
       - name: Publish ridge24 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -305,8 +299,7 @@ jobs:
         id: arm_lightgbm24
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh lightgbm24)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh lightgbm24
       - name: Publish lightgbm24 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -320,8 +313,7 @@ jobs:
         id: arm_channel_breakout
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh channel_breakout)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh channel_breakout
       - name: Publish channel_breakout immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -335,8 +327,7 @@ jobs:
         id: arm_ppo0
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo0)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ppo0
       - name: Publish ppo0 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -350,8 +341,7 @@ jobs:
         id: arm_ppo1
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo1)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ppo1
       - name: Publish ppo1 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -365,8 +355,7 @@ jobs:
         id: arm_ppo2
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo2)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ppo2
       - name: Publish ppo2 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -380,8 +369,7 @@ jobs:
         id: arm_ppo3
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo3)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ppo3
       - name: Publish ppo3 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -395,8 +383,7 @@ jobs:
         id: arm_ppo4
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo4)" >> "$GITHUB_OUTPUT"
+        run: bash harness/.github/scripts/issue640_run_arm.sh ppo4
       - name: Publish ppo4 immutable slot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -488,7 +475,6 @@ jobs:
           compression-level: 0
 
       - name: Fail incomplete or non-finalizable study
-        shell: bash
         run: |
           set -euo pipefail
           test "${{ steps.finalize.outputs.all_green }}" = true
@@ -515,14 +501,13 @@ jobs:
           path: target
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@bec219d243e171d82865faccec33120bb574f4
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
 
       - name: Install audit runtime without model fitting
         working-directory: target
-        shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev --extra forecast-gbm --extra train-sb3
@@ -557,7 +542,6 @@ jobs:
         working-directory: target
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
           uv run python ../harness/.github/scripts/issue640_audit.py \

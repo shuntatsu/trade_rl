@@ -61,3 +61,53 @@ def test_development_clock_requires_complete_exact_calendar_years() -> None:
     )
     with pytest.raises(ValueError, match="clock"):
         directional_study.development_indices(incomplete)
+
+
+def test_required_runtime_rejects_missing_or_wrong_frozen_trainers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    versions = {
+        "lightgbm": "4.7.0",
+        "stable-baselines3": "2.3.2",
+        "torch": "2.4.1",
+        "scikit-learn": "1.7.2",
+    }
+
+    def version(name: str) -> str:
+        if name not in versions:
+            raise directional_study.metadata.PackageNotFoundError(name)
+        return versions[name]
+
+    monkeypatch.setattr(directional_study.metadata, "version", version)
+    assert directional_study.validate_required_runtime() == versions
+
+    del versions["stable-baselines3"]
+    with pytest.raises(RuntimeError, match="stable-baselines3"):
+        directional_study.validate_required_runtime()
+
+    versions["stable-baselines3"] = "9.9.9"
+    with pytest.raises(RuntimeError, match="stable-baselines3"):
+        directional_study.validate_required_runtime()
+
+
+def test_prepare_fails_runtime_preflight_before_source_or_output_side_effects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    loaded: list[Path] = []
+
+    def fail_runtime() -> dict[str, str]:
+        raise RuntimeError("stable-baselines3 runtime is unavailable")
+
+    def forbidden_load(path: Path) -> object:
+        loaded.append(path)
+        raise AssertionError("source must not load before runtime preflight")
+
+    monkeypatch.setattr(
+        directional_study, "validate_required_runtime", fail_runtime, raising=False
+    )
+    monkeypatch.setattr(directional_study, "load_market_dataset_artifact", forbidden_load)
+    output = tmp_path / "study"
+    with pytest.raises(RuntimeError, match="stable-baselines3"):
+        directional_study.prepare_study(tmp_path / "source", output)
+    assert loaded == []
+    assert not output.exists()

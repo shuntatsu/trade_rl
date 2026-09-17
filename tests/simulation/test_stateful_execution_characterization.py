@@ -23,6 +23,9 @@ from trade_rl.simulation.orders.model import (
 _EXPECTED_BASELINE_SHA256 = (
     "ad16d97eaf5e1e6bb3f87fa7c91ba630ed5f6e04b5a3ecc5ef0902f3867ecddf"
 )
+_EXPECTED_EXACT_STATE_SHA256 = (
+    "5523202e80f44df93a6982b5c771a4332aea6c94ccf3c4fb137fddd522dde4b6"
+)
 
 
 def _normalize(value: Any) -> Any:
@@ -196,7 +199,19 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
         separators=(",", ":"),
     ).encode("utf-8")
 
-    assert hashlib.sha256(canonical).hexdigest() == _EXPECTED_BASELINE_SHA256
+    assert hashlib.sha256(canonical).hexdigest() == _EXPECTED_EXACT_STATE_SHA256
+    # Independent old/new fixture inspection established these state additions
+    # as the only changes. Keep every pre-existing field under the original hash.
+    assert normalized["book"].pop("_exact_quantities") == ["2"]
+    for order in (
+        normalized["order_book"]["active_orders"]
+        + normalized["order_book"]["terminal_orders"]
+    ):
+        assert order.pop("exact_cumulative_filled_quantity") == str(
+            int(order["cumulative_filled_quantity"])
+        )
+    legacy = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+    assert hashlib.sha256(legacy).hexdigest() == _EXPECTED_BASELINE_SHA256
     assert result.next_index == 3
     assert result.bars_advanced == 3
     assert [event.sequence for event in result.order_events] == list(range(13))

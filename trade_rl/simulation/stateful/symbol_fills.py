@@ -286,22 +286,26 @@ class StatefulSymbolFillProcessor:
                     filled_notional=allocation.filled_notional,
                     participation_rate=allocation.participation_rate,
                 )
-                target_quantities = runtime.book.quantities.copy()
-                target_quantities[symbol] += allocation.filled_quantity
-                fill_prices = context.open_prices.copy()
-                fill_prices[symbol] = execution_price
-                runtime.book.execute(
-                    fill_prices=fill_prices,
-                    target_quantities=target_quantities,
-                    cost_amount=cost_amount,
-                    turnover=(allocation.filled_notional / context.period_start_value),
-                )
-                executor._update_margin(runtime.book)
+                # Validate the immutable order update before changing the book.
                 updated = order.apply_fill(
                     quantity=allocation.filled_quantity,
                     notional=allocation.filled_notional,
                     processing_index=processing_index,
+                    lot_size=allocation.lot_size,
+                    lot_count=allocation.filled_lot_count,
                 )
+                fill_prices = context.open_prices.copy()
+                fill_prices[symbol] = execution_price
+                runtime.book.execute_fill(
+                    symbol_index=symbol,
+                    quantity=allocation.filled_quantity,
+                    lot_size=allocation.lot_size,
+                    lot_count=allocation.filled_lot_count,
+                    fill_prices=fill_prices,
+                    cost_amount=cost_amount,
+                    turnover=(allocation.filled_notional / context.period_start_value),
+                )
+                executor._update_margin(runtime.book)
                 runtime.order_book = runtime.order_book.replace(updated)
                 runtime.append_event(
                     previous=order,

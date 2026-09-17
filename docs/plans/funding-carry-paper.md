@@ -15,14 +15,20 @@ Status: Active
   tampering and freshness at consumption, without changing historical artifacts.
 - [x] Capture and revalidate current exchange rules; test market lot intersections,
   disabled zero steps, notional flags, unsupported symbols and metadata age.
-- [ ] Specify and test restart-safe prospective paper execution on the canonical ledger.
+- [x] Specify and test restart-safe prospective paper execution on the canonical ledger.
   - [x] Implement a protocol-bound SQLite event chain with compare-and-append,
     duplicate-command idempotency, concurrent-writer and process-interruption tests.
   - [x] Compose saved decisions, verified later captures, depth fills and funding
     settlement events into replayable canonical account transitions.
-  - [ ] Independently review account composition and pass the full repository CI.
+  - [x] Independently review account composition and pass the full repository CI.
 - [ ] Add source/runtime-bound study sealing, supervised public collection and
   operational restart/report commands; verify software against real source data.
+  - [x] Bind source/runtime identity before collection, check it before every
+    command, and preserve a durable failure if collection or identity fails.
+  - [x] Reuse fresh rules, persist each capture before a command, resume pending
+    decisions only inside their ten-second window, and supervise one collector.
+  - [ ] Independently review the collector, verify full CI and exercise real inputs.
+  - [ ] Expose a cadence CLI and report command with the separately frozen gate.
 - [ ] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.
 

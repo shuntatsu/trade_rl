@@ -66,6 +66,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "paper/store.py",
         "paper/account.py",
         "paper/engine.py",
+        "paper/control.py",
+        "paper/supervisor.py",
         "comparison/__init__.py",
         "comparison/bootstrap.py",
         "comparison/paired.py",

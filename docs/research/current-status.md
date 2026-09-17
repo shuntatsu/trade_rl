@@ -80,8 +80,11 @@ funding on the existing account, and verifies every committed result on restart.
 Funding uses exact quantities held before the settlement timestamp, including
 when payment evidence arrives after an exit. Revisions, late/missing funding and
 observation gaps remain visible permanent quality failures. A standalone
-source/runtime-bound collector, study sealing and future economic gate remain
-unimplemented. These software tests have not started prospective paper positions.
+source/runtime-bound collection component now seals its identity before start,
+refreshes public rules, supervises pending decisions and durably halts on failures
+or interrupted cycles. The cadence CLI, prospective economic protocol and final
+gate remain unimplemented. These software tests have not started prospective
+paper positions.
 
 ### Directional development study under a 20% drawdown budget
 

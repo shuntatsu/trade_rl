@@ -165,3 +165,36 @@ The frozen close time permanently targets zero; final flatness requires actual
 accepted exits, including fees and any residual venue-rule rejection. A terminal
 time, successful replay or positive interim cash does not imply a passed future
 economic gate.
+
+### Public collection supervisor
+
+Seal the complete package-source and runtime provenance before collecting any
+study inputs. The supervisor accepts only an expected protocol digest and that
+unchanged provenance; verify identity before each network acquisition and each
+account command. Use a single advisory process lock to exclude two collectors;
+process death releases the lock. Preserve unique immutable capture directories
+and re-use rule evidence only while fresh, refreshing before its one-hour limit.
+An independent SQLite control record durably begins each cycle before any
+request and acknowledges it only after all account commands commit. Reopening
+an unfinished cycle permanently halts before network access, including a crash
+after a source failure file or after a successful capture but before its command.
+Never discard an unconsumed observation by silently trying another one. Existing
+source directories without their control database are rejected. This control
+record owns operational acknowledgements, never cash, fills or P&L.
+An incomplete cycle also blocks another cycle in the same process. Set an
+irreversible in-memory halt before attempting failure-file I/O, so even a failed
+failure-file write cannot permit additional requests.
+An existing pending decision may execute only inside its ten-second lifetime;
+otherwise record a permanent gap and cancel it. Clock reversal, source drift,
+failed evidence or transport failure writes a durable failure and halts network
+activity. A failed collector cannot automatically restart and repeat denied
+requests. A report must retain unresolved quantities and last real marks.
+The pinned protocol digest is rechecked together with source/runtime identity
+before every acquisition. Failure recording uses its own UTC clock so failure
+of the injected observation clock cannot suppress durable failure evidence.
+
+Public collection is an operational capability only. Its terminal observation
+grace window is 180 seconds after the frozen close time, to capture delayed
+settlements and attempt actual exits; it is not permission to extend a failing
+study until profit appears. Future minimum duration and economic thresholds
+still require a separately frozen prospective protocol before positions start.

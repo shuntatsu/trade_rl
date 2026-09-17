@@ -296,6 +296,18 @@ and the last actual observation time. No implicit liquidation or flatness is
 allowed. Runtime-bound collection and future economic qualification are separate
 from deterministic engine correctness.
 
+Public collection checks its pinned protocol and complete source/runtime identity
+before acquisition and commands. A process lock admits one collector. A separate
+durable control database begins every cycle before network I/O and acknowledges
+only fully committed cycles; restart with an unfinished cycle halts even if the
+process died before the top-level failure marker. Untracked existing captures
+are rejected. Failures preserve a permanent marker and, when the verified journal
+can accept it, a gap command after reconciling any uncertain commit. No automatic
+retry follows a collection failure. Pending decisions expire after ten seconds;
+the terminal observation window ends 180 seconds after the fixed close, including
+when acquisition itself crosses that boundary. These are operational controls,
+not evidence that a prospective economic gate passed.
+
 ## 非目標
 
 Lean coreが保証しないもの:

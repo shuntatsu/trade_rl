@@ -1,0 +1,294 @@
+name: Issue 627 Shared-Cash Preregistration Seal v3
+
+on:
+  push:
+    branches:
+      - seal/issue627-shared-cash-prereg-v3
+    paths:
+      - .github/workflows/issue627-prereg-seal-v3.yml
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue627-shared-cash-prereg-seal-v3
+  cancel-in-progress: false
+
+env:
+  PROTOCOL_HEAD: 65eb3c90e0a5fe1cea952279c28024160838da08
+  PROTOCOL_MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py
+  PROTOCOL_MODULE_BLOB: 208e4d45b64ce4e92cd8eca59a5c427dc8be7029
+  VERIFY_RUN: '35211505321'
+  PR_NUMBER: '628'
+  BASE_HEAD: d18434799651cfc6c07e0840c40600dcf1dfa763
+
+jobs:
+  primary:
+    name: Primary v3 protocol seal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      protocol_digest: ${{ steps.build.outputs.protocol_digest }}
+      protocol_sha256: ${{ steps.build.outputs.protocol_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+    steps:
+      - name: Enforce exactly-once activation
+        run: |
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROTOCOL_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Bind exact head, CI and Draft PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROTOCOL_HEAD"
+          test "$(git rev-parse "HEAD:$PROTOCOL_MODULE")" = "$PROTOCOL_MODULE_BLOB"
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFY_RUN")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$PROTOCOL_HEAD"
+          test "$(jq -r .base.sha <<<"$pr")" = "$BASE_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Generate canonical v3 protocol and seal
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+
+          protocol = canonical_ridge_shared_cash_protocol()
+          payload = protocol.to_payload()
+          expected_overlay = "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
+          if payload.get("schema_version") != "ridge_shared_cash_prereg_v3":
+              raise SystemExit("wrong v3 schema")
+          if payload.get("execution_overlay") != expected_overlay:
+              raise SystemExit("execution overlay not frozen")
+          if type(payload.get("execution_max_leverage")) is not float or payload["execution_max_leverage"] != 1.0:
+              raise SystemExit("execution max leverage not frozen")
+          forbidden = {
+              "baseline_total_return", "candidate_total_return", "baseline_2023_return",
+              "candidate_2023_return", "baseline_2024_return", "candidate_2024_return",
+              "shared_cash_decision",
+          }
+          if forbidden.intersection(payload):
+              raise SystemExit("economic result leaked into protocol")
+          boundary = (
+              "unused_data_accessed", "final_test_accessed", "final_test_authorized",
+              "operational_eligibility_established", "production_eligible",
+              "live_trading_authorized", "merge_authorized",
+              "shared_cash_economic_result_inspected", "shared_cash_execution_authorized",
+          )
+          for field in boundary:
+              if payload[field] is not False:
+                  raise SystemExit(f"boundary drift: {field}")
+
+          protocol_raw = (json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+          protocol_sha = hashlib.sha256(protocol_raw).hexdigest()
+          Path("out/protocol.json").write_bytes(protocol_raw)
+          path = os.environ["PROTOCOL_MODULE"]
+          seal = {
+              "schema_version": "issue627_shared_cash_prereg_seal_v3",
+              "issue_number": 627,
+              "pull_request": 628,
+              "protocol_head": os.environ["PROTOCOL_HEAD"],
+              "base_head": os.environ["BASE_HEAD"],
+              "verification_run_id": int(os.environ["VERIFY_RUN"]),
+              "protocol_module_path": path,
+              "protocol_module_blob": subprocess.check_output(["git", "rev-parse", f"HEAD:{path}"], text=True).strip(),
+              "protocol_module_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+              "protocol_digest": protocol.digest,
+              "protocol_sha256": protocol_sha,
+              "execution_overlay": expected_overlay,
+              "execution_max_leverage": 1.0,
+              "result_blind": True,
+              "shared_cash_economic_execution_performed": False,
+              "shared_cash_economic_result_inspected": False,
+              "shared_cash_execution_authorized": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+              "merge_authorized": False,
+              "seal_run_id": int(os.environ["GITHUB_RUN_ID"]),
+          }
+          seal_raw = (json.dumps(seal, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+          seal_sha = hashlib.sha256(seal_raw).hexdigest()
+          Path("out/seal.json").write_bytes(seal_raw)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"protocol_digest={protocol.digest}\n")
+              fh.write(f"protocol_sha256={protocol_sha}\n")
+              fh.write(f"seal_sha256={seal_sha}\n")
+          print(f"PROTOCOL_DIGEST={protocol.digest}")
+          print(f"PROTOCOL_SHA256={protocol_sha}")
+          print(f"SEAL_SHA256={seal_sha}")
+          print("SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false")
+          PY
+      - id: name
+        run: echo "artifact_name=issue627-shared-cash-prereg-v3-primary-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh v3 protocol reconstruction
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROTOCOL_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.primary.outputs.artifact_name }}
+          path: primary
+      - name: Independently reconstruct and require byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fresh
+          uv run python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+
+          protocol = canonical_ridge_shared_cash_protocol()
+          payload = protocol.to_payload()
+          if payload["schema_version"] != "ridge_shared_cash_prereg_v3": raise SystemExit("schema drift")
+          if payload["execution_max_leverage"] != 1.0: raise SystemExit("max leverage drift")
+          protocol_raw = (json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+          protocol_sha = hashlib.sha256(protocol_raw).hexdigest()
+          path = os.environ["PROTOCOL_MODULE"]
+          seal = {
+              "schema_version": "issue627_shared_cash_prereg_seal_v3",
+              "issue_number": 627,
+              "pull_request": 628,
+              "protocol_head": os.environ["PROTOCOL_HEAD"],
+              "base_head": os.environ["BASE_HEAD"],
+              "verification_run_id": int(os.environ["VERIFY_RUN"]),
+              "protocol_module_path": path,
+              "protocol_module_blob": subprocess.check_output(["git", "rev-parse", f"HEAD:{path}"], text=True).strip(),
+              "protocol_module_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+              "protocol_digest": protocol.digest,
+              "protocol_sha256": protocol_sha,
+              "execution_overlay": payload["execution_overlay"],
+              "execution_max_leverage": 1.0,
+              "result_blind": True,
+              "shared_cash_economic_execution_performed": False,
+              "shared_cash_economic_result_inspected": False,
+              "shared_cash_execution_authorized": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+              "merge_authorized": False,
+              "seal_run_id": int(os.environ["GITHUB_RUN_ID"]),
+          }
+          seal_raw = (json.dumps(seal, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+          Path("fresh/protocol.json").write_bytes(protocol_raw)
+          Path("fresh/seal.json").write_bytes(seal_raw)
+          if Path("primary/protocol.json").read_bytes() != protocol_raw:
+              raise SystemExit("fresh protocol bytes differ")
+          if Path("primary/seal.json").read_bytes() != seal_raw:
+              raise SystemExit("fresh seal bytes differ")
+          if protocol.digest != os.environ["PRIMARY_PROTOCOL_DIGEST"]:
+              raise SystemExit("fresh protocol digest differs")
+          if protocol_sha != os.environ["PRIMARY_PROTOCOL_SHA"]:
+              raise SystemExit("fresh protocol SHA differs")
+          if hashlib.sha256(seal_raw).hexdigest() != os.environ["PRIMARY_SEAL_SHA"]:
+              raise SystemExit("fresh seal SHA differs")
+          print("PRIMARY_FRESH_BYTE_EQUAL=true")
+          PY
+        env:
+          PRIMARY_PROTOCOL_DIGEST: ${{ needs.primary.outputs.protocol_digest }}
+          PRIMARY_PROTOCOL_SHA: ${{ needs.primary.outputs.protocol_sha256 }}
+          PRIMARY_SEAL_SHA: ${{ needs.primary.outputs.seal_sha256 }}
+      - id: name
+        run: echo "artifact_name=issue627-shared-cash-prereg-v3-fresh-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Final v3 seal audit
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.primary.outputs.artifact_name }}
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: fresh
+      - name: Validate byte identity and v3 boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp primary/protocol.json fresh/protocol.json
+          cmp primary/seal.json fresh/seal.json
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          protocol_raw = Path("primary/protocol.json").read_bytes()
+          seal_raw = Path("primary/seal.json").read_bytes()
+          protocol = json.loads(protocol_raw)
+          seal = json.loads(seal_raw)
+          if protocol["schema_version"] != "ridge_shared_cash_prereg_v3": raise SystemExit("v3 schema drift")
+          if protocol["execution_overlay"] != "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity": raise SystemExit("overlay drift")
+          if type(protocol["execution_max_leverage"]) not in (int, float) or protocol["execution_max_leverage"] != 1.0: raise SystemExit("max leverage drift")
+          if seal["protocol_head"] != os.environ["PROTOCOL_HEAD"]: raise SystemExit("head drift")
+          if seal["protocol_module_blob"] != os.environ["PROTOCOL_MODULE_BLOB"]: raise SystemExit("blob drift")
+          if hashlib.sha256(protocol_raw).hexdigest() != seal["protocol_sha256"]: raise SystemExit("protocol SHA drift")
+          for field in ("unused_data_accessed","final_test_accessed","final_test_authorized","operational_eligibility_established","production_eligible","live_trading_authorized","merge_authorized","shared_cash_economic_result_inspected","shared_cash_execution_authorized"):
+              if protocol[field] is not False: raise SystemExit(f"boundary drift: {field}")
+          for field in ("shared_cash_economic_execution_performed","shared_cash_economic_result_inspected","shared_cash_execution_authorized","unused_data_accessed","final_test_accessed","production_eligible","live_trading_authorized","merge_authorized"):
+              if seal[field] is not False: raise SystemExit(f"seal boundary drift: {field}")
+          print("ISSUE627_PREREG_V3_SEAL_CLOSURE=PASS")
+          print("PRIMARY_FRESH_BYTE_EQUAL=true")
+          PY

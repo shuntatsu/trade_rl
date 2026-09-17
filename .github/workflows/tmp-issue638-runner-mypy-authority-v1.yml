@@ -1,0 +1,115 @@
+name: tmp Issue 638 runner mypy and authority hardening v1
+
+on:
+  push:
+    branches:
+      - automation/issue638-runner-mypy-authority-v1
+    paths:
+      - .github/workflows/tmp-issue638-runner-mypy-authority-v1.yml
+
+permissions:
+  contents: write
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact prepare candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          path: helper
+          fetch-depth: 0
+      - name: Guard exact candidate
+        run: test "$(git -C helper rev-parse HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Patch type boundary and immutable main-parent authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('helper/.github/scripts/issue638_ppo_baseline_runner.py')
+          text = path.read_text()
+          old = 'from typing import Any, Callable\n'
+          new = 'from typing import Any, Callable, cast\n'
+          if old not in text:
+              raise SystemExit('typing import anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    canonical_seed = _validate_seed(seed)\n    if evaluator is None:\n        from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (\n            evaluate_ppo_training_seed,\n        )\n\n        evaluator = evaluate_ppo_training_seed\n    evidence = evaluator(dataset, spec, arm="baseline", seed=canonical_seed)\n'''
+          new = '''    canonical_seed = _validate_seed(seed)\n    evaluator_fn: Evaluator\n    if evaluator is None:\n        from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (\n            evaluate_ppo_training_seed,\n        )\n\n        evaluator_fn = cast(Evaluator, evaluate_ppo_training_seed)\n    else:\n        evaluator_fn = evaluator\n    evidence = evaluator_fn(dataset, spec, arm="baseline", seed=canonical_seed)\n'''
+          if old not in text:
+              raise SystemExit('evaluator type-boundary anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    subprocess.run(\n        ["git", "merge-base", "--is-ancestor", MAIN_AUTHORITY, EVALUATOR_HEAD],\n        check=True,\n    )\n\n    from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (\n'''
+          new = '''    subprocess.run(\n        ["git", "merge-base", "--is-ancestor", MAIN_AUTHORITY, EVALUATOR_HEAD],\n        check=True,\n    )\n    evaluator_commit = _api(f"commits/{EVALUATOR_HEAD}")\n    parents = evaluator_commit.get("parents")\n    if (\n        not isinstance(parents, list)\n        or len(parents) != 2\n        or not isinstance(parents[1], dict)\n        or parents[1].get("sha") != MAIN_AUTHORITY\n    ):\n        raise SystemExit("Issue 632 immutable main-parent authority drift")\n\n    from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (\n'''
+          if old not in text:
+              raise SystemExit('main-parent authority anchor drift')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          git -C helper diff --check
+      - name: Format patched runner
+        working-directory: impl
+        run: |
+          uv run ruff format ../helper/.github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff check ../helper/.github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff format --check ../helper/.github/scripts/issue638_ppo_baseline_runner.py
+      - name: Overlay exact patched runner and test
+        run: |
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Mypy and targeted synthetic verification
+        working-directory: impl
+        run: |
+          uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
+      - name: Result-blind live empty-slot authority preflight
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed 0 --slot empty
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Prove evaluator source unchanged
+        run: |
+          test "$(git -C impl rev-parse HEAD)" = 97127952af3d01b71def695a4c8043eb301b2a33
+          rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+          test -z "$(git -C impl status --porcelain)"
+      - name: Publish runner-only hardening if prepare is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C helper fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git -C helper rev-parse FETCH_HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
+          test "$(git -C helper diff --name-only)" = .github/scripts/issue638_ppo_baseline_runner.py
+          git -C helper config user.name github-actions[bot]
+          git -C helper config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C helper add .github/scripts/issue638_ppo_baseline_runner.py
+          git -C helper commit -m "research: harden Issue 638 runner type and main authority"
+          git -C helper push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

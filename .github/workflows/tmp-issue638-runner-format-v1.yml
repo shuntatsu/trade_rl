@@ -1,0 +1,45 @@
+name: tmp Issue 638 runner format v1
+
+on:
+  push:
+    branches:
+      - automation/issue638-runner-format-v1
+    paths:
+      - .github/workflows/tmp-issue638-runner-format-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          fetch-depth: 0
+      - name: Guard exact preparation head
+        run: test "$(git rev-parse HEAD)" = 5873e250807399919de8ed74d5a88c6bb646207c
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format runner and test only
+        run: |
+          uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          git diff --check
+      - name: Publish non-workflow formatted files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git rev-parse FETCH_HEAD)" = 5873e250807399919de8ed74d5a88c6bb646207c
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          git diff --cached --quiet && { echo 'formatter made no change'; exit 1; }
+          git commit -m "style: format Issue 638 baseline runner"
+          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

@@ -1,0 +1,8 @@
+issue=640
+implementation_head=c80652a126780580990bf46bb206155ba469e043
+harness_head_before_authorization=50d43c9b8e11fc29a8ed281ff5d46c34d4192f89
+verification_run=35242788844
+candidate_training_authorized=true
+unused_data_accessed=false
+production_eligible=false
+live_trading_authorized=false

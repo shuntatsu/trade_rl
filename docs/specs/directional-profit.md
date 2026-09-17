@@ -47,9 +47,11 @@ not turned into tuning opportunities.
 
 Qualification requires positive full return, positive return in both calendar
 years, drawdown <=20%, no economic termination, and a flat terminal account.
-PPO additionally requires at least 4/5 seeds qualified and positive median
-full/year returns. Rank qualified candidates by full net return, tie-break
-by lower turnover and then simpler family. Controls are benchmarks, never
+PPO additionally requires at least 4/5 seeds to pass the base screen and both
+stresses, with positive full/year medians over all five seeds. Rank qualified
+candidates by full net return (five-seed median for PPO), tie-break by lower
+turnover (five-seed median for PPO) and then the frozen simplicity order:
+trend, mean reversal, channel breakout, ridge24, lightgbm24, PPO. Controls are benchmarks, never
 learned winners. This is development screening, not final winner admission.
 
 Run predeclared double-cost and one-extra-bar-latency stress for every

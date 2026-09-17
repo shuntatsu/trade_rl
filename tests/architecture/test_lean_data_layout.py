@@ -17,6 +17,7 @@ def test_data_lifecycle_packages_exist() -> None:
         "features/cross_asset.py",
         "features/economic.py",
         "features/multitimeframe.py",
+        "features/price_channels.py",
         "view.py",
     ):
         assert (DATA / relative).is_file(), relative

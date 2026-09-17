@@ -154,6 +154,17 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 ## 非目標
 
+### Separate directional development composition
+
+`data.features.price_channels` appends prior-window high/low boundaries relative
+to the current completed close. It excludes the decision candle from extrema,
+requires every window member to have been available, and derives a new content
+identity while preserving source prices and economic arrays. The channel rule
+only emits intent. The directional evaluator uses the existing shared-cash
+executor, records ledger drawdown, and schedules real terminal closing orders.
+Failed terminal fills remain holdings and fail the screen. This composition
+does not change the canonical five-candidate suite or its historical decisions.
+
 Lean coreが保証しないもの:
 
 - profitability

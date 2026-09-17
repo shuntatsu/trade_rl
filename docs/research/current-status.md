@@ -17,6 +17,26 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ## 研究目的
 
+### Directional development study under a 20% drawdown budget
+
+On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
+directional study uses the frozen successor Dataset from run 34803217815,
+artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable
+protocol is defined in `docs/specs/directional-profit.md` while work is active.
+This study uses 10000 USDT simulated capital and one shared account; it does
+not replace the earlier independent-symbol Study or reopen sealed experiments.
+It compares the five maintained families, a fixed 20/10-day channel breakout,
+and three controls. Sequential PPO uses five seeds and 262144 steps per seed;
+the opt-in interleaved capability is outside this experiment's treatment.
+
+Qualification requires positive full and both-year returns, ledger drawdown
+at most 20%, complete replay, no termination, and actual terminal flatness.
+Double-cost and extra-bar-delay stresses plus per-symbol diagnostics precede
+prospective paper eligibility. PPO needs four of five seeds passing both base
+and stress gates; medians always include all five. There is no profitable
+candidate claim before the write-once selection artifact completes, and even
+a qualified development candidate requires prospective paper evidence.
+
 一つの銘柄ID非依存strategy/model/policyを学習・凍結し、各銘柄へ独立に適用する。その結果がpoint-in-time data、同一execution/accounting、hard risk、明示的なexecution-cost assumptionsの下でcontrolsを超え、unused dataでも再現するかを検証する。
 
 Aggregate P&Lだけで成功を判定せず、各symbolの結果とraw interval returnsを保持する。

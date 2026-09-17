@@ -1,0 +1,29 @@
+name: Verify Issue 645 activation RED v1
+on:
+  push:
+    branches:
+      - verify/issue645-activation-red-v1
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Prove old activation binding rejects Issue 645
+        shell: bash
+        run: |
+          set -euo pipefail
+          if uv run pytest -q tests/evaluation/test_directional_study.py::test_official_activation_accepts_only_first_exact_actions_run; then
+            echo "expected Issue 645 activation test to fail before rebind" >&2
+            exit 1
+          fi
+          echo ISSUE645_ACTIVATION_RED_REPRODUCED=true

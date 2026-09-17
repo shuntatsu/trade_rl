@@ -1,0 +1,65 @@
+name: tmp Issue 630 shared-cash falsification v1
+
+on:
+  push:
+    branches:
+      - verify/issue630-falsification-v1
+    paths:
+      - .github/workflows/tmp-issue630-falsification-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  falsify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply fail-closed hardening and adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py')
+          text = path.read_text()
+          old = '''    if baseline.n_periods != candidate.n_periods:\n        return _STOP\n'''
+          new = '''    if baseline.n_periods != candidate.n_periods:\n        raise ValueError("period count differs between shared-cash arms")\n'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '''        if self.dataset_id != spec.dataset_id or self.symbols != spec.symbols:\n            raise ValueError("shared-cash result Dataset/symbol authority mismatch")\n        if self.baseline.n_periods != self.candidate.n_periods:\n'''
+          new = '''        if self.dataset_id != spec.dataset_id or self.symbols != spec.symbols:\n            raise ValueError("shared-cash result Dataset/symbol authority mismatch")\n        if not isinstance(self.baseline, RidgeSharedCashArmEvidence) or not isinstance(\n            self.candidate, RidgeSharedCashArmEvidence\n        ):\n            raise TypeError("shared-cash result arms must be RidgeSharedCashArmEvidence")\n        if self.baseline.n_periods != self.candidate.n_periods:\n'''
+          assert old in text
+          path.write_text(text.replace(old, new, 1))
+
+          test = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py')
+          test.write_text('''from __future__ import annotations\n\nfrom dataclasses import replace\nfrom types import SimpleNamespace\n\nimport numpy as np\nimport pytest\n\nimport trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as module\nfrom tests.evaluation.experiments.bootstrap.test_ridge_shared_cash_evaluation import (\n    _arm,\n    _dataset,\n)\nfrom trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import (\n    RidgeSharedCashEvaluation,\n    canonical_ridge_shared_cash_evaluation_spec,\n    evaluate_ridge_shared_cash,\n    shared_cash_status,\n)\n\n\ndef _qualifying_pair():\n    baseline = _arm(\n        "baseline",\n        (0.01, 0.01),\n        total_cost=10.0,\n        turnover=4.0,\n        max_drawdown=0.20,\n        year_returns=((2023, 0.01), (2024, 0.01)),\n    )\n    candidate = _arm(\n        "candidate",\n        (0.02, 0.02),\n        total_cost=5.0,\n        turnover=2.0,\n        max_drawdown=0.10,\n        year_returns=((2023, 0.02), (2024, 0.02)),\n    )\n    return baseline, candidate\n\n\ndef test_period_count_mismatch_is_invalid_not_stop() -> None:\n    baseline, _ = _qualifying_pair()\n    candidate = _arm(\n        "candidate",\n        (0.02, 0.02, 0.02),\n        total_cost=5.0,\n        turnover=2.0,\n        max_drawdown=0.10,\n        year_returns=((2023, 0.02), (2024, 0.02)),\n    )\n    with pytest.raises(ValueError, match="period count"):\n        shared_cash_status(baseline, candidate)\n\n\ndef test_result_rejects_missing_or_reordered_arm_types() -> None:\n    baseline, candidate = _qualifying_pair()\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    result = RidgeSharedCashEvaluation(\n        spec_digest=spec.digest,\n        dataset_id=spec.dataset_id,\n        symbols=spec.symbols,\n        baseline=baseline,\n        candidate=candidate,\n        status="QUALIFY_UNUSED_VALIDATION",\n    )\n    with pytest.raises(TypeError, match="result arms"):\n        replace(result, baseline=None)  # type: ignore[arg-type]\n    with pytest.raises(ValueError, match="arm roster"):\n        replace(result, baseline=candidate, candidate=baseline)\n\n\n@pytest.mark.parametrize(\n    "mutation",\n    [\n        {"total_cost": 10.0},\n        {"turnover_total": 4.0},\n        {"max_drawdown": 0.21},\n        {"calendar_year_returns": ((2023, 0.0), (2024, 0.02))},\n        {"calendar_year_returns": ((2023, 0.02), (2024, 0.0))},\n        {"calendar_year_returns": ((2023, 0.005), (2024, 0.02))},\n    ],\n)\ndef test_each_mutable_qualification_dimension_can_force_stop(\n    mutation: dict[str, object],\n) -> None:\n    baseline, candidate = _qualifying_pair()\n    assert shared_cash_status(baseline, candidate) == "QUALIFY_UNUSED_VALIDATION"\n    changed = replace(candidate, **mutation)\n    assert shared_cash_status(baseline, changed) == "STOP_BEFORE_UNUSED_VALIDATION"\n\n\ndef test_full_return_and_new_termination_each_force_stop() -> None:\n    baseline, _ = _qualifying_pair()\n    nonpositive = _arm(\n        "candidate",\n        (-0.01, 0.0),\n        total_cost=5.0,\n        turnover=2.0,\n        max_drawdown=0.10,\n        year_returns=((2023, 0.02), (2024, 0.02)),\n    )\n    assert shared_cash_status(baseline, nonpositive) == "STOP_BEFORE_UNUSED_VALIDATION"\n\n    strong_baseline = _arm(\n        "baseline",\n        (0.03, 0.03),\n        total_cost=10.0,\n        turnover=4.0,\n        max_drawdown=0.20,\n        year_returns=((2023, 0.01), (2024, 0.01)),\n    )\n    _, weaker = _qualifying_pair()\n    assert shared_cash_status(strong_baseline, weaker) == "STOP_BEFORE_UNUSED_VALIDATION"\n\n    terminated = replace(\n        weaker,\n        termination_count=1,\n        termination_reasons=("margin_exhausted",),\n    )\n    assert shared_cash_status(baseline, terminated) == "STOP_BEFORE_UNUSED_VALIDATION"\n\n\ndef test_arm_evidence_rejects_reordered_years_bool_count_and_nonfinite_metrics() -> None:\n    _, candidate = _qualifying_pair()\n    with pytest.raises(ValueError, match="year roster"):\n        replace(candidate, calendar_year_returns=((2024, 0.02), (2023, 0.02)))\n    with pytest.raises(ValueError, match="termination"):\n        replace(candidate, termination_count=True)\n    with pytest.raises(ValueError, match="total_cost"):\n        replace(candidate, total_cost=float("nan"))\n\n\ndef test_dataset_and_protocol_drift_fail_before_fit_or_replay(\n    monkeypatch: pytest.MonkeyPatch,\n) -> None:\n    calls: list[str] = []\n\n    def forbidden(*args: object, **kwargs: object) -> object:\n        calls.append("called")\n        raise AssertionError("fit/replay must not be reached")\n\n    monkeypatch.setattr(module, "fit_ridge_forecast", forbidden)\n    monkeypatch.setattr(module, "run_shared_cash_replay", forbidden)\n    bad_dataset = replace(_dataset(), dataset_id="e" * 64)\n    with pytest.raises(ValueError, match="Dataset identity"):\n        evaluate_ridge_shared_cash(bad_dataset)\n    assert calls == []\n\n    monkeypatch.setattr(\n        module,\n        "canonical_ridge_shared_cash_protocol",\n        lambda: SimpleNamespace(digest="0" * 64),\n    )\n    with pytest.raises(ValueError, match="protocol digest"):\n        evaluate_ridge_shared_cash(_dataset())\n    assert calls == []\n\n\ndef test_calendar_year_returns_slice_one_continuous_raw_path() -> None:\n    dataset = _dataset()\n    values = np.zeros(731, dtype=np.float64)\n    values[364] = 0.10\n    values[365] = 0.20\n    result = module._calendar_year_returns(\n        dataset,\n        start_index=1,\n        returns=tuple(float(value) for value in values),\n        years=(2023, 2024),\n    )\n    assert result == pytest.approx(((2023, 0.10), (2024, 0.20)))\n\n\ndef test_result_rejects_bool_alias_for_research_boundary_flags() -> None:\n    baseline, candidate = _qualifying_pair()\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    result = RidgeSharedCashEvaluation(\n        spec_digest=spec.digest,\n        dataset_id=spec.dataset_id,\n        symbols=spec.symbols,\n        baseline=baseline,\n        candidate=candidate,\n        status="QUALIFY_UNUSED_VALIDATION",\n    )\n    with pytest.raises(ValueError, match="research result"):\n        replace(result, final_test_accessed=0)  # type: ignore[arg-type]\n''')
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+      - name: Static and adversarial verification
+        run: |
+          uv run ruff check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          uv run ruff format --check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          uv run mypy trade_rl
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py tests/evaluation/test_shared_cash_replay.py tests/evaluation/test_shared_cash_replay_falsification.py
+      - name: Commit permanent hardening only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          git commit -m "test: harden shared-cash evidence fail-closed invariants"
+          git push origin HEAD:research/issue630-shared-cash-evaluator

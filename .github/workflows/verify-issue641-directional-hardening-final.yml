@@ -1,0 +1,186 @@
+name: Verify Issue 641 directional hardening final
+
+on:
+  push:
+    branches:
+      - verify/issue641-directional-hardening-final
+    paths:
+      - .github/workflows/verify-issue641-directional-hardening-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Exact Lean Core and scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TARGET_SHA: c80652a126780580990bf46bb206155ba469e043
+      BASE_SHA: d4f1948ffb6bca44620773c2f67fc2f98b681d66
+    steps:
+      - name: Checkout exact clean hardening head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c80652a126780580990bf46bb206155ba469e043
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact four-file hardening scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/scripts/issue640_directional_activation.py
+          tests/evaluation/test_directional_study.py
+          tests/tools/test_issue640_directional_activation.py
+          trade_rl/evaluation/directional_study.py
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git status --porcelain)"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install core development environment
+        run: uv sync --extra dev
+      - name: Ruff and format
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools .github/scripts/issue640_directional_activation.py
+          uv run ruff format --check trade_rl tests tools .github/scripts/issue640_directional_activation.py
+      - name: Type checks
+        run: |
+          set -euo pipefail
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py .github/scripts/issue640_directional_activation.py
+      - name: Full Core tests
+        run: uv run pytest -q tests
+      - name: Build and distribution source closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke and package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version('trade-rl') == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print('clean installed core public imports and identity: OK')
+          PY
+      - name: Final exact clean head
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+
+  trainer-runtime:
+    name: Exact optional trainer preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c80652a126780580990bf46bb206155ba469e043
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install every frozen trainer path
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Targeted hardening tests
+        run: |
+          uv run pytest -q \
+            tests/evaluation/test_directional_study.py \
+            tests/evaluation/test_directional.py \
+            tests/evaluation/test_directional_selection.py \
+            tests/data/test_price_channels.py \
+            tests/strategies/test_channel_breakout.py \
+            tests/tools/test_issue640_directional_activation.py
+      - name: Verify concrete runtime provenance without economic access
+        run: |
+          uv run python - <<'PY'
+          from trade_rl.evaluation.directional_study import validate_required_runtime
+          from trade_rl.evaluation.runs import build_candidate_run_provenance
+          runtime = validate_required_runtime()
+          assert runtime['lightgbm'] == '4.7.0'
+          assert runtime['stable-baselines3'] == '2.3.2'
+          assert runtime['torch'] == '2.4.1'
+          assert runtime['scikit-learn']
+          packages = build_candidate_run_provenance()['runtime_environment']['packages']
+          for name in ('lightgbm', 'stable-baselines3', 'torch', 'scikit-learn'):
+              assert packages[name] == runtime[name]
+          print('ISSUE641_OPTIONAL_RUNTIME=PASS')
+          print('REAL_DATASET_LOADED=false')
+          print('MODEL_FIT_PERFORMED=false')
+          print('ECONOMIC_REPLAY_PERFORMED=false')
+          print('ECONOMIC_RESULT_INSPECTED=false')
+          PY
+
+  guide:
+    name: Exact Human Guide
+    runs-on: ubuntu-latest
+    env:
+      GUIDE_SOURCE_REV: c80652a126780580990bf46bb206155ba469e043
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c80652a126780580990bf46bb206155ba469e043
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e

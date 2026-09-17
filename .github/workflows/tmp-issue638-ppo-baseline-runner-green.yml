@@ -71,3 +71,5 @@ jobs:
           rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
           test -z "$(git -C impl status --porcelain)"
           test -z "$(git -C helper status --porcelain)"
+
+# verification trigger after helper hardening

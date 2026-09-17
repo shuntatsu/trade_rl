@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import OrderIntent
-from trade_rl.simulation.quantities import quantize_quantity
+from trade_rl.simulation.quantities import exact_quantity, quantize_quantity
 
 _TOLERANCE = 1e-12
 
@@ -70,8 +71,12 @@ class OrderAdmissionPolicy:
         lot_size: float,
         minimum_notional: float,
         reference_prices: np.ndarray,
+        actual_position: Fraction | None = None,
     ) -> AdmissionDecision:
         """Return an explicit admission or economic rejection reason."""
+
+        if actual_position is not None and not isinstance(actual_position, Fraction):
+            raise OrderAdmissionError("actual_position must be an exact Fraction")
 
         prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
         quantities = np.asarray(book.quantities, dtype=np.float64).reshape(-1)
@@ -135,6 +140,21 @@ class OrderAdmissionPolicy:
 
         symbol = intent.symbol_index
         current = quantities[symbol]
+        if intent.reduce_only:
+            # Stateful admission projects other pending orders for economics,
+            # but an unfilled opening is not inventory available to close.
+            position = (
+                book.exact_quantities[symbol]
+                if actual_position is None
+                else actual_position
+            )
+            request = exact_quantity(requested)
+            if not position:
+                return self._reject("reduce_only_no_position")
+            if position * request >= 0:
+                return self._reject("reduce_only_wrong_direction")
+            if abs(request) > abs(position):
+                return self._reject("reduce_only_exceeds_position")
         projected_unrounded = current + requested
         if projected_unrounded < -_TOLERANCE and not self.allow_short:
             return self._reject("shorting_disabled")

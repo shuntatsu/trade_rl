@@ -17,11 +17,13 @@ from trade_rl.simulation.bar_path import (
     select_bar_path,
 )
 from trade_rl.simulation.liquidity import (
+    LiquidityAllocation,
     LiquidityPriority,
     LiquidityRequest,
     allocate_symbol_capacity,
 )
 from trade_rl.simulation.orders.model import OrderStatus, OrderType, PendingOrder
+from trade_rl.simulation.quantities import accepted_fill_quantity, exact_quantity
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarContext
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
@@ -230,6 +232,7 @@ class StatefulSymbolFillProcessor:
                             newly_triggered=newly_triggered,
                         ),
                         eligible_index=order.intent.eligible_index,
+                        reduce_only=order.intent.reduce_only,
                     )
                 )
                 metadata[order.order_id] = (order, trigger, path, rounded_price)
@@ -257,11 +260,25 @@ class StatefulSymbolFillProcessor:
                 ),
                 lot_size=float(context.lot_size[symbol]),
                 minimum_notional=float(context.minimum_notional[symbol]),
+                initial_position=runtime.book.exact_quantities[symbol],
             )
-            runtime.capacities.append(capacity)
+            remaining_capacity = capacity.initial_capacity_notional
             for allocation in allocations:
                 _, trigger, order_path, execution_price = metadata[allocation.order_id]
                 order = runtime.require_active_order(allocation.order_id)
+                allocation = self._recheck_closing_allocation(
+                    runtime, order, allocation
+                )
+                # Keep the original reservations for later orders. Released
+                # capacity stays unused, and evidence reflects actual fills.
+                allocation = replace(
+                    allocation,
+                    capacity_before=remaining_capacity,
+                    capacity_after=max(
+                        0.0, remaining_capacity - allocation.filled_notional
+                    ),
+                )
+                remaining_capacity = allocation.capacity_after
                 if abs(allocation.filled_quantity) <= _TOLERANCE:
                     runtime.append_event(
                         previous=order,
@@ -277,6 +294,13 @@ class StatefulSymbolFillProcessor:
                         reason=allocation.no_fill_reason,
                         path=order_path,
                     )
+                    if allocation.no_fill_reason in {
+                        "reduce_only_exhausted",
+                        "reduce_only_inventory_changed",
+                    }:
+                        self._expire_closing_remainder(
+                            runtime, order, processing_index, allocation.no_fill_reason
+                        )
                     continue
 
                 cost_amount = _execution_cost(
@@ -344,4 +368,66 @@ class StatefulSymbolFillProcessor:
                 )
                 if updated.status is OrderStatus.FILLED:
                     runtime.completed_fills += 1
+                elif allocation.reduce_only_exhausted:
+                    self._expire_closing_remainder(runtime, updated, processing_index)
+            runtime.capacities.append(
+                replace(
+                    capacity,
+                    consumed_capacity_notional=capacity.initial_capacity_notional
+                    - remaining_capacity,
+                    remaining_capacity_notional=remaining_capacity,
+                )
+            )
         return attempted_order_ids
+
+    @staticmethod
+    def _recheck_closing_allocation(
+        runtime: StatefulExecutionRuntime,
+        order: PendingOrder,
+        allocation: LiquidityAllocation,
+    ) -> LiquidityAllocation:
+        if not order.intent.reduce_only:
+            return allocation
+        position = runtime.book.exact_quantities[order.intent.symbol_index]
+        filled = accepted_fill_quantity(
+            allocation.filled_quantity,
+            lot_size=allocation.lot_size,
+            lot_count=allocation.filled_lot_count,
+        )
+        reason = None
+        if position * exact_quantity(order.remaining_quantity) >= 0:
+            reason = "reduce_only_exhausted"
+        elif abs(filled) > abs(position):
+            reason = "reduce_only_inventory_changed"
+        if reason is None:
+            return allocation
+        # Margin handling after an earlier fill can flatten the real book,
+        # invalidating the allocator's projected inventory even within one bar.
+        return replace(
+            allocation,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            participation_rate=0.0,
+            no_fill_reason=reason,
+            filled_lot_count=None,
+            lot_size=0.0,
+            reduce_only_exhausted=True,
+        )
+
+    @staticmethod
+    def _expire_closing_remainder(
+        runtime: StatefulExecutionRuntime,
+        order: PendingOrder,
+        processing_index: int,
+        reason: str = "reduce_only_exhausted",
+    ) -> None:
+        updated = order.expire(processing_index=processing_index, reason=reason)
+        runtime.order_book = runtime.order_book.replace(updated)
+        runtime.expired_count += 1
+        runtime.append_event(
+            previous=order,
+            updated=updated,
+            event_type="expired",
+            processing_index=processing_index,
+            reason=reason,
+        )

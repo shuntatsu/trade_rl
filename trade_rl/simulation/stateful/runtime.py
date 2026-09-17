@@ -196,6 +196,7 @@ class StatefulExecutionRuntime:
                 schema_version="order_event_v1",
                 sequence=len(self.events),
                 order_id=updated.order_id,
+                reduce_only=updated.intent.reduce_only,
                 replaced_order_id=updated.intent.replaced_order_id,
                 dataset_id=updated.intent.dataset_id,
                 execution_policy_digest=updated.intent.execution_policy_digest,

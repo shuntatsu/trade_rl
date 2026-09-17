@@ -95,6 +95,7 @@ class StatefulOrderTransitionProcessor:
                 lot_size=float(context.lot_size[symbol]),
                 minimum_notional=float(context.minimum_notional[symbol]),
                 reference_prices=context.open_prices,
+                actual_position=runtime.book.exact_quantities[symbol],
             )
             if not decision.accepted:
                 reason = decision.reason or "admission_rejected"

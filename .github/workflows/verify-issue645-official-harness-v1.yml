@@ -1,0 +1,104 @@
+name: Verify Issue 645 official harness v1
+on:
+  push:
+    branches:
+      - verify/issue645-harness-v1
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3116bdc533b5c1b84edcc68cd300fa37fd9e5639
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Prove harness-only durable diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3116bdc533b5c1b84edcc68cd300fa37fd9e5639"
+          changed="$(git diff --name-only 928ee0886c404cdbb1383f440f731d7221c277ef 3116bdc533b5c1b84edcc68cd300fa37fd9e5639 | sort)"
+          expected="$(printf '%s\n'             .github/scripts/issue645_directional_activation.py             .github/scripts/issue645_official_audit.py             .github/scripts/issue645_official_run_arm.sh             .github/workflows/issue645-corrected-directional-study-v1.yml | sort)"
+          test "$changed" = "$expected"
+          test ! -e .github/authorizations/issue645-corrected-directional-study-v1.authorized
+      - name: Syntax and frozen workflow contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile .github/scripts/issue645_directional_activation.py .github/scripts/issue645_official_audit.py
+          bash -n .github/scripts/issue645_official_run_arm.sh
+          file=.github/workflows/issue645-corrected-directional-study-v1.yml
+          grep -Fq "TARGET_SHA: 928ee0886c404cdbb1383f440f731d7221c277ef" "$file"
+          grep -Fq "HARDENING_VERIFY_RUN: '35286382568'" "$file"
+          grep -Fq "run/issue645-corrected-directional-study-v1" "$file"
+          grep -Fq "issue645-corrected-directional-activation-v1" "$file"
+          grep -Fq "issue645-corrected-directional-protocol-v1" "$file"
+          grep -Fq "issue645-corrected-directional-run-summary-v1" "$file"
+          ! grep -Fq "workflow_dispatch" "$file"
+          for arm in cash constant_long constant_short trend mean_reversion ridge24 lightgbm24 channel_breakout ppo0 ppo1 ppo2 ppo3 ppo4; do
+            test "$(grep -Fc "Run $arm exactly once" "$file")" = 1
+            test "$(grep -Fc "Publish immutable $arm attempt" "$file")" = 1
+          done
+      - name: Install frozen runtime without real data
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run python - <<'PY'
+          import lightgbm
+          import stable_baselines3
+          import torch
+          from trade_rl.evaluation.directional_study import validate_required_runtime
+          runtime = validate_required_runtime()
+          assert runtime["lightgbm"] == "4.7.0"
+          assert runtime["stable-baselines3"] == "2.3.2"
+          assert runtime["torch"] == "2.4.1"
+          assert runtime["scikit-learn"]
+          print("ISSUE645_RUNTIME_PREFLIGHT=PASS")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          print("ECONOMIC_REPLAY_PERFORMED=false")
+          PY
+      - name: Activation helper contract
+        run: |
+          uv run python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          from trade_rl.evaluation.directional_candidates import ARMS
+          path=Path(".github/scripts/issue645_directional_activation.py")
+          spec=importlib.util.spec_from_file_location("issue645_activation",path)
+          assert spec and spec.loader
+          m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          protocol={
+            "required_runtime_packages":{"lightgbm":"4.7.0","stable-baselines3":"2.3.2","torch":"2.4.1","scikit-learn":"1.9.0"},
+            "provenance":{"implementation_digest":"a"*64,"runtime_environment_digest":"b"*64},
+            "arms":list(ARMS),
+            "source_dataset_id":"c"*64,
+            "source_artifact_digest":"d"*64,
+            "source_study_digest":"e"*64,
+            "source_plan_sha256":"f"*64,
+          }
+          claim=m.build_activation_claim(protocol,workflow_run_id=123,workflow_run_attempt=1,implementation_head="928ee0886c404cdbb1383f440f731d7221c277ef")
+          assert claim["issue_number"] == 645
+          assert claim["economic_execution_started"] is False
+          assert claim["economic_result_inspected"] is False
+          assert claim["unused_data_accessed"] is False
+          assert claim["production_eligible"] is False
+          m.validate_activation_claim(claim,protocol,workflow_run_id=123,implementation_head="928ee0886c404cdbb1383f440f731d7221c277ef")
+          m.validate_remote_slot({"total_count":0,"artifacts":[]},state="empty")
+          print("ISSUE645_ACTIVATION_HELPER=PASS")
+          PY
+      - name: Target regression and activation tests
+        run: uv run pytest -q tests/evaluation/test_directional_study.py tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py tests/architecture/test_lean_simulation_layout.py
+      - name: Prove no economic result access
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ECONOMIC_RESULT_INTERPRETED=false
+          echo UNUSED_DATA_ACCESSED=false

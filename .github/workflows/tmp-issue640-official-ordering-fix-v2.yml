@@ -1,0 +1,159 @@
+name: tmp Issue 640 official ordering fix v2
+
+on:
+  push:
+    branches:
+      - automation/issue640-official-ordering-fix-v2
+    paths:
+      - .github/workflows/tmp-issue640-official-ordering-fix-v2.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CANDIDATE_SHA: 253309f382d39a6314b8f729402ffcf466cef357
+      RUN_HEAD: d05f2380fb929592c4f261af6086e607c8ef8825
+      TARGET_SHA: c80652a126780580990bf46bb206155ba469e043
+    steps:
+      - name: Checkout exact dormant official candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Checkout exact hardened implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - name: Prove ordering defect before patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('candidate/.github/workflows/issue640-directional-study-v1.yml').read_text()
+          prepare = text.index('      - name: Prepare immutable result-blind protocol and activation claim')
+          activation = text.index('      - id: activation_upload')
+          if not prepare < activation:
+              raise SystemExit('expected pre-patch ordering defect is absent')
+          print('ISSUE640_ACTIVATION_ORDERING_RED=PASS')
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact hardened validation runtime
+        working-directory: target
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Patch activation-before-Dataset ordering and format audit helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('candidate/.github/workflows/issue640-directional-study-v1.yml')
+          text = path.read_text()
+          start_marker = '      - name: Prepare immutable result-blind protocol and activation claim\n'
+          end_marker = '      - id: activation_upload\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''      - name: Build protocol and activation claim before Dataset load\n        working-directory: target\n        run: |\n          set -euo pipefail\n          mkdir -p \"$RUNNER_TEMP/protocol\" \"$RUNNER_TEMP/activation\"\n          TARGET_SHA=\"$TARGET_SHA\" uv run python - <<'PY'\n          import importlib.util\n          import json\n          import os\n          from pathlib import Path\n\n          from trade_rl.artifacts import canonical_json_bytes, content_digest\n          from trade_rl.evaluation.directional_study import expected_protocol\n\n          source = Path(os.environ['RUNNER_TEMP']) / 'source'\n          protocol_root = Path(os.environ['RUNNER_TEMP']) / 'protocol'\n          protocol = expected_protocol(source)\n          (protocol_root / 'protocol.json').write_bytes(canonical_json_bytes(protocol))\n          (protocol_root / 'protocol.digest.json').write_bytes(\n              canonical_json_bytes({'digest': content_digest(protocol)})\n          )\n\n          path = Path('.github/scripts/issue640_directional_activation.py')\n          spec = importlib.util.spec_from_file_location('issue640_activation', path)\n          assert spec is not None and spec.loader is not None\n          module = importlib.util.module_from_spec(spec)\n          spec.loader.exec_module(module)\n          claim = module.build_activation_claim(\n              protocol,\n              workflow_run_id=int(os.environ['GITHUB_RUN_ID']),\n              workflow_run_attempt=int(os.environ['GITHUB_RUN_ATTEMPT']),\n              implementation_head=os.environ['TARGET_SHA'],\n          )\n          module.validate_activation_claim(\n              claim,\n              protocol,\n              workflow_run_id=int(os.environ['GITHUB_RUN_ID']),\n              implementation_head=os.environ['TARGET_SHA'],\n          )\n          Path(os.environ['RUNNER_TEMP'], 'activation', 'activation.json').write_bytes(\n              module.activation_claim_bytes(claim)\n          )\n          print('ISSUE640_PRE_DATA_PROTOCOL_PREPARED=true')\n          print('REAL_DATASET_LOADED=false')\n          print('MODEL_FIT_PERFORMED=false')\n          print('ECONOMIC_RESULT_INTERPRETED=false')\n          PY\n\n'''
+          text = text[:start] + replacement + text[end:]
+
+          insert_marker = '      - id: protocol_upload\n'
+          insert = text.index(insert_marker)
+          reserve = '''      - name: Load Dataset and reserve exact protocol only after activation claim\n        working-directory: target\n        run: |\n          set -euo pipefail\n          uv run python -m trade_rl.evaluation.directional_study prepare \\\n            --source \"$RUNNER_TEMP/source\" \\\n            --output \"$RUNNER_TEMP/study\"\n          cmp \"$RUNNER_TEMP/protocol/protocol.json\" \"$RUNNER_TEMP/study/protocol.json\"\n          cmp \"$RUNNER_TEMP/protocol/protocol.digest.json\" \"$RUNNER_TEMP/study/protocol.digest.json\"\n          echo ISSUE640_DATASET_LOADED_AFTER_REMOTE_CLAIM=true\n          echo ECONOMIC_ARM_STARTED=false\n          echo ECONOMIC_RESULT_INTERPRETED=false\n\n'''
+          text = text[:insert] + reserve + text[insert:]
+          path.write_text(text)
+          PY
+          cd target
+          uv run ruff format ../candidate/.github/scripts/issue640_official_audit.py
+          cd ..
+          git -C candidate diff --check
+      - name: Verify harness-only scope and static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C candidate diff --name-only "$TARGET_SHA" | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          .github/scripts/issue640_official_audit.py
+          .github/scripts/issue640_official_run_arm.sh
+          .github/workflows/issue640-directional-study-v1.yml
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+
+          cd target
+          bash -n ../candidate/.github/scripts/issue640_official_run_arm.sh
+          uv run ruff check ../candidate/.github/scripts/issue640_official_audit.py
+          uv run ruff format --check ../candidate/.github/scripts/issue640_official_audit.py
+          uv run mypy ../candidate/.github/scripts/issue640_official_audit.py
+          uv run pytest -q tests/evaluation/test_directional_study.py tests/tools/test_issue640_directional_activation.py
+          cd ..
+
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "ISSUE640_YAML_PARSE=PASS"' candidate/.github/workflows/issue640-directional-study-v1.yml
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('candidate/.github/workflows/issue640-directional-study-v1.yml').read_text()
+          required = (
+              'run/issue640-directional-study-v1',
+              '.github/authorizations/issue640-directional-study-v1.authorized',
+              'TARGET_SHA: c80652a126780580990bf46bb206155ba469e043',
+              'uv sync --extra dev --extra forecast-gbm --extra train-sb3',
+              'Build protocol and activation claim before Dataset load',
+              'Publish repository-global activation before any arm',
+              'Bind global activation Artifact to this first workflow',
+              'Load Dataset and reserve exact protocol only after activation claim',
+              'Publish immutable protocol before first arm',
+              'Fresh publication audit without model refit',
+          )
+          missing = [item for item in required if item not in text]
+          if missing:
+              raise SystemExit(f'missing official contracts: {missing!r}')
+          forbidden = ('workflow_dispatch:', 'run/issue640-directional-development-v1', 'SOURCE_SHA: d4f1948')
+          present = [item for item in forbidden if item in text]
+          if present:
+              raise SystemExit(f'forbidden stale authority: {present!r}')
+          order = [
+              text.index('Build protocol and activation claim before Dataset load'),
+              text.index('Publish repository-global activation before any arm'),
+              text.index('Bind global activation Artifact to this first workflow'),
+              text.index('Load Dataset and reserve exact protocol only after activation claim'),
+              text.index('Publish immutable protocol before first arm'),
+              text.index('Run cash exactly once'),
+          ]
+          if order != sorted(order) or len(set(order)) != len(order):
+              raise SystemExit(f'official ordering drift: {order!r}')
+          if text.count('directional_study prepare') != 1:
+              raise SystemExit('Dataset-loading prepare must occur exactly once')
+          if text.count('directional_study run') != 0:
+              raise SystemExit('arm execution must remain encapsulated in frozen helper')
+          print('ISSUE640_ACTIVATION_BEFORE_DATASET_ORDERING=PASS')
+          PY
+      - name: Prove target economic tree is untouched
+        run: |
+          set -euo pipefail
+          test -z "$(git -C target status --porcelain)"
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Publish fixed dormant official harness by fast-forward only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C candidate fetch origin run/issue640-directional-study-v1
+          test "$(git -C candidate rev-parse FETCH_HEAD)" = "$RUN_HEAD"
+          git -C candidate config user.name github-actions[bot]
+          git -C candidate config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C candidate add .github/scripts/issue640_official_audit.py .github/workflows/issue640-directional-study-v1.yml
+          git -C candidate commit -m "ci: enforce Issue 640 activation before Dataset load"
+          git -C candidate push origin HEAD:run/issue640-directional-study-v1

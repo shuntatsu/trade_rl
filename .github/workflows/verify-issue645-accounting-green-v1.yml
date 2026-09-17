@@ -1,0 +1,83 @@
+name: Verify Issue 645 accounting GREEN v1
+
+on:
+  push:
+    branches:
+      - verify/issue645-accounting-green-v1
+    paths:
+      - .github/workflows/verify-issue645-accounting-green-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: af9bcf910b8fab36a07a40d7032f30a12857f18c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static exact correction surface
+        run: |
+          uv run ruff check \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/execution.py \
+            trade_rl/simulation/liquidity.py \
+            trade_rl/simulation/orders/admission.py \
+            trade_rl/simulation/orders/model.py \
+            trade_rl/simulation/quantities.py \
+            trade_rl/simulation/stateful/symbol_fills.py \
+            tests/simulation/test_lot_accounting.py
+          uv run ruff format --check \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/execution.py \
+            trade_rl/simulation/liquidity.py \
+            trade_rl/simulation/orders/admission.py \
+            trade_rl/simulation/orders/model.py \
+            trade_rl/simulation/quantities.py \
+            trade_rl/simulation/stateful/symbol_fills.py \
+            tests/simulation/test_lot_accounting.py
+          uv run mypy \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/execution.py \
+            trade_rl/simulation/liquidity.py \
+            trade_rl/simulation/orders/admission.py \
+            trade_rl/simulation/orders/model.py \
+            trade_rl/simulation/quantities.py \
+            trade_rl/simulation/stateful/symbol_fills.py
+      - name: Focused corrected-accounting GREEN
+        run: |
+          uv run pytest -q \
+            tests/simulation/test_lot_accounting.py \
+            tests/simulation/test_stateful_execution.py \
+            tests/simulation/test_orders.py \
+            tests/simulation/test_liquidity.py
+      - name: Prove single-factor production scope
+        run: |
+          python - <<'PY'
+          import subprocess
+          files = subprocess.check_output([
+              'git','diff','--name-only','c80652a126780580990bf46bb206155ba469e043...HEAD'
+          ], text=True).splitlines()
+          expected = sorted([
+              'tests/simulation/test_lot_accounting.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ])
+          if sorted(files) != expected:
+              raise SystemExit(f'Issue 645 scope drift: {files!r}')
+          print('ISSUE645_SINGLE_FACTOR_SCOPE=PASS')
+          PY

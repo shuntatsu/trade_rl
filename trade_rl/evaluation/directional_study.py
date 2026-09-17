@@ -124,6 +124,19 @@ def validate_required_runtime() -> dict[str, str]:
     return versions
 
 
+def arm_result_written_message(arm: str) -> str:
+    """Return a result-blind publisher message that cannot expose arm economics."""
+
+    validate_arm(arm)
+    return f"{arm}: result bytes written; interpretation deferred"
+
+
+def selection_written_message() -> str:
+    """Return a result-blind finalization message before remote publication."""
+
+    return "Selection bytes written; interpretation deferred"
+
+
 def _write_once(path: Path, payload: object) -> None:
     encoded = canonical_json_bytes(payload)
     with path.open("xb") as stream:
@@ -309,10 +322,7 @@ def execute_arm(source: Path, root: Path, arm: str) -> None:
             output / "result.sha256.json",
             {"sha256": sha256((output / "result.json").read_bytes()).hexdigest()},
         )
-        print(
-            f"{arm}: published; return={result['metrics']['total_return']:.6%}; qualified={result['qualified']}",
-            flush=True,
-        )
+        print(arm_result_written_message(arm), flush=True)
     except BaseException as error:
         _write_once(output / "failed.json", {"arm": arm, "error": repr(error)})
         raise
@@ -353,10 +363,7 @@ def finalize_study(source: Path, root: Path) -> None:
         for arm in ARMS
     }
     _write_once(root / "selection.json", selection)
-    print(
-        f"Published selection: {selection['decision']}; winner={selection['winner']}",
-        flush=True,
-    )
+    print(selection_written_message(), flush=True)
 
 
 def main() -> None:

@@ -13,52 +13,80 @@ from typing import Any
 EVALUATOR_HEAD = "d1bf25fd66834289ffddb36063b0d5cef649f444"
 EVALUATOR_VERIFY_RUN = 35213065827
 EVALUATOR_PUBLICATION_RUN = 35214002467
-EVALUATOR_IMPLEMENTATION_SHA = "746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85"
+EVALUATOR_IMPLEMENTATION_SHA = (
+    "746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85"
+)
 EVALUATOR_SEAL_SHA = "82f931041be3a2b7aeedd85e1bc3b6ae683365af2ae28d6d3adb60ac0103231a"
 EVALUATOR_PRIMARY_ID = 10493392861
 EVALUATOR_PRIMARY_NAME = "issue630-final-authority-primary-v2"
-EVALUATOR_PRIMARY_API_DIGEST = "sha256:3b1f1e0f3001085545acc6008a3693d9978db33fc5d501abc58a8316efdd1baf"
+EVALUATOR_PRIMARY_API_DIGEST = (
+    "sha256:3b1f1e0f3001085545acc6008a3693d9978db33fc5d501abc58a8316efdd1baf"
+)
 EVALUATOR_FRESH_ID = 10493118083
 EVALUATOR_FRESH_NAME = "issue630-final-authority-fresh-v2"
-EVALUATOR_FRESH_API_DIGEST = "sha256:fe727e1b7753b827e7ad5cee5e1bdb726f2d1a63321cf8e9b1234b52526591c7"
+EVALUATOR_FRESH_API_DIGEST = (
+    "sha256:fe727e1b7753b827e7ad5cee5e1bdb726f2d1a63321cf8e9b1234b52526591c7"
+)
 EVALUATOR_AUDIT_RUN = 35214226479
 EVALUATOR_AUDIT_A_ID = 10494458180
 EVALUATOR_AUDIT_A_NAME = "issue630-final-authority-audit-a-v1"
 EVALUATOR_AUDIT_B_ID = 10494448132
 EVALUATOR_AUDIT_B_NAME = "issue630-final-authority-audit-b-v1"
-EVALUATOR_AUDIT_API_DIGEST = "sha256:9480bf851092f48eb132c2f49d01fab13505fea3e2e729e17739a13d0953b581"
+EVALUATOR_AUDIT_API_DIGEST = (
+    "sha256:9480bf851092f48eb132c2f49d01fab13505fea3e2e729e17739a13d0953b581"
+)
 
 PROTOCOL_SEAL_RUN = 35211715033
 PROTOCOL_PRIMARY_ID = 10491893357
 PROTOCOL_PRIMARY_NAME = "issue627-shared-cash-prereg-v3-primary-35211715033"
-PROTOCOL_PRIMARY_API_DIGEST = "sha256:0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841"
+PROTOCOL_PRIMARY_API_DIGEST = (
+    "sha256:0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841"
+)
 PROTOCOL_FRESH_ID = 10492645772
 PROTOCOL_FRESH_NAME = "issue627-shared-cash-prereg-v3-fresh-35211715033"
-PROTOCOL_FRESH_API_DIGEST = "sha256:ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56"
+PROTOCOL_FRESH_API_DIGEST = (
+    "sha256:ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56"
+)
 
 TRIGGER_RUN = 35201639813
 TRIGGER_RESULT_ID = 10487739534
 TRIGGER_RESULT_NAME = "issue626-ridge-economic-result-35201639813"
-TRIGGER_RESULT_API_DIGEST = "sha256:787362841f4ff9b68235f157ba82a9e02edc1e995b6bedb54ec05149b6d59148"
+TRIGGER_RESULT_API_DIGEST = (
+    "sha256:787362841f4ff9b68235f157ba82a9e02edc1e995b6bedb54ec05149b6d59148"
+)
 TRIGGER_FRESH_ID = 10488427586
 TRIGGER_FRESH_NAME = "issue626-ridge-economic-fresh-verification-35201639813"
-TRIGGER_FRESH_API_DIGEST = "sha256:178bdd2575ab1d22d033a22a15f96b8a613fd786688b6d28647544352afee703"
-TRIGGER_RESULT_DIGEST = "78a39790c4d11dc903ac48f6044b0ebab46d2d6d26cbd8cf2c380be983b90d4b"
-TRIGGER_RESULT_JSON_SHA = "f6821eb123c4910178e190c378d86dbba486b13ede6c47fa8d4ef047ac78ac2a"
+TRIGGER_FRESH_API_DIGEST = (
+    "sha256:178bdd2575ab1d22d033a22a15f96b8a613fd786688b6d28647544352afee703"
+)
+TRIGGER_RESULT_DIGEST = (
+    "78a39790c4d11dc903ac48f6044b0ebab46d2d6d26cbd8cf2c380be983b90d4b"
+)
+TRIGGER_RESULT_JSON_SHA = (
+    "f6821eb123c4910178e190c378d86dbba486b13ede6c47fa8d4ef047ac78ac2a"
+)
 
 SOURCE_RUN = 34803217815
 SOURCE_ID = 10331899302
 SOURCE_NAME = "issue539-calibrated-causal-successor-v3-34803217815"
-SOURCE_API_DIGEST = "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
+SOURCE_API_DIGEST = (
+    "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
+)
 DATASET_ID = "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
-DATASET_ARTIFACT_DIGEST = "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
+DATASET_ARTIFACT_DIGEST = (
+    "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
+)
 STUDY_DIGEST = "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
 
 COST_RUN = 35200841490
 COST_ID = 10488425531
 COST_NAME = "issue618-ridge-cost-authority-35200841490"
-COST_API_DIGEST = "sha256:7b4e0749b783fa29e50c3b92f0a21541148c80b8b4f4ed6b0586b0d5b52f64fb"
-COST_AUTHORITY_DIGEST = "bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04"
+COST_API_DIGEST = (
+    "sha256:7b4e0749b783fa29e50c3b92f0a21541148c80b8b4f4ed6b0586b0d5b52f64fb"
+)
+COST_AUTHORITY_DIGEST = (
+    "bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04"
+)
 
 RESULT_ARTIFACT_NAME = "issue634-ridge-shared-cash-result-v1"
 FRESH_ARTIFACT_NAME = "issue634-ridge-shared-cash-fresh-v1"
@@ -136,7 +164,10 @@ def _publication_jobs_are_valid() -> None:
 
 
 def authority_check(*, result_slot: str) -> None:
-    if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != EVALUATOR_HEAD:
+    if (
+        subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        != EVALUATOR_HEAD
+    ):
         raise SystemExit("exact evaluator HEAD drift")
 
     from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import (
@@ -194,13 +225,48 @@ def authority_check(*, result_slot: str) -> None:
     _publication_jobs_are_valid()
 
     for args in (
-        (PROTOCOL_PRIMARY_ID, PROTOCOL_PRIMARY_NAME, PROTOCOL_PRIMARY_API_DIGEST, PROTOCOL_SEAL_RUN),
-        (PROTOCOL_FRESH_ID, PROTOCOL_FRESH_NAME, PROTOCOL_FRESH_API_DIGEST, PROTOCOL_SEAL_RUN),
-        (EVALUATOR_PRIMARY_ID, EVALUATOR_PRIMARY_NAME, EVALUATOR_PRIMARY_API_DIGEST, EVALUATOR_PUBLICATION_RUN),
-        (EVALUATOR_FRESH_ID, EVALUATOR_FRESH_NAME, EVALUATOR_FRESH_API_DIGEST, EVALUATOR_PUBLICATION_RUN),
-        (EVALUATOR_AUDIT_A_ID, EVALUATOR_AUDIT_A_NAME, EVALUATOR_AUDIT_API_DIGEST, EVALUATOR_AUDIT_RUN),
-        (EVALUATOR_AUDIT_B_ID, EVALUATOR_AUDIT_B_NAME, EVALUATOR_AUDIT_API_DIGEST, EVALUATOR_AUDIT_RUN),
-        (TRIGGER_RESULT_ID, TRIGGER_RESULT_NAME, TRIGGER_RESULT_API_DIGEST, TRIGGER_RUN),
+        (
+            PROTOCOL_PRIMARY_ID,
+            PROTOCOL_PRIMARY_NAME,
+            PROTOCOL_PRIMARY_API_DIGEST,
+            PROTOCOL_SEAL_RUN,
+        ),
+        (
+            PROTOCOL_FRESH_ID,
+            PROTOCOL_FRESH_NAME,
+            PROTOCOL_FRESH_API_DIGEST,
+            PROTOCOL_SEAL_RUN,
+        ),
+        (
+            EVALUATOR_PRIMARY_ID,
+            EVALUATOR_PRIMARY_NAME,
+            EVALUATOR_PRIMARY_API_DIGEST,
+            EVALUATOR_PUBLICATION_RUN,
+        ),
+        (
+            EVALUATOR_FRESH_ID,
+            EVALUATOR_FRESH_NAME,
+            EVALUATOR_FRESH_API_DIGEST,
+            EVALUATOR_PUBLICATION_RUN,
+        ),
+        (
+            EVALUATOR_AUDIT_A_ID,
+            EVALUATOR_AUDIT_A_NAME,
+            EVALUATOR_AUDIT_API_DIGEST,
+            EVALUATOR_AUDIT_RUN,
+        ),
+        (
+            EVALUATOR_AUDIT_B_ID,
+            EVALUATOR_AUDIT_B_NAME,
+            EVALUATOR_AUDIT_API_DIGEST,
+            EVALUATOR_AUDIT_RUN,
+        ),
+        (
+            TRIGGER_RESULT_ID,
+            TRIGGER_RESULT_NAME,
+            TRIGGER_RESULT_API_DIGEST,
+            TRIGGER_RUN,
+        ),
         (TRIGGER_FRESH_ID, TRIGGER_FRESH_NAME, TRIGGER_FRESH_API_DIGEST, TRIGGER_RUN),
         (SOURCE_ID, SOURCE_NAME, SOURCE_API_DIGEST, SOURCE_RUN),
         (COST_ID, COST_NAME, COST_API_DIGEST, COST_RUN),
@@ -249,7 +315,10 @@ def _validate_downloaded_inputs(
     if _sha256(primary_seal) != EVALUATOR_SEAL_SHA:
         raise SystemExit("Issue 630 implementation seal SHA drift")
     implementation = json.loads(primary_impl)
-    if not isinstance(implementation, dict) or implementation.get("implementation_head") != EVALUATOR_HEAD:
+    if (
+        not isinstance(implementation, dict)
+        or implementation.get("implementation_head") != EVALUATOR_HEAD
+    ):
         raise SystemExit("Issue 630 implementation authority HEAD drift")
 
     gate = _load_json(cost / "gate.json")
@@ -409,7 +478,9 @@ def decode_result(raw: bytes) -> Any:
         unused_data_accessed=payload["unused_data_accessed"],
         final_test_accessed=payload["final_test_accessed"],
         final_test_authorized=payload["final_test_authorized"],
-        operational_eligibility_established=payload["operational_eligibility_established"],
+        operational_eligibility_established=payload[
+            "operational_eligibility_established"
+        ],
         production_eligible=payload["production_eligible"],
         live_trading_authorized=payload["live_trading_authorized"],
         merge_authorized=payload["merge_authorized"],
@@ -555,7 +626,8 @@ def _assert_own_artifact(prefix: str, *, expected_name: str) -> tuple[int, str]:
         meta.get("id") != artifact_id
         or meta.get("name") != expected_name
         or meta.get("digest") != expected_digest
-        or (meta.get("workflow_run") or {}).get("id") != int(os.environ["GITHUB_RUN_ID"])
+        or (meta.get("workflow_run") or {}).get("id")
+        != int(os.environ["GITHUB_RUN_ID"])
         or meta.get("expired") is not False
     ):
         raise SystemExit(f"Issue 634 {prefix.lower()} Artifact authority drift")

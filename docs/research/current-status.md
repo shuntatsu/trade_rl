@@ -19,6 +19,16 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ### Directional development study under a 20% drawdown budget
 
+The user subsequently explicitly prioritized PPO and data/training improvements.
+A train-only feature audit and source audit found that the default training risk
+does not match the directional evaluator: training allows gross/per-symbol 1.0
+and drawdown start/stop 1.0, while evaluation uses gross 0.5, per-symbol 0.1,
+drawdown start 0.1 and stop 0.2. The next isolated factor is optional training-risk
+alignment, specified in `docs/specs/ppo-risk-alignment.md`. This is not a reward
+cost omission: the current PPO reward already uses log net return after costs.
+Fill counts combine policy and risk actions and cannot alone diagnose churning.
+Feature-scale normalization and the sealed interleaved experiment remain separate.
+
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,
 artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable

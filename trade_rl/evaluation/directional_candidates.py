@@ -11,6 +11,7 @@ import numpy as np
 from trade_rl.data.features.price_channels import CHANNEL_NAMES
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.experiments import ResolvedRunConfig
+from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.forecasts.lightgbm import (
@@ -55,12 +56,19 @@ def validate_arm(arm: str) -> None:
 
 
 def fit_directional_candidate(
-    arm: str, dataset: MarketDataset, config: ResolvedRunConfig, output: Path
+    arm: str,
+    dataset: MarketDataset,
+    config: ResolvedRunConfig,
+    output: Path,
+    *,
+    ppo_risk_config: PreTradeRiskConfig | None = None,
 ) -> Callable[[], SingleSymbolStrategy]:
     """Fit once on the fixed training side, then share the frozen model."""
     from dataclasses import replace
 
     validate_arm(arm)
+    if ppo_risk_config is not None and not arm.startswith("ppo"):
+        raise ValueError("ppo_risk_config is only valid for PPO arms")
     controls = {
         "cash": PositionIntent.FLAT,
         "constant_long": PositionIntent.LONG,
@@ -138,6 +146,7 @@ def fit_directional_candidate(
             ExecutionCostConfig.zero(), processing_bar_volume_capacity=False
         ),
         training_layout="sequential",
+        risk_config=ppo_risk_config,
     )
     getattr(ppo.policy, "save")(str(output / "model.zip"))
     return lambda: PPOIntentStrategy(ppo.policy, feature_indices=config.feature_indices)

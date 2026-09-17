@@ -70,6 +70,7 @@ trade_rl/
     ├── directional_candidates.py
     ├── directional_selection.py
     ├── directional_study.py
+    ├── ppo_risk_study.py
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -103,6 +104,10 @@ screen metrics, `directional_candidates.py` owns the fixed fit roster,
 owns write-once study evidence. These modules do not own execution accounting,
 exchange connectivity, or the canonical Study lifecycle. Price-channel rolling
 bounds and availability belong to data; the rule consumes them as observations.
+`ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
+the completed directional baseline. It reuses the same fit and replay owners,
+checks source/runtime isolation, and reports relative loss reduction separately
+from the existing absolute qualification gate.
 
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 

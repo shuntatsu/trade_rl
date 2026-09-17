@@ -54,16 +54,19 @@ def _time(value: object) -> datetime:
     return _aware_utc(datetime.fromisoformat(value), field="evidence timestamp")
 
 
-def _manifest(root: Path, name: str, schema: str, digest: str | None) -> dict[str, Any]:
+def _manifest(
+    root: Path, name: str, schema: str | tuple[str, ...], digest: str | None
+) -> dict[str, Any]:
     if (root / "failure.json").exists():
         raise ValueError("failed capture cannot be eligible evidence")
     raw = _bytes(root / name)
     if digest is not None and hashlib.sha256(raw).hexdigest() != digest:
         raise ValueError("forward manifest digest mismatch")
     value = _decode(raw)
+    schemas = (schema,) if isinstance(schema, str) else schema
     if (
         not isinstance(value, dict)
-        or value.get("schema") != schema
+        or value.get("schema") not in schemas
         or value.get("eligible") is not True
         or value.get("production_eligible") is not False
     ):
@@ -146,17 +149,34 @@ def read_forward_snapshot(
     snapshot = _manifest(
         destination,
         "snapshot.json",
-        "binance_forward_market_snapshot_v1",
+        ("binance_forward_market_snapshot_v1", "binance_forward_market_snapshot_v2"),
         expected_sha256,
     )
+    if snapshot["schema"] == "binance_forward_market_snapshot_v1":
+        depth_limit = 20
+        if "depth_limit" in snapshot:
+            raise ValueError("historical depth profile cannot declare another limit")
+    else:
+        depth_limit = 100
+        if (
+            type(snapshot.get("depth_limit")) is not int
+            or snapshot["depth_limit"] != depth_limit
+        ):
+            raise ValueError("current depth profile requires exactly 100 levels")
     started = _time(snapshot.get("started_at"))
     funding_start = int(started.timestamp() * 1000) - 24 * 3_600_000
     roster = [("spot_time", f"{_SPOT}/time"), ("futures_time", f"{_FUTURES}/time")]
     for symbol in _SYMBOLS:
         roster.extend(
             [
-                (f"{symbol}_spot_depth", f"{_SPOT}/depth?symbol={symbol}&limit=20"),
-                (f"{symbol}_perp_depth", f"{_FUTURES}/depth?symbol={symbol}&limit=20"),
+                (
+                    f"{symbol}_spot_depth",
+                    f"{_SPOT}/depth?symbol={symbol}&limit={depth_limit}",
+                ),
+                (
+                    f"{symbol}_perp_depth",
+                    f"{_FUTURES}/depth?symbol={symbol}&limit={depth_limit}",
+                ),
                 (f"{symbol}_mark", f"{_FUTURES}/premiumIndex?symbol={symbol}"),
                 (
                     f"{symbol}_funding",
@@ -174,10 +194,20 @@ def read_forward_snapshot(
     market = {}
     for symbol in _SYMBOLS:
         spot, received = responses[f"{symbol}_spot_depth"]
-        spot = _book(spot, futures=False, received_ms=int(received.timestamp() * 1000))
+        spot = _book(
+            spot,
+            futures=False,
+            received_ms=int(received.timestamp() * 1000),
+            maximum_levels=depth_limit,
+        )
         quote_times.append(int(received.timestamp() * 1000))
         perp, received = responses[f"{symbol}_perp_depth"]
-        perp = _book(perp, futures=True, received_ms=int(received.timestamp() * 1000))
+        perp = _book(
+            perp,
+            futures=True,
+            received_ms=int(received.timestamp() * 1000),
+            maximum_levels=depth_limit,
+        )
         quote_times.extend((_epoch(perp["E"]), _epoch(perp["T"])))
         mark, received = responses[f"{symbol}_mark"]
         mark = _mark(mark, symbol=symbol, received_ms=int(received.timestamp() * 1000))

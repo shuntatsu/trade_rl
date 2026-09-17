@@ -22,6 +22,14 @@ not evidence that a funding payment settled; only published funding history may
 later enter the ledger. Preserve exchange metadata separately before any paper
 order so current lot, tick, minimum notional and trading status can be enforced.
 
+The current v2 capture requests 100 depth levels per side. Preserve every
+returned level and reject oversized responses. Historical v1 captures remain
+20-level evidence and cannot be relabelled as v2. Official endpoint support is
+documented in [Spot REST](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#order-book)
+and [USD-M market data](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data).
+The change follows a rejected software partial-fill probe, before formal future
+positions; it leaves participation, execution costs and risk stops fixed.
+
 Use source-time freshness checks for venue clocks, futures depth and mark quotes;
 spot REST depth has no exchange timestamp, so disclose receipt-time-only evidence.
 Reject crossed/nonpositive/unsorted books, invalid sizes, future/stale source

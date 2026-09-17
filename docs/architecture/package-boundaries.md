@@ -127,6 +127,11 @@ exchange metadata and derives supported market lot/notional/price bounds. It
 retains averaging semantics and unsupported account-rule limitations. Neither
 module consumes a trading account or authorizes an order.
 
+Forward capture emits the v2 fixed 100-level depth profile. The reader supports
+the separately identified historical v1 20-level profile only for exact artifact
+verification; each schema must match its own URL roster and depth bound. Profile
+selection does not change the provider-independent execution model.
+
 `evaluation/paper/store.py` owns protocol-bound, append-only event persistence
 with canonical JSON hashes, contiguous sequence/parent checks, atomic
 compare-and-append and idempotency. Reopening permits SQLite recovery only after

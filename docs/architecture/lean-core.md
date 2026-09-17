@@ -308,6 +308,14 @@ the terminal observation window ends 180 seconds after the fixed close, includin
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
 
+New forward captures use `binance_forward_market_snapshot_v2`, explicitly binding
+100 requested depth levels per side for each spot/perpetual symbol. All returned
+levels are retained; more than the requested bound fails. The offline reader
+still verifies historical v1 evidence against its exact 20-level URLs and bound,
+without relabelling old captures. The fixed 10% participation, independent leg
+fills, fee assumptions and unmatched-hedge stop are unchanged. Deeper observation
+is not invented liquidity, and it cannot repair a previously rejected run.
+
 The prospective screen is fixed at ninety UTC days and three thirty-day blocks,
 sealed at least five minutes before start with 10000 virtual USDT and unchanged
 paper cost/depth defaults. Require positive net profit, a positive causal marked

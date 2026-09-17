@@ -30,6 +30,31 @@ def test_reader_reconstructs_raw_source_and_can_bind_parent_digest(tmp_path):
         read_forward_snapshot(root, expected_sha256="0" * 64)
 
 
+def test_reader_preserves_the_original_twenty_level_historical_profile(tmp_path):
+    root, snapshot = captured(tmp_path)
+    snapshot["schema"] = "binance_forward_market_snapshot_v1"
+    snapshot.pop("depth_limit")
+    for row in snapshot["responses"]:
+        if "/depth?" in row["url"]:
+            row["url"] = row["url"].replace("limit=100", "limit=20")
+            (root / (row["label"] + ".json")).write_bytes(canonical_json_bytes(row))
+    write(root, snapshot)
+    assert read_forward_snapshot(root) == snapshot
+
+
+@pytest.mark.parametrize("defect", ["schema_only", "depth_limit", "depth_type"])
+def test_reader_rejects_relabelled_depth_profiles(tmp_path, defect):
+    root, snapshot = captured(tmp_path)
+    if defect == "schema_only":
+        snapshot["schema"] = "binance_forward_market_snapshot_v1"
+        snapshot.pop("depth_limit")
+    else:
+        snapshot["depth_limit"] = 20 if defect == "depth_limit" else 100.0
+    write(root, snapshot)
+    with pytest.raises(ValueError):
+        read_forward_snapshot(root)
+
+
 @pytest.mark.parametrize("seconds", [-0.001, 5.001])
 def test_execution_consumption_cannot_use_future_or_stale_snapshot(tmp_path, seconds):
     root, _ = captured(tmp_path)

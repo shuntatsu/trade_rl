@@ -97,6 +97,69 @@ def test_capture_keeps_raw_evidence_and_does_not_treat_quoted_funding_as_settled
     assert len(feed.urls) == 10
 
 
+def test_depth_capture_requests_one_hundred_levels_and_labels_the_new_profile(tmp_path):
+    feed = PublicFeed()
+    snapshot = forward.capture_forward_snapshot(
+        tmp_path / "capture", transport=feed, clock=lambda: NOW, monotonic=lambda: 0
+    )
+    assert snapshot["schema"] == "binance_forward_market_snapshot_v2"
+    assert snapshot["depth_limit"] == 100
+    depth_urls = [url for url in feed.urls if "/depth?" in url]
+    assert len(depth_urls) == 4 and all(
+        url.endswith("&limit=100") for url in depth_urls
+    )
+
+
+def test_capture_rejects_more_depth_than_the_requested_bound(tmp_path):
+    class Oversized(PublicFeed):
+        def _request_bytes(self, url):
+            raw = super()._request_bytes(url)
+            if "/depth?" not in url:
+                return raw
+            value = json.loads(raw)
+            value["asks"] = [[str(101 + i), "1"] for i in range(101)]
+            return json.dumps(value).encode()
+
+    with pytest.raises(ValueError, match="requested depth"):
+        forward.capture_forward_snapshot(
+            tmp_path / "capture",
+            transport=Oversized(),
+            clock=lambda: NOW,
+            monotonic=lambda: 0,
+        )
+    assert (tmp_path / "capture/failure.json").is_file()
+
+
+def test_all_one_hundred_levels_survive_capture_and_verified_readback(tmp_path):
+    from decimal import Decimal
+
+    from trade_rl.integrations.binance.forward_evidence import read_forward_snapshot
+
+    class FullDepth(PublicFeed):
+        def _request_bytes(self, url):
+            raw = super()._request_bytes(url)
+            if "/depth?" not in url:
+                return raw
+            value = json.loads(raw)
+            for side, initial, direction in [("bids", 100, -1), ("asks", 101, 1)]:
+                value[side] = [
+                    [str(Decimal(initial) + direction * Decimal(i) / 100), str(i + 1)]
+                    for i in range(100)
+                ]
+            return json.dumps(value).encode()
+
+    root = tmp_path / "capture"
+    captured = forward.capture_forward_snapshot(
+        root, transport=FullDepth(), clock=lambda: NOW, monotonic=lambda: 0
+    )
+    verified = read_forward_snapshot(root)
+    assert verified == captured
+    for market in verified["market"].values():
+        for name in ("spot_depth", "perpetual_depth"):
+            assert len(market[name]["asks"]) == len(market[name]["bids"]) == 100
+            assert market[name]["asks"][99] == ["101.99", "100"]
+
+
 @pytest.mark.parametrize(
     "defect",
     [

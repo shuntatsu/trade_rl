@@ -1,5 +1,9 @@
 # Trade RL documentation
 
+Active directional study: [design](specs/directional-profit.md) and
+[implementation plan](plans/directional-profit.md). These documents remain
+active while the fixed development experiment and final verification run.
+
 ## 結論
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。

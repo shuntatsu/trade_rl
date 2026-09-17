@@ -20,9 +20,27 @@ esac
 : "${STUDY_DIR:?}"
 : "${PUBLISH_ROOT:?}"
 : "${STATUS_ROOT:?}"
+: "${GITHUB_REPOSITORY:?}"
 : "${GITHUB_RUN_ID:?}"
+: "${GITHUB_RUN_NUMBER:?}"
 : "${GITHUB_RUN_ATTEMPT:?}"
 : "${TARGET_SHA:?}"
+: "${GH_TOKEN:?}"
+
+test "$GITHUB_RUN_NUMBER" = "1"
+test "$GITHUB_RUN_ATTEMPT" = "1"
+
+activation="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue640-directional-activation-v1&per_page=100")"
+test "$(jq -r .total_count <<<"$activation")" = "1"
+test "$(jq -r '.artifacts[0].expired' <<<"$activation")" = "false"
+test "$(jq -r '.artifacts[0].workflow_run.id' <<<"$activation")" = "$GITHUB_RUN_ID"
+
+artifact="issue640-directional-arm-${arm}-v1"
+existing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$artifact&per_page=100" --jq .total_count)"
+if [[ "$existing" != "0" ]]; then
+  echo "immutable arm slot already exists: $artifact" >&2
+  exit 3
+fi
 
 package="$PUBLISH_ROOT/$arm"
 mkdir -p "$package" "$STATUS_ROOT"

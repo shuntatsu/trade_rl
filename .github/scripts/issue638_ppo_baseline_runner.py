@@ -8,7 +8,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 ISSUE_NUMBER = 638
 EVALUATOR_HEAD = "97127952af3d01b71def695a4c8043eb301b2a33"
@@ -124,13 +124,16 @@ def evaluate_baseline_seed(
     """Call the sealed evaluator exactly once with the baseline arm hard-coded."""
 
     canonical_seed = _validate_seed(seed)
+    selected_evaluator: Evaluator
     if evaluator is None:
         from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
             evaluate_ppo_training_seed,
         )
 
-        evaluator = evaluate_ppo_training_seed
-    evidence = evaluator(dataset, spec, arm="baseline", seed=canonical_seed)
+        selected_evaluator = cast(Evaluator, evaluate_ppo_training_seed)
+    else:
+        selected_evaluator = evaluator
+    evidence = selected_evaluator(dataset, spec, arm="baseline", seed=canonical_seed)
     _validate_baseline_evidence(evidence, seed=canonical_seed)
     return evidence
 

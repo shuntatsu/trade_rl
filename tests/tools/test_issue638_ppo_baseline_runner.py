@@ -81,7 +81,10 @@ def test_canonical_evidence_bytes_reject_candidate_or_seed_drift() -> None:
     module = _load_runner()
     evidence = _Evidence()
     raw = module.canonical_baseline_evidence_bytes(evidence, seed=2)
-    assert raw.endswith(b"\n")
+    assert raw == (
+        b'{"arm":"baseline","candidate_training_authorized":false,'
+        b'"rollout_steps_per_env":null,"seed":2,"training_layout":"sequential"}'
+    )
     assert b'"arm":"baseline"' in raw
     assert b'"candidate_training_authorized":false' in raw
 

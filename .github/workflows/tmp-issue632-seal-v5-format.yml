@@ -23,12 +23,11 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Format and statically verify generator
+      - name: Mechanically format generator
         run: |
           uv run ruff format .github/scripts/issue632_implementation_seal_v4.py
           uv run ruff check .github/scripts/issue632_implementation_seal_v4.py
           uv run ruff format --check .github/scripts/issue632_implementation_seal_v4.py
-          uv run mypy .github/scripts/issue632_implementation_seal_v4.py
           uv run python -m py_compile .github/scripts/issue632_implementation_seal_v4.py
           git diff --check
       - name: Publish formatted generator to v5

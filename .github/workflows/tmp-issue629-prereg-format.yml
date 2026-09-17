@@ -1,0 +1,34 @@
+name: tmp Issue 629 prereg format
+
+on:
+  push:
+    branches:
+      - research/issue629-ppo-interleaved-prereg
+    paths:
+      - .github/workflows/tmp-issue629-prereg-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue629-ppo-interleaved-prereg
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: uv run ruff format tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py
+      - name: Commit formatting
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py
+          git diff --cached --quiet || git commit -m 'style: format PPO interleaved prereg test'
+          git push origin HEAD:research/issue629-ppo-interleaved-prereg

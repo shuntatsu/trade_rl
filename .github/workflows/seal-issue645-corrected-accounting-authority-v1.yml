@@ -1,0 +1,261 @@
+name: Seal Issue 645 corrected-accounting authority v1
+
+on:
+  push:
+    branches:
+      - seal/issue645-corrected-accounting-authority-v1
+    paths:
+      - .github/workflows/seal-issue645-corrected-accounting-authority-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 928ee0886c404cdbb1383f440f731d7221c277ef
+  BASE_SHA: c80652a126780580990bf46bb206155ba469e043
+  FIX_SHA: 95a4831bfbd5dfac2b77371b0c99d6894edc4d3a
+  RED_RUN: '35286269708'
+  ACTIVATION_RED_RUN: '35286093494'
+  REBIND_GREEN_RUN: '35286295102'
+  FINAL_VERIFY_RUN: '35286382568'
+
+jobs:
+  primary:
+    name: Primary source authority
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck result-blind verification authorities and scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          for run in "$RED_RUN" "$ACTIVATION_RED_RUN" "$REBIND_GREEN_RUN" "$FINAL_VERIFY_RUN"; do
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run")"
+            test "$(jq -r .status <<<"$payload")" = completed
+            test "$(jq -r .conclusion <<<"$payload")" = success
+          done
+          git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          guide/content/meta/code-map.json
+          tests/architecture/test_lean_simulation_layout.py
+          tests/evaluation/test_directional_study.py
+          tests/simulation/test_lot_accounting.py
+          tests/simulation/test_stateful_execution_characterization.py
+          trade_rl/evaluation/directional_study.py
+          trade_rl/simulation/accounting.py
+          trade_rl/simulation/execution.py
+          trade_rl/simulation/liquidity.py
+          trade_rl/simulation/orders/admission.py
+          trade_rl/simulation/orders/model.py
+          trade_rl/simulation/quantities.py
+          trade_rl/simulation/stateful/symbol_fills.py
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          for path in             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py
+          do
+            test "$(git rev-parse "$TARGET_SHA:$path")" = "$(git rev-parse "$FIX_SHA:$path")"
+          done
+          test -z "$(git diff --name-only "$BASE_SHA" "$TARGET_SHA" -- trade_rl/strategies trade_rl/data trade_rl/risk)"
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ECONOMIC_RESULT_INSPECTED=false
+      - name: Build canonical implementation authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/primary"
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root=Path(".")
+          paths=subprocess.check_output(
+              ["git","diff","--name-only",os.environ["BASE_SHA"],os.environ["TARGET_SHA"]],
+              text=True,
+          ).splitlines()
+          files=[]
+          for name in sorted(paths):
+              raw=(root/name).read_bytes()
+              files.append({"path":name,"sha256":hashlib.sha256(raw).hexdigest()})
+          production=[
+              "trade_rl/simulation/accounting.py",
+              "trade_rl/simulation/execution.py",
+              "trade_rl/simulation/liquidity.py",
+              "trade_rl/simulation/orders/admission.py",
+              "trade_rl/simulation/orders/model.py",
+              "trade_rl/simulation/quantities.py",
+              "trade_rl/simulation/stateful/symbol_fills.py",
+          ]
+          payload={
+              "schema_version":"issue645_corrected_accounting_implementation_v1",
+              "issue_number":645,
+              "target_head":os.environ["TARGET_SHA"],
+              "target_tree":subprocess.check_output(["git","rev-parse",os.environ["TARGET_SHA"]+"^{tree}"],text=True).strip(),
+              "base_head":os.environ["BASE_SHA"],
+              "correction_source_head":os.environ["FIX_SHA"],
+              "single_factor":"pr643_exact_accepted_lot_quantity_accounting",
+              "production_correction_paths":production,
+              "changed_files":files,
+              "semantic_red_run":int(os.environ["RED_RUN"]),
+              "activation_red_run":int(os.environ["ACTIVATION_RED_RUN"]),
+              "activation_rebind_green_run":int(os.environ["REBIND_GREEN_RUN"]),
+              "final_exact_head_verification_run":int(os.environ["FINAL_VERIFY_RUN"]),
+              "economic_protocol_parameters_changed":False,
+              "real_dataset_loaded":False,
+              "model_fit_performed":False,
+              "economic_replay_performed":False,
+              "economic_result_inspected":False,
+              "unused_data_accessed":False,
+              "production_eligible":False,
+              "live_trading_authorized":False,
+          }
+          raw=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()
+          out=Path(os.environ["RUNNER_TEMP"])/"primary"
+          (out/"implementation.json").write_bytes(raw)
+          (out/"implementation.sha256").write_text(hashlib.sha256(raw).hexdigest()+"\n")
+          PY
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-corrected-accounting-primary-v1
+          path: ${{ runner.temp }}/primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh independent reconstruction
+    needs: primary
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-accounting-primary-v1
+          path: ${{ runner.temp }}/primary
+      - name: Reconstruct without real data and require byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fresh"
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root=Path(".")
+          paths=subprocess.check_output(
+              ["git","diff","--name-only",os.environ["BASE_SHA"],os.environ["TARGET_SHA"]],
+              text=True,
+          ).splitlines()
+          files=[]
+          for name in sorted(paths):
+              files.append({"path":name,"sha256":hashlib.sha256((root/name).read_bytes()).hexdigest()})
+          production=[
+              "trade_rl/simulation/accounting.py",
+              "trade_rl/simulation/execution.py",
+              "trade_rl/simulation/liquidity.py",
+              "trade_rl/simulation/orders/admission.py",
+              "trade_rl/simulation/orders/model.py",
+              "trade_rl/simulation/quantities.py",
+              "trade_rl/simulation/stateful/symbol_fills.py",
+          ]
+          payload={
+              "schema_version":"issue645_corrected_accounting_implementation_v1",
+              "issue_number":645,
+              "target_head":os.environ["TARGET_SHA"],
+              "target_tree":subprocess.check_output(["git","rev-parse",os.environ["TARGET_SHA"]+"^{tree}"],text=True).strip(),
+              "base_head":os.environ["BASE_SHA"],
+              "correction_source_head":os.environ["FIX_SHA"],
+              "single_factor":"pr643_exact_accepted_lot_quantity_accounting",
+              "production_correction_paths":production,
+              "changed_files":files,
+              "semantic_red_run":int(os.environ["RED_RUN"]),
+              "activation_red_run":int(os.environ["ACTIVATION_RED_RUN"]),
+              "activation_rebind_green_run":int(os.environ["REBIND_GREEN_RUN"]),
+              "final_exact_head_verification_run":int(os.environ["FINAL_VERIFY_RUN"]),
+              "economic_protocol_parameters_changed":False,
+              "real_dataset_loaded":False,
+              "model_fit_performed":False,
+              "economic_replay_performed":False,
+              "economic_result_inspected":False,
+              "unused_data_accessed":False,
+              "production_eligible":False,
+              "live_trading_authorized":False,
+          }
+          raw=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()
+          out=Path(os.environ["RUNNER_TEMP"])/"fresh"
+          (out/"implementation.json").write_bytes(raw)
+          (out/"implementation.sha256").write_text(hashlib.sha256(raw).hexdigest()+"\n")
+          PY
+          cmp "$RUNNER_TEMP/primary/implementation.json" "$RUNNER_TEMP/fresh/implementation.json"
+          cmp "$RUNNER_TEMP/primary/implementation.sha256" "$RUNNER_TEMP/fresh/implementation.sha256"
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_RESULT_INSPECTED=false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-corrected-accounting-fresh-v1
+          path: ${{ runner.temp }}/fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Independent publication audit
+    needs: fresh
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-accounting-primary-v1
+          path: ${{ runner.temp }}/primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-accounting-fresh-v1
+          path: ${{ runner.temp }}/fresh
+      - name: Audit byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp "$RUNNER_TEMP/primary/implementation.json" "$RUNNER_TEMP/fresh/implementation.json"
+          p="$(sha256sum "$RUNNER_TEMP/primary/implementation.json" | awk '{print $1}')"
+          f="$(sha256sum "$RUNNER_TEMP/fresh/implementation.json" | awk '{print $1}')"
+          test "$p" = "$f"
+          mkdir -p "$RUNNER_TEMP/audit"
+          PRIMARY="$p" FRESH="$f" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload={
+            "schema_version":"issue645_corrected_accounting_implementation_audit_v1",
+            "issue_number":645,
+            "target_head":os.environ["TARGET_SHA"],
+            "primary_sha256":os.environ["PRIMARY"],
+            "fresh_sha256":os.environ["FRESH"],
+            "byte_identical":True,
+            "real_dataset_loaded":False,
+            "economic_result_inspected":False,
+            "production_eligible":False,
+            "live_trading_authorized":False,
+          }
+          Path(os.environ["RUNNER_TEMP"],"audit","audit.json").write_text(
+            json.dumps(payload,sort_keys=True,separators=(",",":"))+"\n"
+          )
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-corrected-accounting-audit-v1
+          path: ${{ runner.temp }}/audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

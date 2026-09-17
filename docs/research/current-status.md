@@ -73,8 +73,10 @@ Forward source capture has passed permanent CI and real public-feed acquisition.
 The separate recorded-depth paper matcher models partial bid/ask fills, declared
 fees and adverse pricing on the canonical account. These are software components;
 current public-rule capture and verified snapshot readers are available, while
-the prospective journal and a complete future economic gate are not yet
-implemented or run. No paper positions have been started.
+an append-only protocol-bound journal has been implemented and tested with
+concurrent writes and interrupted transactions. Full strategy/account composition
+and the future economic gate remain unimplemented. No paper positions have been
+started.
 
 ### Directional development study under a 20% drawdown budget
 

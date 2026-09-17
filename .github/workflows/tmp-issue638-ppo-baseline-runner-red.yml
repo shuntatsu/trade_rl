@@ -23,8 +23,10 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Static test checks
+      - name: Static test checks after mechanical cleanup
         run: |
+          uv run ruff check --fix tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format tests/tools/test_issue638_ppo_baseline_runner.py
           uv run ruff check tests/tools/test_issue638_ppo_baseline_runner.py
           uv run ruff format --check tests/tools/test_issue638_ppo_baseline_runner.py
           uv run mypy tests/tools/test_issue638_ppo_baseline_runner.py

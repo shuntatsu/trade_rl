@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.metadata as metadata
 import json
 from hashlib import sha256
 from pathlib import Path
@@ -30,6 +32,39 @@ SOURCE_ARTIFACT_DIGEST = (
     "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
 )
 SOURCE_STUDY_DIGEST = "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
+
+_REQUIRED_RUNTIME = (
+    ("lightgbm", "lightgbm", "4.7.0"),
+    ("stable-baselines3", "stable_baselines3", "2.3.2"),
+    ("torch", "torch", "2.4.1"),
+    ("scikit-learn", "sklearn", None),
+)
+
+
+def validate_required_runtime() -> dict[str, str]:
+    """Fail before study reservation unless every frozen trainer can import."""
+
+    versions: dict[str, str] = {}
+    for distribution, module_name, expected_version in _REQUIRED_RUNTIME:
+        try:
+            version = metadata.version(distribution)
+        except metadata.PackageNotFoundError as error:
+            raise RuntimeError(
+                f"{distribution} runtime is unavailable before directional study"
+            ) from error
+        if expected_version is not None and version != expected_version:
+            raise RuntimeError(
+                f"{distribution} runtime version {version!r} differs from "
+                f"frozen {expected_version!r}"
+            )
+        try:
+            importlib.import_module(module_name)
+        except Exception as error:
+            raise RuntimeError(
+                f"{distribution} runtime is installed but not importable"
+            ) from error
+        versions[distribution] = version
+    return versions
 
 
 def _write_once(path: Path, payload: object) -> None:
@@ -83,6 +118,7 @@ def validate_protocol(root: Path, expected: dict[str, Any]) -> None:
 def prepare_study(source: Path, output: Path) -> None:
     from trade_rl.data.artifacts import inspect_published_market_dataset_artifact
 
+    validate_required_runtime()
     dataset = load_market_dataset_artifact(source / "dataset")
     identity = inspect_published_market_dataset_artifact(source / "dataset")
     if (
@@ -97,6 +133,7 @@ def prepare_study(source: Path, output: Path) -> None:
 
 
 def expected_protocol(source: Path) -> dict[str, Any]:
+    required_runtime = validate_required_runtime()
     plan = inspect_study(source / "study").plan
     if plan.digest != SOURCE_STUDY_DIGEST or plan.dataset_id != SOURCE_DATASET_ID:
         raise ValueError("source StudyPlan is not the frozen successor")
@@ -127,6 +164,7 @@ def expected_protocol(source: Path) -> dict[str, Any]:
         "ppo_qualification": "at_least_4_of_5_seeds_pass_base_and_both_stresses;positive_all_5_seed_median_full_and_year_returns",
         "ranking": "full_return_descending;turnover_ascending;complexity_trend_mean_reversion_channel_breakout_ridge24_lightgbm24_ppo",
         "stresses": [{"cost_multiplier": 2.0}, {"latency_bars": 1}],
+        "required_runtime_packages": required_runtime,
         "unused_data_accessed": False,
         "production_eligible": False,
         "provenance": build_candidate_run_provenance(),

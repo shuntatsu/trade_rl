@@ -1,0 +1,119 @@
+name: tmp Issue 630 v2 authority final
+
+on:
+  push:
+    branches:
+      - automation/issue630-v2-authority-final
+    paths:
+      - .github/workflows/tmp-issue630-v2-authority-final.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue630-shared-cash-evaluator
+  EXPECTED_HEAD: 36d1b7d9debf89da2d079a7492ea81ff608dd0a3
+  V2_HEAD: 6615e30773cd3035a3f2e67e608aef2afc4e143c
+  IMPL_HEAD: 222a082ee28f4f0fd35081912a33649cce27c585
+  EVAL: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+  EVAL_TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+  PREREG: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py
+  PREREG_TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py
+  FACADE_TEST: tests/architecture/test_runs_capability_facade.py
+
+jobs:
+  bind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Compose exact authority carriers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$V2_HEAD" "$IMPL_HEAD"
+          git show "$V2_HEAD:$PREREG" > "$PREREG"
+          git show "$V2_HEAD:$PREREG_TEST" > "$PREREG_TEST"
+          git show "$IMPL_HEAD:$FACADE_TEST" > "$FACADE_TEST"
+          test "$(git hash-object "$PREREG")" = e848a0f4eec434f534455f88244eda75d97f4d04
+          test "$(git hash-object "$PREREG_TEST")" = 712a7fd1c0d3403cb2b61886129a65f97b02b868
+          test "$(git hash-object "$FACADE_TEST")" = cb58bd173d3943a3c0f6e0ac9b48411bde56f471
+      - name: Rebind evaluator to v2 sealed authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              "8e0c2cc852e26240837614ae6a54180be227ca32": "6615e30773cd3035a3f2e67e608aef2afc4e143c",
+              "947de729df3e0937cd09d7340c48da20fd567eea": "e848a0f4eec434f534455f88244eda75d97f4d04",
+              "f0c7898d15042caf373af45da5be600462d225eecb3faf0c09f6c55ccbd35a69": "14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a",
+              "35204461338": "35209118815",
+              "10488664859": "10490873666",
+              "7521a7bc02478670f5ee3da97f49f5c4f1a632b3369b91998912f926dd7ea925": "9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0",
+              "10489476096": "10491447310",
+              "f7ffef600d107fe8667f9e7b5130a1400fdb993151f386f831ac250c096d0366": "e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e",
+              "98be52a584200ed697234a2b07c46c2bc971fbfd2121239f8cdb327eb7206891": "a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27",
+          }
+          for filename in (
+              "trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py",
+              "tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py",
+          ):
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              path.write_text(text)
+
+          test = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py")
+          text = test.read_text()
+          needle = '''    assert spec.protocol_digest == (\n        "14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a"\n    )\n'''
+          extra = needle + '''    assert spec.protocol_module_blob == "e848a0f4eec434f534455f88244eda75d97f4d04"\n    assert spec.protocol_seal_run_id == 35209118815\n    assert spec.protocol_primary_artifact_id == 10490873666\n    assert spec.protocol_primary_artifact_api_digest == (\n        "9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0"\n    )\n    assert spec.protocol_fresh_artifact_id == 10491447310\n    assert spec.protocol_fresh_artifact_api_digest == (\n        "e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e"\n    )\n    assert spec.protocol_seal_sha256 == (\n        "a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27"\n    )\n'''
+          if text.count(needle) != 1:
+              raise SystemExit("authority assertion insertion drift")
+          test.write_text(text.replace(needle, extra))
+          PY
+      - name: Verify v1 superseded and focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          for old in 8e0c2cc852e26240837614ae6a54180be227ca32 947de729df3e0937cd09d7340c48da20fd567eea f0c7898d15042caf373af45da5be600462d225eecb3faf0c09f6c55ccbd35a69 35204461338 10488664859 10489476096 98be52a584200ed697234a2b07c46c2bc971fbfd2121239f8cdb327eb7206891; do
+            ! grep -R -F "$old" "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST"
+          done
+          uv run ruff check "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST" trade_rl/strategies/forecasts/ridge_economic_gate.py trade_rl/evaluation/runs/execute.py trade_rl/evaluation/runs/__init__.py
+          uv run ruff format "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST"
+          uv run ruff check "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST"
+          uv run ruff format --check "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST"
+          uv run mypy "$EVAL" "$PREREG" trade_rl/strategies/forecasts/ridge_economic_gate.py
+          uv run pytest -q "$EVAL_TEST" "$PREREG_TEST" "$FACADE_TEST"
+          test "$(git hash-object "$PREREG")" = e848a0f4eec434f534455f88244eda75d97f4d04
+          test "$(git hash-object "$PREREG_TEST")" = 712a7fd1c0d3403cb2b61886129a65f97b02b868
+          test "$(git hash-object "$FACADE_TEST")" = cb58bd173d3943a3c0f6e0ac9b48411bde56f471
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n' "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST" | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+      - name: Publish non-force if unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST" "$FACADE_TEST"
+          git commit -m 'research: bind Issue 630 evaluator to prereg v2'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

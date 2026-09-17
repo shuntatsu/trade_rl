@@ -11,7 +11,7 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 
-_SCHEMA_VERSION = "ridge_shared_cash_prereg_v1"
+_SCHEMA_VERSION = "ridge_shared_cash_prereg_v2"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _FEATURE_NAMES = (
     "1h__log_return_1bar",
@@ -61,6 +61,7 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "successor_dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
     "successor_dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
     "successor_study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
+    "execution_overlay": "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity",
     "cost_authority_run_id": 35200841490,
     "cost_authority_artifact_id": 10488425531,
     "cost_authority_digest": "bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04",
@@ -199,6 +200,7 @@ class RidgeSharedCashProtocol:
     successor_dataset_id: str
     successor_dataset_artifact_digest: str
     successor_study_digest: str
+    execution_overlay: str
     cost_authority_run_id: int
     cost_authority_artifact_id: int
     cost_authority_digest: str

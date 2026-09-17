@@ -166,7 +166,7 @@ def test_carrier_sources_match_sealed_runtime_authorities() -> None:
         _git_blob_sha(
             "trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py"
         )
-        == "947de729df3e0937cd09d7340c48da20fd567eea"
+        == "e848a0f4eec434f534455f88244eda75d97f4d04"
     )
 
 
@@ -174,9 +174,22 @@ def test_canonical_spec_binds_protocol_and_execution_authorities() -> None:
     spec = canonical_ridge_shared_cash_evaluation_spec()
 
     assert spec.issue_number == 630
-    assert spec.protocol_head == "8e0c2cc852e26240837614ae6a54180be227ca32"
+    assert spec.protocol_head == "6615e30773cd3035a3f2e67e608aef2afc4e143c"
     assert spec.protocol_digest == (
-        "f0c7898d15042caf373af45da5be600462d225eecb3faf0c09f6c55ccbd35a69"
+        "14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a"
+    )
+    assert spec.protocol_module_blob == "e848a0f4eec434f534455f88244eda75d97f4d04"
+    assert spec.protocol_seal_run_id == 35209118815
+    assert spec.protocol_primary_artifact_id == 10490873666
+    assert spec.protocol_primary_artifact_api_digest == (
+        "9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0"
+    )
+    assert spec.protocol_fresh_artifact_id == 10491447310
+    assert spec.protocol_fresh_artifact_api_digest == (
+        "e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e"
+    )
+    assert spec.protocol_seal_sha256 == (
+        "a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27"
     )
     assert spec.ridge_implementation_head == (
         "222a082ee28f4f0fd35081912a33649cce27c585"

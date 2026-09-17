@@ -1,0 +1,81 @@
+name: tmp Issue 627 execution max-leverage GREEN
+
+on:
+  push:
+    branches:
+      - verify/issue627-max-leverage-green
+    paths:
+      - .github/workflows/tmp-issue627-max-leverage-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue627-shared-cash-prereg
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply minimal protocol v3 hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py')
+          text = path.read_text()
+          replacements = [
+              ('_SCHEMA_VERSION = "ridge_shared_cash_prereg_v2"', '_SCHEMA_VERSION = "ridge_shared_cash_prereg_v3"'),
+              ('    "execution_overlay": "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity",\n    "cost_authority_run_id":', '    "execution_overlay": "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity",\n    "execution_max_leverage": 1.0,\n    "cost_authority_run_id":'),
+              ('    execution_overlay: str\n    cost_authority_run_id: int', '    execution_overlay: str\n    execution_max_leverage: float\n    cost_authority_run_id: int'),
+              ('            "one_way_explicit_cost",\n            "initial_capital",', '            "one_way_explicit_cost",\n            "execution_max_leverage",\n            "initial_capital",'),
+              ('        if self.ridge_alpha <= 0.0 or self.initial_capital <= 0.0:\n            raise ValueError("preregistered model/capital values are invalid")', '        if (\n            self.ridge_alpha <= 0.0\n            or self.execution_max_leverage <= 0.0\n            or self.initial_capital <= 0.0\n        ):\n            raise ValueError("preregistered model/execution/capital values are invalid")'),
+              ('        "one_way_explicit_cost",\n        "initial_capital",', '        "one_way_explicit_cost",\n        "execution_max_leverage",\n        "initial_capital",'),
+          ]
+          for old, new in replacements:
+              assert old in text, old
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py')
+          t = test.read_text()
+          t = t.replace('assert protocol.schema_version == "ridge_shared_cash_prereg_v2"', 'assert protocol.schema_version == "ridge_shared_cash_prereg_v3"', 1)
+          old = '''    assert protocol.execution_overlay == (\n        "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"\n    )\n'''
+          new = old + '    assert protocol.execution_max_leverage == 1.0\n'
+          assert old in t
+          t = t.replace(old, new, 1)
+          old = '        {"execution_overlay": "legacy_dataset_execution_overlay"},\n'
+          new = old + '        {"execution_max_leverage": 0.5},\n'
+          assert old in t
+          t = t.replace(old, new, 1)
+          test.write_text(t)
+
+          extra = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py')
+          extra.write_text('''from __future__ import annotations\n\nimport json\n\nimport pytest\n\nfrom trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import (\n    canonical_ridge_shared_cash_protocol,\n    load_ridge_shared_cash_protocol,\n)\n\n\ndef test_protocol_freezes_execution_max_leverage() -> None:\n    protocol = canonical_ridge_shared_cash_protocol()\n    assert protocol.execution_max_leverage == 1.0\n\n\ndef test_loader_round_trips_execution_max_leverage_and_rejects_drift(tmp_path) -> None:\n    protocol = canonical_ridge_shared_cash_protocol()\n    payload = protocol.to_payload()\n    assert payload["execution_max_leverage"] == 1.0\n\n    path = tmp_path / "protocol.json"\n    path.write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")\n    loaded = load_ridge_shared_cash_protocol(path)\n    assert loaded.execution_max_leverage == 1.0\n\n    payload["execution_max_leverage"] = 0.5\n    path.write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")\n    with pytest.raises(ValueError, match="preregistered"):\n        load_ridge_shared_cash_protocol(path)\n\n\n@pytest.mark.parametrize("bad", (True, 0.0, -1.0, float("nan")))\ndef test_protocol_rejects_invalid_execution_max_leverage(bad: object) -> None:\n    protocol = canonical_ridge_shared_cash_protocol()\n    payload = protocol.to_payload()\n    payload["execution_max_leverage"] = bad\n    # constructor/loader share the strict numeric boundary; bool is not a float alias.\n    from dataclasses import replace\n    with pytest.raises(ValueError):\n        replace(protocol, execution_max_leverage=bad)  # type: ignore[arg-type]\n''')
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+      - name: Focused GREEN and falsification
+        run: |
+          uv run ruff check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          uv run ruff format --check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          uv run mypy trade_rl
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+      - name: Commit permanent v3 authority only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          git commit -m "research: freeze shared-cash execution max leverage"
+          git push origin HEAD:research/issue627-shared-cash-prereg

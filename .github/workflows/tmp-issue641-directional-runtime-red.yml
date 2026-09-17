@@ -1,0 +1,36 @@
+name: tmp Issue 641 directional runtime RED
+
+on:
+  push:
+    branches:
+      - research/issue641-directional-runtime-activation
+    paths:
+      - .github/workflows/tmp-issue641-directional-runtime-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Prove fail-before-evaluator runtime contract is RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/test_directional_study.py > "$RUNNER_TEMP/red.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/red.log"
+          test "$code" -ne 0
+          grep -Eq "validate_required_runtime|metadata" "$RUNNER_TEMP/red.log"
+          echo ISSUE641_DIRECTIONAL_RUNTIME_RED=PASS

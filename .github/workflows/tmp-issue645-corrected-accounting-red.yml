@@ -29,15 +29,23 @@ jobs:
           set -euo pipefail
           uv run ruff check tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py
           uv run ruff format --check tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py
-      - name: Preserve pre-correction characterization
-        run: uv run pytest -q tests/simulation/test_stateful_execution_characterization.py
+      - name: Prove exact-state characterization RED
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/simulation/test_stateful_execution_characterization.py > "$RUNNER_TEMP/char-red.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F "5523202e80f44df93a6982b5c771a4332aea6c94ccf3c4fb137fddd522dde4b6" "$RUNNER_TEMP/char-red.log"
+          grep -F "ad16d97eaf5e1e6bb3f87fa7c91ba630ed5f6e04b5a3ecc5ef0902f3867ecddf" "$RUNNER_TEMP/char-red.log"
       - name: Prove exact-lot regression RED
         run: |
           set -euo pipefail
           set +e
-          uv run pytest -q tests/simulation/test_lot_accounting.py > "$RUNNER_TEMP/red.log" 2>&1
+          uv run pytest -q tests/simulation/test_lot_accounting.py > "$RUNNER_TEMP/lot-red.log" 2>&1
           status=$?
           set -e
           test "$status" -ne 0
-          grep -Eq "exact_quantity|execute_fill|lot_count|filled_lot_count|exact_cumulative_filled_quantity" "$RUNNER_TEMP/red.log"
+          grep -Eq "exact_quantity|execute_fill|lot_count|filled_lot_count|exact_cumulative_filled_quantity" "$RUNNER_TEMP/lot-red.log"
           echo ISSUE645_EXACT_LOT_RED=PASS

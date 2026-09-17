@@ -1,0 +1,61 @@
+name: tmp Issue 638 baseline runner GREEN fix
+
+on:
+  push:
+    branches:
+      - automation/issue638-baseline-runner-green-fix
+    paths:
+      - .github/workflows/tmp-issue638-baseline-runner-green-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          fetch-depth: 0
+      - name: Guard exact preparation head
+        run: test "$(git rev-parse HEAD)" = 290bbd65ab4cec4235705efbb37eae3637672b85
+      - name: Patch known result-blind verification defects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          helper = Path('.github/scripts/issue638_ppo_baseline_runner.py')
+          text = helper.read_text()
+          replacements = {
+              'issue629-ppo-interleaved-prereg-v1-primary-35205354305': 'issue629-prereg-seal-primary-35205354305',
+              'issue629-ppo-interleaved-prereg-v1-fresh-35205354305': 'issue629-prereg-seal-fresh-35205354305',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'helper authority anchor drift: {old}')
+              text = text.replace(old, new, 1)
+          helper.write_text(text)
+
+          workflow = Path('.github/workflows/tmp-issue638-ppo-baseline-runner-green.yml')
+          text = workflow.read_text()
+          old = '''      - name: Overlay runner/test without changing evaluator authority\n        run: |\n          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py\n'''
+          new = '''      - name: Overlay runner/test without changing evaluator authority\n        run: |\n          mkdir -p impl/.github/scripts impl/tests/tools\n          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py\n'''
+          if old not in text:
+              raise SystemExit('workflow overlay anchor drift')
+          workflow.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit fixes to preparation branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git rev-parse FETCH_HEAD)" = 290bbd65ab4cec4235705efbb37eae3637672b85
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue638_ppo_baseline_runner.py .github/workflows/tmp-issue638-ppo-baseline-runner-green.yml
+          git commit -m "research: fix Issue 638 baseline runner verification bindings"
+          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

@@ -266,6 +266,11 @@ class BookState:
     def n_trades(self) -> int:
         return self.fill_count
 
+    @property
+    def exact_quantities(self) -> tuple[Fraction, ...]:
+        """Read accepted quantity evidence without a reporting-float round trip."""
+        return self._quantity_values()
+
     def clone(self) -> BookState:
         self._quantity_values()
         return BookState(

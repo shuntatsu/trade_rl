@@ -18,8 +18,11 @@ Status: Active
 - [ ] Specify and test restart-safe prospective paper execution on the canonical ledger.
   - [x] Implement a protocol-bound SQLite event chain with compare-and-append,
     duplicate-command idempotency, concurrent-writer and process-interruption tests.
-  - [ ] Compose saved decisions, verified later captures, depth fills and funding
+  - [x] Compose saved decisions, verified later captures, depth fills and funding
     settlement events into replayable canonical account transitions.
+  - [ ] Independently review account composition and pass the full repository CI.
+- [ ] Add source/runtime-bound study sealing, supervised public collection and
+  operational restart/report commands; verify software against real source data.
 - [ ] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.
 

@@ -273,6 +273,29 @@ rollback journals preserve the committed prefix across process death. Protocol
 identity is checked before recovery; event replay rechecks every canonical body,
 hash, sequence and parent. Persistence alone assigns no execution or P&L semantics.
 
+The paper engine rebuilds each decision/execution/gap command from its verified
+source references and compares the complete result with the committed event.
+It applies transitions on isolated copies and adopts them only after a successful
+append. Captures must begin after the previous command; execution additionally
+uses its saved decision and still-fresh bound rules. Each instrument's capacity
+is consumed at most once per execution capture. Spot midpoint and published
+perpetual mark value the account; actual exits use later depth and pay costs.
+BookState exposes accepted exact quantities without a reporting-float round trip.
+
+Newly published funding uses exact holdings strictly before settlement time,
+including payments first received after an exit. Funding revisions cannot rewrite
+cash; late/missing settlements and gaps remain permanent failures. Risk checks
+precede funding credits and follow each chronological settlement group; only
+simultaneous settlements net. Every later breach remains visible even after a
+different permanent stop or the planned terminal close. New nonzero funding at
+or before an earlier capture's settlement watermark is a permanent coverage
+failure, including later simultaneous fragments; cash still settles once at
+receipt, without retroactive edits. This may reject asynchronous publication.
+Gaps preserve quantities
+and the last actual observation time. No implicit liquidation or flatness is
+allowed. Runtime-bound collection and future economic qualification are separate
+from deterministic engine correctness.
+
 ## 非目標
 
 Lean coreが保証しないもの:

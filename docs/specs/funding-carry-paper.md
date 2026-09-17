@@ -118,3 +118,50 @@ are visible in quality/qualification. Future paper profit and drawdown must be
 computed from every accepted observation, with explicit fee/rule/transfer and
 mark-to-liquidation limitations. Software CI and a successful source probe are
 not forward economic evidence. No production routing is part of this design.
+
+### Deterministic account composition
+
+The journal engine will replay decision, execution and gap commands against
+verified source references beneath its own root. Each committed command contains
+its request and complete transition result; restart recomputes the result and
+rejects any difference. Compute on an isolated account copy, commit the event,
+then adopt it, so a failed append cannot mutate the running account. Repeating
+an identical command returns its original event; stale concurrent writers fail.
+
+Decision observations value spot at recorded best-bid/best-ask midpoint and
+perpetuals at the published mark. Both are observation marks, not liquidation
+proceeds. Retain the existing monthly CarryConfig defaults: gross 0.5, common
+lot 0.001 and irreversible 10% drawdown stop. Fees are explicit 10bp spot / 5bp
+perpetual paper assumptions. New quotes must be captured after the previous
+command and each execution capture must start after its saved decision.
+The saved rules must remain fresh at execution. Enforce exact venue lot
+compatibility; never round an unmatched residual into a fictitious flat account.
+
+Keep a sparse exact-quantity timeline of actual fills. For each newly published
+settlement, use the quantities held strictly before its funding timestamp and
+the published settlement mark/rate. Record the amount and first receipt time;
+the same symbol/timestamp cannot pay twice. Revisions stop the strategy without
+rewriting earlier cash. Funding first received more than 180 seconds after a
+post-start settlement, missed expected settlements, or observation gaps over
+180 seconds are permanent quality failures. Pre-start history pays zero.
+Check observed collateral, insolvency and drawdown before crediting newly known
+funding, so a delayed positive payment cannot undo an earlier risk breach.
+Apply newly received settlements in chronological timestamp groups, checking
+risk after each group. Only simultaneous settlements may net; a later credit
+must not hide an earlier debit's drawdown or collateral breach.
+Across captures, a new nonzero payment at or before the already processed
+settlement-time watermark is an irreversible `funding_out_of_order` failure.
+This includes a later fragment of an already processed simultaneous group.
+Cash is still settled exactly once at first receipt; historical cash and decisions
+are never rewritten. This conservative rule can reject ordinary asynchronous
+publication, and that limitation must remain visible in the prospective result.
+
+Retain each attempted leg's partial fill and cost. Assess hedge balance after
+all four independent leg attempts; any mismatch permanently stops subsequent
+exposure and requests actual liquidation on later quotes. If a new stop occurs
+between decision and execution, cancel the old intent and wait for a fresh exit
+decision. A gap also cancels pending intent and preserves all existing quantities.
+The frozen close time permanently targets zero; final flatness requires actual
+accepted exits, including fees and any residual venue-rule rejection. A terminal
+time, successful replay or positive interim cash does not imply a passed future
+economic gate.

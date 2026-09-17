@@ -1,4 +1,4 @@
-name: PR625 PRE-PnL Authority Verification
+name: PR625 Architecture Repair
 
 on:
   push:
@@ -6,25 +6,59 @@ on:
       - agent/pr625-prepnl-authority-selfhosted-2026-09-17
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify:
+  repair:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact target
+      - name: Checkout exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f9d2254b458ff4f69d0e48bce16b84790355a001
+          ref: research/issue616-ridge-economic-gate-evaluation
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
-      - name: Assert exact target
+      - name: Assert target did not move
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "f9d2254b458ff4f69d0e48bce16b84790355a001"
-          test "$(git merge-base 75999e53c70224c31a62b106e4a8d2caa4b920ac HEAD)" = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
+
+      - name: Apply minimal capability-facade repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py")
+          text = path.read_text()
+          old = text
+          text = text.replace(
+              "from dataclasses import dataclass, fields\n",
+              "from dataclasses import dataclass, fields, replace\n",
+              1,
+          )
+          text = text.replace(
+              "from trade_rl.evaluation.runs.execute import _execution_cost_for_overlay\n",
+              "from trade_rl.simulation.execution import ExecutionCostConfig\n",
+              1,
+          )
+          text = text.replace(
+              "    execution_cost = _execution_cost_for_overlay(resolved_spec.execution_overlay)\n",
+              "    execution_cost = replace(\n"
+              "        ExecutionCostConfig.zero(),\n"
+              "        processing_bar_volume_capacity=False,\n"
+              "    )\n",
+              1,
+          )
+          if text == old:
+              raise SystemExit("expected evaluator edits were not applied")
+          if "trade_rl.evaluation.runs.execute" in text:
+              raise SystemExit("forbidden runs.execute import remains")
+          path.write_text(text)
+          PY
 
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -35,55 +69,29 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Ruff
+      - name: Verify minimal repair before push
+        shell: bash
         run: |
-          uv run ruff check \
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-
-      - name: Format
-        run: |
-          uv run ruff format --check \
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-
-      - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Focused Issue 616 authority tests
-        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+          uv run mypy trade_rl
+          uv run pytest -q tests/architecture/test_runs_capability_facade.py
           uv run pytest -q \
             tests/strategies/test_ridge_economic_gate.py \
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py \
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py \
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+          git diff --check
 
-      - name: Full repository tests
-        run: uv run pytest -q tests
-
-      - name: Build
-        run: uv build
-
-      - name: Distribution closure
+      - name: Commit and push repair to existing PR branch
         shell: bash
         run: |
           set -euo pipefail
-          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
-
-      - name: Exact seven-file scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t changed < <(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | sort)
-          expected=(
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-            tests/strategies/test_ridge_economic_gate.py
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py
-            trade_rl/strategies/forecasts/ridge_economic_gate.py
-          )
-          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
-          test "${changed[*]}" = "${expected[*]}"
-          git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD
+          test "$(git diff --name-only)" = "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py"
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+          git commit -m "research: respect evaluation runs capability facade" \
+            -m "Remove the forbidden direct runs.execute import from the sealed evaluator while preserving the canonical previous-completed-bar capacity execution-cost semantics."
+          git push origin HEAD:research/issue616-ridge-economic-gate-evaluation

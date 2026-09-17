@@ -1,0 +1,578 @@
+name: Issue 640 directional development screen v1
+
+on:
+  push:
+    branches:
+      - run/issue640-directional-development-v1
+    paths:
+      - .github/authorizations/issue640-directional-development-v1.authorized
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: issue640-directional-development-v1
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: d4f1948ffb6bca44620773c2f67fc2f98b681d66
+  SOURCE_BASE_SHA: 130710f45b4dfd8272846f5c953733741f3cdc6c
+  SOURCE_PR: '639'
+  SOURCE_CI_RUN: '35231705047'
+  PRODUCER_RUN: '34803217815'
+  PRODUCER_ARTIFACT_ID: '10331899302'
+  PRODUCER_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  PRODUCER_ARTIFACT_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  RECOVERY_RUN: '34803432434'
+  RECOVERY_ARTIFACT_ID: '10332575500'
+  RECOVERY_ARTIFACT_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  RECOVERY_ARTIFACT_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+
+jobs:
+  execute:
+    name: One-shot protocol and 13-arm execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Enforce first activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+
+      - name: Checkout exact harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact frozen source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install complete research runtime before Dataset access
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run python - <<'PY'
+          import lightgbm
+          import stable_baselines3
+          import torch
+          print("ISSUE640_LIGHTGBM_IMPORT=PASS")
+          print("ISSUE640_SB3_IMPORT=PASS")
+          print("ISSUE640_TORCH_IMPORT=PASS")
+          PY
+          bash -n ../harness/.github/scripts/issue640_run_arm.sh
+          uv run ruff check ../harness/.github/scripts/issue640_audit.py
+          uv run ruff format --check ../harness/.github/scripts/issue640_audit.py
+          uv run python -m py_compile ../harness/.github/scripts/issue640_audit.py
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_ARM_STARTED=false
+
+      - name: Bind source CI and immutable Dataset authorities before Dataset access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C target status --porcelain)"
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SOURCE_PR")"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$SOURCE_SHA"
+          test "$(git -C target merge-base "$SOURCE_BASE_SHA" "$SOURCE_SHA")" = "$SOURCE_BASE_SHA"
+          ci="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_CI_RUN")"
+          test "$(jq -r .status <<<"$ci")" = completed
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          test "$(jq -r .head_sha <<<"$ci")" = "$SOURCE_SHA"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_CI_RUN/jobs?per_page=100")"
+          for name in "Lean Core" "Human Guide"; do
+            test "$(jq -r --arg name "$name" '.jobs[] | select(.name==$name) | .conclusion' <<<"$jobs")" = success
+          done
+
+          producer_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN/jobs?per_page=100")"
+          for name in "Lean Core" "Human Guide" "Materialize and seal successor"; do
+            test "$(jq -r --arg name "$name" '.jobs[] | select(.name==$name) | .conclusion' <<<"$producer_jobs")" = success
+          done
+          producer_artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRODUCER_ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$producer_artifact")" = "$PRODUCER_ARTIFACT_NAME"
+          test "$(jq -r .digest <<<"$producer_artifact")" = "$PRODUCER_ARTIFACT_DIGEST"
+          test "$(jq -r .expired <<<"$producer_artifact")" = false
+          test "$(jq -r .workflow_run.id <<<"$producer_artifact")" = "$PRODUCER_RUN"
+
+          recovery="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN")"
+          test "$(jq -r .status <<<"$recovery")" = completed
+          test "$(jq -r .conclusion <<<"$recovery")" = success
+          recovery_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN/jobs?per_page=100")"
+          for name in "Fresh independent reverify existing bundle" "Audit recovered fresh verification"; do
+            test "$(jq -r --arg name "$name" '.jobs[] | select(.name==$name) | .conclusion' <<<"$recovery_jobs")" = success
+          done
+          recovery_artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RECOVERY_ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$recovery_artifact")" = "$RECOVERY_ARTIFACT_NAME"
+          test "$(jq -r .digest <<<"$recovery_artifact")" = "$RECOVERY_ARTIFACT_DIGEST"
+          test "$(jq -r .expired <<<"$recovery_artifact")" = false
+          test "$(jq -r .workflow_run.id <<<"$recovery_artifact")" = "$RECOVERY_RUN"
+
+          for name in issue640-directional-protocol-v1 issue640-directional-run-summary-v1 issue640-directional-audit-v1; do
+            test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100" --jq .total_count)" = 0
+          done
+          for arm in cash constant_long constant_short trend mean_reversion ridge24 lightgbm24 channel_breakout ppo0 ppo1 ppo2 ppo3 ppo4; do
+            name="issue640-directional-arm-$arm-v1"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100" --jq .total_count)" = 0
+          done
+          echo ISSUE640_RESULT_SLOTS_EMPTY=true
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_ARM_STARTED=false
+
+      - name: Download exact calibrated successor after preflight
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/source
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '34803217815'
+
+      - name: Freeze canonical source protocol
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m trade_rl.evaluation.directional_study prepare \
+            --source "$RUNNER_TEMP/source" \
+            --output "$RUNNER_TEMP/study"
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+
+          study = Path(os.environ["RUNNER_TEMP"]) / "study"
+          authority = {
+              "schema_version": "issue640_directional_execution_authority_v1",
+              "issue_number": 640,
+              "source_head": os.environ["SOURCE_SHA"],
+              "source_base_sha": os.environ["SOURCE_BASE_SHA"],
+              "source_pr": int(os.environ["SOURCE_PR"]),
+              "source_ci_run": int(os.environ["SOURCE_CI_RUN"]),
+              "producer_run": int(os.environ["PRODUCER_RUN"]),
+              "producer_artifact_id": int(os.environ["PRODUCER_ARTIFACT_ID"]),
+              "producer_artifact_digest": os.environ["PRODUCER_ARTIFACT_DIGEST"],
+              "recovery_run": int(os.environ["RECOVERY_RUN"]),
+              "recovery_artifact_id": int(os.environ["RECOVERY_ARTIFACT_ID"]),
+              "recovery_artifact_digest": os.environ["RECOVERY_ARTIFACT_DIGEST"],
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "real_dataset_loaded": True,
+              "economic_arm_started": False,
+              "unused_data_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (study / "authority.json").write_bytes(canonical_json_bytes(authority))
+          protocol = json.loads((study / "protocol.json").read_bytes())
+          assert protocol["arms"] == [
+              "cash", "constant_long", "constant_short", "trend", "mean_reversion",
+              "ridge24", "lightgbm24", "channel_breakout",
+              "ppo0", "ppo1", "ppo2", "ppo3", "ppo4",
+          ]
+          assert protocol["ppo_timesteps"] == 262144
+          assert protocol["maximum_drawdown"] == 0.2
+          assert protocol["deleveraging_start"] == 0.1
+          assert protocol["unused_data_accessed"] is False
+          assert protocol["production_eligible"] is False
+          PY
+
+      - name: Publish immutable protocol before any arm
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-protocol-v1
+          path: |
+            ${{ runner.temp }}/study/protocol.json
+            ${{ runner.temp }}/study/protocol.digest.json
+            ${{ runner.temp }}/study/authority.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run cash exactly once
+        id: arm_cash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh cash)" >> "$GITHUB_OUTPUT"
+      - name: Publish cash immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-cash-v1
+          path: ${{ runner.temp }}/packages/cash/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run constant_long exactly once
+        id: arm_constant_long
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh constant_long)" >> "$GITHUB_OUTPUT"
+      - name: Publish constant_long immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-constant_long-v1
+          path: ${{ runner.temp }}/packages/constant_long/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run constant_short exactly once
+        id: arm_constant_short
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh constant_short)" >> "$GITHUB_OUTPUT"
+      - name: Publish constant_short immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-constant_short-v1
+          path: ${{ runner.temp }}/packages/constant_short/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run trend exactly once
+        id: arm_trend
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh trend)" >> "$GITHUB_OUTPUT"
+      - name: Publish trend immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-trend-v1
+          path: ${{ runner.temp }}/packages/trend/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run mean_reversion exactly once
+        id: arm_mean_reversion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh mean_reversion)" >> "$GITHUB_OUTPUT"
+      - name: Publish mean_reversion immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-mean_reversion-v1
+          path: ${{ runner.temp }}/packages/mean_reversion/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ridge24 exactly once
+        id: arm_ridge24
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ridge24)" >> "$GITHUB_OUTPUT"
+      - name: Publish ridge24 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ridge24-v1
+          path: ${{ runner.temp }}/packages/ridge24/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run lightgbm24 exactly once
+        id: arm_lightgbm24
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh lightgbm24)" >> "$GITHUB_OUTPUT"
+      - name: Publish lightgbm24 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-lightgbm24-v1
+          path: ${{ runner.temp }}/packages/lightgbm24/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run channel_breakout exactly once
+        id: arm_channel_breakout
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh channel_breakout)" >> "$GITHUB_OUTPUT"
+      - name: Publish channel_breakout immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-channel_breakout-v1
+          path: ${{ runner.temp }}/packages/channel_breakout/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ppo0 exactly once
+        id: arm_ppo0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo0)" >> "$GITHUB_OUTPUT"
+      - name: Publish ppo0 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ppo0-v1
+          path: ${{ runner.temp }}/packages/ppo0/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ppo1 exactly once
+        id: arm_ppo1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo1)" >> "$GITHUB_OUTPUT"
+      - name: Publish ppo1 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ppo1-v1
+          path: ${{ runner.temp }}/packages/ppo1/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ppo2 exactly once
+        id: arm_ppo2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo2)" >> "$GITHUB_OUTPUT"
+      - name: Publish ppo2 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ppo2-v1
+          path: ${{ runner.temp }}/packages/ppo2/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ppo3 exactly once
+        id: arm_ppo3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo3)" >> "$GITHUB_OUTPUT"
+      - name: Publish ppo3 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ppo3-v1
+          path: ${{ runner.temp }}/packages/ppo3/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Run ppo4 exactly once
+        id: arm_ppo4
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "exit_code=$(bash harness/.github/scripts/issue640_run_arm.sh ppo4)" >> "$GITHUB_OUTPUT"
+      - name: Publish ppo4 immutable slot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-arm-ppo4-v1
+          path: ${{ runner.temp }}/packages/ppo4/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Finalize complete roster or record invalid execution
+        id: finalize
+        working-directory: target
+        env:
+          CASH: ${{ steps.arm_cash.outputs.exit_code }}
+          CONSTANT_LONG: ${{ steps.arm_constant_long.outputs.exit_code }}
+          CONSTANT_SHORT: ${{ steps.arm_constant_short.outputs.exit_code }}
+          TREND: ${{ steps.arm_trend.outputs.exit_code }}
+          MEAN_REVERSION: ${{ steps.arm_mean_reversion.outputs.exit_code }}
+          RIDGE24: ${{ steps.arm_ridge24.outputs.exit_code }}
+          LIGHTGBM24: ${{ steps.arm_lightgbm24.outputs.exit_code }}
+          CHANNEL_BREAKOUT: ${{ steps.arm_channel_breakout.outputs.exit_code }}
+          PPO0: ${{ steps.arm_ppo0.outputs.exit_code }}
+          PPO1: ${{ steps.arm_ppo1.outputs.exit_code }}
+          PPO2: ${{ steps.arm_ppo2.outputs.exit_code }}
+          PPO3: ${{ steps.arm_ppo3.outputs.exit_code }}
+          PPO4: ${{ steps.arm_ppo4.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary="$RUNNER_TEMP/summary"
+          rm -rf "$summary"
+          mkdir -p "$summary"
+          all_green=true
+          for code in "$CASH" "$CONSTANT_LONG" "$CONSTANT_SHORT" "$TREND" "$MEAN_REVERSION" "$RIDGE24" "$LIGHTGBM24" "$CHANNEL_BREAKOUT" "$PPO0" "$PPO1" "$PPO2" "$PPO3" "$PPO4"; do
+            if [[ "$code" != "0" ]]; then
+              all_green=false
+            fi
+          done
+          finalize_status=0
+          if [[ "$all_green" == "true" ]]; then
+            set +e
+            uv run python -m trade_rl.evaluation.directional_study finalize \
+              --source "$RUNNER_TEMP/source" \
+              --output "$RUNNER_TEMP/study"
+            finalize_status=$?
+            set -e
+            if [[ "$finalize_status" == "0" ]]; then
+              cp "$RUNNER_TEMP/study/selection.json" "$summary/selection.json"
+            fi
+          fi
+          FINALIZE_STATUS="$finalize_status" ALL_GREEN="$all_green" uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+
+          names = [
+              "cash", "constant_long", "constant_short", "trend", "mean_reversion",
+              "ridge24", "lightgbm24", "channel_breakout",
+              "ppo0", "ppo1", "ppo2", "ppo3", "ppo4",
+          ]
+          statuses = {name: int(os.environ[name.upper()]) for name in names}
+          summary = Path(os.environ["RUNNER_TEMP"]) / "summary"
+          payload = {
+              "schema_version": "issue640_directional_run_summary_v1",
+              "issue_number": 640,
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "source_head": os.environ["SOURCE_SHA"],
+              "arm_exit_codes": statuses,
+              "all_arm_commands_succeeded": os.environ["ALL_GREEN"] == "true",
+              "finalize_exit_code": int(os.environ["FINALIZE_STATUS"]),
+              "selection_published": (summary / "selection.json").is_file(),
+              "unused_data_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (summary / "execution.json").write_bytes(canonical_json_bytes(payload))
+          PY
+          echo "all_green=$all_green" >> "$GITHUB_OUTPUT"
+          echo "finalize_status=$finalize_status" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable run summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-run-summary-v1
+          path: ${{ runner.temp }}/summary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Fail incomplete or non-finalizable study
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.finalize.outputs.all_green }}" = true
+          test "${{ steps.finalize.outputs.finalize_status }}" = 0
+
+  audit:
+    name: Fresh no-refit reconstruction
+    needs: execute
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact frozen source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: target
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d243e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install audit runtime without model fitting
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run python - <<'PY'
+          import lightgbm
+          import stable_baselines3
+          import torch
+          print("ISSUE640_AUDIT_RUNTIME=PASS")
+          PY
+          uv run ruff check ../harness/.github/scripts/issue640_audit.py
+          uv run python -m py_compile ../harness/.github/scripts/issue640_audit.py
+
+      - name: Download immutable protocol
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue640-directional-protocol-v1
+          path: ${{ runner.temp }}/protocol
+
+      - name: Download immutable arm slots
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue640-directional-arm-*-v1
+          path: ${{ runner.temp }}/arms
+
+      - name: Download immutable run summary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue640-directional-run-summary-v1
+          path: ${{ runner.temp }}/summary
+
+      - name: Independently verify artifacts and recompute selection without fitting
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python ../harness/.github/scripts/issue640_audit.py \
+            --protocol "$RUNNER_TEMP/protocol" \
+            --arms "$RUNNER_TEMP/arms" \
+            --summary "$RUNNER_TEMP/summary" \
+            --output "$RUNNER_TEMP/audit"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../harness status --porcelain)"
+
+      - name: Publish immutable fresh audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue640-directional-audit-v1
+          path: ${{ runner.temp }}/audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

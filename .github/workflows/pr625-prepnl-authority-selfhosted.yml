@@ -191,6 +191,7 @@ jobs:
           SEAL_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          test -z "$(git status --porcelain)"
           python - <<'PY'
           import base64
           import hashlib
@@ -302,7 +303,7 @@ jobs:
           print("EVALUATION_PNL_INSPECTED=false")
           PY
           git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD
-          test -z "$(git status --porcelain)"
+          test "$(git status --porcelain)" = "?? implementation-seal-fresh.json"
 
       - name: Upload fresh implementation reconstruction
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

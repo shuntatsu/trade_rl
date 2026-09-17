@@ -1,0 +1,41 @@
+name: tmp Issue 630 evaluator formatter
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-format-v1
+    paths:
+      - .github/workflows/tmp-issue630-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only evaluator module and publish
+        run: |
+          set -euo pipefail
+          target=trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run ruff format "$target"
+          uv run ruff check "$target"
+          if git diff --quiet -- "$target"; then
+            echo 'formatter made no change'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          git diff --cached --check
+          git commit -m 'style: format ridge shared-cash evaluator'
+          git push origin HEAD:research/issue630-shared-cash-evaluator

@@ -17,6 +17,24 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ## 研究目的
 
+### Separate paired funding-carry development capability
+
+A separate BTC/ETH spot-long/perpetual-short carry comparison is implemented
+under `docs/specs/funding-carry.md`. It has no forecasting or learned selector.
+The source roster is fixed to official hourly/funding archives covering reused
+2023-2024 development time; 150 raw archives were acquired and hashed before any
+carry economic replay. Software review covers equal-quantity holding, actual
+exits, signed funding, fee conservation and futures collateral excluding spot.
+The strict-clock source attempt stopped before economic replay: monthly and
+independent daily spot archives both lack the 2023-03-24 13:00 UTC open for BTC
+and ETH. Binance's official incident report documents a spot halt from 11:27 to
+14:00 UTC. Preserve that failed attempt; a separately identified source revision
+explicitly masks intersecting halt bins and uses a preceding-close stale mark
+only for a missing whole halted bin. Unknown gaps still fail. Software validation
+and source acquisition are not profit evidence. Economic evaluation and the full
+predeclared stress roster remain pending; completed PPO studies retain their
+original frozen source.
+
 ### Directional development study under a 20% drawdown budget
 
 The complete 13-arm study returned `NO_QUALIFIED_CANDIDATE`; all five PPO seeds
@@ -80,21 +98,30 @@ Feature-scale normalization and the sealed interleaved experiment remain separat
 
 An opt-in fit-only PPO feature standardizer and bound model-bundle capability
 are implemented separately from the completed, immutable risk comparison.
-The design is `docs/specs/ppo-feature-standardization.md`. Synthetic scope,
-masking, default compatibility, balanced statistics and model/transform reload
-checks and full software CI pass; the five-seed normalized real-data comparison
-is running under frozen protocol
+The durable preprocessing/model contract is in `architecture/lean-core.md`.
+Synthetic scope, masking, default compatibility, balanced statistics and
+model/transform reload checks and full software CI pass. The five-seed normalized
+real-data comparison completed under frozen protocol
 `464278c3390abd20e6741c7176dcc7382a3679f5351de8aa245f734fc971ff0c`.
-Results remain pending. Since the risk-only treatment returned KEEP_BASELINE,
-this comparison retains the original default-risk baseline. Its frozen
-preprocessing factor preserves the original data, budget, evaluation contract,
-all five seeds and profit/drawdown/execution gates. It does not provide
-operational profit evidence or reopen the sealed interleaved study.
+The decision is `RELATIVE_IMPROVEMENT_ONLY`: four of five paired returns improved,
+and the median paired delta was +3.8399 percentage points. Net returns were
+-8.2816%, -19.0971%, -9.4633%, -9.1378%, and -12.0839%; median -9.4633% versus
+the original -15.0823%. All five remained unprofitable and retained terminal
+holdings; no seed passed the base screen and no stress replay was reached.
+Median turnover increased from 48.5957 to 364.0627, a diagnostic to investigate,
+not proof of policy-driven churn. All five completed 262144 training steps and
+17544 evaluation intervals. An independent arithmetic/hash/model audit also
+reconstructed fit-only balanced normalizer moments from raw source arrays and
+confirmed the aggregate gates. It did not independently reconstruct order ledgers.
+The final comparison SHA-256 is
+`fab5e1e13c35263533f3f36f62ce7a7017fe92e5413b58a56f61f84ba910df33`.
+The isolated comparison retained original default risk, source, budget and gates;
+it does not establish operational profit or reopen the sealed interleaved study.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same
-cost, drawdown and out-of-sample evidence requirements. The current frozen
-standardization study still changes only its registered preprocessing factor.
+cost, drawdown and out-of-sample evidence requirements. The completed
+standardization study changed only its registered preprocessing factor.
 Exact fill-quantity accounting now preserves accepted lot counts and genuine
 remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation

@@ -47,8 +47,26 @@ class LiquidityRequest:
     priority: LiquidityPriority
     eligible_index: int
     reduce_only: bool = False
+    minimum_notional: float | None = None
+    minimum_quantity: float = 0.0
+    maximum_quantity: float | None = None
 
     def __post_init__(self) -> None:
+        for value in (
+            self.minimum_notional,
+            self.minimum_quantity,
+            self.maximum_quantity,
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not math.isfinite(value) or value < 0
+            ):
+                raise LiquidityAllocationError(
+                    "request rules must be finite and nonnegative"
+                )
+        if self.maximum_quantity is not None and (
+            self.maximum_quantity <= 0 or self.maximum_quantity < self.minimum_quantity
+        ):
+            raise LiquidityAllocationError("invalid request quantity bounds")
         if not isinstance(self.reduce_only, bool):
             raise LiquidityAllocationError("reduce_only must be a boolean")
         _validate_digest("order_id", self.order_id)
@@ -254,6 +272,20 @@ def allocate_symbol_capacity(
             * contract_multiplier
         )
 
+        if request.maximum_quantity is not None and abs(
+            exact_quantity(request.remaining_quantity)
+        ) > exact_quantity(request.maximum_quantity):
+            allocations.append(
+                _zero_allocation(
+                    request,
+                    requested_notional=requested_notional,
+                    capacity_before=capacity_before,
+                    accessible_capacity=accessible_capacity,
+                    reason="above_maximum_quantity",
+                )
+            )
+            continue
+
         if request.reduce_only:
             assert position is not None
             if position * exact_quantity(request.remaining_quantity) >= 0:
@@ -315,7 +347,28 @@ def allocate_symbol_capacity(
         exact_notional = (
             abs(filled_quantity) * request.execution_price * contract_multiplier
         )
-        if exact_notional + _TOLERANCE < minimum_notional:
+        filled_exact = accepted_fill_quantity(
+            filled_quantity,
+            lot_size=lot_size if filled_lot_count is not None else 0.0,
+            lot_count=filled_lot_count,
+        )
+        if abs(filled_exact) < exact_quantity(request.minimum_quantity):
+            allocations.append(
+                _zero_allocation(
+                    request,
+                    requested_notional=requested_notional,
+                    capacity_before=capacity_before,
+                    accessible_capacity=accessible_capacity,
+                    reason="below_minimum_quantity",
+                )
+            )
+            continue
+        applicable_minimum = (
+            minimum_notional
+            if request.minimum_notional is None
+            else request.minimum_notional
+        )
+        if exact_notional + _TOLERANCE < applicable_minimum:
             allocations.append(
                 _zero_allocation(
                     request,

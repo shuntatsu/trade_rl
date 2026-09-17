@@ -1,6 +1,6 @@
 # Explicit reduce-only exits
 
-Status: Active implementation; Stage A verification, Stages B/C pending
+Status: Active implementation; Stage A integrated, Stage B in progress
 
 ## Objective and evidence
 
@@ -114,6 +114,79 @@ reversal must either retain ordinary semantics or explicitly finish a closing
 order before submitting a separately qualified opening order; its opening
 quantity must never inherit an exemption. Freeze the selected behavior before
 the subsequent comparison.
+
+### Stage B implementation decisions
+
+An immutable `data/market_order_rules.py` profile will carry the full ordered
+dataset symbol roster and Dataset ID, selected symbol indices/names, the declared
+Binance USD-M perpetual venue and one-way account model, source URI/retrieval time
+and raw SHA-256, derived MARKET quantity bounds and combined lot increments, and
+an explicit `reduce_only_exits` boolean. The boolean controls automatic same-side
+reductions and the minimum-notional exception together. False provides a matched
+ordinary-order profile for the later comparison. The retained raw exchange-info
+bytes remain the authority for the separate LOT_SIZE and MARKET_LOT_SIZE fields.
+
+The Binance adapter will reuse the strict current-rule parser, validate raw
+response bytes/digest/URI and the selected TRADING USDT perpetual rows, and publish
+a write-once profile plus its raw source. Loading with an externally supplied
+profile digest must rederive the rules from those bytes and compare the entire
+profile. The supported in-memory construction paths are the Binance builder and
+loader only; the immutable data value rejects public construction and dataclass
+replacement without the private factory capability. This is an API contract,
+not protection from arbitrary Python reflection. Selected dataset contract
+multipliers must equal one: source quantity filters are base-asset quantities.
+Dataset venue/account identity is a declared research assumption, since
+MarketDataset has no such fields; an account configuration has not been queried.
+The profile explicitly records current-snapshot historical application. Unselected
+symbols remain under existing rules and cannot inherit the exemption.
+
+MarketExecutor accepts this optional profile, checks its dataset/symbol binding
+and MARKET configuration, and adds the complete profile and rule-stress identities
+to its execution-policy digest. Omission preserves the default policy digest.
+Selected symbols use the intersection of dataset/runtime lot constraints and the
+source MARKET lot constraints. Ordinary minimum notional remains at least the
+existing dataset/runtime and source floor; an eligible reduce-only order waives
+the declared venue minimum only, retaining any explicit runtime minimum floor.
+The profile asserts that the selected dataset minimum-notional arrays represent
+venue constraints. This is part of its disclosed execution assumption, not a
+silent reinterpretation of old artifacts.
+
+Intersect dataset, runtime and source grids separately using rational decimal
+LCM; do not first collapse dataset/runtime grids with max. Stress adds a further
+grid equal to that common quantum times the lot stress factor, intersected with
+the original common grid. For example .002/.003/.003 gives .006; a 1.5 stress
+adds .009 and yields .018. Reject a final quantum that cannot round-trip through
+the supported decimal float representation. Both ordinary and retained runtime
+minimum-notional floors receive the configured notional stress factor.
+Profile lot-burden diagnostics report the actual stressed/nominal grid ratio,
+which can exceed the configured multiplicative factor after intersection.
+
+Admission and per-request allocation both enforce the applicable minimum notional
+and quantity bounds. Requests above the source maximum are rejected rather than
+silently split; capacity/position clipping cannot produce a fill below the source
+minimum quantity. Unsupported selected-symbol order types fail closed. Tick,
+tradability, side permissions, accounting, funding and margin retain their current
+owners; this profile does not claim to reproduce every live exchange filter.
+The compatibility `liquidate_at_close` shortcut rejects profile mode; closing must
+use explicit stateful orders so this shortcut cannot bypass profile constraints.
+
+Automatic reconciliation enables reduce-only only for a same-side decrease or a
+target of zero, using exact current inventory. Reversals retain ordinary semantics
+and their minimum-notional requirement. In explicit profile mode, an equal residual
+quantity is reusable only when its reduce-only flag and execution-policy identity
+also match; otherwise cancel and replace it. No deferred reversal state or implicit
+opening exemption is introduced. Default reconciliation remains unchanged.
+The order request is still a float: an exact closing delta is projected
+conservatively toward zero when necessary. This may leave an executable lot for
+unusual non-representable inventories; it never promotes a sub-lot remainder or
+claims arbitrary one-order flattening. The exact inventory remains authoritative.
+
+Stage B verification includes false/true profile pairs, omitted-profile golden
+compatibility, raw/rule/profile tampering, mixed selected/unselected symbols,
+long/short zero and partial reductions, ordinary reversals, stale semantic order
+replacement, quantity-limit admission and clipped-fill limits, and fill/fee/capacity
+evidence. No financial replay runs until this implementation and its fresh protocol
+are frozen separately from the preserved diagnostic.
 
 ## Stage C: fresh economic evidence
 

@@ -16,6 +16,7 @@ from trade_rl.simulation.orders.model import (
     PendingOrder,
     TimeInForce,
 )
+from trade_rl.simulation.quantities import exact_quantity, project_quantity
 
 _TOLERANCE = 1e-12
 
@@ -76,6 +77,7 @@ def reconcile_target(
     expiry_index: int | None,
     limit_offset_rate: float,
     maximum_gross: float = 1.0,
+    reduce_only_symbols: tuple[int, ...] | None = None,
 ) -> ReconciliationResult:
     """Reconcile a latest target against holdings and active residual orders."""
 
@@ -134,6 +136,17 @@ def reconcile_target(
     gross = float(np.abs(weights).sum())
     if gross > maximum_gross + _TOLERANCE:
         raise OrderReconciliationError("target gross exceeds maximum_gross")
+    if reduce_only_symbols is not None and (
+        type(reduce_only_symbols) is not tuple
+        or any(
+            type(i) is not int or not 0 <= i < weights.size for i in reduce_only_symbols
+        )
+        or len(set(reduce_only_symbols)) != len(reduce_only_symbols)
+        or (reduce_only_symbols and order_type is not OrderType.MARKET)
+    ):
+        raise OrderReconciliationError(
+            "reduce-only symbols require unique valid indices and MARKET orders"
+        )
 
     desired = weights * decision_equity / (prices * multipliers)
     state = order_book
@@ -143,9 +156,25 @@ def reconcile_target(
 
     for symbol_index in range(weights.size):
         target_delta = desired[symbol_index] - quantities[symbol_index]
+        reduce_only = False
+        if reduce_only_symbols is not None and symbol_index in reduce_only_symbols:
+            current = book.exact_quantities[symbol_index]
+            wanted = exact_quantity(float(desired[symbol_index]))
+            reduce_only = bool(
+                current
+                and (wanted == 0 or current * wanted > 0)
+                and abs(wanted) < abs(current)
+            )
+            if reduce_only:
+                target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)
         active_residual = float(sum(order.remaining_quantity for order in active))
-        if math.isclose(
+        compatible = reduce_only_symbols is None or all(
+            order.intent.reduce_only == reduce_only
+            and order.intent.execution_policy_digest == execution_policy_digest
+            for order in active
+        )
+        if compatible and math.isclose(
             target_delta,
             active_residual,
             rel_tol=0.0,
@@ -200,6 +229,7 @@ def reconcile_target(
                 submission_reference_price=float(prices[symbol_index]),
                 decision_equity=decision_equity,
                 replaced_order_id=replaced_order_id,
+                reduce_only=reduce_only,
             )
         )
 

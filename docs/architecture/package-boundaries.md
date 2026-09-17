@@ -22,6 +22,7 @@ trade_rl/
 │   └── verified_file.py
 ├── data/
 │   ├── market.py
+│   ├── market_order_rules.py
 │   ├── contracts.py
 │   ├── identity.py
 │   ├── source.py
@@ -42,6 +43,7 @@ trade_rl/
 │       ├── forward.py
 │       ├── forward_evidence.py
 │       ├── forward_rules.py
+│       ├── market_order_profile.py
 │       └── dataset.py
 ├── risk/
 │   ├── inputs.py
@@ -225,8 +227,17 @@ and advances it in allocation priority order for all accepted fills. It owns no
 BookState mutation. `stateful/symbol_fills.py` supplies and rechecks inventory
 after intervening margin handling, applies accepted lots to BookState, reconciles
 capacity to actual fills and expires exhausted closing remainders; `runtime.py`
-projects the order flag into events. Venue-specific minimum-notional exceptions
-and automatic reduce-only target reconciliation are not implemented.
+projects the order flag into events. `data/market_order_rules.py` owns immutable
+profile/rule values and decimal grid intersection without venue or simulation
+imports. `integrations/binance/market_order_profile.py` alone owns supported
+profile construction, raw evidence publication and full source rederivation,
+reusing the strict `forward_rules.py` parser. It has no order API or P&L authority.
+The private factory capability prevents supported public construction/replacement,
+not arbitrary Python reflection. Profiles add no fields to the Dataset schema.
+`execution.py` binds an opt-in profile and stress into policy identity and resolves
+per-order rules; `orders/reconciliation.py` activates same-side reduce-only exits.
+Admission and allocation enforce quantity bounds and distinct per-order notional
+floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 ### `strategies`
 

@@ -10,6 +10,11 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import (
+    MarketOrderProfile,
+    MarketOrderRule,
+    joint_lot_size,
+)
 from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
@@ -21,6 +26,7 @@ from trade_rl.simulation.orders.model import (
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
+from trade_rl.simulation.quantities import exact_quantity
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionResult,
     execute_stateful_orders,
@@ -320,6 +326,7 @@ class MarketExecutor:
         cost: ExecutionCostConfig | None = None,
         *,
         rule_stress: ExecutionRuleStress | None = None,
+        market_order_profile: MarketOrderProfile | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -329,6 +336,15 @@ class MarketExecutor:
                 "only single-asset execution is supported"
             )
         self.rule_stress = rule_stress or ExecutionRuleStress()
+        self.market_order_profile = market_order_profile
+        if market_order_profile is not None:
+            if type(market_order_profile) is not MarketOrderProfile:
+                raise ValueError(
+                    "market order profile requires a verified factory value"
+                )
+            market_order_profile.validate_dataset(dataset)
+            if self.cost.order_type != "market":
+                raise ValueError("market order profile requires MARKET configuration")
         self._validate_rule_stress()
         self._rng = np.random.default_rng(self.cost.random_seed)
         self._compatibility_order_book = OrderBookState.empty()
@@ -376,7 +392,50 @@ class MarketExecutor:
             ]
             * self.rule_stress.minimum_notional_factor
         )
+        if self.market_order_profile is not None:
+            for rule in self.market_order_profile.rules:
+                symbol = rule.symbol_index
+                lot[symbol] = joint_lot_size(
+                    (
+                        float(self.dataset.resolved_array("lot_size")[index, symbol]),
+                        self.cost.lot_size,
+                        rule.lot_size,
+                    ),
+                    stress_factor=self.rule_stress.lot_size_factor,
+                )
+                minimum[symbol] = max(
+                    minimum[symbol],
+                    rule.minimum_notional * self.rule_stress.minimum_notional_factor,
+                )
         return tick, lot, minimum
+
+    def market_order_rule(self, symbol_index: int) -> MarketOrderRule | None:
+        profile = self.market_order_profile
+        return None if profile is None else profile.rule_for(symbol_index)
+
+    def order_minimum_notional(
+        self, intent: OrderIntent, ordinary_minimum: float
+    ) -> float:
+        profile = self.market_order_profile
+        if (
+            profile is not None
+            and profile.reduce_only_exits
+            and intent.reduce_only
+            and profile.rule_for(intent.symbol_index) is not None
+        ):
+            return self.cost.minimum_notional * self.rule_stress.minimum_notional_factor
+        return ordinary_minimum
+
+    @property
+    def reduce_only_symbols(self) -> tuple[int, ...] | None:
+        profile = self.market_order_profile
+        if profile is None:
+            return None
+        return (
+            tuple(r.symbol_index for r in profile.rules)
+            if profile.reduce_only_exits
+            else ()
+        )
 
     @staticmethod
     def _percentiles(values: np.ndarray) -> dict[str, float]:
@@ -393,11 +452,26 @@ class MarketExecutor:
         if not 0 <= start < stop <= self.dataset.n_bars:
             raise ValueError("rule burden range is outside the dataset")
         shape = self.dataset.resolved_array("tick_size")[start:stop].shape
+        lot_ratios = np.full(shape, self.rule_stress.lot_size_factor)
+        if self.market_order_profile is not None:
+            dataset_lots = self.dataset.resolved_array("lot_size")
+            for rule in self.market_order_profile.rules:
+                for index in range(start, stop):
+                    steps = (
+                        float(dataset_lots[index, rule.symbol_index]),
+                        self.cost.lot_size,
+                        rule.lot_size,
+                    )
+                    nominal = joint_lot_size(steps)
+                    stressed = joint_lot_size(
+                        steps, stress_factor=self.rule_stress.lot_size_factor
+                    )
+                    lot_ratios[index - start, rule.symbol_index] = float(
+                        exact_quantity(stressed) / exact_quantity(nominal)
+                    )
         return {
             "adverse_tick_rounding": self.rule_stress.adverse_tick_rounding,
-            "lot_size_ratio": self._percentiles(
-                np.full(shape, self.rule_stress.lot_size_factor)
-            ),
+            "lot_size_ratio": self._percentiles(lot_ratios),
             "minimum_notional_ratio": self._percentiles(
                 np.full(shape, self.rule_stress.minimum_notional_factor)
             ),
@@ -753,6 +827,15 @@ class MarketExecutor:
 
     @property
     def execution_policy_digest(self) -> str:
+        if self.market_order_profile is not None:
+            return content_digest(
+                {
+                    "schema_version": "profile_market_execution_v1",
+                    "base_policy_digest": self.cost.execution_policy_digest,
+                    "market_order_profile_digest": self.market_order_profile.digest,
+                    "rule_stress": self.rule_stress.digest_payload(),
+                }
+            )
         return self.cost.execution_policy_digest
 
     def execute_orders(
@@ -847,6 +930,10 @@ class MarketExecutor:
         )
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
+        if self.market_order_profile is not None:
+            raise ValueError(
+                "market profile liquidation requires explicit stateful orders"
+            )
         if not 0 <= index < self.dataset.n_bars:
             raise ValueError("liquidation index is outside the dataset")
         result_book = book.clone()

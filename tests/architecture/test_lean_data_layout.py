@@ -19,6 +19,7 @@ def test_data_lifecycle_packages_exist() -> None:
         "features/multitimeframe.py",
         "features/price_channels.py",
         "view.py",
+        "market_order_rules.py",
     ):
         assert (DATA / relative).is_file(), relative
 

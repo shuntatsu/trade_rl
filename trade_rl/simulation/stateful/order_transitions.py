@@ -73,6 +73,7 @@ class StatefulOrderTransitionProcessor:
                 continue
 
             symbol = order.intent.symbol_index
+            rule = executor.market_order_rule(symbol)
             decision = self.admission.evaluate(
                 order.intent,
                 remaining_quantity=order.remaining_quantity,
@@ -93,7 +94,12 @@ class StatefulOrderTransitionProcessor:
                 ),
                 tick_size=float(context.tick_size[symbol]),
                 lot_size=float(context.lot_size[symbol]),
-                minimum_notional=float(context.minimum_notional[symbol]),
+                minimum_notional=executor.order_minimum_notional(
+                    order.intent, float(context.minimum_notional[symbol])
+                ),
+                minimum_quantity=0.0 if rule is None else rule.minimum_quantity,
+                maximum_quantity=None if rule is None else rule.maximum_quantity,
+                market_only=rule is not None,
                 reference_prices=context.open_prices,
                 actual_position=runtime.book.exact_quantities[symbol],
             )

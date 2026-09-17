@@ -85,6 +85,7 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "forward.py",
         "forward_evidence.py",
         "forward_rules.py",
+        "market_order_profile.py",
     ):
         assert (BINANCE / name).is_file(), name
 
@@ -192,4 +193,22 @@ def test_binance_transport_does_not_depend_on_dataset_assembly() -> None:
     imports = _imports(BINANCE / "transport.py")
     assert not any(
         name.startswith("trade_rl.integrations.binance.dataset") for name in imports
+    )
+
+
+def test_market_profile_derivation_has_no_execution_or_dataset_builder_authority() -> (
+    None
+):
+    imports = _imports(BINANCE / "market_order_profile.py")
+    assert "trade_rl.integrations.binance.forward_rules" in imports
+    assert "trade_rl.data.market_order_rules" in imports
+    assert not any(
+        name.startswith(
+            (
+                "trade_rl.simulation",
+                "trade_rl.evaluation",
+                "trade_rl.integrations.binance.dataset",
+            )
+        )
+        for name in imports
     )

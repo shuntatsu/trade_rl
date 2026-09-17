@@ -67,6 +67,7 @@ def execute_target_statefully(
         expiry_index=expiry_index,
         limit_offset_rate=executor.cost.limit_offset_rate,
         maximum_gross=executor.cost.max_leverage,
+        reduce_only_symbols=executor.reduce_only_symbols,
     )
     active_by_id = {order.order_id: order for order in order_book.active_orders}
     cancellation_transitions = []

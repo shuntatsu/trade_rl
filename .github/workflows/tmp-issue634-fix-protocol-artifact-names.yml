@@ -1,0 +1,47 @@
+name: tmp Issue 634 fix protocol Artifact names
+
+on:
+  push:
+    branches:
+      - prepare/issue634-shared-cash-runner-v1
+    paths:
+      - .github/workflows/tmp-issue634-fix-protocol-artifact-names.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue634-shared-cash-runner-v1
+          fetch-depth: 1
+      - name: Patch only exact protocol Artifact names
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/issue634_shared_cash_runner.py')
+          text = path.read_text()
+          replacements = {
+              'PROTOCOL_PRIMARY_NAME = "issue627-shared-cash-prereg-v3-primary"': 'PROTOCOL_PRIMARY_NAME = "issue627-shared-cash-prereg-v3-primary-35211715033"',
+              'PROTOCOL_FRESH_NAME = "issue627-shared-cash-prereg-v3-fresh"': 'PROTOCOL_FRESH_NAME = "issue627-shared-cash-prereg-v3-fresh-35211715033"',
+              '(PROTOCOL_PRIMARY_ID, "issue627-shared-cash-prereg-v3-primary", PROTOCOL_PRIMARY_API_DIGEST, PROTOCOL_SEAL_RUN),': '(PROTOCOL_PRIMARY_ID, PROTOCOL_PRIMARY_NAME, PROTOCOL_PRIMARY_API_DIGEST, PROTOCOL_SEAL_RUN),',
+              '(PROTOCOL_FRESH_ID, "issue627-shared-cash-prereg-v3-fresh", PROTOCOL_FRESH_API_DIGEST, PROTOCOL_SEAL_RUN),': '(PROTOCOL_FRESH_ID, PROTOCOL_FRESH_NAME, PROTOCOL_FRESH_API_DIGEST, PROTOCOL_SEAL_RUN),',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'exact replacement target drift: {old}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/scripts/issue634_shared_cash_runner.py
+          git commit -m 'ci: bind exact Issue 627 v3 Artifact names'
+          git push origin HEAD:prepare/issue634-shared-cash-runner-v1

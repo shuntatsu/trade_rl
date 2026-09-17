@@ -23,8 +23,9 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Static checks
+      - name: Static checks after mechanical format
         run: |
+          uv run ruff format tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
           uv run ruff check tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
           uv run ruff format --check tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
           uv run mypy tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py

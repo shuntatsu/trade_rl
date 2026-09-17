@@ -1,0 +1,53 @@
+name: tmp Issue 618 durable scope proof v3
+
+on:
+  push:
+    branches:
+      - verify/issue618-ridge-evaluator-final-v3
+    paths:
+      - .github/workflows/tmp-issue618-durable-scope-proof-v3.yml
+
+permissions:
+  contents: read
+
+jobs:
+  scope-proof:
+    name: Exact-head durable scope proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable research head with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact head and preregistration base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "222a082ee28f4f0fd35081912a33649cce27c585"
+          git cat-file -e 75999e53c70224c31a62b106e4a8d2caa4b920ac^{commit}
+          test -z "$(git status --porcelain)"
+      - name: Prove exact durable diff and no workflow/economic-output leakage
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=75999e53c70224c31a62b106e4a8d2caa4b920ac
+          actual="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(cat <<'EOF'
+          tests/architecture/test_runs_capability_facade.py
+          tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+          tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_falsification.py
+          tests/strategies/test_ridge_economic_gate.py
+          trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+          trade_rl/evaluation/runs/__init__.py
+          trade_rl/evaluation/runs/execute.py
+          trade_rl/strategies/forecasts/ridge_economic_gate.py
+          EOF
+          )"
+          test "$actual" = "$expected"
+          test "$(printf '%s\n' "$actual" | wc -l)" -eq 8
+          ! printf '%s\n' "$actual" | grep -E '^\.github/workflows/|(^|/)(artifacts?|results?|outputs?)(/|$)|\.(npz|parquet|csv|zip)$'
+          git diff --check "$base"...HEAD
+          echo ISSUE618_DURABLE_SCOPE_PROOF=PASS

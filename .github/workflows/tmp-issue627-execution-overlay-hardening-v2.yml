@@ -1,0 +1,124 @@
+name: tmp Issue 627 execution overlay hardening v2
+
+on:
+  push:
+    branches:
+      - automation/issue627-execution-overlay-hardening-v2
+    paths:
+      - .github/workflows/tmp-issue627-execution-overlay-hardening-v2.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue627-shared-cash-prereg
+  EXPECTED_HEAD: 8e0c2cc852e26240837614ae6a54180be227ca32
+  MODULE: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add overlay contract test first
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py")
+          text = path.read_text()
+          text = text.replace(
+              'assert protocol.schema_version == "ridge_shared_cash_prereg_v1"',
+              'assert protocol.schema_version == "ridge_shared_cash_prereg_v2"',
+          )
+          old = '    assert protocol.one_way_explicit_cost == pytest.approx(0.0007)\n'
+          new = old + '    assert protocol.execution_overlay == (\n        "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"\n    )\n'
+          if text.count(old) != 1:
+              raise SystemExit("cost assertion insertion point drift")
+          text = text.replace(old, new)
+          old = '        {"one_way_explicit_cost": 0.001},\n'
+          new = old + '        {"execution_overlay": "legacy_dataset_execution_overlay"},\n'
+          if text.count(old) != 1:
+              raise SystemExit("mutation insertion point drift")
+          path.write_text(text.replace(old, new))
+          PY
+          uv run ruff check "$TEST"
+          uv run ruff format "$TEST"
+          uv run ruff format --check "$TEST"
+      - name: Confirm semantic RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -q 'execution_overlay' /tmp/red.out
+          echo ISSUE627_OVERLAY_RED=PASS
+      - name: Add only exact frozen execution overlay field
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py")
+          text = path.read_text()
+          old = '_SCHEMA_VERSION = "ridge_shared_cash_prereg_v1"'
+          new = '_SCHEMA_VERSION = "ridge_shared_cash_prereg_v2"'
+          if text.count(old) != 1:
+              raise SystemExit("schema version insertion point drift")
+          text = text.replace(old, new)
+          old = '    "successor_study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",\n'
+          new = old + '    "execution_overlay": "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity",\n'
+          if text.count(old) != 1:
+              raise SystemExit("canonical overlay insertion point drift")
+          text = text.replace(old, new)
+          old = '    successor_study_digest: str\n'
+          new = old + '    execution_overlay: str\n'
+          if text.count(old) != 1:
+              raise SystemExit("dataclass overlay insertion point drift")
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format "$MODULE" "$TEST"
+          uv run ruff check "$MODULE" "$TEST"
+          uv run ruff format --check "$MODULE" "$TEST"
+          uv run mypy "$MODULE"
+          uv run pytest -q "$TEST"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n' "$MODULE" "$TEST" | sort)"
+          test "$changed" = "$expected"
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MODULE" "$TEST"
+          git commit -m 'research: harden Issue 627 execution overlay authority'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

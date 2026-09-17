@@ -147,7 +147,7 @@ jobs:
           print('ECONOMIC_ARM_STARTED=false')
           PY
 
-      - name: Download exact calibrated causal successor
+      - name: Download exact calibrated causal successor without loading Dataset
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: issue539-calibrated-causal-successor-v3-34803217815
@@ -156,28 +156,32 @@ jobs:
           repository: ${{ github.repository }}
           run-id: '34803217815'
 
-      - name: Prepare immutable result-blind protocol and activation claim
+      - name: Build pre-data protocol and activation claim without Dataset load
         working-directory: target
         run: |
           set -euo pipefail
-          uv run python -m trade_rl.evaluation.directional_study prepare \
-            --source "$RUNNER_TEMP/source" \
-            --output "$RUNNER_TEMP/study"
           mkdir -p "$RUNNER_TEMP/protocol" "$RUNNER_TEMP/activation"
-          cp "$RUNNER_TEMP/study/protocol.json" "$RUNNER_TEMP/protocol/protocol.json"
-          cp "$RUNNER_TEMP/study/protocol.digest.json" "$RUNNER_TEMP/protocol/protocol.digest.json"
           TARGET_SHA="$TARGET_SHA" uv run python - <<'PY'
           import importlib.util
-          import json
           import os
           from pathlib import Path
+
+          from trade_rl.artifacts import canonical_json_bytes, content_digest
+          from trade_rl.evaluation.directional_study import expected_protocol
+
+          source = Path(os.environ['RUNNER_TEMP']) / 'source'
+          protocol = expected_protocol(source)
+          protocol_root = Path(os.environ['RUNNER_TEMP']) / 'protocol'
+          protocol_root.joinpath('protocol.json').write_bytes(canonical_json_bytes(protocol))
+          protocol_root.joinpath('protocol.digest.json').write_bytes(
+              canonical_json_bytes({'digest': content_digest(protocol)})
+          )
 
           path = Path('.github/scripts/issue640_directional_activation.py')
           spec = importlib.util.spec_from_file_location('issue640_activation', path)
           assert spec is not None and spec.loader is not None
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
-          protocol = json.loads(Path(os.environ['RUNNER_TEMP'], 'study', 'protocol.json').read_text())
           claim = module.build_activation_claim(
               protocol,
               workflow_run_id=int(os.environ['GITHUB_RUN_ID']),
@@ -193,13 +197,14 @@ jobs:
           Path(os.environ['RUNNER_TEMP'], 'activation', 'activation.json').write_bytes(
               module.activation_claim_bytes(claim)
           )
-          print('ISSUE640_PROTOCOL_PREPARED=true')
+          print('ISSUE640_PREDATA_PROTOCOL_PREPARED=true')
+          print('REAL_DATASET_LOADED=false')
           print('ECONOMIC_ARM_STARTED=false')
           print('ECONOMIC_RESULT_INTERPRETED=false')
           PY
 
       - id: activation_upload
-        name: Publish repository-global activation before any arm
+        name: Publish repository-global activation before Dataset load or any arm
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: issue640-directional-activation-v1
@@ -208,7 +213,7 @@ jobs:
           retention-days: 90
           compression-level: 0
 
-      - name: Bind global activation Artifact to this first workflow
+      - name: Bind global activation Artifact before Dataset load
         working-directory: target
         env:
           GH_TOKEN: ${{ github.token }}
@@ -242,11 +247,12 @@ jobs:
               workflow_run_id=int(os.environ['GITHUB_RUN_ID']),
           )
           print('ISSUE640_REMOTE_ACTIVATION_SLOT=CLAIMED')
+          print('REAL_DATASET_LOADED=false')
           print('ECONOMIC_ARM_STARTED=false')
           PY
 
       - id: protocol_upload
-        name: Publish immutable protocol before first arm
+        name: Publish immutable protocol before Dataset load and first arm
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: issue640-directional-protocol-v1
@@ -255,7 +261,7 @@ jobs:
           retention-days: 90
           compression-level: 0
 
-      - name: Bind protocol Artifact before economic execution
+      - name: Bind protocol Artifact before Dataset load and economic execution
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.protocol_upload.outputs.artifact-id }}
@@ -265,7 +271,22 @@ jobs:
           test "$(jq -r .name <<<"$meta")" = "$PROTOCOL_NAME"
           test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
           test "$(jq -r .expired <<<"$meta")" = false
-          echo ISSUE640_PROTOCOL_PUBLISHED_BEFORE_ARMS=true
+          echo ISSUE640_PROTOCOL_PUBLISHED_BEFORE_DATASET_LOAD=true
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_RESULT_INTERPRETED=false
+
+      - name: Load and validate Dataset only after remote activation and protocol binding
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run python -m trade_rl.evaluation.directional_study prepare \
+            --source "$RUNNER_TEMP/source" \
+            --output "$RUNNER_TEMP/study"
+          cmp "$RUNNER_TEMP/study/protocol.json" "$RUNNER_TEMP/protocol/protocol.json"
+          cmp "$RUNNER_TEMP/study/protocol.digest.json" "$RUNNER_TEMP/protocol/protocol.digest.json"
+          echo ISSUE640_DATASET_VALIDATED_AFTER_ACTIVATION=true
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
           echo ECONOMIC_RESULT_INTERPRETED=false
 
       - name: Run cash exactly once

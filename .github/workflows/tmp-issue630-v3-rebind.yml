@@ -114,7 +114,14 @@ jobs:
           assert 'test_execution_max_leverage_drift_fails_before_fit_or_replay' not in text
           falsification.write_text(text + addition)
           PY
-          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
       - name: Focused v3 verification
         run: |
           uv run ruff check trade_rl tests tools

@@ -461,11 +461,15 @@ class MarketExecutor:
         return rounded
 
     def _round_quantities(self, quantities: np.ndarray, *, index: int) -> np.ndarray:
+        from trade_rl.simulation.quantities import quantize_quantity
+
         _, lot, _ = self.effective_rule_arrays(index=index)
-        rounded = quantities.copy()
-        mask = lot > 0.0
-        rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
-        return rounded
+        return np.array(
+            [
+                quantize_quantity(float(quantity), float(step))[0]
+                for quantity, step in zip(quantities, lot, strict=True)
+            ]
+        )
 
     def _constrain_borrow(
         self,

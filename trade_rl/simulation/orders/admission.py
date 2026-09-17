@@ -9,6 +9,7 @@ import numpy as np
 
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import OrderIntent
+from trade_rl.simulation.quantities import quantize_quantity
 
 _TOLERANCE = 1e-12
 
@@ -143,10 +144,7 @@ class OrderAdmissionPolicy:
         ):
             return self._reject("borrow_unavailable")
 
-        admitted_quantity = requested
-        if lot_size > 0.0:
-            lots = math.floor((abs(admitted_quantity) + _TOLERANCE) / lot_size)
-            admitted_quantity = math.copysign(lots * lot_size, admitted_quantity)
+        admitted_quantity, _ = quantize_quantity(requested, lot_size)
         if abs(admitted_quantity) <= _TOLERANCE:
             return self._reject("zero_quantity_after_rounding")
 

@@ -1,0 +1,280 @@
+name: Issue 645 corrected accounting implementation seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue645-corrected-accounting-v1
+    paths:
+      - .github/authorizations/issue645-corrected-accounting-v1.authorized
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue645-corrected-accounting-seal-v1
+  cancel-in-progress: false
+
+env:
+  BASE_HEAD: c80652a126780580990bf46bb206155ba469e043
+  TARGET_HEAD: 66e93dd4e4a393e2a6fe56631bedbd8af192c282
+  PR643_HEAD: 95a4831bfbd5dfac2b77371b0c99d6894edc4d3a
+  PR643_MERGE: eee810ddd9402cf649dcd4d32ac38bba4816c720
+  FINAL_VERIFY_RUN: '35251689302'
+  PRIMARY_NAME: issue645-corrected-accounting-primary-v1
+  FRESH_NAME: issue645-corrected-accounting-fresh-v1
+
+jobs:
+  primary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Enforce first seal activation
+        run: |
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind final verification and exact single-factor scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$FINAL_VERIFY_RUN)"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(git rev-parse HEAD)" = "$TARGET_HEAD"
+          python - <<'PY'
+          import subprocess
+          expected = sorted([
+              'tests/architecture/test_lean_simulation_layout.py',
+              'tests/simulation/test_lot_accounting.py',
+              'tests/simulation/test_stateful_execution_characterization.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ])
+          actual = sorted(subprocess.check_output([
+              'git','diff','--name-only','c80652a126780580990bf46bb206155ba469e043...HEAD'
+          ], text=True).splitlines())
+          if actual != expected:
+              raise SystemExit(f'Issue 645 scope drift: {actual!r}')
+          PY
+      - name: Generate canonical implementation authority
+        run: |
+          set -euo pipefail
+          mkdir -p seal-primary
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          files = [
+              'tests/architecture/test_lean_simulation_layout.py',
+              'tests/simulation/test_lot_accounting.py',
+              'tests/simulation/test_stateful_execution_characterization.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ]
+          directional = [
+              'trade_rl/evaluation/directional_candidates.py',
+              'trade_rl/evaluation/directional_selection.py',
+              'trade_rl/evaluation/directional_study.py',
+          ]
+          def blob(path):
+              return subprocess.check_output(['git','rev-parse',f'HEAD:{path}'], text=True).strip()
+          payload = {
+              'schema_version': 'issue645_corrected_accounting_implementation_v1',
+              'issue_number': 645,
+              'base_head': 'c80652a126780580990bf46bb206155ba469e043',
+              'target_head': '66e93dd4e4a393e2a6fe56631bedbd8af192c282',
+              'source_correction_head': '95a4831bfbd5dfac2b77371b0c99d6894edc4d3a',
+              'source_correction_merge': 'eee810ddd9402cf649dcd4d32ac38bba4816c720',
+              'final_verification_run_id': 35251689302,
+              'changed_blobs': {path: blob(path) for path in files},
+              'frozen_directional_blobs': {path: blob(path) for path in directional},
+              'factor': 'exact_accepted_lot_quantity_accounting_correction_only',
+              'ppo_feature_standardization_included': False,
+              'ppo_risk_redesign_included': False,
+              'strategy_or_selection_change_included': False,
+              'real_dataset_loaded': False,
+              'model_fit_performed': False,
+              'economic_replay_performed': False,
+              'issue640_result_inspected': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          raw = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+          Path('seal-primary/implementation.json').write_bytes(raw)
+          seal = {
+              'schema_version': 'issue645_corrected_accounting_seal_v1',
+              'issue_number': 645,
+              'target_head': payload['target_head'],
+              'implementation_sha256': hashlib.sha256(raw).hexdigest(),
+              'final_verification_run_id': payload['final_verification_run_id'],
+              'real_dataset_loaded': False,
+              'economic_replay_performed': False,
+              'issue640_result_inspected': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('seal-primary/seal.json').write_bytes(
+              json.dumps(seal, sort_keys=True, separators=(',', ':')).encode()
+          )
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: seal-primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently regenerate canonical authority
+        run: |
+          set -euo pipefail
+          mkdir -p seal-fresh
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          files = [
+              'tests/architecture/test_lean_simulation_layout.py',
+              'tests/simulation/test_lot_accounting.py',
+              'tests/simulation/test_stateful_execution_characterization.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ]
+          directional = [
+              'trade_rl/evaluation/directional_candidates.py',
+              'trade_rl/evaluation/directional_selection.py',
+              'trade_rl/evaluation/directional_study.py',
+          ]
+          def blob(path):
+              return subprocess.check_output(['git','rev-parse',f'HEAD:{path}'], text=True).strip()
+          payload = {
+              'schema_version': 'issue645_corrected_accounting_implementation_v1',
+              'issue_number': 645,
+              'base_head': 'c80652a126780580990bf46bb206155ba469e043',
+              'target_head': '66e93dd4e4a393e2a6fe56631bedbd8af192c282',
+              'source_correction_head': '95a4831bfbd5dfac2b77371b0c99d6894edc4d3a',
+              'source_correction_merge': 'eee810ddd9402cf649dcd4d32ac38bba4816c720',
+              'final_verification_run_id': 35251689302,
+              'changed_blobs': {path: blob(path) for path in files},
+              'frozen_directional_blobs': {path: blob(path) for path in directional},
+              'factor': 'exact_accepted_lot_quantity_accounting_correction_only',
+              'ppo_feature_standardization_included': False,
+              'ppo_risk_redesign_included': False,
+              'strategy_or_selection_change_included': False,
+              'real_dataset_loaded': False,
+              'model_fit_performed': False,
+              'economic_replay_performed': False,
+              'issue640_result_inspected': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          raw = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+          Path('seal-fresh/implementation.json').write_bytes(raw)
+          seal = {
+              'schema_version': 'issue645_corrected_accounting_seal_v1',
+              'issue_number': 645,
+              'target_head': payload['target_head'],
+              'implementation_sha256': hashlib.sha256(raw).hexdigest(),
+              'final_verification_run_id': payload['final_verification_run_id'],
+              'real_dataset_loaded': False,
+              'economic_replay_performed': False,
+              'issue640_result_inspected': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('seal-fresh/seal.json').write_bytes(
+              json.dumps(seal, sort_keys=True, separators=(',', ':')).encode()
+          )
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: seal-fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+      - name: Require byte identity and closed boundaries
+        run: |
+          set -euo pipefail
+          cmp primary/implementation.json fresh/implementation.json
+          cmp primary/seal.json fresh/seal.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          impl = Path('primary/implementation.json').read_bytes()
+          seal = json.loads(Path('primary/seal.json').read_text())
+          payload = json.loads(impl)
+          if hashlib.sha256(impl).hexdigest() != seal['implementation_sha256']:
+              raise SystemExit('Issue 645 implementation digest drift')
+          if payload['target_head'] != '66e93dd4e4a393e2a6fe56631bedbd8af192c282':
+              raise SystemExit('Issue 645 target drift')
+          for field in (
+              'real_dataset_loaded','model_fit_performed','economic_replay_performed',
+              'issue640_result_inspected','unused_data_accessed','final_test_accessed',
+              'production_eligible','live_trading_authorized','merge_authorized',
+          ):
+              if payload[field] is not False:
+                  raise SystemExit(f'Issue 645 boundary drift: {field}')
+          if payload['ppo_feature_standardization_included'] is not False:
+              raise SystemExit('Issue 645 factor contamination: PPO standardization')
+          if payload['ppo_risk_redesign_included'] is not False:
+              raise SystemExit('Issue 645 factor contamination: PPO risk')
+          if payload['strategy_or_selection_change_included'] is not False:
+              raise SystemExit('Issue 645 factor contamination: strategy/selection')
+          print('ISSUE645_IMPLEMENTATION_SEAL_AUDIT=PASS')
+          PY

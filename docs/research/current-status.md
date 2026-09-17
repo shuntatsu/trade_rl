@@ -68,6 +68,8 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 現行datasetのglobal regimeは全dataset symbolから集計されるため、fit-symbol subset外の情報がtrainingへ混入しないよう初回M2のpolicy inputから除外した。Observation v2は空のglobal rosterをsemantic identityへ明示bindする。global contextは、fit-scope-safeなreference universeを事前固定できる場合にだけ別Controlled Factorとして検証する。
 
+PPO fitの既定layoutは既存互換の`sequential`である。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、execution/accounting、hard risk、network、entropy係数、総timestepsを変更しない。現時点でinterleavedがbetter performanceやprofitabilityを示した証拠はなく、development比較にはexact layout/rollout stepsを別途result-blind preregisterする必要がある。 また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
+
 ## Causality and evaluation rules
 
 - `feature_available_time <= decision_time` を守る。

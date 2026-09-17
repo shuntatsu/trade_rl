@@ -2,7 +2,7 @@
   "id": "implementation-ppo",
   "title": "PPOは何を見て、どう学び、どう売買するか",
   "nav_label": "PPOの実装を追う",
-  "summary": "PPO Observation v2の5区分、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
+  "summary": "PPO Observation v2の5区分、sequential/interleaved学習layout、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
   "role": "detail",
   "keywords": [
     "PPO",
@@ -14,7 +14,11 @@
     "current_intent",
     "current_weight",
     "reward",
-    "PPOTradingEnv.step"
+    "PPOTradingEnv.step",
+    "training_layout",
+    "sequential",
+    "interleaved",
+    "DummyVecEnv"
   ],
   "source_sections": [
     {
@@ -25,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "8cd92570261cfdbbb9893fc888feadd9c47443e9dd71d2938843e5481435acea"
+      "sha256": "c751c364dcd879b9fcd3624dfce641929ca330abfe17caf8808ef299e9f71db6"
     }
   ],
   "code_references": [
@@ -63,7 +67,9 @@
           "description_ja": "5区分を固定順序で連結してfloat32化した最終観測です。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     },
     {
       "id": "env-step",
@@ -99,17 +105,38 @@
           "description_ja": "約定・コスト反映後のinterval_net_returnへlog1pを適用した値です。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     },
     {
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "da40e907b59087809cb5e3d1b551ae2388676034dd43e7bdb943889a2ed53697",
+      "source_sha256": "6e7cb48bccabb3f6d2c4e41fc9cd51ed4604c311c3afc9bf1ac487b482490701",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "同じObservation v2と環境を使ってstable-baselines3のPPOを学習し、学習済みmodelをPPOIntentStrategyとして返します。",
-      "variables": [],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOを学習します。 vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
+      "variables": [
+        {
+          "name": "training_layout",
+          "label_ja": "学習時の銘柄スケジュール",
+          "description_ja": "既定のsequentialか、fit銘柄を同じpolicy updateへ混ぜるinterleavedかを明示します。"
+        },
+        {
+          "name": "rollout_steps_per_env",
+          "label_ja": "各固定銘柄envのrollout長",
+          "description_ja": "interleaved時だけcallerが明示する各envのn_stepsです。結果から自動選択しません。"
+        },
+        {
+          "name": "env",
+          "label_ja": "PPOへ渡す学習環境",
+          "description_ja": "sequentialでは単一PPOTradingEnv、interleavedではfixed-symbol環境を束ねたDummyVecEnvです。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_ppo_intent.py",
+        "tests/strategies/test_ppo_interleaved_training.py"
+      ]
     },
     {
       "id": "ppo-decide",
@@ -130,7 +157,9 @@
           "description_ja": "deterministic predictが返し、売買意図へ変換される離散actionです。"
         }
       ],
-      "tests": ["tests/strategies/test_ppo_intent.py"]
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
     }
   ]
 }

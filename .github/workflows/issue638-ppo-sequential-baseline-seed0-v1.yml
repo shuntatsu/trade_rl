@@ -1,0 +1,263 @@
+name: Issue 638 PPO Sequential Baseline Seed 0
+
+on:
+  push:
+    branches:
+      - run/issue638-ppo-sequential-baseline-seed0-v1
+    paths:
+      - .github/issue638-ppo-baseline-seed0.authorized
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: issue638-ppo-sequential-baseline-seed0-v1
+  cancel-in-progress: false
+
+env:
+  HELPER_SHA: 6356e7ca72fa94fd91b99d903db6d907d32914c6
+  EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+  SEED: '0'
+  RESULT_NAME: issue638-ppo-sequential-baseline-seed-0-v1
+  FRESH_NAME: issue638-ppo-sequential-baseline-fresh-seed-0-v1
+  AUDIT_NAME: issue638-ppo-sequential-baseline-audit-seed-0-v1
+  SOURCE_RUN: '34803217815'
+  SOURCE_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  EVALUATOR_SEAL_RUN: '35228154799'
+  EVALUATOR_PRIMARY_NAME: issue632-evaluator-v5-primary-35228154799
+  EVALUATOR_FRESH_NAME: issue632-evaluator-v5-fresh-35228154799
+
+jobs:
+  publisher:
+    name: Exactly-once baseline seed 0 publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first formal seed-0 attempt
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - name: Checkout durable helper authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Recheck empty seed-0 slot before Dataset load or PPO training
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C ../helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git rev-parse HEAD)" = "$EVALUATOR_SHA"
+          uv run python ../helper/.github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$SEED" --slot empty
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Download exact calibrated successor authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.SOURCE_NAME }}
+          path: ${{ runner.temp }}/successor
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Download Issue 632 primary evaluator authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.EVALUATOR_PRIMARY_NAME }}
+          path: ${{ runner.temp }}/evaluator-primary
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.EVALUATOR_SEAL_RUN }}
+      - name: Download Issue 632 fresh evaluator authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.EVALUATOR_FRESH_NAME }}
+          path: ${{ runner.temp }}/evaluator-fresh
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.EVALUATOR_SEAL_RUN }}
+      - name: Train and encode baseline seed 0 exactly once
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue638_ppo_baseline_runner.py publish-seed \
+            --seed "$SEED" \
+            --successor "$RUNNER_TEMP/successor" \
+            --evaluator-primary "$RUNNER_TEMP/evaluator-primary" \
+            --evaluator-fresh "$RUNNER_TEMP/evaluator-fresh" \
+            --output "$RUNNER_TEMP/issue638-seed0"
+          test -s "$RUNNER_TEMP/issue638-seed0/evidence.json"
+          test -s "$RUNNER_TEMP/issue638-seed0/provenance.json"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C ../helper status --porcelain)"
+      - id: upload
+        name: Publish immutable seed-0 evidence before any downstream use
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: ${{ runner.temp }}/issue638-seed0/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Bind published result artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          UPLOAD_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$meta")" = "$RESULT_NAME"
+          test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$meta")" = false
+          test "$(jq -r .digest <<<"$meta")" = "sha256:$UPLOAD_DIGEST"
+          echo BASELINE_SEED_0_RESULT_PUBLISHED=true
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+
+  fresh:
+    name: Fresh seed 0 evidence verification without retraining
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first fresh verification attempt
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: impl
+        run: uv sync --extra dev
+      - name: Require exactly one published seed-0 result and unused fresh slot
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python ../helper/.github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$SEED" --slot published
+      - name: Download immutable seed-0 publication
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: ${{ runner.temp }}/published
+      - name: Strictly verify published seed 0 without PPO retraining
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue638_ppo_baseline_runner.py verify-seed \
+            --seed "$SEED" \
+            --published "$RUNNER_TEMP/published" \
+            --output "$RUNNER_TEMP/issue638-seed0-fresh"
+          test -s "$RUNNER_TEMP/issue638-seed0-fresh/verification.json"
+          echo PPO_RETRAINED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: ${{ runner.temp }}/issue638-seed0-fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Bind fresh artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          UPLOAD_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$meta")" = "$FRESH_NAME"
+          test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$meta")" = false
+          test "$(jq -r .digest <<<"$meta")" = "sha256:$UPLOAD_DIGEST"
+
+  audit:
+    name: Seed 0 publication audit
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download published seed-0 evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_NAME }}
+          path: published
+      - name: Download fresh seed-0 verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: fresh
+      - name: Audit immutable bindings and research boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_ID: ${{ needs.publisher.outputs.artifact_id }}
+          RESULT_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          rmeta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ID")"
+          fmeta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ID")"
+          test "$(jq -r .workflow_run.id <<<"$rmeta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .workflow_run.id <<<"$fmeta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .digest <<<"$rmeta")" = "sha256:$RESULT_DIGEST"
+          test "$(jq -r .digest <<<"$fmeta")" = "sha256:$FRESH_DIGEST"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('published/provenance.json').read_text())
+          v=json.loads(Path('fresh/verification.json').read_text())
+          assert p['seed']==0 and p['arm']=='baseline'
+          assert p['training_layout']=='sequential' and p['rollout_steps_per_env'] is None
+          assert p['candidate_training_authorized'] is False
+          assert p['economic_result_interpreted'] is False
+          assert p['final_test_accessed'] is False and p['production_eligible'] is False
+          assert v['seed']==0 and v['arm']=='baseline' and v['verified'] is True
+          assert v['ppo_retrained'] is False and v['candidate_training_authorized'] is False
+          assert v['evidence_sha256']==p['evidence_sha256']
+          assert v['evidence_digest']==p['evidence_digest']
+          print('ISSUE638_SEED0_AUDIT=PASS')
+          print('CANDIDATE_TRAINING_AUTHORIZED=false')
+          PY

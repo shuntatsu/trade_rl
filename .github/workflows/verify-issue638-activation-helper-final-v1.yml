@@ -1,0 +1,122 @@
+name: Verify final Issue 638 activation helper
+
+on:
+  push:
+    branches:
+      - verify/issue638-activation-helper-final-v1
+    paths:
+      - .github/workflows/verify-issue638-activation-helper-final-v1.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HELPER_SHA: 7e5fe63be1802ef29d9232d570a9850e40f3d13d
+      EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+      PRIOR_RUN: '35232657617'
+      PRIOR_HEAD: 107d05c39a769945354f46a5345b146b7fb23a96
+    steps:
+      - name: Checkout exact durable helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator with ancestry
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install result-blind evaluator test runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay exact helper and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C impl rev-parse HEAD)" = "$EVALUATOR_SHA"
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Static and activation contract GREEN
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q \
+            tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
+      - name: Reprove all five slots are unclaimed and unpublished
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for seed in 0 1 2 3 4; do
+            uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$seed" --slot empty
+          done
+          echo ISSUE638_ALL_BASELINE_SLOTS_EMPTY=true
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Bind prior seed-0 failure as pre-training only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PRIOR_RUN)"
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = failure
+          test "$(jq -r .head_sha <<<"$run")" = "$PRIOR_HEAD"
+          test "$(jq -r .run_attempt <<<"$run")" = 1
+
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PRIOR_RUN/jobs?per_page=100)"
+          publisher_id="$(jq -r '.jobs[] | select(.name=="Exactly-once baseline seed 0 publisher") | .id' <<<"$jobs")"
+          test -n "$publisher_id"
+          test "$(jq -r '.jobs[] | select(.name=="Exactly-once baseline seed 0 publisher") | .conclusion' <<<"$jobs")" = failure
+          test "$(jq -r '.jobs[] | select(.name=="Fresh seed 0 evidence verification without retraining") | .conclusion' <<<"$jobs")" = skipped
+          test "$(jq -r '.jobs[] | select(.name=="Seed 0 publication audit") | .conclusion' <<<"$jobs")" = skipped
+
+          artifacts="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PRIOR_RUN/artifacts?per_page=100)"
+          test "$(jq -r .total_count <<<"$artifacts")" = 0
+
+          gh api repos/$GITHUB_REPOSITORY/actions/jobs/$publisher_id/logs > "$RUNNER_TEMP/prior-seed0.log"
+          grep -F "ModuleNotFoundError: No module named 'stable_baselines3'" "$RUNNER_TEMP/prior-seed0.log"
+          grep -F "RuntimeError: stable-baselines3 is required; install the train-sb3 extra" "$RUNNER_TEMP/prior-seed0.log"
+          ! grep -F "ISSUE638_BASELINE_SEED_0_PUBLISHED=true" "$RUNNER_TEMP/prior-seed0.log"
+
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('impl/trade_rl/strategies/rl/ppo.py').read_text()
+          import_pos = text.index('module = importlib.import_module("stable_baselines3")')
+          model_pos = text.index('model = ppo_class(', import_pos)
+          learn_pos = text.index('model.learn(total_timesteps=total_timesteps)', model_pos)
+          assert import_pos < model_pos < learn_pos
+          print('ISSUE638_PRIOR_FAILURE_BEFORE_MODEL_AND_LEARN=true')
+          PY
+          echo ISSUE638_PRIOR_RESULT_ARTIFACTS=0
+          echo ISSUE638_PRIOR_PPO_TRAINING_PERFORMED=false
+      - name: Final source immutability guard
+        run: |
+          set -euo pipefail
+          rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+          test -z "$(git -C impl status --porcelain)"
+          test -z "$(git -C helper status --porcelain)"

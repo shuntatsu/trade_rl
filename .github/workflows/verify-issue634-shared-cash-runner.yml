@@ -152,3 +152,5 @@ jobs:
               raise SystemExit(f'preparation durable scope drift: {out!r}')
           print('ISSUE634_PREPARATION_SCOPE=PASS')
           PY
+
+# verification-trigger-v2

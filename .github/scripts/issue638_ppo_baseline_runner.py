@@ -62,6 +62,12 @@ SOURCE_NAME = "issue539-calibrated-causal-successor-v3-34803217815"
 SOURCE_API_DIGEST = (
     "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
+SOURCE_VERIFY_RUN = 34_803_432_434
+SOURCE_VERIFY_ID = 10_332_575_500
+SOURCE_VERIFY_NAME = "issue539-calibrated-causal-fresh-verify-v3-34803432434"
+SOURCE_VERIFY_API_DIGEST = (
+    "sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589"
+)
 DATASET_ID = "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
 DATASET_ARTIFACT_DIGEST = (
     "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
@@ -192,6 +198,61 @@ def _assert_artifact(
         raise SystemExit(f"immutable Artifact authority drift: {name}")
 
 
+def _assert_source_authority() -> None:
+    """Validate the publisher-bound successor plus verification-only recovery."""
+
+    producer = _api(f"actions/runs/{SOURCE_RUN}")
+    if producer.get("status") != "completed" or producer.get("conclusion") != "failure":
+        raise SystemExit("calibrated successor producer run history drift")
+    jobs = _api(f"actions/runs/{SOURCE_RUN}/jobs?per_page=100").get("jobs")
+    if not isinstance(jobs, list):
+        raise SystemExit("calibrated successor producer jobs unavailable")
+    conclusions = {
+        item.get("name"): item.get("conclusion")
+        for item in jobs
+        if isinstance(item, dict)
+    }
+    required = {
+        "Exact Human Guide": "success",
+        "Exact Lean Core": "success",
+        "Materialize and seal successor": "success",
+        "Fresh independent reverify": "failure",
+        "Audit fresh verification": "skipped",
+    }
+    if any(conclusions.get(name) != expected for name, expected in required.items()):
+        raise SystemExit("calibrated successor producer job authority drift")
+    _assert_artifact(
+        SOURCE_ID,
+        name=SOURCE_NAME,
+        digest=SOURCE_API_DIGEST,
+        run_id=SOURCE_RUN,
+    )
+
+    _assert_run_success(SOURCE_VERIFY_RUN, label="successor verification recovery")
+    verify_jobs = _api(f"actions/runs/{SOURCE_VERIFY_RUN}/jobs?per_page=100").get(
+        "jobs"
+    )
+    if not isinstance(verify_jobs, list):
+        raise SystemExit("successor recovery jobs unavailable")
+    verify_conclusions = {
+        item.get("name"): item.get("conclusion")
+        for item in verify_jobs
+        if isinstance(item, dict)
+    }
+    for name in (
+        "Fresh independent reverify existing bundle",
+        "Audit recovered fresh verification",
+    ):
+        if verify_conclusions.get(name) != "success":
+            raise SystemExit(f"successor recovered verification drift: {name}")
+    _assert_artifact(
+        SOURCE_VERIFY_ID,
+        name=SOURCE_VERIFY_NAME,
+        digest=SOURCE_VERIFY_API_DIGEST,
+        run_id=SOURCE_VERIFY_RUN,
+    )
+
+
 def _artifact_count(name: str) -> int:
     encoded = urllib.parse.quote(name, safe="")
     listing = _api(f"actions/artifacts?name={encoded}&per_page=100")
@@ -291,7 +352,7 @@ def authority_check(*, seed: object, slot: str) -> None:
 
     _assert_run_success(EVALUATOR_SEAL_RUN, label="Issue 632 final seal")
     _assert_run_success(PROTOCOL_SEAL_RUN, label="Issue 629 protocol seal")
-    _assert_run_success(SOURCE_RUN, label="calibrated successor authority")
+    _assert_source_authority()
     for args in (
         (
             EVALUATOR_PRIMARY_ID,

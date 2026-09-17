@@ -1,0 +1,99 @@
+name: tmp Issue 630 evidence hardening runner v3
+
+on:
+  push:
+    branches:
+      - automation/issue630-evidence-hardening-runner-v3
+    paths:
+      - .github/workflows/tmp-issue630-evidence-hardening-runner-v3.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue630-shared-cash-evaluator
+  EXPECTED_HEAD: 1e0e0e243f4e37b2fdf7ee7aa67500d04b43fa8c
+  EVAL: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+  FALSIFY: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout immutable target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          path: target
+          fetch-depth: 1
+      - name: Checkout previously reviewed patch workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue630-evidence-hardening-green-v2
+          path: source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Guard exact target
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: target
+        run: uv sync --extra dev
+      - name: Extract exact reviewed patch/check scripts
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RB'
+          path = '../source/.github/workflows/tmp-issue630-evidence-hardening-green-v2.yml'
+          doc = YAML.load_file(path)
+          steps = doc.fetch('jobs').fetch('green').fetch('steps')
+          wanted = {
+            'Add permanent full-window and partial-termination falsification tests' => '/tmp/issue630-add-tests.sh',
+            'Implement minimal full/prefix raw-evidence invariants' => '/tmp/issue630-impl.sh',
+            'Focused GREEN' => '/tmp/issue630-green.sh',
+          }
+          wanted.each do |name, output|
+            step = steps.find { |item| item['name'] == name }
+            raise "missing reviewed step: #{name}" unless step
+            script = step.fetch('run')
+            if name == 'Focused GREEN'
+              old = 'uv run ruff check "$EVAL" "$TEST" "$FALSIFY"'
+              replacement = 'uv run ruff check --fix "$EVAL" "$TEST" "$FALSIFY"'
+              raise 'expected Ruff command not found' unless script.include?(old)
+              script = script.sub(old, replacement)
+            end
+            File.write(output, script)
+          end
+          RB
+      - name: Apply reviewed tests and implementation
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/issue630-add-tests.sh
+          bash /tmp/issue630-impl.sh
+      - name: Focused GREEN with mechanical import fix
+        working-directory: target
+        shell: bash
+        run: bash /tmp/issue630-green.sh
+      - name: Publish non-force if target unchanged
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EVAL" "$TEST" "$FALSIFY"
+          git commit -m 'research: harden Issue 630 shared-cash evidence invariants'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import fields
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
@@ -14,8 +14,6 @@ from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
     PPOSymbolEvidence,
 )
 
-_T = TypeVar("_T")
-
 
 def _mapping(value: object, *, field: str) -> dict[str, object]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
@@ -23,7 +21,7 @@ def _mapping(value: object, *, field: str) -> dict[str, object]:
     return dict(value)
 
 
-def _exact_keys(payload: dict[str, object], cls: type[_T], *, field: str) -> None:
+def _exact_keys(payload: dict[str, object], cls: Any, *, field: str) -> None:
     expected = {item.name for item in fields(cls)}
     actual = set(payload)
     if actual != expected:

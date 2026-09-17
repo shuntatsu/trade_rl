@@ -1,0 +1,182 @@
+name: Verify Issue 640 official workflow v2
+
+on:
+  push:
+    branches:
+      - verify/issue640-official-workflow-v2
+    paths:
+      - .github/workflows/verify-issue640-official-workflow-v2.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HARNESS_SHA: 9342007dc0d5b812b85c85cd131231cfae6d6126
+      TARGET_SHA: c80652a126780580990bf46bb206155ba469e043
+      HARDENING_VERIFY_RUN: '35239911519'
+    steps:
+      - name: Checkout exact dormant harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9342007dc0d5b812b85c85cd131231cfae6d6126
+          path: harness
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact hardened implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c80652a126780580990bf46bb206155ba469e043
+          path: target
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Prove harness-only dormant scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          git -C harness merge-base --is-ancestor "$TARGET_SHA" "$HARNESS_SHA"
+          git -C harness diff --name-only "$TARGET_SHA" "$HARNESS_SHA" | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          .github/scripts/issue640_official_audit.py
+          .github/scripts/issue640_official_run_arm.sh
+          .github/workflows/issue640-directional-study-v1.yml
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test ! -e harness/.github/authorizations/issue640-directional-study-v1.authorized
+          echo ISSUE640_DORMANT_SCOPE=PASS
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+
+      - name: Install complete frozen trainer runtime without real data
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run python - <<'PY'
+          from trade_rl.evaluation.directional_study import validate_required_runtime
+          runtime = validate_required_runtime()
+          assert runtime['lightgbm'] == '4.7.0'
+          assert runtime['stable-baselines3'] == '2.3.2'
+          assert runtime['torch'] == '2.4.1'
+          assert runtime['scikit-learn']
+          print('ISSUE640_RUNTIME_PREFLIGHT=PASS')
+          print('REAL_DATASET_LOADED=false')
+          print('MODEL_FIT_PERFORMED=false')
+          PY
+
+      - name: Static-check official helpers
+        working-directory: target
+        run: |
+          set -euo pipefail
+          bash -n ../harness/.github/scripts/issue640_official_run_arm.sh
+          uv run ruff check ../harness/.github/scripts/issue640_official_audit.py
+          uv run ruff format --check ../harness/.github/scripts/issue640_official_audit.py
+          uv run mypy ../harness/.github/scripts/issue640_official_audit.py
+          uv run python -m py_compile ../harness/.github/scripts/issue640_official_audit.py
+
+      - name: Validate workflow structure and pre-data publication ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow="harness/.github/workflows/issue640-directional-study-v1.yml"
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "ISSUE640_YAML_PARSE=PASS"' "$workflow"
+          python - "$workflow" <<'PY'
+          from pathlib import Path
+          import sys
+          text = Path(sys.argv[1]).read_text()
+          required = [
+              'run/issue640-directional-study-v1',
+              '.github/authorizations/issue640-directional-study-v1.authorized',
+              'TARGET_SHA: c80652a126780580990bf46bb206155ba469e043',
+              'Build pre-data protocol and activation claim without Dataset load',
+              'Publish repository-global activation before Dataset load or any arm',
+              'Publish immutable protocol before Dataset load and first arm',
+              'Load and validate Dataset only after remote activation and protocol binding',
+              'Fresh publication audit without model refit',
+          ]
+          for token in required:
+              assert token in text, token
+          assert 'workflow_dispatch:' not in text
+          activation = text.index('Publish repository-global activation before Dataset load or any arm')
+          protocol = text.index('Publish immutable protocol before Dataset load and first arm')
+          dataset_load = text.index('Load and validate Dataset only after remote activation and protocol binding')
+          first_arm = text.index('Run cash exactly once')
+          assert activation < dataset_load < first_arm
+          assert protocol < dataset_load < first_arm
+          assert text.index('Build pre-data protocol and activation claim without Dataset load') < activation
+          arms = (
+              'cash', 'constant_long', 'constant_short', 'trend', 'mean_reversion',
+              'ridge24', 'lightgbm24', 'channel_breakout',
+              'ppo0', 'ppo1', 'ppo2', 'ppo3', 'ppo4',
+          )
+          for arm in arms:
+              assert f'Run {arm} exactly once' in text
+              assert f'issue640-directional-arm-{arm}-v1' in text
+          print('ISSUE640_WORKFLOW_STRUCTURE=PASS')
+          PY
+
+      - name: Rebind final Issue 641 verifier and prove official remote slot empty
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          hardening="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HARDENING_VERIFY_RUN")"
+          test "$(jq -r .status <<<"$hardening")" = completed
+          test "$(jq -r .conclusion <<<"$hardening")" = success
+          test "$(jq -r .head_sha <<<"$hardening")" = a7886ac7d616fbb4ea315e7977abc4e5f6a72218
+
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=run%2Fissue640-directional-study-v1&per_page=100")"
+          test "$(jq -r .total_count <<<"$runs")" = 0
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue640-directional-activation-v1&per_page=100" > "$RUNNER_TEMP/slot.json"
+          SLOT="$RUNNER_TEMP/slot.json" uv run python - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          path = Path('.github/scripts/issue640_directional_activation.py')
+          spec = importlib.util.spec_from_file_location('issue640_activation', path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          payload = json.loads(Path(os.environ['SLOT']).read_text())
+          module.validate_remote_slot(payload, state='empty')
+          print('ISSUE640_REMOTE_ACTIVATION_SLOT=EMPTY')
+          print('REAL_DATASET_LOADED=false')
+          print('ECONOMIC_REPLAY_PERFORMED=false')
+          print('ECONOMIC_RESULT_INSPECTED=false')
+          PY
+
+      - name: Focused source oracles without economic data
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/evaluation/test_directional_study.py \
+            tests/evaluation/test_directional.py \
+            tests/evaluation/test_directional_selection.py \
+            tests/data/test_price_channels.py \
+            tests/strategies/test_channel_breakout.py \
+            tests/tools/test_issue640_directional_activation.py
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ECONOMIC_RESULT_INSPECTED=false

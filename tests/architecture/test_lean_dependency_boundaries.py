@@ -87,6 +87,11 @@ def test_data_does_not_depend_on_strategy_evaluation_or_simulation() -> None:
     assert _offenders(PACKAGE / "data", forbidden) == []
 
 
+def test_market_order_rule_values_do_not_import_venue_adapters() -> None:
+    imports = collect_imports(PACKAGE / "data" / "market_order_rules.py")
+    assert not any(within_module(name, "trade_rl.integrations") for name in imports)
+
+
 def test_integrations_do_not_depend_on_strategy_or_evaluation() -> None:
     forbidden = ("trade_rl.strategies", "trade_rl.evaluation")
     assert _offenders(PACKAGE / "integrations", forbidden) == []

@@ -220,6 +220,7 @@ class StatefulSymbolFillProcessor:
                         directions=directions_vector,
                     )[symbol]
                 )
+                rule = executor.market_order_rule(symbol)
                 requests.append(
                     LiquidityRequest(
                         order_id=order.order_id,
@@ -233,6 +234,13 @@ class StatefulSymbolFillProcessor:
                         ),
                         eligible_index=order.intent.eligible_index,
                         reduce_only=order.intent.reduce_only,
+                        minimum_notional=executor.order_minimum_notional(
+                            order.intent, float(context.minimum_notional[symbol])
+                        ),
+                        minimum_quantity=0.0 if rule is None else rule.minimum_quantity,
+                        maximum_quantity=None
+                        if rule is None
+                        else rule.maximum_quantity,
                     )
                 )
                 metadata[order.order_id] = (order, trigger, path, rounded_price)

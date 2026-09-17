@@ -150,8 +150,34 @@ of hypothetical pending fills in the economic projection. Allocation then
 checks the actual priority sequence, including ordinary fills, and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
-only to actual accepted lots. Minimum notional, side permissions and all other
-existing constraints still apply. Automatic target reconciliation does not opt in.
+only to actual accepted lots. Without an explicit source profile, minimum notional
+and all existing constraints still apply and target reconciliation does not opt in.
+
+The optional `MarketOrderProfile` binds verified Dataset identity/full symbol order,
+selected source rules, raw source hash/retrieval, one-way USD-M assumption and the
+strict `reduce_only_exits` flag into execution-policy identity, including rule stress.
+Only the Binance raw-source builder/loader constructs supported immutable profiles;
+artifact loading requires an external digest and rederives all fields from saved
+duplicate-free raw JSON. Selected contract multipliers must be one. Current filters
+applied to historical bars are an explicit current-snapshot assumption, not historical
+filter reconstruction or a verified account configuration.
+
+Selected MARKET orders intersect dataset, runtime and source lot grids by exact
+decimal LCM. Stress intersects this common grid with its scaled grid; rule-burden
+diagnostics report the actual stressed/nominal common-grid ratio. Admission and
+allocation enforce source min/max quantity, including capacity-clipped fills; an
+over-maximum request is rejected, not split. Ordinary notional retains the maximum
+dataset/runtime/source floor. With the flag enabled, actual same-side reductions or
+zero targets create reduce-only orders and waive declared venue notional only;
+the explicit runtime floor still receives notional stress. Reversals and unselected
+symbols retain ordinary minima. False provides a matched ordinary-order profile.
+An equal outstanding residual is reused only if its flag and policy identity match.
+Exact closing deltas still project conservatively to float requests, so unusual
+non-representable inventories can retain an executable lot. No dust is written off.
+Selected non-MARKET orders and the compatibility `liquidate_at_close` shortcut fail
+closed in profile mode; use explicit stateful orders. Side permissions, funding,
+costs and margin keep their existing owners. The profile is not a complete live
+exchange-filter emulator or a strategy qualification.
 
 Stateful execution rechecks exact inventory immediately before each closing fill:
 margin handling after a previous fill can invalidate precomputed allocations.

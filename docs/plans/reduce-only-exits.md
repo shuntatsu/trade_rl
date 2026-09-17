@@ -12,7 +12,7 @@ Status: Active
 - [x] Implement Stage A explicit MARKET reduce-only identity and persistence.
 - [x] Enforce admission and exact fill-time reduction across competing orders;
   retain existing minimum-notional rules at this stage.
-- [ ] Verify synthetic boundaries, default compatibility, independent review,
+- [x] Verify synthetic boundaries, default compatibility, independent review,
   full repository CI and normal integration for Stage A.
 - [ ] Implement and independently review the evidence-bound Stage B profile,
   retained MARKET quantity rules, per-order exception and activation behavior.

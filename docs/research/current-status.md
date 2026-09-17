@@ -248,12 +248,15 @@ is separate from the explicit reduce-only execution design in
 `docs/specs/reduce-only-exits.md`. No risk change or minimum-notional exception
 has yet been applied to a new economic comparison.
 
-Stage A now provides explicit MARKET reduce-only orders, exact fill-time inventory
-bounds and persistence/event evidence in the common simulator. It retains ordinary
-minimum notional and does not activate automatic target reconciliation. Synthetic
-verification establishes order safety only; neither the original directional
-study nor the unchanged diagnostic has been rerun with a new exit profile. The
-evidence-bound venue profile and its frozen economic comparison remain pending.
+The common simulator provides explicit MARKET reduce-only orders, exact fill-time
+inventory bounds and persistence/event evidence. An opt-in source-bound USD-M
+one-way MARKET profile now enables same-side reduction reconciliation and its
+per-order venue-notional exception, retaining runtime minima and source quantity
+bounds. False/true profiles support a matched comparison; omission retains default
+behavior. Current exchange filters on historical bars are a declared assumption,
+not point-in-time source recovery. Synthetic verification establishes execution
+behavior only. Neither the original directional study nor the unchanged diagnostic
+has been rerun with this profile; its frozen economic comparison remains pending.
 
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,

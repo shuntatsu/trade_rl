@@ -9,8 +9,12 @@ from fractions import Fraction
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.orders.model import OrderIntent
-from trade_rl.simulation.quantities import exact_quantity, quantize_quantity
+from trade_rl.simulation.orders.model import OrderIntent, OrderType
+from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
+    exact_quantity,
+    quantize_quantity,
+)
 
 _TOLERANCE = 1e-12
 
@@ -72,6 +76,9 @@ class OrderAdmissionPolicy:
         minimum_notional: float,
         reference_prices: np.ndarray,
         actual_position: Fraction | None = None,
+        minimum_quantity: float = 0.0,
+        maximum_quantity: float | None = None,
+        market_only: bool = False,
     ) -> AdmissionDecision:
         """Return an explicit admission or economic rejection reason."""
 
@@ -134,9 +141,20 @@ class OrderAdmissionPolicy:
         if requested < 0.0 and not sell_allowed:
             return self._reject("sell_disabled")
 
-        for value in (tick_size, lot_size, minimum_notional):
+        if market_only and intent.order_type is not OrderType.MARKET:
+            return self._reject("profile_requires_market_order")
+        for value in (tick_size, lot_size, minimum_notional, minimum_quantity):
             if not math.isfinite(value) or value < 0.0:
                 return self._reject("invalid_execution_rule")
+        if maximum_quantity is not None:
+            if (
+                not math.isfinite(maximum_quantity)
+                or maximum_quantity <= 0
+                or maximum_quantity < minimum_quantity
+            ):
+                return self._reject("invalid_execution_rule")
+            if abs(exact_quantity(requested)) > exact_quantity(maximum_quantity):
+                return self._reject("above_maximum_quantity")
 
         symbol = intent.symbol_index
         current = quantities[symbol]
@@ -164,9 +182,16 @@ class OrderAdmissionPolicy:
         ):
             return self._reject("borrow_unavailable")
 
-        admitted_quantity, _ = quantize_quantity(requested, lot_size)
+        admitted_quantity, count = quantize_quantity(requested, lot_size)
         if abs(admitted_quantity) <= _TOLERANCE:
             return self._reject("zero_quantity_after_rounding")
+        admitted_exact = accepted_fill_quantity(
+            admitted_quantity,
+            lot_size=lot_size if count is not None else 0.0,
+            lot_count=count,
+        )
+        if abs(admitted_exact) < exact_quantity(minimum_quantity):
+            return self._reject("below_minimum_quantity")
 
         price = prices[symbol]
         multiplier = multipliers[symbol]

@@ -203,7 +203,10 @@ completing the same target. All orders, fees and funding use the canonical ledge
 Idle USDT is assumed available to futures; spot market value and synthetic short
 sale proceeds are not futures collateral. Collateral equals canonical equity
 minus spot value. Guard observed-close collateral, pre-fill open maintenance and
-post-fill adverse-high maintenance before later funding credits. Gap breaches
+post-fill adverse-high maintenance before later funding credits. The fixed
+research wallet ratios require observed-close collateral to cover 100%
+of perpetual notional and maintenance must cover 50%. These are research guards,
+not historical exchange liquidation tiers. Existing gap breaches
 cannot be erased by an exit or future funding. Canonical forced termination is
 invalid evidence, with unresolved pre-forced-flat position evidence retained.
 Carry stops submit actual exits and cannot discard residuals or reset the stop.
@@ -219,6 +222,17 @@ capacity in every intersecting hourly bin, preserves published prices and elapse
 time, and rejects unexplained, partial-bin or unanchored leading gaps. The default
 Binance source remains strict. These stale marks are a valuation limitation,
 never executable prices; reopened prices cannot backfill an earlier observation.
+
+Prospective public evidence capture preserves spot/perpetual depth, mark quotes,
+settled funding and venue clocks with raw bytes and request/receipt timestamps.
+Eligibility means that all ten responses passed source checks; it is not order
+permission or paper profitability. Clock reversal, response duration above five
+seconds, cross-request span above ten seconds, future/stale futures quotes,
+crossed/unordered books and invalid settlement history prevent publication.
+The total span uses a shared monotonic anchor. All quotes must still be at most
+five seconds old at final receipt, with at most one second of forward clock skew.
+Spot REST depth is explicitly receipt-timed because its payload has no exchange
+event timestamp. Quoted funding rates remain distinct from settled payments.
 
 ## 非目標
 

@@ -1,7 +1,7 @@
 # Trade RL documentation
 
-Active funding carry study: [design](specs/funding-carry.md) and
-[plan](plans/funding-carry.md).
+Active prospective carry work: [design](specs/funding-carry-paper.md) and
+[plan](plans/funding-carry-paper.md).
 
 ## 結論
 

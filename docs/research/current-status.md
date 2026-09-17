@@ -19,8 +19,8 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ### Separate paired funding-carry development capability
 
-A separate BTC/ETH spot-long/perpetual-short carry comparison is implemented
-under `docs/specs/funding-carry.md`. It has no forecasting or learned selector.
+A separate BTC/ETH spot-long/perpetual-short carry comparison is complete.
+It has no forecasting or learned selector.
 The source roster is fixed to official hourly/funding archives covering reused
 2023-2024 development time; 150 raw archives were acquired and hashed before any
 carry economic replay. Software review covers equal-quantity holding, actual
@@ -31,9 +31,43 @@ and ETH. Binance's official incident report documents a spot halt from 11:27 to
 14:00 UTC. Preserve that failed attempt; a separately identified source revision
 explicitly masks intersecting halt bins and uses a preceding-close stale mark
 only for a missing whole halted bin. Unknown gaps still fail. Software validation
-and source acquisition are not profit evidence. Economic evaluation and the full
-predeclared stress roster remain pending; completed PPO studies retain their
-original frozen source.
+and source acquisition alone are not profit evidence. The subsequently frozen
+halt-aware protocol
+`aa67889f4facdbad927437cbc65d6ef1f9b6f3e8e6ab2deb3c446570a2183aef`
+completed all twelve predeclared replays. The decision is
+`PROSPECTIVE_PAPER_DESIGN_REQUIRED`, with all twelve development screens passing.
+Shared-account net return over the full two years was +5.3031%, with +2.0269% in
+2023, +3.2111% in 2024 and ledger maximum drawdown 0.6145%. Double fees/spread
+returned +4.9830%, one-hour initial-entry delay +5.3028%, and 10x lower
+participation +5.3031%. Independent BTC and ETH base returns were +5.0491% and
++5.5622%; every base year and every stress full-period return was positive.
+All replays completed 17544 intervals, actually closed all positions and had no
+stop, unmatched hedge, collateral breach or canonical termination.
+
+The fixed research contract used 10000 USDT shared capital (5000 for each
+independent pair), gross 0.5, monthly equal-base quantity targets, common lot
+0.001 and minimum notional 10. Fees were spot 10bp/perpetual 5bp plus 5bp adverse
+execution per leg; participation was 1% of preceding hourly quote volume.
+The irreversible carry drawdown stop was 10%, below the user's 20% research
+tolerance. Base qualification required both years and full-period net profit;
+all nine stresses required full-period profit. Every arm additionally required
+drawdown below 10%, complete execution, actual flatness and no stop/invalidity.
+The tests do not prove profitability at larger capital or under venue-specific
+account rules. Hourly marks and coarse halt masks do not establish intrabar
+drawdown. The apparent equity spike at the March spot halt reflects asynchronous
+stale spot versus current perpetual valuation; it is not a realized windfall.
+
+An independent auditor, without importing the simulator, reconstructed all twelve
+cash/quantity/equity paths from recorded fills and the frozen market arrays,
+including costs, signed funding, capacity, actual flatness and collateral checks.
+Shared base final cash was 10530.3127 USDT, funding income 564.1770 and execution
+costs 31.1492. The final selection SHA-256 is
+`8196ceebe637d39d906a8f1559f37a7f7783bef8eee8de24d3f00c8f3b1f3776`.
+This is positive reused-development evidence, not unused-future validation or
+permission for live orders. Perpetual-close mark proxies, assumed fees/rules,
+instant wallet transfers and unobserved order-book execution remain limitations.
+The next active design is `docs/specs/funding-carry-paper.md`. Completed PPO and
+carry studies retain their original frozen source and evidence.
 
 ### Directional development study under a 20% drawdown budget
 

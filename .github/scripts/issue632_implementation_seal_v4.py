@@ -1,14 +1,18 @@
-"""Final result-blind implementation seal builder for Issue 632."""
+"""Canonical result-blind implementation authority builder for Issue 632 v4."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import subprocess
+from dataclasses import MISSING, fields
 from pathlib import Path
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
+    PPOReturnPathEvidence,
+    PPOSeedEvidence,
+    PPOSymbolEvidence,
     canonical_ppo_interleaved_evaluator_spec,
 )
 
@@ -18,6 +22,7 @@ VERIFICATION_RUN_ID = 35_227_295_244
 VERIFICATION_HARNESS_HEAD = "c48f416f11cf9a00f28be3f13343b29ff24e5427"
 PR_NUMBER = 635
 PROTOCOL_HEAD = "f1187dacae78e679a322cc53cbf03f3371f457b1"
+PROTOCOL_MODULE_BLOB = "62a71b1ca8b7d22fdfc14282508754c44d96091a"
 PROTOCOL_DIGEST = "a34aee66bf3f51ce02675b955f835c292b023770aab841f25b46815f9b399c2c"
 PROTOCOL_SEAL_RUN_ID = 35_205_354_305
 PROTOCOL_PRIMARY_ARTIFACT_ID = 10_489_866_637
@@ -67,6 +72,16 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _schema_default(cls: type[object]) -> str:
+    selected = [item for item in fields(cls) if item.name == "schema_version"]
+    if len(selected) != 1 or selected[0].default is MISSING:
+        raise ValueError(f"{cls.__name__} has no fixed schema_version")
+    value = selected[0].default
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{cls.__name__} schema_version is invalid")
+    return value
+
+
 def build_authority(
     *, target_root: Path, authority_run_id: int, harness_head: str
 ) -> tuple[bytes, bytes]:
@@ -78,32 +93,51 @@ def build_authority(
     )
     if _git(target_root, "status", "--porcelain"):
         raise ValueError("Issue 632 target worktree is not clean")
+    actual_paths = tuple(
+        subprocess.check_output(
+            ["git", "-C", str(target_root), "diff", "--name-only", f"{MAIN_HEAD}...{TARGET_HEAD}"],
+            text=True,
+        ).splitlines()
+    )
+    if actual_paths != DURABLE_PATHS:
+        raise ValueError(f"Issue 632 durable scope drifted: {actual_paths!r}")
 
     spec = canonical_ppo_interleaved_evaluator_spec()
-    if spec.protocol_head != PROTOCOL_HEAD or spec.protocol_digest != PROTOCOL_DIGEST:
-        raise ValueError("Issue 629 protocol authority drifted")
-    if spec.protocol_seal_run_id != PROTOCOL_SEAL_RUN_ID:
-        raise ValueError("Issue 629 protocol seal run drifted")
-    if spec.protocol_primary_artifact_id != PROTOCOL_PRIMARY_ARTIFACT_ID:
-        raise ValueError("Issue 629 primary Artifact drifted")
-    if spec.protocol_primary_artifact_digest != PROTOCOL_PRIMARY_API_DIGEST:
-        raise ValueError("Issue 629 primary Artifact digest drifted")
-    if spec.protocol_fresh_artifact_id != PROTOCOL_FRESH_ARTIFACT_ID:
-        raise ValueError("Issue 629 fresh Artifact drifted")
-    if spec.protocol_fresh_artifact_digest != PROTOCOL_FRESH_API_DIGEST:
-        raise ValueError("Issue 629 fresh Artifact digest drifted")
-    if spec.protocol_seal_json_sha256 != PROTOCOL_SEAL_JSON_SHA256:
-        raise ValueError("Issue 629 protocol seal JSON drifted")
-    if spec.implementation_head != CAPABILITY_HEAD:
-        raise ValueError("Issue 621 capability authority drifted")
-
+    expected = {
+        "protocol_head": PROTOCOL_HEAD,
+        "protocol_module_blob": PROTOCOL_MODULE_BLOB,
+        "protocol_digest": PROTOCOL_DIGEST,
+        "protocol_seal_run_id": PROTOCOL_SEAL_RUN_ID,
+        "protocol_primary_artifact_id": PROTOCOL_PRIMARY_ARTIFACT_ID,
+        "protocol_primary_artifact_digest": PROTOCOL_PRIMARY_API_DIGEST,
+        "protocol_fresh_artifact_id": PROTOCOL_FRESH_ARTIFACT_ID,
+        "protocol_fresh_artifact_digest": PROTOCOL_FRESH_API_DIGEST,
+        "protocol_seal_json_sha256": PROTOCOL_SEAL_JSON_SHA256,
+        "implementation_head": CAPABILITY_HEAD,
+        "slippage_std": 0.0,
+    }
+    for name, value in expected.items():
+        if getattr(spec, name) != value:
+            raise ValueError(f"sealed evaluator authority drifted: {name}")
     spec_payload = spec.to_payload()
     for field in _FALSE_BOUNDARIES:
         if spec_payload.get(field) is not False:
             raise ValueError(f"result-blind boundary drifted: {field}")
 
+    evidence_schemas = {
+        "return_path": _schema_default(PPOReturnPathEvidence),
+        "symbol": _schema_default(PPOSymbolEvidence),
+        "seed": _schema_default(PPOSeedEvidence),
+    }
+    if evidence_schemas != {
+        "return_path": "ppo_interleaved_return_path_evidence_v1",
+        "symbol": "ppo_interleaved_symbol_evidence_v1",
+        "seed": "ppo_interleaved_seed_evidence_v2",
+    }:
+        raise ValueError(f"evidence schema drifted: {evidence_schemas!r}")
+
     durable_files = [
-        {"path": path, "blob_sha": _git(target_root, "rev-parse", f"HEAD:{path}")}
+        {"path": path, "blob_sha": _git(target_root, "rev-parse", f"{TARGET_HEAD}:{path}")}
         for path in DURABLE_PATHS
     ]
     implementation = {
@@ -111,11 +145,13 @@ def build_authority(
         "issue_number": 632,
         "pull_request": PR_NUMBER,
         "target_head": TARGET_HEAD,
+        "target_tree_sha": _git(target_root, "rev-parse", f"{TARGET_HEAD}^{{tree}}"),
         "main_head": MAIN_HEAD,
         "verification_run_id": VERIFICATION_RUN_ID,
         "verification_harness_head": VERIFICATION_HARNESS_HEAD,
         "seal_harness_head": harness_head,
         "protocol_head": PROTOCOL_HEAD,
+        "protocol_module_blob": PROTOCOL_MODULE_BLOB,
         "protocol_digest": PROTOCOL_DIGEST,
         "protocol_seal_run_id": PROTOCOL_SEAL_RUN_ID,
         "protocol_primary_artifact_id": PROTOCOL_PRIMARY_ARTIFACT_ID,
@@ -126,6 +162,12 @@ def build_authority(
         "capability_head": CAPABILITY_HEAD,
         "evaluator_spec": spec_payload,
         "evaluator_spec_digest": spec.digest,
+        "evidence_schemas": evidence_schemas,
+        "evidence_hardening": {
+            "raw_return_bool_alias_rejected": True,
+            "common_strategy_period_identity_required": True,
+            "slippage_identity_persisted": True,
+        },
         "durable_files": durable_files,
         "real_dataset_loaded": False,
         "ppo_training_performed": False,
@@ -179,7 +221,6 @@ def main() -> None:
         raise SystemExit("authority run id must be positive")
     if len(args.harness_head) != 40:
         raise SystemExit("harness head must be a full Git SHA")
-
     implementation_bytes, seal_bytes = build_authority(
         target_root=args.target_root.resolve(),
         authority_run_id=args.authority_run_id,

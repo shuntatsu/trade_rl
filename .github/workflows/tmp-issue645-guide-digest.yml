@@ -1,0 +1,22 @@
+name: tmp Issue 645 guide digest
+on:
+  push:
+    branches:
+      - automation/issue645-guide-digest-v1
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: deaaab31849eac7eb6b5a6dccf565aff9955e646
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          cd guide
+          python3 tools/content_contract.py --refresh-code code-map
+          python3 tools/content_contract.py --check
+          cd ..
+          git diff -- guide/content/meta/code-map.json

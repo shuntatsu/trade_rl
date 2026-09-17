@@ -83,9 +83,7 @@ def _path_from_payload(value: object, *, field: str) -> PPOReturnPathEvidence:
     return PPOReturnPathEvidence(
         strategy_name=_string(payload["strategy_name"], field=f"{field}.strategy_name"),
         returns=_float_tuple(payload["returns"], field=f"{field}.returns"),
-        return_sha256=_string(
-            payload["return_sha256"], field=f"{field}.return_sha256"
-        ),
+        return_sha256=_string(payload["return_sha256"], field=f"{field}.return_sha256"),
         total_return=_number(payload["total_return"], field=f"{field}.total_return"),
         total_cost=_number(payload["total_cost"], field=f"{field}.total_cost"),
         turnover_total=_number(

@@ -47,5 +47,5 @@ jobs:
           status=$?
           set -e
           test "$status" -ne 0
-          grep -Eq "exact_quantity|execute_fill|lot_count|filled_lot_count|exact_cumulative_filled_quantity" "$RUNNER_TEMP/lot-red.log"
+          grep -Eq "quantities|ModuleNotFoundError|exact_quantity|execute_fill|lot_count|filled_lot_count|exact_cumulative_filled_quantity" "$RUNNER_TEMP/lot-red.log"
           echo ISSUE645_EXACT_LOT_RED=PASS

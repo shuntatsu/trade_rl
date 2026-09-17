@@ -1,0 +1,137 @@
+name: Temporary Issue 632 seal harness v2 preflight
+
+on:
+  push:
+    branches:
+      - automation/issue632-seal-harness-v2-preflight
+    paths:
+      - .github/workflows/tmp-issue632-seal-harness-v2-preflight.yml
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: tmp-issue632-seal-harness-v2-preflight
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 221858f189cad7e9bc908382efd69b87e2108221
+  MAIN_SHA: d18434799651cfc6c07e0840c40600dcf1dfa763
+  VERIFICATION_RUN: '35224496405'
+
+jobs:
+  verify:
+    name: Verify corrected result-blind seal harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout staged harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact verified target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install exact target runtime
+        working-directory: target
+        run: uv sync --extra dev
+
+      - name: Static-check harness
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run ruff check ../harness/.github/scripts/issue632_implementation_seal.py
+          uv run ruff format --check ../harness/.github/scripts/issue632_implementation_seal.py
+          uv run mypy ../harness/.github/scripts/issue632_implementation_seal.py
+          uv run python -m py_compile ../harness/.github/scripts/issue632_implementation_seal.py
+
+      - name: Bind verified source without economic access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git -C target status --porcelain)"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" = "$MAIN_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/research/issue632-ppo-interleaved-evaluator-impl" --jq .commit.sha)" = "$TARGET_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFICATION_RUN" --jq .conclusion)" = success
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo ECONOMIC_EVALUATION_PERFORMED=false
+
+      - name: Build and strictly inspect canonical authority bytes
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python ../harness/.github/scripts/issue632_implementation_seal.py \
+            --target-root . \
+            --output-dir "$RUNNER_TEMP/issue632-preflight" \
+            --authority-run-id "$GITHUB_RUN_ID" \
+            --harness-head "$GITHUB_SHA"
+          uv run python - "$RUNNER_TEMP/issue632-preflight" "$GITHUB_RUN_ID" "$GITHUB_SHA" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
+              canonical_ppo_interleaved_evaluator_spec,
+          )
+
+          root = Path(sys.argv[1])
+          run_id = int(sys.argv[2])
+          harness_head = sys.argv[3]
+          implementation_raw = (root / 'implementation.json').read_bytes()
+          seal_raw = (root / 'seal.json').read_bytes()
+          implementation = json.loads(implementation_raw)
+          seal = json.loads(seal_raw)
+          assert implementation_raw == canonical_json_bytes(implementation)
+          assert seal_raw == canonical_json_bytes(seal)
+          spec = canonical_ppo_interleaved_evaluator_spec()
+          assert implementation['evaluator_spec'] == spec.to_payload()
+          assert implementation['evaluator_spec_digest'] == spec.digest
+          assert implementation['target_head'] == '221858f189cad7e9bc908382efd69b87e2108221'
+          assert implementation['verification_run_id'] == 35224496405
+          assert implementation['harness_head'] == harness_head
+          assert len(implementation['durable_files']) == 16
+          assert len({row['path'] for row in implementation['durable_files']}) == 16
+          assert seal['authority_run_id'] == run_id
+          assert seal['harness_head'] == harness_head
+          assert seal['implementation_sha256'] == hashlib.sha256(implementation_raw).hexdigest()
+          for payload in (implementation, seal):
+              for key in (
+                  'real_dataset_loaded',
+                  'ppo_training_performed',
+                  'economic_evaluation_performed',
+                  'economic_result_inspected',
+                  'unused_data_accessed',
+                  'final_test_accessed',
+                  'production_eligible',
+                  'live_trading_authorized',
+                  'merge_authorized',
+              ):
+                  assert payload[key] is False
+          print('ISSUE632_SEAL_HARNESS_V2_PREFLIGHT=PASS')
+          print('REAL_DATASET_LOADED=false')
+          print('PPO_TRAINING_PERFORMED=false')
+          print('ECONOMIC_EVALUATION_PERFORMED=false')
+          PY
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../harness status --porcelain)"

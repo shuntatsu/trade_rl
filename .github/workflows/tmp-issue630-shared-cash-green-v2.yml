@@ -1,0 +1,46 @@
+name: tmp Issue 630 ridge shared-cash evaluator GREEN v2
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-green-v2
+    paths:
+      - .github/workflows/tmp-issue630-shared-cash-green-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 93d3b26a2ee15161040191f51b87ecb4c28d62cb
+          fetch-depth: 0
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = 93d3b26a2ee15161040191f51b87ecb4c28d62cb
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static and focused contract
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run ruff format --check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run mypy trade_rl
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+      - name: Result-blind scope proof
+        run: |
+          set -euo pipefail
+          test -z "$(find . -maxdepth 3 -type f \( -name '*result*.json' -o -name '*returns*.npz' \) -not -path './tests/*' -print -quit)"
+          git diff --check d18434799651cfc6c07e0840c40600dcf1dfa763...HEAD
+          test -z "$(git status --porcelain)"
+          echo 'SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false'
+          echo 'UNUSED_DATA_ACCESSED=false'
+          echo 'FINAL_TEST_ACCESSED=false'

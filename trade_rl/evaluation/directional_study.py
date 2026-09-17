@@ -6,6 +6,8 @@ import argparse
 import importlib
 import importlib.metadata as metadata
 import json
+import os
+from collections.abc import Mapping
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,61 @@ _REQUIRED_RUNTIME = (
     ("torch", "torch", "2.4.1"),
     ("scikit-learn", "sklearn", None),
 )
+_OFFICIAL_REF_NAME = "run/issue640-directional-study-v1"
+_OFFICIAL_WORKFLOW_REF = (
+    "shuntatsu/trade_rl/.github/workflows/issue640-directional-study-v1.yml"
+    "@refs/heads/run/issue640-directional-study-v1"
+)
+
+
+def _environment_positive_int(value: object, *, field: str) -> int:
+    if not isinstance(value, str) or not value.isdigit():
+        raise RuntimeError(f"official activation {field} must be a positive integer")
+    resolved = int(value)
+    if resolved <= 0:
+        raise RuntimeError(f"official activation {field} must be a positive integer")
+    return resolved
+
+
+def official_activation_from_environment(
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, object]:
+    """Accept only the first immutable Issue #640 GitHub Actions push lineage."""
+
+    env: Mapping[str, str] = os.environ if environment is None else environment
+    if (
+        env.get("GITHUB_ACTIONS") != "true"
+        or env.get("GITHUB_EVENT_NAME") != "push"
+        or env.get("GITHUB_REF_NAME") != _OFFICIAL_REF_NAME
+        or env.get("GITHUB_WORKFLOW_REF") != _OFFICIAL_WORKFLOW_REF
+    ):
+        raise RuntimeError("official activation environment is unavailable or drifted")
+    run_id = _environment_positive_int(env.get("GITHUB_RUN_ID"), field="run id")
+    run_number = _environment_positive_int(
+        env.get("GITHUB_RUN_NUMBER"), field="run number"
+    )
+    run_attempt = _environment_positive_int(
+        env.get("GITHUB_RUN_ATTEMPT"), field="run attempt"
+    )
+    if run_number != 1 or run_attempt != 1:
+        raise RuntimeError("official activation must be run number 1 / attempt 1")
+    head_sha = env.get("GITHUB_SHA")
+    if (
+        not isinstance(head_sha, str)
+        or len(head_sha) != 40
+        or any(char not in "0123456789abcdef" for char in head_sha)
+    ):
+        raise RuntimeError("official activation GITHUB_SHA must be an exact commit SHA")
+    return {
+        "schema_version": "directional_development_activation_v1",
+        "workflow_run_id": run_id,
+        "workflow_run_number": run_number,
+        "workflow_run_attempt": run_attempt,
+        "workflow_event": "push",
+        "workflow_ref": _OFFICIAL_WORKFLOW_REF,
+        "ref_name": _OFFICIAL_REF_NAME,
+        "head_sha": head_sha,
+    }
 
 
 def validate_required_runtime() -> dict[str, str]:
@@ -118,7 +175,8 @@ def validate_protocol(root: Path, expected: dict[str, Any]) -> None:
 def prepare_study(source: Path, output: Path) -> None:
     from trade_rl.data.artifacts import inspect_published_market_dataset_artifact
 
-    validate_required_runtime()
+    activation = official_activation_from_environment()
+    required_runtime = validate_required_runtime()
     dataset = load_market_dataset_artifact(source / "dataset")
     identity = inspect_published_market_dataset_artifact(source / "dataset")
     if (
@@ -127,13 +185,25 @@ def prepare_study(source: Path, output: Path) -> None:
     ):
         raise ValueError("source is not the frozen successor artifact")
     development_indices(dataset)
-    protocol = expected_protocol(source)
+    protocol = expected_protocol(
+        source, activation=activation, required_runtime=required_runtime
+    )
     reserve_study(output, protocol)
     print(f"Prepared fixed study: {content_digest(protocol)}", flush=True)
 
 
-def expected_protocol(source: Path) -> dict[str, Any]:
-    required_runtime = validate_required_runtime()
+def expected_protocol(
+    source: Path,
+    *,
+    activation: dict[str, object] | None = None,
+    required_runtime: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    resolved_activation = (
+        official_activation_from_environment() if activation is None else activation
+    )
+    resolved_runtime = (
+        validate_required_runtime() if required_runtime is None else required_runtime
+    )
     plan = inspect_study(source / "study").plan
     if plan.digest != SOURCE_STUDY_DIGEST or plan.dataset_id != SOURCE_DATASET_ID:
         raise ValueError("source StudyPlan is not the frozen successor")
@@ -164,7 +234,8 @@ def expected_protocol(source: Path) -> dict[str, Any]:
         "ppo_qualification": "at_least_4_of_5_seeds_pass_base_and_both_stresses;positive_all_5_seed_median_full_and_year_returns",
         "ranking": "full_return_descending;turnover_ascending;complexity_trend_mean_reversion_channel_breakout_ridge24_lightgbm24_ppo",
         "stresses": [{"cost_multiplier": 2.0}, {"latency_bars": 1}],
-        "required_runtime_packages": required_runtime,
+        "official_activation": resolved_activation,
+        "required_runtime_packages": resolved_runtime,
         "unused_data_accessed": False,
         "production_eligible": False,
         "provenance": build_candidate_run_provenance(),

@@ -1,0 +1,151 @@
+name: tmp Issue 638 activation claim GREEN
+
+on:
+  push:
+    branches:
+      - automation/issue638-activation-claim-v1
+    paths:
+      - .github/workflows/tmp-issue638-activation-claim-green.yml
+
+permissions:
+  contents: write
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout activation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: work
+          fetch-depth: 0
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Implement activation claim state machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('work/.github/scripts/issue638_ppo_baseline_runner.py')
+          text = path.read_text()
+
+          old = '''BASELINE_SEEDS = (0, 1, 2, 3, 4)\nRESULT_PREFIX = "issue638-ppo-sequential-baseline-seed-"\nFRESH_PREFIX = "issue638-ppo-sequential-baseline-fresh-seed-"\n'''
+          new = '''BASELINE_SEEDS = (0, 1, 2, 3, 4)\nACTIVATION_PREFIX = "issue638-ppo-sequential-baseline-activation-seed-"\nRESULT_PREFIX = "issue638-ppo-sequential-baseline-seed-"\nFRESH_PREFIX = "issue638-ppo-sequential-baseline-fresh-seed-"\n'''
+          if old not in text:
+              raise SystemExit('prefix anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''def _result_name(seed: int) -> str:\n    return f"{RESULT_PREFIX}{seed}-v1"\n\n\ndef _fresh_name(seed: int) -> str:\n    return f"{FRESH_PREFIX}{seed}-v1"\n\n\ndef authority_check(*, seed: object, slot: str) -> None:\n'''
+          new = '''def _activation_name(seed: int) -> str:\n    return f"{ACTIVATION_PREFIX}{seed}-v1"\n\n\ndef _result_name(seed: int) -> str:\n    return f"{RESULT_PREFIX}{seed}-v1"\n\n\ndef _fresh_name(seed: int) -> str:\n    return f"{FRESH_PREFIX}{seed}-v1"\n\n\ndef _positive_int(value: object, *, field: str) -> int:\n    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:\n        raise ValueError(f"{field} must be a positive integer")\n    return value\n\n\ndef _git_sha(value: object, *, field: str) -> str:\n    if not isinstance(value, str) or len(value) != 40:\n        raise ValueError(f"{field} must be a full Git SHA")\n    try:\n        int(value, 16)\n    except ValueError as error:\n        raise ValueError(f"{field} must be a full Git SHA") from error\n    return value.lower()\n\n\ndef activation_claim_bytes(\n    *,\n    seed: object,\n    run_id: object,\n    run_attempt: object,\n    helper_head: object,\n    helper_blob_sha: object,\n) -> bytes:\n    """Build the immutable pre-training claim that consumes one seed lineage."""\n\n    canonical_seed = _validate_seed(seed)\n    canonical_run_id = _positive_int(run_id, field="workflow run id")\n    canonical_attempt = _positive_int(run_attempt, field="workflow run attempt")\n    if canonical_attempt != 1:\n        raise ValueError("workflow run attempt must be exactly one")\n    canonical_head = _git_sha(helper_head, field="helper head")\n    canonical_blob = _git_sha(helper_blob_sha, field="helper blob sha")\n    payload = {\n        "schema_version": "issue638_ppo_sequential_baseline_activation_v1",\n        "issue_number": ISSUE_NUMBER,\n        "seed": canonical_seed,\n        "workflow_run_id": canonical_run_id,\n        "workflow_run_attempt": canonical_attempt,\n        "helper_head": canonical_head,\n        "helper_blob_sha": canonical_blob,\n        "evaluator_head": EVALUATOR_HEAD,\n        "evaluator_seal_run_id": EVALUATOR_SEAL_RUN,\n        "evaluator_implementation_sha256": EVALUATOR_IMPLEMENTATION_SHA256,\n        "evaluator_seal_sha256": EVALUATOR_SEAL_SHA256,\n        "protocol_head": PROTOCOL_HEAD,\n        "protocol_digest": PROTOCOL_DIGEST,\n        "protocol_seal_run_id": PROTOCOL_SEAL_RUN,\n        "source_run_id": SOURCE_RUN,\n        "source_artifact_id": SOURCE_ID,\n        "source_artifact_digest": SOURCE_API_DIGEST,\n        "source_verify_run_id": SOURCE_VERIFY_RUN,\n        "source_verify_artifact_id": SOURCE_VERIFY_ID,\n        "source_verify_artifact_digest": SOURCE_VERIFY_API_DIGEST,\n        "dataset_id": DATASET_ID,\n        "dataset_artifact_digest": DATASET_ARTIFACT_DIGEST,\n        "study_digest": STUDY_DIGEST,\n        "arm": "baseline",\n        "training_layout": "sequential",\n        "rollout_steps_per_env": None,\n        "caller_total_timesteps": 100_000,\n        "evaluator_started_at_claim": False,\n        "real_dataset_loaded_at_claim": False,\n        "result_artifact_published_at_claim": False,\n        "candidate_training_authorized": False,\n        "economic_result_interpreted": False,\n        "final_test_accessed": False,\n        "production_eligible": False,\n        "live_trading_authorized": False,\n        "merge_authorized": False,\n    }\n    return _canonical(payload)\n\n\ndef _validate_slot_state(\n    *,\n    slot: str,\n    activation_count: object,\n    result_count: object,\n    fresh_count: object,\n) -> None:\n    counts: list[int] = []\n    for field, value in (\n        ("activation_count", activation_count),\n        ("result_count", result_count),\n        ("fresh_count", fresh_count),\n    ):\n        if isinstance(value, bool) or not isinstance(value, int) or value < 0:\n            raise SystemExit(f"{field} is invalid")\n        counts.append(value)\n    expected = {\n        "empty": (0, 0, 0),\n        "claimed": (1, 0, 0),\n        "published": (1, 1, 0),\n    }\n    if slot not in expected:\n        raise ValueError("slot must be empty, claimed or published")\n    actual = tuple(counts)\n    if actual != expected[slot]:\n        raise SystemExit(\n            f"Issue 638 seed slot state drift: slot={slot}, counts={actual}"\n        )\n\n\ndef authority_check(*, seed: object, slot: str) -> None:\n'''
+          if old not in text:
+              raise SystemExit('slot helper anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    if slot not in {"empty", "published"}:\n        raise ValueError("slot must be empty or published")\n'''
+          new = '''    if slot not in {"empty", "claimed", "published"}:\n        raise ValueError("slot must be empty, claimed or published")\n'''
+          if old not in text:
+              raise SystemExit('authority slot anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    result_count = _artifact_count(_result_name(canonical_seed))\n    fresh_count = _artifact_count(_fresh_name(canonical_seed))\n    if slot == "empty" and (result_count != 0 or fresh_count != 0):\n        raise SystemExit("Issue 638 seed Artifact slot is already consumed")\n    if slot == "published" and (result_count != 1 or fresh_count != 0):\n        raise SystemExit(\n            "Issue 638 fresh verification requires exactly one seed result"\n        )\n'''
+          new = '''    activation_count = _artifact_count(_activation_name(canonical_seed))\n    result_count = _artifact_count(_result_name(canonical_seed))\n    fresh_count = _artifact_count(_fresh_name(canonical_seed))\n    _validate_slot_state(\n        slot=slot,\n        activation_count=activation_count,\n        result_count=result_count,\n        fresh_count=fresh_count,\n    )\n'''
+          if old not in text:
+              raise SystemExit('artifact state anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    authority_check(seed=canonical_seed, slot="empty")\n    dataset = _validate_downloaded_authorities(\n'''
+          new = '''    authority_check(seed=canonical_seed, slot="claimed")\n    dataset = _validate_downloaded_authorities(\n'''
+          if old not in text:
+              raise SystemExit('publish claim anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    authority = subparsers.add_parser("authority-check")\n    authority.add_argument("--seed", type=int, required=True)\n    authority.add_argument("--slot", choices=("empty", "published"), required=True)\n\n    publish = subparsers.add_parser("publish-seed")\n'''
+          new = '''    authority = subparsers.add_parser("authority-check")\n    authority.add_argument("--seed", type=int, required=True)\n    authority.add_argument(\n        "--slot", choices=("empty", "claimed", "published"), required=True\n    )\n\n    activate = subparsers.add_parser("create-activation")\n    activate.add_argument("--seed", type=int, required=True)\n    activate.add_argument("--run-id", type=int, required=True)\n    activate.add_argument("--run-attempt", type=int, required=True)\n    activate.add_argument("--helper-head", required=True)\n    activate.add_argument("--helper-blob-sha", required=True)\n    activate.add_argument("--output", type=Path, required=True)\n\n    publish = subparsers.add_parser("publish-seed")\n'''
+          if old not in text:
+              raise SystemExit('CLI parser anchor drift')
+          text = text.replace(old, new, 1)
+
+          old = '''    if args.command == "authority-check":\n        authority_check(seed=args.seed, slot=args.slot)\n    elif args.command == "publish-seed":\n'''
+          new = '''    if args.command == "authority-check":\n        authority_check(seed=args.seed, slot=args.slot)\n    elif args.command == "create-activation":\n        raw = activation_claim_bytes(\n            seed=args.seed,\n            run_id=args.run_id,\n            run_attempt=args.run_attempt,\n            helper_head=args.helper_head,\n            helper_blob_sha=args.helper_blob_sha,\n        )\n        args.output.mkdir(parents=True, exist_ok=False)\n        (args.output / "activation.json").write_bytes(raw)\n        print(f"ISSUE638_BASELINE_SEED_{args.seed}_ACTIVATION_CLAIMED=true")\n        print(f"ACTIVATION_SHA256={_sha256(raw)}")\n        print("EVALUATOR_STARTED_AT_CLAIM=false")\n        print("REAL_DATASET_LOADED_AT_CLAIM=false")\n        print("CANDIDATE_TRAINING_AUTHORIZED=false")\n    elif args.command == "publish-seed":\n'''
+          if old not in text:
+              raise SystemExit('CLI dispatch anchor drift')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+          git -C work diff --check
+      - name: Format activation implementation and tests
+        working-directory: impl
+        run: |
+          uv run ruff format ../work/.github/scripts/issue638_ppo_baseline_runner.py ../work/tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff check ../work/.github/scripts/issue638_ppo_baseline_runner.py ../work/tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check ../work/.github/scripts/issue638_ppo_baseline_runner.py ../work/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Overlay exact activation helper
+        run: |
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp work/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp work/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: GREEN static type and targeted tests
+        working-directory: impl
+        run: |
+          uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
+      - name: Exercise activation serialization without data or training
+        working-directory: impl
+        run: |
+          head=$(git -C ../work rev-parse HEAD)
+          blob=$(git -C ../work rev-parse HEAD:.github/scripts/issue638_ppo_baseline_runner.py)
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py create-activation \
+            --seed 0 --run-id 12345 --run-attempt 1 \
+            --helper-head "$head" --helper-blob-sha "$blob" \
+            --output "$RUNNER_TEMP/activation"
+          test -s "$RUNNER_TEMP/activation/activation.json"
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+      - name: Live pre-claim authority remains empty
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed 0 --slot empty
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+      - name: Publish durable runner and tests only if prepare is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C work fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git -C work rev-parse FETCH_HEAD)" = 6356e7ca72fa94fd91b99d903db6d907d32914c6
+          git clone --quiet --branch prepare/issue638-ppo-sequential-baseline-v1 "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" publish
+          test "$(git -C publish rev-parse HEAD)" = 6356e7ca72fa94fd91b99d903db6d907d32914c6
+          cp work/.github/scripts/issue638_ppo_baseline_runner.py publish/.github/scripts/issue638_ppo_baseline_runner.py
+          cp work/tests/tools/test_issue638_ppo_baseline_runner.py publish/tests/tools/test_issue638_ppo_baseline_runner.py
+          changed=$(git -C publish diff --name-only)
+          test "$changed" = $'.github/scripts/issue638_ppo_baseline_runner.py\ntests/tools/test_issue638_ppo_baseline_runner.py'
+          git -C publish diff --check
+          git -C publish config user.name github-actions[bot]
+          git -C publish config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C publish add .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          git -C publish commit -m "research: claim Issue 638 seed before PPO training"
+          git -C publish push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

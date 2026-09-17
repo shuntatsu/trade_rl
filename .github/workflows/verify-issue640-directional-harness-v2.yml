@@ -1,0 +1,121 @@
+name: Verify Issue 640 directional harness v2
+
+on:
+  push:
+    branches:
+      - verify/issue640-directional-harness-v2
+    paths:
+      - .github/workflows/verify-issue640-directional-harness-v2.yml
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HARNESS_SHA: 76a07ce76d2691785effc09f189abab60cf4d4ab
+      SOURCE_SHA: d4f1948ffb6bca44620773c2f67fc2f98b681d66
+      SOURCE_PR: '639'
+      SOURCE_CI_RUN: '35231705047'
+    steps:
+      - name: Checkout exact harness under review
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HARNESS_SHA }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact frozen source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: target
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Verify full dependency closure before any real data
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run python - <<'PY'
+          import lightgbm
+          import stable_baselines3
+          import torch
+          print("ISSUE640_DEPENDENCY_PREFLIGHT=PASS")
+          PY
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_ARM_STARTED=false
+
+      - name: Static-check harness scripts
+        working-directory: target
+        run: |
+          set -euo pipefail
+          bash -n ../harness/.github/scripts/issue640_run_arm.sh
+          uv run ruff check ../harness/.github/scripts/issue640_audit.py
+          uv run ruff format --check ../harness/.github/scripts/issue640_audit.py
+          uv run mypy ../harness/.github/scripts/issue640_audit.py
+          uv run python -m py_compile ../harness/.github/scripts/issue640_audit.py
+
+      - name: Validate workflow structure and dormant activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow="harness/.github/workflows/issue640-directional-development-v1.yml"
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "ISSUE640_YAML_PARSE=PASS"' "$workflow"
+          grep -Fq 'run/issue640-directional-development-v1' "$workflow"
+          grep -Fq '.github/authorizations/issue640-directional-development-v1.authorized' "$workflow"
+          grep -Fq 'SOURCE_SHA: d4f1948ffb6bca44620773c2f67fc2f98b681d66' "$workflow"
+          grep -Fq 'uv sync --extra dev --extra forecast-gbm --extra train-sb3' "$workflow"
+          grep -Fq 'stable_baselines3' "$workflow"
+          grep -Fq 'lightgbm' "$workflow"
+          grep -Fq 'issue640-directional-protocol-v1' "$workflow"
+          grep -Fq 'issue640-directional-run-summary-v1' "$workflow"
+          grep -Fq 'issue640-directional-audit-v1' "$workflow"
+          for arm in cash constant_long constant_short trend mean_reversion ridge24 lightgbm24 channel_breakout ppo0 ppo1 ppo2 ppo3 ppo4; do
+            grep -Fq "issue640-directional-arm-$arm-v1" "$workflow"
+          done
+          test ! -e harness/.github/authorizations/issue640-directional-development-v1.authorized
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=run%2Fissue640-directional-development-v1&per_page=20")"
+          test "$(jq -r .total_count <<<"$runs")" = 0
+          echo ISSUE640_DORMANT_NO_ECONOMIC_RUN=true
+
+      - name: Rebind exact source PR and permanent CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA"
+          test "$(git -C target rev-parse HEAD)" = "$SOURCE_SHA"
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SOURCE_PR")"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$SOURCE_SHA"
+          ci="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_CI_RUN")"
+          test "$(jq -r .status <<<"$ci")" = completed
+          test "$(jq -r .conclusion <<<"$ci")" = success
+          test "$(jq -r .head_sha <<<"$ci")" = "$SOURCE_SHA"
+
+      - name: Run focused source oracles without economic data
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/data/test_price_channels.py \
+            tests/strategies/test_channel_breakout.py \
+            tests/evaluation/test_directional.py \
+            tests/evaluation/test_directional_selection.py \
+            tests/evaluation/test_directional_study.py
+          echo REAL_DATASET_LOADED=false
+          echo ECONOMIC_ARM_STARTED=false

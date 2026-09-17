@@ -1,0 +1,197 @@
+name: Verify Issue 632 PPO interleaved evaluator final
+
+on:
+  push:
+    branches:
+      - verify/issue632-ppo-interleaved-evaluator-final-v3
+    paths:
+      - .github/workflows/verify-issue632-ppo-interleaved-evaluator-final.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-issue632-final-v3-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 0e5d8a896b507d25a42eee2fb87e4d21edb05485
+  MAIN_SHA: d18434799651cfc6c07e0840c40600dcf1dfa763
+
+jobs:
+  core:
+    name: Lean Core exact target
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact clean target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard exact target and durable scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$MAIN_SHA" "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          test -z "$(find .github/workflows -maxdepth 1 -type f -name 'tmp-issue632-*' -print -quit)"
+          python - <<'PY'
+          import subprocess
+          expected = [
+              'docs/architecture/lean-core.md',
+              'docs/research/current-status.md',
+              'guide/content/meta/implementation-ppo.json',
+              'guide/content/pages/implementation-ppo.md',
+              'tests/architecture/test_runs_capability_facade.py',
+              'tests/evaluation/experiments/test_ppo_interleaved_evaluation.py',
+              'tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py',
+              'tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg_hardening.py',
+              'tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py',
+              'tests/strategies/test_ppo_interleaved_training.py',
+              'trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py',
+              'trade_rl/evaluation/experiments/ppo_interleaved_evaluation_prereg.py',
+              'trade_rl/evaluation/experiments/ppo_interleaved_evidence_codec.py',
+              'trade_rl/evaluation/runs/__init__.py',
+              'trade_rl/evaluation/runs/execute.py',
+              'trade_rl/strategies/rl/ppo.py',
+          ]
+          out = subprocess.check_output(['git','diff','--name-only','d18434799651cfc6c07e0840c40600dcf1dfa763...HEAD'], text=True).splitlines()
+          if out != expected:
+              raise SystemExit(f'durable scope drift: {out!r}')
+          print('ISSUE632_DURABLE_SCOPE=PASS')
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - name: Targeted Issue 632 and interleaved oracles
+        run: |
+          uv run pytest -q \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg_hardening.py \
+            tests/strategies/test_ppo_interleaved_training.py \
+            tests/architecture/test_runs_capability_facade.py
+      - name: Result-blind boundary guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import canonical_ppo_interleaved_evaluator_spec
+          payload = canonical_ppo_interleaved_evaluator_spec().to_payload()
+          for field in (
+              'baseline_training_authorized','candidate_training_authorized','economic_result_inspected',
+              'final_test_accessed','shared_cash_profitability_established','production_eligible',
+              'live_trading_authorized','merge_authorized',
+          ):
+              if payload.get(field) is not False:
+                  raise SystemExit(f'boundary drift: {field}={payload.get(field)!r}')
+          print('ISSUE632_RESULT_BLIND_BOUNDARY=PASS')
+          PY
+      - name: Full tests
+        run: uv run pytest -q tests
+      - name: Build
+        run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.evaluation.experiments.ppo_interleaved_evaluation
+          import trade_rl.evaluation.experiments.ppo_interleaved_evidence_codec
+          assert trade_rl.__version__ == version('trade-rl') == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print('clean installed Issue 632 imports and identity: OK')
+          PY
+      - name: Package identity and clean head
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+
+  guide:
+    name: Human Guide exact target
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GUIDE_SOURCE_REV: 0e5d8a896b507d25a42eee2fb87e4d21edb05485
+    steps:
+      - name: Checkout exact clean target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0e5d8a896b507d25a42eee2fb87e4d21edb05485
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        run: npm run source-check
+      - name: Guide lint
+        working-directory: guide
+        run: npm run lint
+      - name: Guide typecheck
+        working-directory: guide
+        run: npm run typecheck
+      - name: Guide unit tests
+        working-directory: guide
+        run: npm run test
+      - name: Guide build
+        working-directory: guide
+        run: npm run build
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+      - name: Exact clean target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "0e5d8a896b507d25a42eee2fb87e4d21edb05485"
+          test -z "$(git status --porcelain)"

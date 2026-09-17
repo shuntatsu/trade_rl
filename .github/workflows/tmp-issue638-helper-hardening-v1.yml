@@ -1,0 +1,65 @@
+name: tmp Issue 638 helper hardening v1
+
+on:
+  push:
+    branches:
+      - automation/issue638-helper-hardening-v1
+    paths:
+      - .github/workflows/tmp-issue638-helper-hardening-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue638-ppo-sequential-baseline-v1
+          fetch-depth: 0
+      - name: Guard exact formatted helper head
+        run: test "$(git rev-parse HEAD)" = c82fa4a0d9f8a709ae5a66b6c410a710b90cbaee
+      - name: Harden sealed authority and canonical fresh verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/issue638_ppo_baseline_runner.py')
+          text = path.read_text()
+          old = '''    if (\n        pr.get("state") != "open"\n        or pr.get("draft") is not True\n        or (pr.get("head") or {}).get("sha") != EVALUATOR_HEAD\n        or (pr.get("base") or {}).get("sha") != MAIN_AUTHORITY\n    ):\n        raise SystemExit("Issue 632 Draft PR authority drift")\n'''
+          new = '''    if (\n        pr.get("state") != "open"\n        or pr.get("draft") is not True\n        or (pr.get("head") or {}).get("sha") != EVALUATOR_HEAD\n    ):\n        raise SystemExit("Issue 632 Draft PR authority drift")\n'''
+          if old not in text:
+              raise SystemExit('PR authority anchor drift')
+          text = text.replace(old, new, 1)
+          old = '''    evidence_bytes = evidence_path.read_bytes()\n    evidence_sha = _sha256(evidence_bytes)\n'''
+          new = '''    evidence_bytes = evidence_path.read_bytes()\n    if canonical_baseline_evidence_bytes(evidence, seed=canonical_seed) != evidence_bytes:\n        raise SystemExit("published baseline evidence is not canonical")\n    evidence_sha = _sha256(evidence_bytes)\n'''
+          if old not in text:
+              raise SystemExit('fresh canonical anchor drift')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          git diff --check
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Mechanical format/lint
+        run: |
+          uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py
+          git diff --check
+      - name: Publish helper-only hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git rev-parse FETCH_HEAD)" = c82fa4a0d9f8a709ae5a66b6c410a710b90cbaee
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue638_ppo_baseline_runner.py
+          git commit -m "research: harden Issue 638 baseline evidence verification"
+          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

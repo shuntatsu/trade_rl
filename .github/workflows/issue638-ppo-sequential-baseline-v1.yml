@@ -1,0 +1,437 @@
+name: Issue 638 calibrated PPO sequential baseline v1
+
+on:
+  push:
+    branches:
+      - run/issue638-ppo-sequential-baseline-v1
+    paths:
+      - .github/authorizations/issue638-ppo-sequential-baseline-v1.authorized
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: issue638-ppo-sequential-baseline-v1
+  cancel-in-progress: false
+
+env:
+  HELPER_SHA: 6356e7ca72fa94fd91b99d903db6d907d32914c6
+  HELPER_VERIFY_RUN: '35232261934'
+  EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+  SOURCE_RUN: '34803217815'
+  EVALUATOR_SEAL_RUN: '35228154799'
+
+jobs:
+  preflight:
+    name: Result-blind five-slot preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Enforce first formal activation
+        run: |
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - name: Checkout exact verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay exact helper
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C impl rev-parse HEAD)" = "$EVALUATOR_SHA"
+          mkdir -p impl/.github/scripts
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+      - name: Require final helper verifier and all five empty slots
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN)"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          for seed in 0 1 2 3 4; do
+            uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$seed" --slot empty
+          done
+          echo ISSUE638_ALL_BASELINE_SLOTS_EMPTY=true
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Prove preflight was result-blind
+        run: |
+          test -z "$(git -C helper status --porcelain)"
+          rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py
+          test -z "$(git -C impl status --porcelain)"
+
+  publisher:
+    name: Exactly-once sequential baseline seed ${{ matrix.seed }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Enforce first publisher activation
+        run: |
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - name: Checkout exact verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay exact helper and recheck unique slot
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/scripts
+          cp ../helper/.github/scripts/issue638_ppo_baseline_runner.py .github/scripts/issue638_ppo_baseline_runner.py
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$SEED" --slot empty
+      - name: Download exact calibrated successor
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '34803217815'
+      - name: Download Issue 632 primary evaluator authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue632-evaluator-v5-primary-35228154799
+          path: ${{ runner.temp }}/evaluator-primary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35228154799'
+      - name: Download Issue 632 fresh evaluator authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue632-evaluator-v5-fresh-35228154799
+          path: ${{ runner.temp }}/evaluator-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35228154799'
+      - name: Train/evaluate exactly one sequential baseline seed without interpretation
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py publish-seed \
+            --seed "$SEED" \
+            --successor "$RUNNER_TEMP/successor" \
+            --evaluator-primary "$RUNNER_TEMP/evaluator-primary" \
+            --evaluator-fresh "$RUNNER_TEMP/evaluator-fresh" \
+            --output "$RUNNER_TEMP/issue638-seed-$SEED"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C ../helper status --porcelain)"
+      - name: Publish immutable baseline seed before interpretation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue638-ppo-sequential-baseline-seed-${{ matrix.seed }}-v1
+          path: ${{ runner.temp }}/issue638-seed-${{ matrix.seed }}/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh no-retrain verification seed ${{ matrix.seed }}
+    needs: publisher
+    if: ${{ always() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Enforce first fresh activation
+        run: |
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - name: Checkout exact verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay exact helper and require one published result / zero fresh slots
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/scripts
+          cp ../helper/.github/scripts/issue638_ppo_baseline_runner.py .github/scripts/issue638_ppo_baseline_runner.py
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$SEED" --slot published
+      - name: Download immutable published seed
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue638-ppo-sequential-baseline-seed-${{ matrix.seed }}-v1
+          path: ${{ runner.temp }}/published
+      - name: Decode/recompute published evidence without PPO retraining
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py verify-seed \
+            --seed "$SEED" \
+            --published "$RUNNER_TEMP/published" \
+            --output "$RUNNER_TEMP/issue638-fresh-$SEED"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C ../helper status --porcelain)"
+      - name: Publish immutable fresh verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue638-ppo-sequential-baseline-fresh-seed-${{ matrix.seed }}-v1
+          path: ${{ runner.temp }}/issue638-fresh-${{ matrix.seed }}/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  manifest:
+    name: Immutable five-seed baseline manifest
+    needs: fresh
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact sealed evaluator for strict decoding
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Download all five immutable baseline results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue638-ppo-sequential-baseline-seed-*-v1
+          path: ${{ runner.temp }}/results
+      - name: Download all five immutable fresh verifications
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue638-ppo-sequential-baseline-fresh-seed-*-v1
+          path: ${{ runner.temp }}/fresh
+      - name: Build result-blind completeness manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.evaluation.experiments.ppo_interleaved_evidence_codec import load_ppo_seed_evidence
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          run_id = int(os.environ['GITHUB_RUN_ID'])
+          results_root = Path(os.environ['RUNNER_TEMP']) / 'results'
+          fresh_root = Path(os.environ['RUNNER_TEMP']) / 'fresh'
+
+          def api(path: str) -> dict:
+              req = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/{path}',
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(req) as response:
+                  value = json.load(response)
+              if not isinstance(value, dict):
+                  raise SystemExit(f'GitHub API object expected: {path}')
+              return value
+
+          listing = api(f'actions/runs/{run_id}/artifacts?per_page=100')
+          artifacts = listing.get('artifacts')
+          if not isinstance(artifacts, list):
+              raise SystemExit('run Artifact listing unavailable')
+          by_name = {item.get('name'): item for item in artifacts if isinstance(item, dict)}
+          rows = []
+          common_identity = None
+          for seed in range(5):
+              result_name = f'issue638-ppo-sequential-baseline-seed-{seed}-v1'
+              fresh_name = f'issue638-ppo-sequential-baseline-fresh-seed-{seed}-v1'
+              result_dir = results_root / result_name
+              fresh_dir = fresh_root / fresh_name
+              evidence_path = result_dir / 'evidence.json'
+              provenance_path = result_dir / 'provenance.json'
+              verification_path = fresh_dir / 'verification.json'
+              if not evidence_path.is_file() or not provenance_path.is_file() or not verification_path.is_file():
+                  raise SystemExit(f'missing immutable baseline evidence for seed {seed}')
+              evidence = load_ppo_seed_evidence(evidence_path)
+              raw = evidence_path.read_bytes()
+              if canonical_json_bytes(evidence.to_payload()) != raw:
+                  raise SystemExit(f'noncanonical evidence bytes for seed {seed}')
+              evidence_sha = hashlib.sha256(raw).hexdigest()
+              evidence_digest = content_digest(evidence.to_payload())
+              provenance = json.loads(provenance_path.read_text())
+              verification = json.loads(verification_path.read_text())
+              if evidence.seed != seed or evidence.arm != 'baseline':
+                  raise SystemExit(f'baseline seed identity drift: {seed}')
+              if evidence.training_layout != 'sequential' or evidence.rollout_steps_per_env is not None:
+                  raise SystemExit(f'baseline training-layout drift: {seed}')
+              if evidence.candidate_training_authorized is not False:
+                  raise SystemExit(f'candidate authorization drift: {seed}')
+              if provenance.get('evidence_sha256') != evidence_sha or provenance.get('evidence_digest') != evidence_digest:
+                  raise SystemExit(f'provenance digest drift: {seed}')
+              required_verification = {
+                  'seed': seed,
+                  'evidence_sha256': evidence_sha,
+                  'evidence_digest': evidence_digest,
+                  'arm': 'baseline',
+                  'training_layout': 'sequential',
+                  'candidate_training_authorized': False,
+                  'ppo_retrained': False,
+                  'verified': True,
+                  'final_test_accessed': False,
+                  'production_eligible': False,
+                  'live_trading_authorized': False,
+                  'merge_authorized': False,
+              }
+              for field, expected in required_verification.items():
+                  if verification.get(field) != expected:
+                      raise SystemExit(f'fresh verification drift seed={seed} field={field}')
+              identity = (
+                  evidence.spec_digest,
+                  evidence.protocol_head,
+                  evidence.protocol_digest,
+                  evidence.implementation_head,
+                  evidence.dataset_id,
+                  evidence.dataset_artifact_digest,
+                  evidence.study_digest,
+                  evidence.symbols,
+                  evidence.feature_indices,
+                  evidence.fit_cutoff,
+                  evidence.evaluation_start,
+                  evidence.evaluation_stop_exclusive,
+                  evidence.execution_overlay,
+                  evidence.slippage_std,
+                  evidence.caller_total_timesteps,
+              )
+              if common_identity is None:
+                  common_identity = identity
+              elif identity != common_identity:
+                  raise SystemExit(f'cross-seed authority drift: {seed}')
+              result_meta = by_name.get(result_name)
+              fresh_meta = by_name.get(fresh_name)
+              if not isinstance(result_meta, dict) or not isinstance(fresh_meta, dict):
+                  raise SystemExit(f'Artifact metadata missing for seed {seed}')
+              rows.append({
+                  'seed': seed,
+                  'result_artifact_id': result_meta.get('id'),
+                  'result_artifact_api_digest': result_meta.get('digest'),
+                  'fresh_artifact_id': fresh_meta.get('id'),
+                  'fresh_artifact_api_digest': fresh_meta.get('digest'),
+                  'evidence_sha256': evidence_sha,
+                  'evidence_digest': evidence_digest,
+                  'realized_num_timesteps': evidence.realized_num_timesteps,
+              })
+
+          if [row['seed'] for row in rows] != [0, 1, 2, 3, 4]:
+              raise SystemExit('baseline seed roster is not exact')
+          manifest = {
+              'schema_version': 'issue638_ppo_sequential_baseline_manifest_v1',
+              'issue_number': 638,
+              'formal_run_id': run_id,
+              'helper_sha': '6356e7ca72fa94fd91b99d903db6d907d32914c6',
+              'evaluator_sha': '97127952af3d01b71def695a4c8043eb301b2a33',
+              'seeds': rows,
+              'baseline_complete': True,
+              'all_fresh_verified_without_retraining': True,
+              'candidate_training_authorized': False,
+              'candidate_economic_result_inspected': False,
+              'factor_decision_revealed': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          out = Path(os.environ['RUNNER_TEMP']) / 'issue638-manifest'
+          out.mkdir()
+          raw = canonical_json_bytes(manifest)
+          (out / 'manifest.json').write_bytes(raw)
+          print(f'MANIFEST_SHA256={hashlib.sha256(raw).hexdigest()}')
+          print('BASELINE_COMPLETE=true')
+          print('ALL_FRESH_VERIFIED_WITHOUT_RETRAINING=true')
+          print('CANDIDATE_TRAINING_AUTHORIZED=false')
+          print('FACTOR_DECISION_REVEALED=false')
+          PY
+      - name: Publish immutable baseline manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue638-ppo-sequential-baseline-manifest-v1
+          path: ${{ runner.temp }}/issue638-manifest/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

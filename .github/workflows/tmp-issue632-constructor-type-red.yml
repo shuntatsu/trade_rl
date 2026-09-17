@@ -6,6 +6,7 @@ on:
       - verify/issue632-constructor-type-red
     paths:
       - .github/workflows/tmp-issue632-constructor-type-red.yml
+      - tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
 
 permissions:
   contents: read

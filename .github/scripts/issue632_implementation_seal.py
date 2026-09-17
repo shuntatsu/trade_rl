@@ -64,9 +64,7 @@ _FALSE_BOUNDARIES = {
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(root), *args], text=True
-    ).strip()
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
 
 def _sha256(data: bytes) -> str:

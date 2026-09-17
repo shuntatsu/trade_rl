@@ -8,7 +8,7 @@ on:
       - .github/workflows/tmp-issue630-shared-cash-red.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   red:
@@ -18,12 +18,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: research/issue630-shared-cash-evaluator
-          persist-credentials: false
+          persist-credentials: true
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
+      - name: Apply mechanical formatting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run ruff check --fix "$target"
+          uv run ruff format "$target"
+          if ! git diff --quiet -- "$target"; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add "$target"
+            git commit -m 'style: format ridge shared-cash evaluator contract'
+            git push origin HEAD:research/issue630-shared-cash-evaluator
+          fi
       - name: Static precondition
         run: |
           uv run ruff check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py

@@ -1,0 +1,4 @@
+Issue 638 baseline seed 0 exactly-once authorization.
+Helper authority: 6356e7ca72fa94fd91b99d903db6d907d32914c6
+Evaluator authority: 97127952af3d01b71def695a4c8043eb301b2a33
+Candidate training remains unauthorized.

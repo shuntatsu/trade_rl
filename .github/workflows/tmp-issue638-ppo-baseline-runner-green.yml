@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - name: Checkout helper authority
+      - name: Checkout exact helper authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: prepare/issue638-ppo-sequential-baseline-v1
+          ref: ${{ github.sha }}
           path: helper
           persist-credentials: false
       - name: Checkout exact sealed evaluator
@@ -42,6 +42,7 @@ jobs:
         run: uv sync --extra dev
       - name: Overlay runner/test without changing evaluator authority
         run: |
+          test "$(git -C helper rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir -p impl/.github/scripts impl/tests/tools
           cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
           cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
@@ -65,6 +66,7 @@ jobs:
           echo CANDIDATE_TRAINING_AUTHORIZED=false
       - name: Prove source trees unchanged
         run: |
+          test "$(git -C helper rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git -C impl rev-parse HEAD)" = 97127952af3d01b71def695a4c8043eb301b2a33
           rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
           test -z "$(git -C impl status --porcelain)"

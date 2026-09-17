@@ -11,7 +11,9 @@ RUNNER = Path(".github/scripts/issue638_ppo_baseline_runner.py")
 
 
 def _load_runner() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("issue638_ppo_baseline_runner", RUNNER)
+    spec = importlib.util.spec_from_file_location(
+        "issue638_ppo_baseline_runner", RUNNER
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -69,7 +71,9 @@ def test_runner_rejects_noncanonical_seed_before_evaluation(seed: object) -> Non
         raise AssertionError("evaluator must not run for invalid seed")
 
     with pytest.raises(ValueError, match="seed"):
-        module.evaluate_baseline_seed(object(), object(), seed=seed, evaluator=evaluator)
+        module.evaluate_baseline_seed(
+            object(), object(), seed=seed, evaluator=evaluator
+        )
     assert calls == 0
 
 

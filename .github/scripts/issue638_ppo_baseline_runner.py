@@ -86,7 +86,11 @@ def _sha256(raw: bytes) -> str:
 
 
 def _validate_seed(seed: object) -> int:
-    if isinstance(seed, bool) or not isinstance(seed, int) or seed not in BASELINE_SEEDS:
+    if (
+        isinstance(seed, bool)
+        or not isinstance(seed, int)
+        or seed not in BASELINE_SEEDS
+    ):
         raise ValueError("seed must be one of the frozen baseline seeds 0..4")
     return seed
 
@@ -95,12 +99,17 @@ def _validate_baseline_evidence(evidence: object, *, seed: int) -> None:
     _validate_seed(seed)
     if getattr(evidence, "arm", None) != "baseline":
         raise ValueError("Issue 638 evidence must be baseline-only")
-    if getattr(evidence, "seed", None) != seed or type(getattr(evidence, "seed", None)) is not int:
+    if (
+        getattr(evidence, "seed", None) != seed
+        or type(getattr(evidence, "seed", None)) is not int
+    ):
         raise ValueError("Issue 638 evidence seed differs from the authorized seed")
     if getattr(evidence, "training_layout", None) != "sequential":
         raise ValueError("Issue 638 evidence must use sequential training")
     if getattr(evidence, "rollout_steps_per_env", object()) is not None:
-        raise ValueError("Issue 638 sequential baseline must not use a rollout override")
+        raise ValueError(
+            "Issue 638 sequential baseline must not use a rollout override"
+        )
     if getattr(evidence, "candidate_training_authorized", None) is not False:
         raise ValueError("Issue 638 cannot authorize candidate training")
 
@@ -262,7 +271,11 @@ def authority_check(*, seed: object, slot: str) -> None:
         for item in jobs
         if isinstance(item, dict)
     }
-    for name in ("Draft PR authority", "Lean Core exact target", "Human Guide exact target"):
+    for name in (
+        "Draft PR authority",
+        "Lean Core exact target",
+        "Human Guide exact target",
+    ):
         if job_conclusions.get(name) != "success":
             raise SystemExit(f"Issue 632 verification job drift: {name}")
     pr = _api(f"pulls/{EVALUATOR_PR}")
@@ -278,11 +291,36 @@ def authority_check(*, seed: object, slot: str) -> None:
     _assert_run_success(PROTOCOL_SEAL_RUN, label="Issue 629 protocol seal")
     _assert_run_success(SOURCE_RUN, label="calibrated successor authority")
     for args in (
-        (EVALUATOR_PRIMARY_ID, EVALUATOR_PRIMARY_NAME, EVALUATOR_PRIMARY_API_DIGEST, EVALUATOR_SEAL_RUN),
-        (EVALUATOR_FRESH_ID, EVALUATOR_FRESH_NAME, EVALUATOR_FRESH_API_DIGEST, EVALUATOR_SEAL_RUN),
-        (EVALUATOR_AUDIT_ID, EVALUATOR_AUDIT_NAME, EVALUATOR_AUDIT_API_DIGEST, EVALUATOR_SEAL_RUN),
-        (PROTOCOL_PRIMARY_ID, PROTOCOL_PRIMARY_NAME, PROTOCOL_PRIMARY_API_DIGEST, PROTOCOL_SEAL_RUN),
-        (PROTOCOL_FRESH_ID, PROTOCOL_FRESH_NAME, PROTOCOL_FRESH_API_DIGEST, PROTOCOL_SEAL_RUN),
+        (
+            EVALUATOR_PRIMARY_ID,
+            EVALUATOR_PRIMARY_NAME,
+            EVALUATOR_PRIMARY_API_DIGEST,
+            EVALUATOR_SEAL_RUN,
+        ),
+        (
+            EVALUATOR_FRESH_ID,
+            EVALUATOR_FRESH_NAME,
+            EVALUATOR_FRESH_API_DIGEST,
+            EVALUATOR_SEAL_RUN,
+        ),
+        (
+            EVALUATOR_AUDIT_ID,
+            EVALUATOR_AUDIT_NAME,
+            EVALUATOR_AUDIT_API_DIGEST,
+            EVALUATOR_SEAL_RUN,
+        ),
+        (
+            PROTOCOL_PRIMARY_ID,
+            PROTOCOL_PRIMARY_NAME,
+            PROTOCOL_PRIMARY_API_DIGEST,
+            PROTOCOL_SEAL_RUN,
+        ),
+        (
+            PROTOCOL_FRESH_ID,
+            PROTOCOL_FRESH_NAME,
+            PROTOCOL_FRESH_API_DIGEST,
+            PROTOCOL_SEAL_RUN,
+        ),
         (SOURCE_ID, SOURCE_NAME, SOURCE_API_DIGEST, SOURCE_RUN),
     ):
         _assert_artifact(args[0], name=args[1], digest=args[2], run_id=args[3])
@@ -292,7 +330,9 @@ def authority_check(*, seed: object, slot: str) -> None:
     if slot == "empty" and (result_count != 0 or fresh_count != 0):
         raise SystemExit("Issue 638 seed Artifact slot is already consumed")
     if slot == "published" and (result_count != 1 or fresh_count != 0):
-        raise SystemExit("Issue 638 fresh verification requires exactly one seed result")
+        raise SystemExit(
+            "Issue 638 fresh verification requires exactly one seed result"
+        )
 
 
 def _load_json(path: Path) -> dict[str, Any]:

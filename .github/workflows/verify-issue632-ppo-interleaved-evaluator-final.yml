@@ -91,7 +91,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          uv run python - <<'PY'
           from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import canonical_ppo_interleaved_evaluator_spec
           payload = canonical_ppo_interleaved_evaluator_spec().to_payload()
           for field in (

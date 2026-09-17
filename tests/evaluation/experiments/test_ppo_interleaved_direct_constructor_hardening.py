@@ -99,7 +99,7 @@ def test_return_path_rejects_bool_or_string_aliases_before_normalization() -> No
     with pytest.raises(ValueError, match="returns"):
         PPOReturnPathEvidence(
             strategy_name="ppo",
-            returns=values,  # type: ignore[arg-type]
+            returns=values,
             return_sha256=return_path_sha256((1.0, 0.0)),
             total_return=compound_return((1.0, 0.0)),
             total_cost=0.0,

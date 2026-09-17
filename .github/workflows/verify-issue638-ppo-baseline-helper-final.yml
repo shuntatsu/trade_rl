@@ -1,0 +1,140 @@
+name: Verify Issue 638 PPO baseline helper final
+
+on:
+  push:
+    branches:
+      - verify/issue638-ppo-baseline-helper-final
+    paths:
+      - .github/workflows/verify-issue638-ppo-baseline-helper-final.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+env:
+  HELPER_SHA: 6356e7ca72fa94fd91b99d903db6d907d32914c6
+  SEALED_MAIN_SHA: c4fc52777ad0ea894d0d8f3a01337bcbbd5a26a8
+  CURRENT_MAIN_SHA: 130710f45b4dfd8272846f5c953733741f3cdc6c
+  EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+
+jobs:
+  exact-helper:
+    name: Exact helper and sealed evaluator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Guard exact helper scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C helper merge-base "$SEALED_MAIN_SHA" "$HELPER_SHA")" = "$SEALED_MAIN_SHA"
+          test -z "$(git -C helper status --porcelain)"
+          python - <<'PY'
+          import subprocess
+          out = subprocess.check_output(
+              ['git','-C','helper','diff','--name-only','c4fc52777ad0ea894d0d8f3a01337bcbbd5a26a8...6356e7ca72fa94fd91b99d903db6d907d32914c6'],
+              text=True,
+          ).splitlines()
+          expected = [
+              '.github/scripts/issue638_ppo_baseline_runner.py',
+              'tests/tools/test_issue638_ppo_baseline_runner.py',
+          ]
+          if out != expected:
+              raise SystemExit(f'Issue 638 durable scope drift: {out!r}')
+          print('ISSUE638_DURABLE_SCOPE=PASS')
+          PY
+      - name: Overlay helper into exact evaluator
+        run: |
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Static, type and focused verification
+        working-directory: impl
+        run: |
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q \
+            tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg_hardening.py \
+            tests/strategies/test_ppo_interleaved_training.py
+      - name: Full evaluator repository tests
+        working-directory: impl
+        run: uv run pytest -q tests
+      - name: Result-blind live authority preflight
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed 0 --slot empty
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Prove authority check caused no repository mutation
+        run: |
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C impl rev-parse HEAD)" = "$EVALUATOR_SHA"
+          rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+          test -z "$(git -C helper status --porcelain)"
+          test -z "$(git -C impl status --porcelain)"
+
+  current-main-compatibility:
+    name: Current main compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact helper with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact current main and merge cleanly in runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$CURRENT_MAIN_SHA"
+          git config user.name verification-runner
+          git config user.email verification-runner@invalid
+          git merge --no-commit --no-edit "$CURRENT_MAIN_SHA"
+          git diff --check
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Validate helper contract and current branch-hygiene changes coexist
+        run: |
+          uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py tests/tools/test_branch_hygiene.py tests/tools/test_branch_hygiene_grace.py
+          echo ISSUE638_CURRENT_MAIN_COMPATIBILITY=PASS

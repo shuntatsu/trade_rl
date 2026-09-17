@@ -1,0 +1,84 @@
+name: tmp Issue 640 audit format publish v2
+
+on:
+  push:
+    branches:
+      - automation/issue640-audit-format-publish-v2
+    paths:
+      - .github/workflows/tmp-issue640-audit-format-publish-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RUN_HEAD: ae095e74e92d2ac9d83de229f6e55884e6e3ac48
+      TARGET_SHA: c80652a126780580990bf46bb206155ba469e043
+    steps:
+      - name: Checkout exact current official run branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: run/issue640-directional-study-v1
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Checkout exact hardened implementation for tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - name: Guard exact current head and harness-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$RUN_HEAD"
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          git -C candidate diff --name-only "$TARGET_SHA" "$RUN_HEAD" | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          .github/scripts/issue640_official_audit.py
+          .github/scripts/issue640_official_run_arm.sh
+          .github/workflows/issue640-directional-study-v1.yml
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test ! -e candidate/.github/authorizations/issue640-directional-study-v1.authorized
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install validation runtime
+        working-directory: target
+        run: uv sync --extra dev
+      - name: Apply only canonical Ruff formatting to audit helper
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run ruff format ../candidate/.github/scripts/issue640_official_audit.py
+          test "$(git -C ../candidate diff --name-only)" = ".github/scripts/issue640_official_audit.py"
+          git -C ../candidate diff --check
+      - name: Verify formatted helper and unchanged official workflow
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run ruff check ../candidate/.github/scripts/issue640_official_audit.py
+          uv run ruff format --check ../candidate/.github/scripts/issue640_official_audit.py
+          uv run mypy ../candidate/.github/scripts/issue640_official_audit.py
+          bash -n ../candidate/.github/scripts/issue640_official_run_arm.sh
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "ISSUE640_YAML_PARSE=PASS"' ../candidate/.github/workflows/issue640-directional-study-v1.yml
+          test -z "$(git status --porcelain)"
+      - name: Publish format-only commit if official branch is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C candidate fetch origin run/issue640-directional-study-v1
+          test "$(git -C candidate rev-parse FETCH_HEAD)" = "$RUN_HEAD"
+          git -C candidate config user.name github-actions[bot]
+          git -C candidate config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C candidate add .github/scripts/issue640_official_audit.py
+          test "$(git -C candidate diff --cached --name-only)" = ".github/scripts/issue640_official_audit.py"
+          git -C candidate commit -m "style: format Issue 640 official audit"
+          git -C candidate push origin HEAD:run/issue640-directional-study-v1

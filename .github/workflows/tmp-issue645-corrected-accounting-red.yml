@@ -1,0 +1,43 @@
+name: tmp Issue 645 corrected-accounting RED
+
+on:
+  push:
+    branches:
+      - verify/issue645-corrected-accounting-red
+    paths:
+      - .github/workflows/tmp-issue645-corrected-accounting-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8b5c367a0a7c0a79e665147eaa4ebd53ae0b73cb
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static test hygiene
+        run: |
+          set -euo pipefail
+          uv run ruff check tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py
+          uv run ruff format --check tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py
+      - name: Preserve pre-correction characterization
+        run: uv run pytest -q tests/simulation/test_stateful_execution_characterization.py
+      - name: Prove exact-lot regression RED
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/simulation/test_lot_accounting.py > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Eq "exact_quantity|execute_fill|lot_count|filled_lot_count|exact_cumulative_filled_quantity" "$RUNNER_TEMP/red.log"
+          echo ISSUE645_EXACT_LOT_RED=PASS

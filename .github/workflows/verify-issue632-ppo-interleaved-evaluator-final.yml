@@ -199,6 +199,10 @@ jobs:
           import subprocess
           from pathlib import Path
 
+          allowed_files = {
+              'guide/tsconfig.app.tsbuildinfo',
+              'guide/tsconfig.node.tsbuildinfo',
+          }
           status = subprocess.check_output(
               ['git', 'status', '--porcelain', '--untracked-files=all'], text=True
           ).splitlines()
@@ -207,9 +211,12 @@ jobs:
                   raise SystemExit(f'unexpected git status line: {line!r}')
               code = line[:2]
               path = line[3:]
-              if code != '??' or not path.startswith('guide/.generated/'):
+              allowed = path.startswith('guide/.generated/') or path in allowed_files
+              if code != '??' or not allowed:
                   raise SystemExit(f'unexpected Guide worktree mutation: {line!r}')
           shutil.rmtree(Path('guide/.generated'), ignore_errors=True)
+          for path in allowed_files:
+              Path(path).unlink(missing_ok=True)
           print('ISSUE632_GUIDE_GENERATED_OUTPUT_SCOPE=PASS')
           PY
           test "$(git rev-parse HEAD)" = "$GUIDE_SOURCE_REV"

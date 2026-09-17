@@ -15,19 +15,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout exact helper head to patch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: prepare/issue638-ppo-sequential-baseline-v1
+          path: helper
           fetch-depth: 0
       - name: Guard exact helper head
-        run: test "$(git rev-parse HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
+        run: test "$(git -C helper rev-parse HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
       - name: Apply callable typing fix only
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          path = Path('.github/scripts/issue638_ppo_baseline_runner.py')
+          path = Path('helper/.github/scripts/issue638_ppo_baseline_runner.py')
           text = path.read_text()
           text = text.replace('from typing import Any, Callable\n', 'from typing import Any, Callable, cast\n', 1)
           old = '''    if evaluator is None:\n        from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (\n            evaluate_ppo_training_seed,\n        )\n\n        evaluator = evaluate_ppo_training_seed\n    evidence = evaluator(dataset, spec, arm="baseline", seed=canonical_seed)\n'''
@@ -36,27 +38,45 @@ jobs:
               raise SystemExit('callable typing anchor drift')
           path.write_text(text.replace(old, new, 1))
           PY
-          git diff --check
+          git -C helper diff --check
+      - name: Checkout exact sealed evaluator for validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97127952af3d01b71def695a4c8043eb301b2a33
+          path: impl
+          persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
-      - run: uv sync --extra dev
-      - name: Verify helper typing and focused tests
+      - name: Install sealed evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Overlay patched helper and validate typing/focused tests
+        shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p impl/.github/scripts impl/tests/tools
+          cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
+          cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
+          cd impl
           uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py
+          cp .github/scripts/issue638_ppo_baseline_runner.py ../helper/.github/scripts/issue638_ppo_baseline_runner.py
           uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
-          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
       - name: Publish helper-only fix
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin prepare/issue638-ppo-sequential-baseline-v1
-          test "$(git rev-parse FETCH_HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/scripts/issue638_ppo_baseline_runner.py
-          git commit -m "research: fix Issue 638 runner callable typing"
-          git push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1
+          git -C helper fetch origin prepare/issue638-ppo-sequential-baseline-v1
+          test "$(git -C helper rev-parse FETCH_HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
+          git -C helper diff --check
+          git -C helper config user.name github-actions[bot]
+          git -C helper config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C helper add .github/scripts/issue638_ppo_baseline_runner.py
+          git -C helper commit -m "research: fix Issue 638 runner callable typing"
+          git -C helper push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

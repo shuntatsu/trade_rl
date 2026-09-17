@@ -261,7 +261,9 @@ def audit(
         expected["protocol_digest"] = protocol_digest
         expected["result_sha256"] = {
             arm: _sha256(
-                arms_root / f"issue645-corrected-directional-arm-{arm}-v1" / "result.json"
+                arms_root
+                / f"issue645-corrected-directional-arm-{arm}-v1"
+                / "result.json"
             )
             for arm in ARMS
         }

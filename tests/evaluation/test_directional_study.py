@@ -1,3 +1,4 @@
+import inspect
 import json
 from pathlib import Path
 
@@ -205,3 +206,17 @@ def test_prepare_rejects_nonofficial_activation_before_runtime_or_source(
         directional_study.prepare_study(tmp_path / "source", output)
     assert touched == []
     assert not output.exists()
+
+
+def test_prepublication_logs_cannot_reveal_economic_result_or_selection() -> None:
+    assert directional_study.arm_result_written_message("trend") == (
+        "trend: result bytes written; interpretation deferred"
+    )
+    assert directional_study.selection_written_message() == (
+        "Selection bytes written; interpretation deferred"
+    )
+    source = inspect.getsource(directional_study.execute_arm) + inspect.getsource(
+        directional_study.finalize_study
+    )
+    for forbidden in ("return=", "qualified=", "winner=", "decision="):
+        assert forbidden not in source

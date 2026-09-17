@@ -15,6 +15,7 @@ EXPECTED_ROOT_FILES = {
     "execution.py",
     "liquidity.py",
     "quantities.py",
+    "depth.py",
 }
 
 EXPECTED_PACKAGE_FILES = {

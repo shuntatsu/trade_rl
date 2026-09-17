@@ -491,6 +491,7 @@ class BookState:
         turnover: float,
         lot_size: float = 0.0,
         lot_count: int | None = None,
+        valuation_prices: np.ndarray | None = None,
     ) -> None:
         if (
             isinstance(symbol_index, bool)
@@ -511,6 +512,7 @@ class BookState:
             delta=tuple(delta),
             cost_amount=cost_amount,
             turnover=turnover,
+            valuation_prices=valuation_prices,
         )
 
     def _record_execution(
@@ -521,6 +523,7 @@ class BookState:
         delta: tuple[Fraction, ...],
         cost_amount: float,
         turnover: float,
+        valuation_prices: np.ndarray | None = None,
     ) -> None:
         prices = _finite_vector(fill_prices, field_name="fill_prices")
         targets = np.array([project_quantity(value) for value in exact_targets])
@@ -531,6 +534,13 @@ class BookState:
             raise ValueError("execution vectors must match the book")
         if np.any(prices <= 0.0):
             raise ValueError("fill_prices must be strictly positive")
+        marks = (
+            prices
+            if valuation_prices is None
+            else _finite_vector(valuation_prices, field_name="valuation_prices")
+        )
+        if marks.shape != prices.shape or np.any(marks <= 0.0):
+            raise ValueError("valuation_prices must match the book and be positive")
         if not np.isfinite(cost_amount) or cost_amount < 0.0:
             raise ValueError("cost_amount must be finite and non-negative")
         if not np.isfinite(turnover) or turnover < 0.0:
@@ -546,12 +556,22 @@ class BookState:
                 delta, prices, multipliers, strict=True
             )
         )
-        self.cash -= signed_notional + float(cost_amount)
+        cash_after = self.cash - (signed_notional + float(cost_amount))
+        turnover_after = self.turnover_total + float(turnover)
+        cost_after = self.total_cost + float(cost_amount)
+        with np.errstate(over="ignore", invalid="ignore"):
+            equity_after = float(cash_after + (targets * marks * multipliers).sum())
+        if not all(
+            math.isfinite(value)
+            for value in (cash_after, turnover_after, cost_after, equity_after)
+        ):
+            raise ValueError("proposed execution must preserve finite account values")
+        self.cash = cash_after
         self.quantities = targets
         self._exact_quantities = tuple(str(value) for value in exact_targets)
-        self.mark_prices = prices
-        self.turnover_total += float(turnover)
-        self.total_cost += float(cost_amount)
+        self.mark_prices = marks
+        self.turnover_total = turnover_after
+        self.total_cost = cost_after
         fill_count = int(np.count_nonzero(filled))
         self.fill_count += fill_count
         if fill_count:

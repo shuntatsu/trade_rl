@@ -4,8 +4,10 @@ Status: Active
 
 The objective is a working profit-seeking trading bot under the user's 20%
 research drawdown tolerance. The completed baseline loses money across all five
-PPO seeds; the separate risk-only comparison is still running from frozen source.
-Its code and evidence must not change during this work.
+PPO seeds; the completed risk-only comparison returned KEEP_BASELINE with only
+three of five paired improvements and a negative family median. Preserve both
+studies as immutable evidence. The next comparison uses the original default-risk
+five-seed baseline, not the failed risk treatment or a selected profitable seed.
 
 A training-only audit found roughly three orders of magnitude between selected
 feature standard deviations. Add an opt-in fitted transform of local feature
@@ -45,8 +47,12 @@ invariance; symbol balancing despite missingness; missing/constant feature handl
 train/inference identity; reset/layout propagation; exact default compatibility;
 metadata roundtrip and malformed/scope-mismatched transforms rejected.
 
-No real normalized candidate is fit until the risk comparison has finished and a
-new five-seed single-factor protocol has fixed its baseline, transform, budget,
-data/evaluation scope and relative/absolute gates. No simultaneous reward, layout,
+No real normalized candidate is fit until a new single-factor protocol fixes the
+original five-seed baseline, this transform, 262144 steps per seed, sequential
+layout, the same 12 inputs and Dataset, before-2023 fit, and 2023–2024 development.
+Use the completed risk study's relative gate and the original absolute gates:
+four of five paired wins, positive median paired delta, complete replay, no new
+termination, and candidate drawdowns at most 20%; profitability, terminal flatness
+and stress qualification remain separate. No simultaneous reward, layout,
 network or execution change may enter that comparison. Prospective paper evidence
 and correct execution remain necessary before operational profit claims.

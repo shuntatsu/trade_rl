@@ -8,7 +8,7 @@ Specification: [ppo-feature-standardization.md](../specs/ppo-feature-standardiza
 - [x] RED fit-scope and normalized-observation contracts.
 - [x] Implement immutable fitted transform and optional PPO propagation.
 - [ ] Review persistence, scope and default compatibility; full CI.
-- [ ] Complete the risk-only study and select a documented research baseline.
+- [x] Complete the risk-only study and select the original default-risk baseline.
 - [ ] Freeze and execute the next normalized five-seed comparison.
 - [ ] Audit results and continue toward qualified prospective paper operation.
 

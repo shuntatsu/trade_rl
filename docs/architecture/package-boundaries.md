@@ -40,6 +40,8 @@ trade_rl/
 │       ├── metadata.py
 │       ├── carry.py
 │       ├── forward.py
+│       ├── forward_evidence.py
+│       ├── forward_rules.py
 │       └── dataset.py
 ├── risk/
 │   ├── inputs.py
@@ -117,6 +119,12 @@ capture. It preserves exact raw response bytes, request/receipt timing and
 hashes, validates clock/depth/settlement schemas and publishes a source-eligible
 snapshot only when all required responses pass. It does not simulate fills or
 own a paper account. The bounded Binance transport remains the HTTP owner.
+`forward_evidence.py` revalidates the immutable response graph and reconstructs
+market summaries from raw bytes; consumption-time freshness is separate from
+offline historical verification. `forward_rules.py` captures current public
+exchange metadata and derives supported market lot/notional/price bounds. It
+retains averaging semantics and unsupported account-rule limitations. Neither
+module consumes a trading account or authorizes an order.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

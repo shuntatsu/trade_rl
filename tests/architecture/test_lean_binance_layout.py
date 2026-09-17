@@ -83,6 +83,8 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "dataset.py",
         "carry.py",
         "forward.py",
+        "forward_evidence.py",
+        "forward_rules.py",
     ):
         assert (BINANCE / name).is_file(), name
 

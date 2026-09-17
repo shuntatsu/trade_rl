@@ -10,7 +10,11 @@ Status: Active
 - [x] Implement `simulation/depth.py` and canonical fill/valuation separation.
   Test two-level weighted fills, aggregated sub-lot depth, asymmetric capacity,
   one-time fees, clock ordering, rejected rules and unchanged historical fills.
-- [ ] Independently review depth execution and run the full repository CI.
+- [x] Independently review depth execution and run the full repository CI.
+- [x] Add a verified offline forward-snapshot reader; test raw/summary/timing
+  tampering and freshness at consumption, without changing historical artifacts.
+- [x] Capture and revalidate current exchange rules; test market lot intersections,
+  disabled zero steps, notional flags, unsupported symbols and metadata age.
 - [ ] Specify and test restart-safe prospective paper execution on the canonical ledger.
 - [ ] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.

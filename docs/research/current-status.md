@@ -72,8 +72,9 @@ carry studies retain their original frozen source and evidence.
 Forward source capture has passed permanent CI and real public-feed acquisition.
 The separate recorded-depth paper matcher models partial bid/ask fills, declared
 fees and adverse pricing on the canonical account. These are software components;
-the prospective journal, current-rule capture and a complete future economic gate
-are not yet implemented or run. No paper positions have been started.
+current public-rule capture and verified snapshot readers are available, while
+the prospective journal and a complete future economic gate are not yet
+implemented or run. No paper positions have been started.
 
 ### Directional development study under a 20% drawdown budget
 

@@ -24,6 +24,7 @@ jobs:
         with:
           ref: prepare/issue634-shared-cash-runner-v1
           path: helper
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout exact sealed evaluator
@@ -153,4 +154,4 @@ jobs:
           print('ISSUE634_PREPARATION_SCOPE=PASS')
           PY
 
-# verification-trigger-v2
+# verification-trigger-v3

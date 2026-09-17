@@ -1,0 +1,60 @@
+name: tmp Issue 641 directional runtime GREEN
+
+on:
+  push:
+    branches:
+      - research/issue641-directional-runtime-activation
+    paths:
+      - .github/workflows/tmp-issue641-directional-runtime-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install complete frozen trainer runtime
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Static checks
+        run: |
+          uv run ruff check trade_rl/evaluation/directional_study.py tests/evaluation/test_directional_study.py
+          uv run ruff format --check trade_rl/evaluation/directional_study.py tests/evaluation/test_directional_study.py
+          uv run mypy trade_rl/evaluation/directional_study.py
+      - name: Targeted directional tests
+        run: |
+          uv run pytest -q \
+            tests/evaluation/test_directional_study.py \
+            tests/evaluation/test_directional.py \
+            tests/evaluation/test_directional_selection.py \
+            tests/evaluation/test_directional_candidates.py \
+            tests/data/test_price_channels.py \
+            tests/strategies/test_channel_breakout.py
+      - name: Real runtime preflight without economic data
+        run: |
+          uv run python - <<'PY'
+          from trade_rl.evaluation.directional_study import validate_required_runtime
+          versions = validate_required_runtime()
+          assert versions['lightgbm'] == '4.7.0'
+          assert versions['stable-baselines3'] == '2.3.2'
+          assert versions['torch'] == '2.4.1'
+          assert versions['scikit-learn']
+          print('ISSUE641_DIRECTIONAL_RUNTIME_GREEN=PASS')
+          print(versions)
+          print('REAL_MARKET_DATA_LOADED=false')
+          print('ECONOMIC_ARM_EXECUTED=false')
+          print('FINAL_TEST_ACCESSED=false')
+          PY
+      - name: Exact clean head
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"

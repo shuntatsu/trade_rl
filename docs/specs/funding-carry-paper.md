@@ -40,6 +40,26 @@ minimum observation duration and decision rule before forward paper positions.
 
 ## Paper execution design still to implement
 
+### Restart inputs and current rules
+
+An offline forward-snapshot reader must revalidate every raw byte hash, response
+sidecar, official URL, response roster, timing bound and decoded market field.
+It must reproduce the published snapshot from raw responses; the summary alone
+is not authority. An optional expected snapshot digest binds a journal parent.
+Offline verification does not imply freshness now. Supplying an execution time
+additionally enforces every quote's five-second age and rejects future receipts.
+
+Current BTCUSDT/ETHUSDT spot and USD-M exchange information is a separate,
+write-once public capture. Require trading status, market-order support, matching
+base/quote assets and USDT perpetual collateral; reject duplicate/missing symbols
+or filters. Preserve raw rules, source timing and hashes. Derive paper bounds
+from the intersection of LOT_SIZE and MARKET_LOT_SIZE, retain every positive
+quantity quantum, and distinguish inactive zero market steps from missing rules.
+Keep tick/price limits and market-applicable notional flags, including averaging
+minutes. Venue-specific averaged notional checks remain explicitly unmodeled by
+the depth primitive. Current metadata cannot authorize orders or establish
+profitability, and is valid for new paper decisions for at most one hour.
+
 ### Recorded-depth execution contract
 
 The provider-independent depth executor belongs in `simulation/depth.py`.

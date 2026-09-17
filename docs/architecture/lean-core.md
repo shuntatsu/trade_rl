@@ -250,6 +250,20 @@ create a temporary equity peak by revaluing an existing holding at a new order's
 fill price. Displayed depth is a modeling input, not a guarantee of real fills.
 One snapshot's instrument capacity may be consumed only once by its future journal.
 
+Forward evidence readers reconstruct market and rule summaries from exact raw
+responses, verify sidecars, official URL rosters, hashes and capture-wide timing,
+and reject partial/failed evidence or duplicate JSON keys. A supplied expected
+digest binds the manifest to its caller. Historical verification does not imply
+current freshness: consumption-time reads reject future receipts and expired
+quotes (five seconds) or rule captures (one hour).
+
+Current rule capture supports trading BTC/ETH spot and USDT perpetual pairs with
+market orders. It intersects base and market quantity bounds and their positive
+lot quanta, preserves disabled zero market steps and validates price filters.
+Market notional applicability flags and averaging windows are retained. These
+public metadata bounds do not reproduce private account restrictions or venue
+average-price admission and cannot establish production order eligibility.
+
 ## 非目標
 
 Lean coreが保証しないもの:

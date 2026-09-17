@@ -41,10 +41,10 @@ _REQUIRED_RUNTIME = (
     ("torch", "torch", "2.4.1"),
     ("scikit-learn", "sklearn", None),
 )
-_OFFICIAL_REF_NAME = "run/issue640-directional-study-v1"
+_OFFICIAL_REF_NAME = "run/issue645-corrected-directional-study-v1"
 _OFFICIAL_WORKFLOW_REF = (
-    "shuntatsu/trade_rl/.github/workflows/issue640-directional-study-v1.yml"
-    "@refs/heads/run/issue640-directional-study-v1"
+    "shuntatsu/trade_rl/.github/workflows/issue645-corrected-directional-study-v1.yml"
+    "@refs/heads/run/issue645-corrected-directional-study-v1"
 )
 
 

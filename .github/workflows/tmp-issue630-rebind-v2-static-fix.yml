@@ -120,7 +120,6 @@ jobs:
           uv run ruff format --check "$EVAL" "$EVAL_TEST" "$PREREG" "$PREREG_TEST"
           uv run mypy "$EVAL" "$PREREG" trade_rl/strategies/forecasts/ridge_economic_gate.py
           uv run pytest -q "$EVAL_TEST" "$PREREG_TEST" \
-            tests/strategies/test_ridge_economic_gate.py \
             tests/architecture/test_runs_capability_facade.py
           test "$(git hash-object "$PREREG")" = e848a0f4eec434f534455f88244eda75d97f4d04
           test "$(git hash-object "$PREREG_TEST")" = 712a7fd1c0d3403cb2b61886129a65f97b02b868

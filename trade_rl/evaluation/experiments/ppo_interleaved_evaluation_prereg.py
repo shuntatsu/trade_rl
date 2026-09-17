@@ -34,6 +34,21 @@ _EXECUTION_OVERLAY = (
     "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"
 )
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+_FEATURE_NAMES = (
+    "1h__log_return_1bar",
+    "1h__log_return_4bar",
+    "1h__log_return_24bar",
+    "1h__realized_volatility_24bar",
+    "1h__volume_zscore_24bar",
+    "1h__funding_bps",
+    "1h__rsi_14bar",
+    "1h__macd_histogram_12_26_9",
+    "4h__log_return_4bar",
+    "4h__realized_volatility_24bar",
+    "1d__log_return_1bar",
+    "1d__realized_volatility_24bar",
+)
+_FEATURE_INDICES = (0, 1, 2, 4, 5, 6, 7, 10, 60, 63, 114, 118)
 _PPO_SEEDS = (0, 1, 2, 3, 4)
 
 
@@ -74,6 +89,12 @@ class PPOInterleavedEvaluationProtocol:
     study_digest: str = _STUDY_DIGEST
     execution_overlay: str = _EXECUTION_OVERLAY
     symbols: tuple[str, ...] = _SYMBOLS
+    feature_names: tuple[str, ...] = _FEATURE_NAMES
+    feature_indices: tuple[int, ...] = _FEATURE_INDICES
+    fit_symbol_names: tuple[str, ...] = _SYMBOLS
+    gross_budget: float = 0.5
+    initial_capital: float = 100_000.0
+    slippage_std: float = 0.0
     fit_cutoff: str = "2023-01-01T00:00:00Z"
     evaluation_start: str = "2023-01-01T00:00:00Z"
     evaluation_stop_exclusive: str = "2025-01-01T00:00:00Z"

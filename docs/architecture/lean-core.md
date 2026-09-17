@@ -264,6 +264,15 @@ Market notional applicability flags and averaging windows are retained. These
 public metadata bounds do not reproduce private account restrictions or venue
 average-price admission and cannot establish production order eligibility.
 
+The prospective paper journal binds an immutable protocol digest to a contiguous
+event hash chain. SQLite immediate transactions serialize compare-and-append;
+identical idempotency keys/content return the original event, while different
+content or a stale expected parent fails. Updates/deletes are unavailable and
+database triggers reject them. FULL synchronization and startup recovery of hot
+rollback journals preserve the committed prefix across process death. Protocol
+identity is checked before recovery; event replay rechecks every canonical body,
+hash, sequence and parent. Persistence alone assigns no execution or P&L semantics.
+
 ## 非目標
 
 Lean coreが保証しないもの:

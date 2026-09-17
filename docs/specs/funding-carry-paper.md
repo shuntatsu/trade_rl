@@ -40,6 +40,27 @@ minimum observation duration and decision rule before forward paper positions.
 
 ## Paper execution design still to implement
 
+### Durable journal
+
+`evaluation/paper/store.py` owns an append-only SQLite event chain and a separate
+immutable protocol manifest. Initialization reserves a new directory before any
+publication. Opening requires the caller's expected protocol SHA-256 and never
+creates a missing database. Each canonical JSON event binds a contiguous sequence,
+kind, unique idempotency key, payload and previous digest; the first parent is
+the protocol digest. Rebuild verifies every event and its parent from stored bytes.
+
+An immediate SQLite transaction performs compare-and-append against the expected
+tip. Repeating exactly the same key, parent, kind and payload returns the original
+event without a new row. Reusing a key with different contents, or appending from
+a stale parent, fails. Update/delete are unavailable through the API and blocked
+by database triggers. FULL synchronization and rollback journaling preserve the
+committed prefix on interruption; no half-published event may become an executed
+fill on restart. Opening verifies the protocol before permitting SQLite's hot
+rollback-journal recovery; subsequent event inspection uses a read-only connection.
+This store is not an alternative financial ledger: paper engine
+events will drive the existing strategy and BookState, and only the engine may
+assign economic meaning to event kinds.
+
 ### Restart inputs and current rules
 
 An offline forward-snapshot reader must revalidate every raw byte hash, response

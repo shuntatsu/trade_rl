@@ -16,6 +16,10 @@ Status: Active
 - [x] Capture and revalidate current exchange rules; test market lot intersections,
   disabled zero steps, notional flags, unsupported symbols and metadata age.
 - [ ] Specify and test restart-safe prospective paper execution on the canonical ledger.
+  - [x] Implement a protocol-bound SQLite event chain with compare-and-append,
+    duplicate-command idempotency, concurrent-writer and process-interruption tests.
+  - [ ] Compose saved decisions, verified later captures, depth fills and funding
+    settlement events into replayable canonical account transitions.
 - [ ] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.
 

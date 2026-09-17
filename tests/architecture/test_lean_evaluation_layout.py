@@ -62,6 +62,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "directional_selection.py",
         "directional_study.py",
         "ppo_risk_study.py",
+        "paper/__init__.py",
+        "paper/store.py",
         "comparison/__init__.py",
         "comparison/bootstrap.py",
         "comparison/paired.py",

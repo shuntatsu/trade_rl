@@ -79,6 +79,7 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
+    ├── paper/{__init__.py,store.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -125,6 +126,13 @@ offline historical verification. `forward_rules.py` captures current public
 exchange metadata and derives supported market lot/notional/price bounds. It
 retains averaging semantics and unsupported account-rule limitations. Neither
 module consumes a trading account or authorizes an order.
+
+`evaluation/paper/store.py` owns protocol-bound, append-only event persistence
+with canonical JSON hashes, contiguous sequence/parent checks, atomic
+compare-and-append and idempotency. Reopening permits SQLite recovery only after
+validating the expected protocol digest. This is an evidence store, not another
+financial ledger or a completed paper runner; economic transitions remain the
+responsibility of a future composition using canonical strategy/accounting.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

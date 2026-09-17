@@ -62,7 +62,9 @@ def _array_sha256(values: np.ndarray) -> str:
     return hasher.hexdigest()
 
 
-def _exact_timestamp_index(dataset: MarketDataset, timestamp: str, *, field: str) -> int:
+def _exact_timestamp_index(
+    dataset: MarketDataset, timestamp: str, *, field: str
+) -> int:
     target = np.datetime64(timestamp, "ns")
     matches = np.flatnonzero(dataset.timestamps == target)
     if matches.size != 1:
@@ -116,7 +118,9 @@ class RidgeEconomicGatePrePnlCostAuthority:
         }
         for field_name, expected_value in expected.items():
             if getattr(self, field_name) != expected_value:
-                raise ValueError(f"{field_name} differs from sealed Issue #616 authority")
+                raise ValueError(
+                    f"{field_name} differs from sealed Issue #616 authority"
+                )
         _require_positive_int(self.n_evaluation_rows, field="n_evaluation_rows")
         _require_hex(
             self.authority_implementation_head,
@@ -142,7 +146,10 @@ class RidgeEconomicGatePrePnlCostAuthority:
             "one_way_explicit_cost",
         ):
             _require_finite_nonnegative(getattr(self, field_name), field=field_name)
-        if type(self.result_blind) is not bool or type(self.evaluation_pnl_inspected) is not bool:
+        if (
+            type(self.result_blind) is not bool
+            or type(self.evaluation_pnl_inspected) is not bool
+        ):
             raise ValueError("authority research-boundary flags must be booleans")
 
     def to_payload(self) -> dict[str, object]:
@@ -232,7 +239,9 @@ def build_ridge_economic_gate_pre_pnl_cost_authority(
     )
     if capacity.shape != (n_evaluation_rows, len(resolved_spec.symbols)):
         raise ValueError("PRE-P&L cost authority: capacity shape is invalid")
-    if not np.isfinite(capacity).all() or not np.array_equal(capacity, expected_capacity):
+    if not np.isfinite(capacity).all() or not np.array_equal(
+        capacity, expected_capacity
+    ):
         raise ValueError(
             "PRE-P&L cost authority: capacity differs from sealed Issue #616 authority"
         )
@@ -260,7 +269,9 @@ def build_ridge_economic_gate_pre_pnl_cost_authority(
             field="authority_implementation_head",
             length=40,
         ),
-        authority_run_id=_require_positive_int(authority_run_id, field="authority_run_id"),
+        authority_run_id=_require_positive_int(
+            authority_run_id, field="authority_run_id"
+        ),
     )
 
 
@@ -280,7 +291,9 @@ def _validated_pre_pnl_authority(
         spec=spec,
     )
     if reconstructed.to_payload() != authority.to_payload():
-        raise ValueError("PRE-P&L cost authority does not match current Dataset evidence")
+        raise ValueError(
+            "PRE-P&L cost authority does not match current Dataset evidence"
+        )
     return reconstructed
 
 
@@ -307,8 +320,13 @@ class RidgeEconomicGateExecutionPublication:
         if not isinstance(self.result, RidgeEconomicGateEvaluation):
             raise TypeError("result must be a RidgeEconomicGateEvaluation")
         spec = canonical_ridge_economic_gate_evaluation_spec()
-        if self.result.spec_digest != spec.digest or self.result.dataset_id != spec.dataset_id:
-            raise ValueError("execution result differs from sealed Issue #616 authority")
+        if (
+            self.result.spec_digest != spec.digest
+            or self.result.dataset_id != spec.dataset_id
+        ):
+            raise ValueError(
+                "execution result differs from sealed Issue #616 authority"
+            )
 
     def to_payload(self) -> dict[str, object]:
         spec = canonical_ridge_economic_gate_evaluation_spec()

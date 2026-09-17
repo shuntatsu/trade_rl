@@ -1,0 +1,6 @@
+issue=630
+prior_failed_run=35213806759
+prior_artifact_count=0
+implementation_sha256=746d639ae4306d01c0765013d4f45882a419ceae3abf64e96ab0387d049d5d85
+seal_sha256=82f931041be3a2b7aeedd85e1bc3b6ae683365af2ae28d6d3adb60ac0103231a
+shared_cash_economic_execution_authorized=false

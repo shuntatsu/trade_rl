@@ -1,0 +1,94 @@
+name: tmp Issue 630 evidence hardening RED v3
+
+on:
+  push:
+    branches:
+      - verify/issue630-evidence-hardening-red-v3
+    paths:
+      - .github/workflows/tmp-issue630-evidence-hardening-red-v3.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET: e0470b4e04fc16c14391e4cc327e27e1d612edc7
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Create result-blind evidence counterexamples
+        shell: bash
+        run: |
+          cat > /tmp/test_issue630_evidence_red_v3.py <<'PY'
+          from dataclasses import replace
+          import numpy as np
+          import pytest
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import (
+              RidgeSharedCashArmEvidence,
+              canonical_ridge_shared_cash_evaluation_spec,
+              shared_cash_return_sha256,
+              shared_cash_status,
+          )
+
+          def arm(name: str, values: tuple[float, ...], years=((2023, 0.02), (2024, 0.02))):
+              total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)
+              return RidgeSharedCashArmEvidence(
+                  arm=name,
+                  returns=values,
+                  return_sha256=shared_cash_return_sha256(values),
+                  total_return=total,
+                  calendar_year_returns=years,
+                  total_cost=10.0 if name == "baseline" else 5.0,
+                  turnover_total=4.0 if name == "baseline" else 2.0,
+                  max_drawdown=0.20 if name == "baseline" else 0.10,
+                  termination_count=0,
+                  termination_reasons=(),
+                  n_periods=len(values),
+              )
+
+          def test_full_window_period_authority_is_frozen():
+              spec = canonical_ridge_shared_cash_evaluation_spec()
+              assert spec.expected_n_periods == 17_544
+              assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))
+
+          def test_short_two_period_path_cannot_qualify():
+              baseline = arm("baseline", (0.01, 0.01), ((2023, 0.01), (2024, 0.01)))
+              candidate = arm("candidate", (0.02, 0.02))
+              assert shared_cash_status(baseline, candidate) == "STOP_BEFORE_UNUSED_VALIDATION"
+
+          def test_calendar_year_evidence_cannot_be_rewritten():
+              candidate = arm("candidate", (0.02, 0.02))
+              with pytest.raises(ValueError, match="calendar-year"):
+                  replace(candidate, calendar_year_returns=((2023, 0.99), (2024, 0.02)))
+
+          def test_bool_cost_alias_is_rejected():
+              candidate = arm("candidate", (0.02, 0.02))
+              with pytest.raises(ValueError, match="finite"):
+                  replace(candidate, total_cost=True)
+          PY
+      - name: Confirm four semantic failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q /tmp/test_issue630_evidence_red_v3.py >/tmp/red.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -q '4 failed' /tmp/red.log
+          grep -q 'expected_n_periods' /tmp/red.log
+          grep -q 'QUALIFY_UNUSED_VALIDATION' /tmp/red.log
+          grep -q 'DID NOT RAISE' /tmp/red.log
+          echo ISSUE630_EVIDENCE_HARDENING_V3_RED=PASS

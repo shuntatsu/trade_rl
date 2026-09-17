@@ -262,11 +262,18 @@ class RidgeSharedCashProtocol:
             "evaluation_stop_exclusive",
         ):
             _require_aware(getattr(self, field_name), field=field_name)
-        if not self.fit_cutoff == self.evaluation_start < self.evaluation_stop_exclusive:
+        if (
+            not self.fit_cutoff
+            == self.evaluation_start
+            < self.evaluation_stop_exclusive
+        ):
             raise ValueError("preregistered research clock is invalid")
         if self.symbols != _SYMBOLS or self.fit_symbol_names != self.symbols:
             raise ValueError("preregistered symbol roster is invalid")
-        if self.feature_names != _FEATURE_NAMES or self.feature_indices != _FEATURE_INDICES:
+        if (
+            self.feature_names != _FEATURE_NAMES
+            or self.feature_indices != _FEATURE_INDICES
+        ):
             raise ValueError("preregistered feature roster is invalid")
         if self.calendar_years != (2023, 2024):
             raise ValueError("preregistered calendar-year robustness window is invalid")

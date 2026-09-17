@@ -39,6 +39,7 @@ trade_rl/
 │       ├── agg_trades.py
 │       ├── metadata.py
 │       ├── carry.py
+│       ├── forward.py
 │       └── dataset.py
 ├── risk/
 │   ├── inputs.py
@@ -109,6 +110,12 @@ and preserves GTC residuals; it does not convert a quantity hold to a newly size
 weight each hour. The existing BookState and stateful executor own all P&L.
 Futures collateral checks are a projection of that same book excluding spot
 assets, not an additional ledger. No live order connection is provided.
+
+`integrations/binance/forward.py` owns fresh public spot/perpetual evidence
+capture. It preserves exact raw response bytes, request/receipt timing and
+hashes, validates clock/depth/settlement schemas and publishes a source-eligible
+snapshot only when all required responses pass. It does not simulate fills or
+own a paper account. The bounded Binance transport remains the HTTP owner.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

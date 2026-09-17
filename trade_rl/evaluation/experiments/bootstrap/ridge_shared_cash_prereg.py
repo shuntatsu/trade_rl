@@ -11,7 +11,7 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 
-_SCHEMA_VERSION = "ridge_shared_cash_prereg_v2"
+_SCHEMA_VERSION = "ridge_shared_cash_prereg_v3"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _FEATURE_NAMES = (
     "1h__log_return_1bar",
@@ -62,6 +62,7 @@ _CANONICAL_FIELD_VALUES: dict[str, object] = {
     "successor_dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
     "successor_study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
     "execution_overlay": "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity",
+    "execution_max_leverage": 1.0,
     "cost_authority_run_id": 35200841490,
     "cost_authority_artifact_id": 10488425531,
     "cost_authority_digest": "bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04",
@@ -201,6 +202,7 @@ class RidgeSharedCashProtocol:
     successor_dataset_artifact_digest: str
     successor_study_digest: str
     execution_overlay: str
+    execution_max_leverage: float
     cost_authority_run_id: int
     cost_authority_artifact_id: int
     cost_authority_digest: str
@@ -285,6 +287,7 @@ class RidgeSharedCashProtocol:
             "forecast_entry_threshold",
             "forecast_exit_threshold",
             "one_way_explicit_cost",
+            "execution_max_leverage",
             "initial_capital",
             "per_intent_gross_budget",
             "portfolio_max_gross",
@@ -295,8 +298,12 @@ class RidgeSharedCashProtocol:
             resolved = _require_finite(getattr(self, field_name), field=field_name)
             if resolved < 0.0:
                 raise ValueError(f"{field_name} must be non-negative")
-        if self.ridge_alpha <= 0.0 or self.initial_capital <= 0.0:
-            raise ValueError("preregistered model/capital values are invalid")
+        if (
+            self.ridge_alpha <= 0.0
+            or self.execution_max_leverage <= 0.0
+            or self.initial_capital <= 0.0
+        ):
+            raise ValueError("preregistered model/execution/capital values are invalid")
         if self.forecast_entry_threshold <= self.forecast_exit_threshold:
             raise ValueError("preregistered forecast thresholds are invalid")
         if self.portfolio_max_turnover is not None:
@@ -441,6 +448,7 @@ def load_ridge_shared_cash_protocol(path: str | Path) -> RidgeSharedCashProtocol
         "forecast_entry_threshold",
         "forecast_exit_threshold",
         "one_way_explicit_cost",
+        "execution_max_leverage",
         "initial_capital",
         "per_intent_gross_budget",
         "portfolio_max_gross",

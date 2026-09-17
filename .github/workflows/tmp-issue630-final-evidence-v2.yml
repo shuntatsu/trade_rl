@@ -1,0 +1,164 @@
+name: tmp Issue 630 final evidence v2 verification
+
+on:
+  push:
+    branches:
+      - verify/issue630-final-evidence-v2
+    paths:
+      - .github/workflows/tmp-issue630-final-evidence-v2.yml
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  TARGET: d1bf25fd66834289ffddb36063b0d5cef649f444
+  BASE: d18434799651cfc6c07e0840c40600dcf1dfa763
+
+jobs:
+  core:
+    name: Exact Lean Core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact head and durable scope proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET"
+          git cat-file -e "$BASE^{commit}"
+          test -z "$(git status --porcelain)"
+          git diff --check "$BASE...$TARGET"
+          mapfile -t changed < <(git diff --name-only "$BASE...$TARGET")
+          test "${#changed[@]}" -eq 10
+          printf '%s\n' "${changed[@]}" | sort > /tmp/changed
+          printf '%s\n' \
+            tests/architecture/test_runs_capability_facade.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py \
+            trade_rl/evaluation/runs/__init__.py \
+            trade_rl/evaluation/runs/execute.py \
+            trade_rl/strategies/forecasts/ridge_economic_gate.py | sort > /tmp/expected
+          cmp /tmp/expected /tmp/changed
+          ! grep -q '^\.github/workflows/' /tmp/changed
+          ! grep -E '\.(json|csv|parquet|npz|pkl|zip)$' /tmp/changed
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests
+      - run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import canonical_ridge_shared_cash_evaluation_spec
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          spec = canonical_ridge_shared_cash_evaluation_spec()
+          protocol = canonical_ridge_shared_cash_protocol()
+          assert protocol.schema_version == "ridge_shared_cash_prereg_v3"
+          assert spec.execution_max_leverage == 1.0
+          assert spec.expected_n_periods == 17_544
+          assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))
+          PY
+
+  guide:
+    name: Exact Human Guide
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      GUIDE_SOURCE_REV: d1bf25fd66834289ffddb36063b0d5cef649f444
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e
+
+  main-compatibility:
+    name: Current Main Compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Merge current main without commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET"
+          git fetch origin main
+          git -c user.name=verification -c user.email=verification@example.invalid merge --no-commit --no-ff origin/main
+          git diff --check
+          test -z "$(git diff --name-only --diff-filter=U)"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run pytest -q tests
+      - run: uv build

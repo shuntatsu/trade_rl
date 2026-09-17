@@ -112,7 +112,9 @@ def test_prepare_fails_runtime_preflight_before_source_or_output_side_effects(
     monkeypatch.setattr(
         directional_study, "validate_required_runtime", fail_runtime, raising=False
     )
-    monkeypatch.setattr(directional_study, "load_market_dataset_artifact", forbidden_load)
+    monkeypatch.setattr(
+        directional_study, "load_market_dataset_artifact", forbidden_load
+    )
     output = tmp_path / "study"
     with pytest.raises(RuntimeError, match="stable-baselines3"):
         directional_study.prepare_study(tmp_path / "source", output)

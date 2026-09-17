@@ -1,0 +1,30 @@
+name: tmp Issue 641 helper format diff
+
+on:
+  push:
+    branches:
+      - research/issue641-directional-runtime-activation
+    paths:
+      - .github/workflows/tmp-issue641-helper-format-diff.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format-diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 0f6c2db6746ca831ec8d348f1715eceacf4c19fa
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Show formatter-owned patch only
+        run: |
+          set -euo pipefail
+          uv run ruff format .github/scripts/issue640_directional_activation.py
+          git diff -- .github/scripts/issue640_directional_activation.py

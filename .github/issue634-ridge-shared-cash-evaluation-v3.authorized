@@ -1,0 +1,3 @@
+Issue 634 v3 recovery authorization.
+Prior runs 35215537166 and 35215820350 both failed in result-blind preflight before publisher execution and produced zero artifacts.
+This authorization preserves the same fixed result/fresh/decision artifact slots and the same sealed evaluator/protocol authorities.

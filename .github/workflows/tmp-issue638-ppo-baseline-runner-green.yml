@@ -6,6 +6,8 @@ on:
       - prepare/issue638-ppo-sequential-baseline-v1
     paths:
       - .github/workflows/tmp-issue638-ppo-baseline-runner-green.yml
+      - .github/scripts/issue638_ppo_baseline_runner.py
+      - tests/tools/test_issue638_ppo_baseline_runner.py
 
 permissions:
   contents: read

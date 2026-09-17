@@ -1,0 +1,85 @@
+name: tmp Issue 632 constructor hardening
+
+on:
+  push:
+    branches:
+      - automation/issue632-constructor-hardening
+    paths:
+      - .github/workflows/tmp-issue632-constructor-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue632-ppo-interleaved-evaluator-impl
+          fetch-depth: 0
+      - name: Guard exact research head
+        run: test "$(git rev-parse HEAD)" = 221858f189cad7e9bc908382efd69b87e2108221
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add permanent RED oracle and minimal strict validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin verify/issue632-constructor-type-red
+          git show FETCH_HEAD:tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py > tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py')
+          text = path.read_text()
+          old = '''def return_path_sha256(values: object) -> str:\n    \"\"\"Hash one exact one-dimensional float64 return path.\"\"\"\n\n    array = np.asarray(values, dtype=np.float64)\n    if array.ndim != 1:\n        raise ValueError(\"return path must be one-dimensional\")\n    if not np.isfinite(array).all():\n        raise ValueError(\"return path values must be finite\")\n    if array.size == 0:\n        raise ValueError(\"return path must not be empty\")\n    if np.any(array <= -1.0):\n        raise ValueError(\"return path values must be greater than -1\")\n    little_endian = np.asarray(array, dtype=\"<f8\")\n'''
+          new = '''def _strict_return_values(values: object) -> tuple[float, ...]:\n    raw = np.asarray(values, dtype=object)\n    if raw.ndim != 1:\n        raise ValueError(\"returns must be one-dimensional\")\n    normalized: list[float] = []\n    for value in raw.tolist():\n        if isinstance(value, (bool, np.bool_)) or not isinstance(\n            value, (int, float, np.integer, np.floating)\n        ):\n            raise ValueError(\"returns must contain only real numeric values\")\n        number = float(value)\n        if not math.isfinite(number):\n            raise ValueError(\"return path values must be finite\")\n        normalized.append(number)\n    if not normalized:\n        raise ValueError(\"return path must not be empty\")\n    if any(value <= -1.0 for value in normalized):\n        raise ValueError(\"return path values must be greater than -1\")\n    return tuple(normalized)\n\n\ndef return_path_sha256(values: object) -> str:\n    \"\"\"Hash one exact one-dimensional float64 return path.\"\"\"\n\n    normalized = _strict_return_values(values)\n    array = np.asarray(normalized, dtype=np.float64)\n    little_endian = np.asarray(array, dtype=\"<f8\")\n'''
+          if old not in text:
+              raise SystemExit('return_path_sha256 patch anchor drift')
+          text = text.replace(old, new, 1)
+          old = '        normalized = tuple(float(value) for value in self.returns)\n'
+          new = '        normalized = _strict_return_values(self.returns)\n'
+          if old not in text:
+              raise SystemExit('path evidence normalization anchor drift')
+          text = text.replace(old, new, 1)
+          old = '''        if self.training_layout != expected_layout:\n            raise ValueError(\"training_layout differs from sealed arm authority\")\n        if self.rollout_steps_per_env != expected_rollout:\n            raise ValueError(\"rollout_steps_per_env differs from sealed arm authority\")\n        if self.caller_total_timesteps != spec.ppo_total_timesteps:\n            raise ValueError(\"caller_total_timesteps differs from sealed authority\")\n'''
+          new = '''        if type(self.training_layout) is not str or self.training_layout != expected_layout:\n            raise ValueError(\"training_layout differs from sealed arm authority\")\n        if (\n            type(self.rollout_steps_per_env) is not type(expected_rollout)\n            or self.rollout_steps_per_env != expected_rollout\n        ):\n            raise ValueError(\"rollout_steps_per_env differs from sealed arm authority\")\n        if (\n            type(self.caller_total_timesteps) is not int\n            or self.caller_total_timesteps != spec.ppo_total_timesteps\n        ):\n            raise ValueError(\"caller_total_timesteps differs from sealed authority\")\n'''
+          if old not in text:
+              raise SystemExit('seed evidence authority anchor drift')
+          path.write_text(text)
+          PY
+          uv run ruff format \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+      - name: Focused GREEN and regression
+        run: |
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          uv run pytest -q \
+            tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg.py \
+            tests/evaluation/experiments/test_ppo_interleaved_evaluation_prereg_hardening.py \
+            tests/strategies/test_ppo_interleaved_training.py \
+            tests/architecture/test_runs_capability_facade.py
+      - name: Commit durable hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse refs/remotes/origin/research/issue632-ppo-interleaved-evaluator-impl)" = 221858f189cad7e9bc908382efd69b87e2108221
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            trade_rl/evaluation/experiments/ppo_interleaved_evaluation.py \
+            tests/evaluation/experiments/test_ppo_interleaved_direct_constructor_hardening.py
+          git commit -m "research: harden PPO evidence constructor types"
+          git push origin HEAD:research/issue632-ppo-interleaved-evaluator-impl

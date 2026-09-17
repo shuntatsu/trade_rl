@@ -1,0 +1,58 @@
+name: Verify Issue 645 rebind GREEN v1
+on:
+  push:
+    branches:
+      - verify/issue645-rebind-green-v1
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 928ee0886c404cdbb1383f440f731d7221c277ef
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static affected surface
+        run: |
+          uv run ruff check trade_rl/evaluation/directional_study.py trade_rl/simulation tests/evaluation/test_directional_study.py tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py tests/architecture/test_lean_simulation_layout.py
+          uv run ruff format --check trade_rl/evaluation/directional_study.py trade_rl/simulation tests/evaluation/test_directional_study.py tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py tests/architecture/test_lean_simulation_layout.py
+          uv run mypy trade_rl
+      - name: Rebind and accounting GREEN
+        run: uv run pytest -q tests/evaluation/test_directional_study.py tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py tests/architecture/test_lean_simulation_layout.py
+      - name: Prove production scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin c80652a126780580990bf46bb206155ba469e043
+          changed="$(git diff --name-only c80652a126780580990bf46bb206155ba469e043 928ee0886c404cdbb1383f440f731d7221c277ef -- 'trade_rl/**/*.py' 'trade_rl/*.py' | sort)"
+          expected="$(printf '%s\n'             trade_rl/evaluation/directional_study.py             trade_rl/simulation/accounting.py             trade_rl/simulation/execution.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/orders/admission.py             trade_rl/simulation/orders/model.py             trade_rl/simulation/quantities.py             trade_rl/simulation/stateful/symbol_fills.py | sort)"
+          test "$changed" = "$expected"
+          diff="$(git diff --unified=0 c80652a126780580990bf46bb206155ba469e043 928ee0886c404cdbb1383f440f731d7221c277ef -- trade_rl/evaluation/directional_study.py)"
+          test "$(grep -c '^[-+]_OFFICIAL_REF_NAME\|issue64[05]-corrected-directional-study-v1\|issue640-directional-study-v1' <<<"$diff")" -ge 2
+          ! grep -E 'maximum_drawdown|deleveraging_start|per_symbol_gross|account_gross|ppo_timesteps|stresses|ranking|screen' <<<"$diff"
+  guide:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 928ee0886c404cdbb1383f440f731d7221c277ef
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - name: Guide source contract
+        working-directory: guide
+        env:
+          GUIDE_SOURCE_REV: 928ee0886c404cdbb1383f440f731d7221c277ef
+        run: npm run source-check

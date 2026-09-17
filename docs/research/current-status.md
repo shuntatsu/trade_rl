@@ -82,9 +82,23 @@ when payment evidence arrives after an exit. Revisions, late/missing funding and
 observation gaps remain visible permanent quality failures. A standalone
 source/runtime-bound collection component now seals its identity before start,
 refreshes public rules, supervises pending decisions and durably halts on failures
-or interrupted cycles. The cadence CLI, prospective economic protocol and final
-gate remain unimplemented. These software tests have not started prospective
-paper positions.
+or interrupted cycles. The independent real-public-data supervisor smoke executed
+four entry and four exit fills, reopened identically and reconciled to exact zero
+quantities. Final cash was 9987.8435571 from 10000 virtual USDT, fees 7.4208051,
+and funding income zero. This brief software check demonstrates execution costs,
+not profitability. Its earlier helper-error attempt is preserved as failed.
+
+The cadence CLI and fixed prospective screen now support seal/run/status/evaluate.
+The screen lasts ninety UTC days with three thirty-day blocks and unchanged
+10000 virtual USDT/default cost assumptions. It requires positive full-period
+and each-block returns, net profit above recorded fees, drawdown below 10%,
+funding receipts in every block, no unpaid announced settlement, complete
+source/control evidence and actual terminal flatness. Fee headroom is assessed
+on the realized trajectory, not a separate doubled-fee strategy replay. Minute
+observations cannot guarantee intraminute risk. Status output is operational;
+only full offline replay at the fixed deadline may decide the paper screen.
+No formal prospective study has yet been sealed or started, and no future profit
+or deployment qualification has been established.
 
 ### Directional development study under a 20% drawdown budget
 

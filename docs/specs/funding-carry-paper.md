@@ -198,3 +198,39 @@ grace window is 180 seconds after the frozen close time, to capture delayed
 settlements and attempt actual exits; it is not permission to extend a failing
 study until profit appears. Future minimum duration and economic thresholds
 still require a separately frozen prospective protocol before positions start.
+
+### Fixed prospective screen and operator commands
+
+The first economic screen will be ninety consecutive UTC days, with three fixed
+thirty-day blocks. Seal at least five minutes before start, use 10,000 virtual
+USDT and the existing fixed fees, depth fraction, gross exposure and 10% stop.
+The user research ceiling remains 20%; the strategy's stricter stop is retained.
+Cash with zero interest is the declared comparison. This is a development paper
+screen, not proof of optimal returns or authorization for live deployment.
+
+Require positive net profit after actual simulated exits, positive marked equity
+change in every block, and total net profit greater than recorded fees. The last
+condition is fee headroom at the realized trajectory, not a recomputed doubled-fee
+strategy. Block boundaries use the last causal observation, no more than 180
+seconds before the boundary. The last block includes terminal exit costs.
+Require observed maximum drawdown below 10%, no quality failures or nonterminal
+stop, at least one nonzero funding receipt in each block, no unpaid announced
+funding for a previously held position, actual zero quantities and no pending
+intent. Minute sampling is not an intraminute drawdown or liquidity guarantee.
+
+Do not qualify before close plus the fixed 180-second grace. Require observations
+from within 180 seconds of start through at least close plus 120 seconds, with
+no gap over 180 seconds. Audit the externally supplied final event tip, every
+raw source consumed by replay, every completed collection cycle, and the exact
+source-directory roster. Failed, unfinished or unconsumed captures reject the
+screen. A positive short probe or altered duration/settings cannot qualify.
+
+Expose `python -m trade_rl.evaluation.paper.cli` with `seal`, `run`, `status`
+and `evaluate`. `run` follows fixed 60-second slots without catch-up quote reuse
+and stops at the frozen grace deadline. A permanently failed screen may stop
+early once actual exits have made it flat. An error halts; there is no retry loop.
+`status` reports journal-chain-checked operational progress and explicitly does
+not claim financial replay validation. `evaluate` excludes a running collector,
+checks source/runtime, rebuilds the account and applies the frozen screen to the
+externally pinned protocol and final tip. A passed paper screen always retains
+`production_eligible=false`. Failure evidence and unresolved positions survive.

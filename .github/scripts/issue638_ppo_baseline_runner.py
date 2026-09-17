@@ -77,6 +77,7 @@ STUDY_DIGEST = "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820
 BASELINE_SEEDS = (0, 1, 2, 3, 4)
 RESULT_PREFIX = "issue638-ppo-sequential-baseline-seed-"
 FRESH_PREFIX = "issue638-ppo-sequential-baseline-fresh-seed-"
+ACTIVATION_PREFIX = "issue638-ppo-sequential-baseline-activation-seed-"
 
 Evaluator = Callable[..., Any]
 
@@ -270,10 +271,82 @@ def _fresh_name(seed: int) -> str:
     return f"{FRESH_PREFIX}{seed}-v1"
 
 
+def _activation_name(seed: int) -> str:
+    return f"{ACTIVATION_PREFIX}{seed}-v1"
+
+
+def _validate_sha40(value: object, *, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 40
+        or value != value.lower()
+        or any(ch not in "0123456789abcdef" for ch in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase 40-character git SHA")
+    return value
+
+
+def activation_claim_bytes(
+    *,
+    seed: object,
+    run_id: object,
+    run_attempt: object,
+    helper_head: object,
+    helper_blob_sha: object,
+) -> bytes:
+    canonical_seed = _validate_seed(seed)
+    if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id <= 0:
+        raise ValueError("run_id must be a positive integer")
+    if type(run_attempt) is not int or run_attempt != 1:
+        raise ValueError("run_attempt must be exactly 1")
+    canonical_head = _validate_sha40(helper_head, label="helper_head")
+    canonical_blob = _validate_sha40(helper_blob_sha, label="helper_blob_sha")
+    return _canonical(
+        {
+            "schema_version": "issue638_ppo_sequential_baseline_activation_v1",
+            "issue_number": ISSUE_NUMBER,
+            "seed": canonical_seed,
+            "workflow_run_id": run_id,
+            "workflow_run_attempt": run_attempt,
+            "helper_head": canonical_head,
+            "helper_blob_sha": canonical_blob,
+            "arm": "baseline",
+            "training_layout": "sequential",
+            "rollout_steps_per_env": None,
+            "caller_total_timesteps": 100_000,
+            "evaluator_started_at_claim": False,
+            "real_dataset_loaded_at_claim": False,
+            "result_artifact_published_at_claim": False,
+            "candidate_training_authorized": False,
+            "economic_result_interpreted": False,
+            "final_test_accessed": False,
+            "production_eligible": False,
+            "live_trading_authorized": False,
+            "merge_authorized": False,
+        }
+    )
+
+
+def _validate_slot_state(
+    *, slot: str, activation_count: int, result_count: int, fresh_count: int
+) -> None:
+    if slot not in {"empty", "claimed", "published"}:
+        raise ValueError("slot must be empty, claimed, or published")
+    counts = (activation_count, result_count, fresh_count)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in counts
+    ):
+        raise SystemExit("Issue 638 Artifact slot counts are invalid")
+    expected = {"empty": (0, 0, 0), "claimed": (1, 0, 0), "published": (1, 1, 0)}[slot]
+    if counts != expected:
+        raise SystemExit(f"Issue 638 seed Artifact slot state differs from {slot}")
+
+
 def authority_check(*, seed: object, slot: str) -> None:
     canonical_seed = _validate_seed(seed)
-    if slot not in {"empty", "published"}:
-        raise ValueError("slot must be empty or published")
+    if slot not in {"empty", "claimed", "published"}:
+        raise ValueError("slot must be empty, claimed, or published")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     if head != EVALUATOR_HEAD:
         raise SystemExit("exact Issue 632 evaluator HEAD drift")
@@ -388,14 +461,15 @@ def authority_check(*, seed: object, slot: str) -> None:
     ):
         _assert_artifact(args[0], name=args[1], digest=args[2], run_id=args[3])
 
+    activation_count = _artifact_count(_activation_name(canonical_seed))
     result_count = _artifact_count(_result_name(canonical_seed))
     fresh_count = _artifact_count(_fresh_name(canonical_seed))
-    if slot == "empty" and (result_count != 0 or fresh_count != 0):
-        raise SystemExit("Issue 638 seed Artifact slot is already consumed")
-    if slot == "published" and (result_count != 1 or fresh_count != 0):
-        raise SystemExit(
-            "Issue 638 fresh verification requires exactly one seed result"
-        )
+    _validate_slot_state(
+        slot=slot,
+        activation_count=activation_count,
+        result_count=result_count,
+        fresh_count=fresh_count,
+    )
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -473,7 +547,7 @@ def publish_seed(
     output: Path,
 ) -> None:
     canonical_seed = _validate_seed(seed)
-    authority_check(seed=canonical_seed, slot="empty")
+    authority_check(seed=canonical_seed, slot="claimed")
     dataset = _validate_downloaded_authorities(
         successor=successor,
         evaluator_primary=evaluator_primary,
@@ -524,6 +598,34 @@ def publish_seed(
     print(f"EVIDENCE_SHA256={evidence_sha}")
     print("CANDIDATE_TRAINING_AUTHORIZED=false")
     print("ECONOMIC_RESULT_INTERPRETED=false")
+
+
+def claim_seed(
+    *,
+    seed: object,
+    run_id: object,
+    run_attempt: object,
+    helper_head: object,
+    helper_blob_sha: object,
+    output: Path,
+) -> None:
+    canonical_seed = _validate_seed(seed)
+    authority_check(seed=canonical_seed, slot="empty")
+    raw = activation_claim_bytes(
+        seed=canonical_seed,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        helper_head=helper_head,
+        helper_blob_sha=helper_blob_sha,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise FileExistsError(output)
+    output.write_bytes(raw)
+    print(f"ISSUE638_BASELINE_SEED_{canonical_seed}_ACTIVATION_CLAIM_WRITTEN=true")
+    print("REAL_DATASET_LOADED=false")
+    print("PPO_TRAINING_PERFORMED=false")
+    print("CANDIDATE_TRAINING_AUTHORIZED=false")
 
 
 def verify_seed(*, seed: object, published: Path, output: Path) -> None:
@@ -606,7 +708,17 @@ def main() -> None:
 
     authority = subparsers.add_parser("authority-check")
     authority.add_argument("--seed", type=int, required=True)
-    authority.add_argument("--slot", choices=("empty", "published"), required=True)
+    authority.add_argument(
+        "--slot", choices=("empty", "claimed", "published"), required=True
+    )
+
+    claim = subparsers.add_parser("claim-seed")
+    claim.add_argument("--seed", type=int, required=True)
+    claim.add_argument("--run-id", type=int, required=True)
+    claim.add_argument("--run-attempt", type=int, required=True)
+    claim.add_argument("--helper-head", required=True)
+    claim.add_argument("--helper-blob-sha", required=True)
+    claim.add_argument("--output", type=Path, required=True)
 
     publish = subparsers.add_parser("publish-seed")
     publish.add_argument("--seed", type=int, required=True)
@@ -623,6 +735,15 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "authority-check":
         authority_check(seed=args.seed, slot=args.slot)
+    elif args.command == "claim-seed":
+        claim_seed(
+            seed=args.seed,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
+            helper_head=args.helper_head,
+            helper_blob_sha=args.helper_blob_sha,
+            output=args.output,
+        )
     elif args.command == "publish-seed":
         publish_seed(
             seed=args.seed,

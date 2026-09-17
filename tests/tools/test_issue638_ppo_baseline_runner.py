@@ -169,7 +169,9 @@ def test_activation_claim_rejects_non_first_or_ambiguous_lineage(
         )
 
 
-def test_slot_state_consumes_activation_before_training_and_blocks_reactivation() -> None:
+def test_slot_state_consumes_activation_before_training_and_blocks_reactivation() -> (
+    None
+):
     module = _load_runner()
     module._validate_slot_state(
         slot="empty", activation_count=0, result_count=0, fresh_count=0

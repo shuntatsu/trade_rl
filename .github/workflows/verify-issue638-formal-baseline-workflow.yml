@@ -1,0 +1,140 @@
+name: Verify dormant Issue 638 formal baseline workflow
+
+on:
+  push:
+    branches:
+      - verify/issue638-formal-baseline-workflow
+    paths:
+      - .github/workflows/verify-issue638-formal-baseline-workflow.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+env:
+  FORMAL_SHA: 4059da588447bbf9dccda7a1deb07e07bcefd64a
+  HELPER_SHA: 6356e7ca72fa94fd91b99d903db6d907d32914c6
+  HELPER_VERIFY_RUN: '35232261934'
+  EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact dormant formal definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.FORMAL_SHA }}
+          path: formal
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout exact verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_SHA }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EVALUATOR_SHA }}
+          path: impl
+          persist-credentials: false
+      - name: Prove formal branch is dormant and one-file-only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C formal rev-parse HEAD)" = "$FORMAL_SHA"
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C impl rev-parse HEAD)" = "$EVALUATOR_SHA"
+          python - <<'PY'
+          import subprocess
+          out = subprocess.check_output(
+              ['git','-C','formal','diff','--name-only','6356e7ca72fa94fd91b99d903db6d907d32914c6...4059da588447bbf9dccda7a1deb07e07bcefd64a'],
+              text=True,
+          ).splitlines()
+          expected = ['.github/workflows/issue638-ppo-sequential-baseline-v1.yml']
+          if out != expected:
+              raise SystemExit(f'formal workflow scope drift: {out!r}')
+          PY
+          test ! -e formal/.github/authorizations/issue638-ppo-sequential-baseline-v1.authorized
+          runs="$(gh api 'repos/'$GITHUB_REPOSITORY'/actions/runs?branch=run%2Fissue638-ppo-sequential-baseline-v1&per_page=100')"
+          test "$(jq -r .total_count <<<"$runs")" = 0
+          verify="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN)"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          echo ISSUE638_FORMAL_WORKFLOW_DORMANT=true
+      - name: Static workflow contract audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('formal/.github/workflows/issue638-ppo-sequential-baseline-v1.yml')
+          text = path.read_text()
+          required = (
+              'run/issue638-ppo-sequential-baseline-v1',
+              '.github/authorizations/issue638-ppo-sequential-baseline-v1.authorized',
+              'HELPER_SHA: 6356e7ca72fa94fd91b99d903db6d907d32914c6',
+              'EVALUATOR_SHA: 97127952af3d01b71def695a4c8043eb301b2a33',
+              'seed: [0, 1, 2, 3, 4]',
+              'authority-check --seed "$seed" --slot empty',
+              'publish-seed',
+              'verify-seed',
+              'issue638-ppo-sequential-baseline-manifest-v1',
+              'CANDIDATE_TRAINING_AUTHORIZED=false',
+              "'candidate_training_authorized': False",
+              "'factor_decision_revealed': False",
+              'test "$GITHUB_RUN_NUMBER" = 1',
+              'test "$GITHUB_RUN_ATTEMPT" = 1',
+          )
+          missing = [item for item in required if item not in text]
+          if missing:
+              raise SystemExit(f'missing formal workflow contracts: {missing!r}')
+          forbidden = (
+              'workflow_dispatch:',
+              'arm="candidate"',
+              '--arm candidate',
+              'rollout_steps_per_env=384',
+              'candidate_training_authorized=true',
+          )
+          present = [item for item in forbidden if item in text]
+          if present:
+              raise SystemExit(f'forbidden candidate/activation surface: {present!r}')
+          if text.count('Train/evaluate exactly one sequential baseline seed without interpretation') != 1:
+              raise SystemExit('publisher execution step count drift')
+          print('ISSUE638_FORMAL_WORKFLOW_STATIC_CONTRACT=PASS')
+          PY
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install sealed evaluator runtime
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Re-run all five result-blind empty-slot authorities
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .github/scripts
+          cp ../helper/.github/scripts/issue638_ppo_baseline_runner.py .github/scripts/issue638_ppo_baseline_runner.py
+          for seed in 0 1 2 3 4; do
+            uv run python .github/scripts/issue638_ppo_baseline_runner.py authority-check --seed "$seed" --slot empty
+          done
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo CANDIDATE_TRAINING_AUTHORIZED=false
+      - name: Final no-mutation/no-data guard
+        run: |
+          rm -f impl/.github/scripts/issue638_ppo_baseline_runner.py
+          test -z "$(git -C formal status --porcelain)"
+          test -z "$(git -C helper status --porcelain)"
+          test -z "$(git -C impl status --porcelain)"

@@ -1,0 +1,181 @@
+name: tmp Issue 630 evidence hardening
+
+on:
+  push:
+    branches:
+      - automation/issue630-evidence-hardening
+    paths:
+      - .github/workflows/tmp-issue630-evidence-hardening.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue630-shared-cash-evaluator
+  EXPECTED_HEAD: 1e0e0e243f4e37b2fdf7ee7aa67500d04b43fa8c
+  EVAL: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+  FALSIFY: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add falsification contracts first
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          test = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py")
+          text = test.read_text()
+          needle = '''    assert spec.one_way_explicit_cost == 0.0007\n'''
+          extra = needle + '''    assert spec.expected_n_periods == 17_544\n    assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))\n'''
+          if text.count(needle) != 1:
+              raise SystemExit("spec assertion insertion drift")
+          text = text.replace(needle, extra)
+          old = '''    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    return RidgeSharedCashArmEvidence(\n'''
+          new = '''    original_total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    year_map = dict(year_returns)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = year_map[2023]\n    expanded[8_760] = year_map[2024]\n    expanded_values = tuple(float(value) for value in expanded)\n    expanded_total = float(np.prod(1.0 + expanded) - 1.0)\n    assert expanded_total == pytest.approx(original_total)\n    values = expanded_values\n    total = expanded_total\n    return RidgeSharedCashArmEvidence(\n'''
+          if text.count(old) != 1:
+              raise SystemExit("main arm helper insertion drift")
+          text = text.replace(old, new)
+          old = '''    assert result.status == "QUALIFY_UNUSED_VALIDATION"\n    assert result.baseline.n_periods == 731\n'''
+          new = '''    assert result.status == "STOP_BEFORE_UNUSED_VALIDATION"\n    assert result.baseline.n_periods == 731\n'''
+          if text.count(old) != 1:
+              raise SystemExit("short evaluator status insertion drift")
+          text = text.replace(old, new)
+          needle = '''    with pytest.raises(ValueError, match="total_return"):\n        replace(candidate, total_return=999.0)\n'''
+          extra = needle + '''    with pytest.raises(ValueError, match="calendar-year"):\n        replace(\n            candidate,\n            calendar_year_returns=((2023, 0.99), (2024, 0.02)),\n        )\n    with pytest.raises(ValueError, match="finite"):\n        replace(candidate, total_cost=True)\n'''
+          if text.count(needle) != 1:
+              raise SystemExit("adversarial main test insertion drift")
+          test.write_text(text.replace(needle, extra))
+
+          falsify = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py")
+          text = falsify.read_text()
+          old = '''    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    return RidgeSharedCashArmEvidence(\n'''
+          new = '''    original_total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    year_map = dict(year_returns)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = year_map[2023]\n    expanded[8_760] = year_map[2024]\n    expanded_values = tuple(float(value) for value in expanded)\n    expanded_total = float(np.prod(1.0 + expanded) - 1.0)\n    assert expanded_total == pytest.approx(original_total)\n    values = expanded_values\n    total = expanded_total\n    return RidgeSharedCashArmEvidence(\n'''
+          if text.count(old) != 1:
+              raise SystemExit("falsification arm helper insertion drift")
+          text = text.replace(old, new)
+          anchor = '''def _baseline() -> RidgeSharedCashArmEvidence:\n'''
+          short_helper = '''def _short_arm(\n    name: str,\n    values: tuple[float, ...],\n    *,\n    year_returns: tuple[tuple[int, float], ...] = ((2023, 0.02), (2024, 0.02)),\n) -> RidgeSharedCashArmEvidence:\n    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=total,\n        calendar_year_returns=year_returns,\n        total_cost=5.0,\n        turnover_total=2.0,\n        max_drawdown=0.10,\n        termination_count=0,\n        termination_reasons=(),\n        n_periods=len(values),\n    )\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("short helper anchor drift")
+          text = text.replace(anchor, short_helper + anchor)
+          replacements = {
+              'candidate = _arm("candidate", (-0.01, -0.01))': 'candidate = _arm(\n            "candidate",\n            (-0.01, -0.01),\n            year_returns=((2023, -0.01), (2024, -0.01)),\n        )',
+              'candidate = _arm("candidate", (0.005, 0.005))': 'candidate = _arm(\n            "candidate",\n            (0.005, 0.005),\n            year_returns=((2023, 0.005), (2024, 0.005)),\n        )',
+              '''candidate = replace(\n            candidate,\n            calendar_year_returns=((2023, 0.0), (2024, 0.02)),\n        )''': '''candidate = _arm(\n            "candidate",\n            (0.0, 0.02),\n            year_returns=((2023, 0.0), (2024, 0.02)),\n        )''',
+              '''candidate = replace(\n            candidate,\n            calendar_year_returns=((2023, 0.02), (2024, 0.01)),\n        )''': '''candidate = _arm(\n            "candidate",\n            (0.02, 0.01),\n            year_returns=((2023, 0.02), (2024, 0.01)),\n        )''',
+              'candidate = _arm("candidate", (0.02,))': 'candidate = _short_arm("candidate", (0.02,))',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"falsification gate replacement drift: {old[:30]}")
+              text = text.replace(old, new)
+          anchor = '''def test_new_candidate_termination_multiset_count_forces_stop() -> None:\n'''
+          extra_tests = '''def test_full_window_calendar_year_evidence_cannot_be_tampered() -> None:\n    candidate = _candidate()\n    with pytest.raises(ValueError, match="calendar-year"):\n        replace(\n            candidate,\n            calendar_year_returns=((2023, 0.99), (2024, 0.02)),\n        )\n\n\ndef test_bool_numeric_alias_is_rejected() -> None:\n    candidate = _candidate()\n    with pytest.raises(ValueError, match="finite"):\n        replace(candidate, total_cost=True)\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("falsification test insertion anchor drift")
+          falsify.write_text(text.replace(anchor, extra_tests + anchor))
+          PY
+          uv run ruff check "$TEST" "$FALSIFY"
+          uv run ruff format "$TEST" "$FALSIFY"
+          uv run ruff format --check "$TEST" "$FALSIFY"
+      - name: Confirm genuine hardening RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q "$TEST" "$FALSIFY" >/tmp/red.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -E '(expected_n_periods|calendar-year|DID NOT RAISE)' /tmp/red.out >/dev/null
+          echo ISSUE630_EVIDENCE_HARDENING_RED=PASS
+      - name: Implement only evidence/window invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py")
+          text = path.read_text()
+          old = '''_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n_FEATURE_NAMES = (\n'''
+          new = '''_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n_CALENDAR_YEAR_PERIOD_COUNTS = ((2023, 8_760), (2024, 8_784))\n_EXPECTED_N_PERIODS = sum(count for _, count in _CALENDAR_YEAR_PERIOD_COUNTS)\n_FEATURE_NAMES = (\n'''
+          if text.count(old) != 1:
+              raise SystemExit("constant insertion drift")
+          text = text.replace(old, new)
+          old = '''    "calendar_years": (2023, 2024),\n    "unused_data_accessed": False,\n'''
+          new = '''    "calendar_years": (2023, 2024),\n    "calendar_year_period_counts": _CALENDAR_YEAR_PERIOD_COUNTS,\n    "expected_n_periods": _EXPECTED_N_PERIODS,\n    "unused_data_accessed": False,\n'''
+          if text.count(old) != 1:
+              raise SystemExit("spec values insertion drift")
+          text = text.replace(old, new)
+          old = '''    calendar_years: tuple[int, ...]\n    unused_data_accessed: bool\n'''
+          new = '''    calendar_years: tuple[int, ...]\n    calendar_year_period_counts: tuple[tuple[int, int], ...]\n    expected_n_periods: int\n    unused_data_accessed: bool\n'''
+          if text.count(old) != 1:
+              raise SystemExit("spec dataclass insertion drift")
+          text = text.replace(old, new)
+          old = '''    for year, value in values:\n        if isinstance(year, bool) or not isinstance(year, int):\n            raise ValueError("calendar-year evidence year must be an integer")\n        if not math.isfinite(value) or value <= -1.0:\n            raise ValueError("calendar-year return must be finite and greater than -1")\n    return values\n\n\n@dataclass(frozen=True, slots=True)\nclass RidgeSharedCashArmEvidence:\n'''
+          new = '''    for year, value in values:\n        if isinstance(year, bool) or not isinstance(year, int):\n            raise ValueError("calendar-year evidence year must be an integer")\n        if isinstance(value, bool) or not isinstance(value, (int, float)):\n            raise ValueError("calendar-year return must be finite and greater than -1")\n        if not math.isfinite(value) or value <= -1.0:\n            raise ValueError("calendar-year return must be finite and greater than -1")\n    return values\n\n\ndef _full_window_year_returns(\n    returns: tuple[float, ...],\n) -> tuple[tuple[int, float], ...]:\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    if len(returns) != spec.expected_n_periods:\n        raise ValueError("full-window return path has unexpected period count")\n    offset = 0\n    result: list[tuple[int, float]] = []\n    for year, count in spec.calendar_year_period_counts:\n        chunk = returns[offset : offset + count]\n        if len(chunk) != count:\n            raise ValueError("calendar-year return slice is incomplete")\n        result.append((year, compound_return(chunk)))\n        offset += count\n    if offset != len(returns):\n        raise ValueError("calendar-year period counts do not cover raw returns")\n    return tuple(result)\n\n\n@dataclass(frozen=True, slots=True)\nclass RidgeSharedCashArmEvidence:\n'''
+          if text.count(old) != 1:
+              raise SystemExit("year validation replacement drift")
+          text = text.replace(old, new)
+          old = '''        expected_sha = shared_cash_return_sha256(self.returns)\n        require_sha256(self.return_sha256, field="return_sha256")\n        if self.return_sha256 != expected_sha:\n            raise ValueError("return_sha256 does not match raw returns")\n        expected_total = compound_return(self.returns)\n        if not math.isfinite(self.total_return) or self.total_return != expected_total:\n            raise ValueError("total_return does not match raw returns")\n        _validate_year_returns(self.calendar_year_returns)\n        for field_name in ("total_cost", "turnover_total", "max_drawdown"):\n            value = getattr(self, field_name)\n            if not math.isfinite(value) or value < 0.0:\n                raise ValueError(f"{field_name} must be finite and non-negative")\n'''
+          new = '''        if any(\n            isinstance(value, bool) or not isinstance(value, (int, float))\n            for value in self.returns\n        ):\n            raise ValueError("raw returns must contain finite numeric values")\n        expected_sha = shared_cash_return_sha256(self.returns)\n        require_sha256(self.return_sha256, field="return_sha256")\n        if self.return_sha256 != expected_sha:\n            raise ValueError("return_sha256 does not match raw returns")\n        expected_total = compound_return(self.returns)\n        if (\n            isinstance(self.total_return, bool)\n            or not isinstance(self.total_return, (int, float))\n            or not math.isfinite(self.total_return)\n            or self.total_return != expected_total\n        ):\n            raise ValueError("total_return does not match raw returns")\n        _validate_year_returns(self.calendar_year_returns)\n        spec = canonical_ridge_shared_cash_evaluation_spec()\n        if self.n_periods == spec.expected_n_periods:\n            expected_year_returns = _full_window_year_returns(self.returns)\n            if self.calendar_year_returns != expected_year_returns:\n                raise ValueError("calendar-year returns do not match raw returns")\n        for field_name in ("total_cost", "turnover_total", "max_drawdown"):\n            value = getattr(self, field_name)\n            if (\n                isinstance(value, bool)\n                or not isinstance(value, (int, float))\n                or not math.isfinite(value)\n                or value < 0.0\n            ):\n                raise ValueError(f"{field_name} must be finite and non-negative")\n'''
+          if text.count(old) != 1:
+              raise SystemExit("arm invariant replacement drift")
+          text = text.replace(old, new)
+          old = '''    if baseline.arm != "baseline" or candidate.arm != "candidate":\n        raise ValueError("shared-cash result arm roster is invalid")\n    if baseline.n_periods != candidate.n_periods:\n        return _STOP\n    baseline_years = dict(baseline.calendar_year_returns)\n    candidate_years = dict(candidate.calendar_year_returns)\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n'''
+          new = '''    if baseline.arm != "baseline" or candidate.arm != "candidate":\n        raise ValueError("shared-cash result arm roster is invalid")\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    if (\n        baseline.n_periods != candidate.n_periods\n        or baseline.n_periods != spec.expected_n_periods\n        or candidate.n_periods != spec.expected_n_periods\n    ):\n        return _STOP\n    baseline_years = dict(baseline.calendar_year_returns)\n    candidate_years = dict(candidate.calendar_year_returns)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("status period replacement drift")
+          text = text.replace(old, new)
+          old = '''        if self.baseline.n_periods != self.candidate.n_periods:\n            raise ValueError("period count differs between shared-cash arms")\n        expected_status = shared_cash_status(self.baseline, self.candidate)\n'''
+          new = '''        expected_status = shared_cash_status(self.baseline, self.candidate)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("result period replacement drift")
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff format "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff check "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff format --check "$EVAL" "$TEST" "$FALSIFY"
+          uv run mypy "$EVAL"
+          uv run pytest -q "$TEST" "$FALSIFY"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n%s\n' "$EVAL" "$TEST" "$FALSIFY" | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EVAL" "$TEST" "$FALSIFY"
+          git commit -m 'research: harden Issue 630 shared-cash evidence invariants'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

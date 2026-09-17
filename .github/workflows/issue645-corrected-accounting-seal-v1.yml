@@ -1,0 +1,182 @@
+name: Issue 645 corrected-accounting implementation seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue645-corrected-accounting-v1
+    paths:
+      - .github/workflows/issue645-corrected-accounting-seal-v1.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Seal harness static checks
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          uv run ruff check .github/scripts/issue645_build_implementation_seal.py
+          uv run ruff format --check .github/scripts/issue645_build_implementation_seal.py
+          uv run python -m py_compile .github/scripts/issue645_build_implementation_seal.py
+          echo DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+
+  primary:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: seal-src
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f93097e7747390dfc8dae1a866cf77351706c618
+          path: impl
+          persist-credentials: false
+      - name: Reconstruct primary authority
+        run: |
+          set -euo pipefail
+          git -C impl fetch --no-tags --depth=1 https://github.com/shuntatsu/trade_rl.git c80652a126780580990bf46bb206155ba469e043 95a4831bfbd5dfac2b77371b0c99d6894edc4d3a
+          python3 seal-src/.github/scripts/issue645_build_implementation_seal.py             --repo impl --output "$RUNNER_TEMP/authority"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-implementation-authority-primary
+          path: |
+            ${{ runner.temp }}/authority/manifest.json
+            ${{ runner.temp }}/authority/seal.json
+          if-no-files-found: error
+          retention-days: 90
+
+  fresh:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: seal-src
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f93097e7747390dfc8dae1a866cf77351706c618
+          path: impl
+          persist-credentials: false
+      - name: Independently reconstruct fresh authority
+        run: |
+          set -euo pipefail
+          git -C impl fetch --no-tags --depth=1 https://github.com/shuntatsu/trade_rl.git c80652a126780580990bf46bb206155ba469e043 95a4831bfbd5dfac2b77371b0c99d6894edc4d3a
+          python3 seal-src/.github/scripts/issue645_build_implementation_seal.py             --repo impl --output "$RUNNER_TEMP/authority"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-implementation-authority-fresh
+          path: |
+            ${{ runner.temp }}/authority/manifest.json
+            ${{ runner.temp }}/authority/seal.json
+          if-no-files-found: error
+          retention-days: 90
+
+  audit:
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: issue645-implementation-authority-primary
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: issue645-implementation-authority-fresh
+          path: fresh
+      - name: Audit byte identity and verification authority
+        run: |
+          set -euo pipefail
+          cmp primary/manifest.json fresh/manifest.json
+          cmp primary/seal.json fresh/seal.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          manifest_raw = Path("primary/manifest.json").read_bytes()
+          seal = json.loads(Path("primary/seal.json").read_bytes())
+          manifest = json.loads(manifest_raw)
+          assert hashlib.sha256(manifest_raw).hexdigest() == seal["manifest_sha256"]
+          assert manifest["implementation_head"] == "f93097e7747390dfc8dae1a866cf77351706c618"
+          assert manifest["base_head"] == "c80652a126780580990bf46bb206155ba469e043"
+          assert manifest["correction_source_head"] == "95a4831bfbd5dfac2b77371b0c99d6894edc4d3a"
+          for field in (
+              "dataset_loaded",
+              "model_fit_performed",
+              "economic_replay_performed",
+              "economic_result_inspected",
+              "unused_data_accessed",
+              "final_test_accessed",
+              "production_eligible",
+              "live_trading_authorized",
+          ):
+              assert manifest[field] is False
+
+          req = urllib.request.Request(
+              "https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/35287091550",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(req) as response:
+              run = json.load(response)
+          assert run["status"] == "completed"
+          assert run["conclusion"] == "success"
+          assert run["head_sha"] == "0acd3a8f3f5b7a5d6da9a7d9ef41d83d5a737b66"
+
+          audit = {
+              "schema_version": "issue645_corrected_accounting_implementation_audit_v1",
+              "implementation_head": manifest["implementation_head"],
+              "verification_run_id": 35287091550,
+              "manifest_sha256": seal["manifest_sha256"],
+              "primary_fresh_byte_identical": True,
+              "dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "economic_result_inspected": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          Path("audit.json").write_text(
+              json.dumps(audit, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          print("ISSUE645_IMPLEMENTATION_SEAL_AUDIT=PASS")
+          print(f"MANIFEST_SHA256={seal['manifest_sha256']}")
+          print("ECONOMIC_REPLAY_PERFORMED=false")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue645-implementation-authority-audit
+          path: audit.json
+          if-no-files-found: error
+          retention-days: 90

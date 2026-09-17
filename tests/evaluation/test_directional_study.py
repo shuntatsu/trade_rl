@@ -72,14 +72,21 @@ def test_required_runtime_rejects_missing_or_wrong_frozen_trainers(
         "torch": "2.4.1",
         "scikit-learn": "1.7.2",
     }
+    imported: list[str] = []
 
     def version(name: str) -> str:
         if name not in versions:
             raise directional_study.metadata.PackageNotFoundError(name)
         return versions[name]
 
+    def import_module(name: str) -> object:
+        imported.append(name)
+        return object()
+
     monkeypatch.setattr(directional_study.metadata, "version", version)
+    monkeypatch.setattr(directional_study.importlib, "import_module", import_module)
     assert directional_study.validate_required_runtime() == versions
+    assert imported == ["lightgbm", "stable_baselines3", "torch", "sklearn"]
 
     del versions["stable-baselines3"]
     with pytest.raises(RuntimeError, match="stable-baselines3"):

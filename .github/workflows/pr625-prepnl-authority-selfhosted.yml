@@ -1,4 +1,4 @@
-name: PR625 PRE-PnL Authority Format Preview
+name: PR625 PRE-PnL Authority Verification
 
 on:
   push:
@@ -9,14 +9,22 @@ permissions:
   contents: read
 
 jobs:
-  format-preview:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: b33379998f91c610c3e7efb7909be152760f5a10
+          ref: f9d2254b458ff4f69d0e48bce16b84790355a001
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Assert exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f9d2254b458ff4f69d0e48bce16b84790355a001"
+          test "$(git merge-base 75999e53c70224c31a62b106e4a8d2caa4b920ac HEAD)" = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -27,13 +35,55 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Show formatter delta
+      - name: Ruff
+        run: |
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+
+      - name: Format
+        run: |
+          uv run ruff format --check \
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Focused Issue 616 authority tests
+        run: |
+          uv run pytest -q \
+            tests/strategies/test_ridge_economic_gate.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+
+      - name: Full repository tests
+        run: uv run pytest -q tests
+
+      - name: Build
+        run: uv build
+
+      - name: Distribution closure
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff format \
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+
+      - name: Exact seven-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | sort)
+          expected=(
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-          git diff -- \
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+            tests/strategies/test_ridge_economic_gate.py
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py
+            trade_rl/strategies/forecasts/ridge_economic_gate.py
+          )
+          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${changed[*]}" = "${expected[*]}"
+          git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD

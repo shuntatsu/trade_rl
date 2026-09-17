@@ -6,6 +6,8 @@ on:
       - research/issue641-directional-runtime-activation
     paths:
       - .github/workflows/tmp-issue641-directional-runtime-green.yml
+      - trade_rl/evaluation/directional_study.py
+      - tests/evaluation/test_directional_study.py
 
 permissions:
   contents: read

@@ -1,0 +1,484 @@
+name: tmp Issue 626 sealed ridge economic evaluation v1
+
+on:
+  push:
+    branches:
+      - run/issue626-ridge-economic-evaluation-v1
+    paths:
+      - .github/workflows/tmp-issue626-ridge-economic-evaluation-v1.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: issue626-ridge-economic-evaluation-v1
+  cancel-in-progress: false
+
+env:
+  IMPLEMENTATION_HEAD: 222a082ee28f4f0fd35081912a33649cce27c585
+  IMPLEMENTATION_SEAL_RUN_ID: '35200471721'
+  IMPLEMENTATION_SEAL_ARTIFACT_ID: '10487711819'
+  IMPLEMENTATION_SEAL_ARTIFACT_NAME: issue618-implementation-seal-primary-35200471721
+  IMPLEMENTATION_SEAL_API_DIGEST: sha256:3a35036040f28df009daca89e73dc5b050488abfea535e7ee09b67181579c713
+  IMPLEMENTATION_DOCUMENT_SHA256: 6dd761d28781099f3bd129870b1512e15c2e30e54f91c858bca8d034618bfb59
+  IMPLEMENTATION_SEAL_SHA256: 1573b8e65c8fc6093adbca5f95e2b5c4fd7b8c6b4e63161021ec4c1c23768fe1
+  COST_GATE_RUN_ID: '35200841490'
+  COST_AUTHORITY_ARTIFACT_ID: '10488425531'
+  COST_AUTHORITY_ARTIFACT_NAME: issue618-ridge-cost-authority-35200841490
+  COST_AUTHORITY_API_DIGEST: sha256:7b4e0749b783fa29e50c3b92f0a21541148c80b8b4f4ed6b0586b0d5b52f64fb
+  COST_AUTHORITY_DIGEST: bb33f36edcf69ba91257e85dc68c7d53db396867ce51ea204a6ee14bac5cec04
+  SOURCE_RUN_ID: '34803217815'
+  SOURCE_ARTIFACT_ID: '10331899302'
+  SOURCE_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  SOURCE_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  DATASET_ID: 6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518
+  DATASET_ARTIFACT_DIGEST: af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7
+  STUDY_DIGEST: bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820
+
+jobs:
+  publisher:
+    name: Exactly-once publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      result_digest: ${{ steps.evaluate.outputs.result_digest }}
+      result_json_sha256: ${{ steps.evaluate.outputs.result_json_sha256 }}
+      spec_digest: ${{ steps.evaluate.outputs.spec_digest }}
+    steps:
+      - name: Enforce one-shot workflow identity before any economic execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$IMPLEMENTATION_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Bind issue and immutable Artifact metadata before economic execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          token=os.environ['GH_TOKEN']
+          def get(url):
+              req=urllib.request.Request(url,headers={
+                  'Authorization':f'Bearer {token}',
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28',
+              })
+              with urllib.request.urlopen(req) as r: return json.load(r)
+          issue=get('https://api.github.com/repos/shuntatsu/trade_rl/issues/626')
+          assert issue['state']=='open'
+          for prefix in ('IMPLEMENTATION_SEAL','COST_AUTHORITY','SOURCE'):
+              artifact_id=int(os.environ[f'{prefix}_ARTIFACT_ID'])
+              meta=get(f'https://api.github.com/repos/shuntatsu/trade_rl/actions/artifacts/{artifact_id}')
+              assert meta['id']==artifact_id
+              assert meta['name']==os.environ[f'{prefix}_ARTIFACT_NAME']
+              assert meta['digest']==os.environ[f'{prefix}_API_DIGEST']
+              expected_run=int(os.environ['COST_GATE_RUN_ID'] if prefix=='COST_AUTHORITY' else os.environ[f'{prefix}_RUN_ID'])
+              assert meta['workflow_run']['id']==expected_run
+              assert meta['expired'] is False
+          assert get(f"https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/{os.environ['IMPLEMENTATION_SEAL_RUN_ID']}")['conclusion']=='success'
+          assert get(f"https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/{os.environ['COST_GATE_RUN_ID']}")['conclusion']=='success'
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-implementation-seal-primary-35200471721
+          path: /tmp/implementation-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 35200471721
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-ridge-cost-authority-35200841490
+          path: /tmp/cost-authority
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 35200841490
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 34803217815
+      - id: evaluate
+        name: Execute sealed evaluator exactly once without interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum /tmp/implementation-seal/implementation.json | awk '{print $1}')" = "$IMPLEMENTATION_DOCUMENT_SHA256"
+          test "$(sha256sum /tmp/implementation-seal/seal.json | awk '{print $1}')" = "$IMPLEMENTATION_SEAL_SHA256"
+          uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments import inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation import (
+              RidgeEconomicGateCostAuthority,
+              canonical_ridge_economic_gate_evaluation_spec,
+              evaluate_ridge_economic_gate,
+          )
+
+          spec=canonical_ridge_economic_gate_evaluation_spec()
+          assert spec.successor_bundle_run_id==int(os.environ['SOURCE_RUN_ID'])
+          assert spec.successor_bundle_artifact_id==int(os.environ['SOURCE_ARTIFACT_ID'])
+          assert spec.successor_bundle_artifact_digest==os.environ['SOURCE_API_DIGEST'].removeprefix('sha256:')
+          assert spec.dataset_id==os.environ['DATASET_ID']
+          assert spec.dataset_artifact_digest==os.environ['DATASET_ARTIFACT_DIGEST']
+          assert spec.study_digest==os.environ['STUDY_DIGEST']
+
+          impl=json.loads(Path('/tmp/implementation-seal/implementation.json').read_text())
+          seal=json.loads(Path('/tmp/implementation-seal/seal.json').read_text())
+          assert impl['implementation_head']==os.environ['IMPLEMENTATION_HEAD']
+          assert impl['evaluation_pnl_inspected'] is False
+          assert impl['evaluation_execution_authorized'] is False
+          assert seal['implementation_sha256']==os.environ['IMPLEMENTATION_DOCUMENT_SHA256']
+
+          gate=json.loads(Path('/tmp/cost-authority/gate.json').read_text())
+          authority_payload=json.loads(Path('/tmp/cost-authority/cost-authority.json').read_text())
+          assert gate['verified'] is True
+          assert gate['dataset_only'] is True
+          assert gate['study_plan_contents_read'] is False
+          assert gate['evaluation_pnl_inspected'] is False
+          assert gate['cost_authority_digest']==os.environ['COST_AUTHORITY_DIGEST']
+          authority=RidgeEconomicGateCostAuthority(**authority_payload)
+          assert authority.digest==os.environ['COST_AUTHORITY_DIGEST']
+
+          published=inspect_published_market_dataset_artifact('/tmp/successor/dataset')
+          assert published.artifact_digest==spec.dataset_artifact_digest
+          dataset=load_market_dataset_artifact('/tmp/successor/dataset')
+          assert dataset.dataset_id==spec.dataset_id
+
+          snapshot=inspect_study('/tmp/successor/study')
+          assert snapshot.plan.digest==spec.study_digest
+          assert snapshot.baseline is None
+          assert snapshot.experiment_sequences==()
+          assert snapshot.terminal_sequences==()
+          assert snapshot.freeze is None
+          plan=snapshot.plan
+          assert plan.dataset_id==spec.dataset_id
+          assert plan.dataset_artifact_digest==spec.dataset_artifact_digest
+          assert tuple(plan.symbols)==spec.symbols
+          baseline=plan.baseline_config
+          assert tuple(baseline.feature_names)==spec.feature_names
+          assert tuple(baseline.feature_indices)==spec.feature_indices
+          assert tuple(baseline.fit_symbol_names)==spec.fit_symbol_names
+          assert baseline.fit_cutoff==spec.fit_cutoff
+          assert baseline.forecast_entry_threshold==spec.forecast_entry_threshold
+          assert baseline.forecast_exit_threshold==spec.forecast_exit_threshold
+          assert baseline.evaluation_start==spec.evaluation_start
+          assert baseline.evaluation_stop_exclusive==spec.evaluation_stop_exclusive
+          assert baseline.gross_budget==spec.gross_budget
+          assert baseline.initial_capital==spec.initial_capital
+          assert baseline.execution_overlay==spec.execution_overlay
+          raw_plan=json.loads(Path('/tmp/successor/study/plan.json').read_text())
+          assert content_digest(raw_plan)==spec.study_digest
+
+          # This is the one and only formal candidate economic comparison for Issue #626.
+          result=evaluate_ridge_economic_gate(dataset,spec,authority)
+
+          out=Path('result-artifact'); out.mkdir()
+          result_bytes=(json.dumps(result.to_payload(),sort_keys=True,separators=(',',':'))+'\n').encode()
+          (out/'result.json').write_bytes(result_bytes)
+          result_json_sha=hashlib.sha256(result_bytes).hexdigest()
+          provenance={
+              'schema_version':'issue626_ridge_economic_result_provenance_v1',
+              'issue_number':626,
+              'publisher_run_id':int(os.environ['GITHUB_RUN_ID']),
+              'publisher_run_number':int(os.environ['GITHUB_RUN_NUMBER']),
+              'publisher_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),
+              'implementation_head':os.environ['IMPLEMENTATION_HEAD'],
+              'implementation_seal_run_id':int(os.environ['IMPLEMENTATION_SEAL_RUN_ID']),
+              'implementation_seal_artifact_id':int(os.environ['IMPLEMENTATION_SEAL_ARTIFACT_ID']),
+              'implementation_seal_api_digest':os.environ['IMPLEMENTATION_SEAL_API_DIGEST'].removeprefix('sha256:'),
+              'implementation_document_sha256':os.environ['IMPLEMENTATION_DOCUMENT_SHA256'],
+              'implementation_seal_sha256':os.environ['IMPLEMENTATION_SEAL_SHA256'],
+              'cost_gate_run_id':int(os.environ['COST_GATE_RUN_ID']),
+              'cost_authority_artifact_id':int(os.environ['COST_AUTHORITY_ARTIFACT_ID']),
+              'cost_authority_api_digest':os.environ['COST_AUTHORITY_API_DIGEST'].removeprefix('sha256:'),
+              'cost_authority_digest':authority.digest,
+              'successor_run_id':int(os.environ['SOURCE_RUN_ID']),
+              'successor_artifact_id':int(os.environ['SOURCE_ARTIFACT_ID']),
+              'successor_artifact_api_digest':os.environ['SOURCE_API_DIGEST'].removeprefix('sha256:'),
+              'dataset_id':dataset.dataset_id,
+              'dataset_artifact_digest':published.artifact_digest,
+              'study_digest':snapshot.plan.digest,
+              'spec_digest':spec.digest,
+              'result_digest':result.digest,
+              'result_json_sha256':result_json_sha,
+              'formal_candidate_execution_count':1,
+              'result_interpreted_before_publication':False,
+              'final_test_accessed':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'operational_eligibility_established':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          (out/'provenance.json').write_text(json.dumps(provenance,sort_keys=True,separators=(',',':'))+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'result_digest={result.digest}\n')
+              f.write(f'result_json_sha256={result_json_sha}\n')
+              f.write(f'spec_digest={spec.digest}\n')
+          PY
+      - name: Publish immutable result before any interpretation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue626-ridge-economic-result-${{ github.run_id }}
+          path: result-artifact/
+          if-no-files-found: error
+          retention-days: 90
+
+  fresh-verifier:
+    name: Fresh independent reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      research_status: ${{ steps.reconstruct.outputs.research_status }}
+      published_result_artifact_id: ${{ steps.reconstruct.outputs.published_result_artifact_id }}
+      published_result_api_digest: ${{ steps.reconstruct.outputs.published_result_api_digest }}
+    steps:
+      - name: Refuse rerun-based reconstruction
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 222a082ee28f4f0fd35081912a33649cce27c585
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-result-${{ github.run_id }}
+          path: /tmp/published-result
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-implementation-seal-primary-35200471721
+          path: /tmp/implementation-seal
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 35200471721
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-ridge-cost-authority-35200841490
+          path: /tmp/cost-authority
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 35200841490
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: /tmp/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: 34803217815
+      - id: reconstruct
+        name: Reconstruct canonical result and require byte equality before decision publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, os, urllib.request
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments import inspect_study
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation import RidgeEconomicGateCostAuthority, canonical_ridge_economic_gate_evaluation_spec, evaluate_ridge_economic_gate
+
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+          )
+          with urllib.request.urlopen(req) as r: artifact_listing=json.load(r)
+          name=f"issue626-ridge-economic-result-{os.environ['GITHUB_RUN_ID']}"
+          matches=[x for x in artifact_listing['artifacts'] if x['name']==name]
+          assert len(matches)==1
+          meta=matches[0]
+          assert meta['expired'] is False
+
+          provenance=json.loads(Path('/tmp/published-result/provenance.json').read_text())
+          published_bytes=Path('/tmp/published-result/result.json').read_bytes()
+          assert provenance['issue_number']==626
+          assert provenance['publisher_run_id']==int(os.environ['GITHUB_RUN_ID'])
+          assert provenance['publisher_run_number']==1
+          assert provenance['publisher_run_attempt']==1
+          assert provenance['formal_candidate_execution_count']==1
+          assert provenance['result_interpreted_before_publication'] is False
+          assert provenance['result_digest']==os.environ['PUBLISHER_RESULT_DIGEST']
+          assert provenance['result_json_sha256']==os.environ['PUBLISHER_RESULT_JSON_SHA256']
+          assert hashlib.sha256(published_bytes).hexdigest()==provenance['result_json_sha256']
+
+          spec=canonical_ridge_economic_gate_evaluation_spec()
+          assert spec.digest==provenance['spec_digest']==os.environ['PUBLISHER_SPEC_DIGEST']
+          authority_payload=json.loads(Path('/tmp/cost-authority/cost-authority.json').read_text())
+          authority=RidgeEconomicGateCostAuthority(**authority_payload)
+          assert authority.digest==os.environ['COST_AUTHORITY_DIGEST']==provenance['cost_authority_digest']
+          published=inspect_published_market_dataset_artifact('/tmp/successor/dataset')
+          dataset=load_market_dataset_artifact('/tmp/successor/dataset')
+          assert dataset.dataset_id==spec.dataset_id==provenance['dataset_id']
+          assert published.artifact_digest==spec.dataset_artifact_digest==provenance['dataset_artifact_digest']
+          snapshot=inspect_study('/tmp/successor/study')
+          assert snapshot.plan.digest==spec.study_digest==provenance['study_digest']
+          assert snapshot.baseline is None and snapshot.experiment_sequences==() and snapshot.freeze is None
+          assert content_digest(json.loads(Path('/tmp/successor/study/plan.json').read_text()))==spec.study_digest
+
+          fresh=evaluate_ridge_economic_gate(dataset,spec,authority)
+          fresh_bytes=(json.dumps(fresh.to_payload(),sort_keys=True,separators=(',',':'))+'\n').encode()
+          assert fresh.digest==provenance['result_digest']
+          assert hashlib.sha256(fresh_bytes).hexdigest()==provenance['result_json_sha256']
+          assert fresh_bytes==published_bytes
+
+          out=Path('fresh-verification'); out.mkdir()
+          verification={
+              'schema_version':'issue626_ridge_economic_fresh_verification_v1',
+              'issue_number':626,
+              'run_id':int(os.environ['GITHUB_RUN_ID']),
+              'published_result_artifact_id':meta['id'],
+              'published_result_api_digest':meta['digest'].removeprefix('sha256:'),
+              'result_digest':fresh.digest,
+              'result_json_sha256':hashlib.sha256(fresh_bytes).hexdigest(),
+              'fresh_reconstruction_count':1,
+              'byte_identical':True,
+              'research_status':fresh.research_status,
+              'positive_effect_symbols':fresh.positive_effect_symbols,
+              'median_excess_total_return':fresh.median_excess_total_return,
+              'cost_reduction_symbols':fresh.cost_reduction_symbols,
+              'turnover_reduction_symbols':fresh.turnover_reduction_symbols,
+              'drawdown_nonworse_symbols':fresh.drawdown_nonworse_symbols,
+              'new_termination_symbols':fresh.new_termination_symbols,
+              'candidate_positive_total_return_symbols':fresh.candidate_positive_total_return_symbols,
+              'final_test_accessed':False,
+              'final_test_authorized':False,
+              'shared_cash_profitability_established':False,
+              'operational_eligibility_established':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          (out/'verification.json').write_text(json.dumps(verification,sort_keys=True,separators=(',',':'))+'\n')
+          (out/'reconstructed-result.json').write_bytes(fresh_bytes)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f"research_status={fresh.research_status}\n")
+              f.write(f"published_result_artifact_id={meta['id']}\n")
+              f.write(f"published_result_api_digest={meta['digest'].removeprefix('sha256:')}\n")
+          PY
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_RESULT_DIGEST: ${{ needs.publisher.outputs.result_digest }}
+          PUBLISHER_RESULT_JSON_SHA256: ${{ needs.publisher.outputs.result_json_sha256 }}
+          PUBLISHER_SPEC_DIGEST: ${{ needs.publisher.outputs.spec_digest }}
+      - name: Publish fresh verification before interpretation reveal
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue626-ridge-economic-fresh-verification-${{ github.run_id }}
+          path: fresh-verification/
+          if-no-files-found: error
+          retention-days: 90
+
+  audit-and-reveal:
+    name: Independent publication audit and frozen decision reveal
+    needs: [publisher, fresh-verifier]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-result-${{ github.run_id }}
+          path: /tmp/result
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-fresh-verification-${{ github.run_id }}
+          path: /tmp/verification
+      - name: API-bind both published artifacts, re-audit bytes, then reveal frozen result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, urllib.request
+          from pathlib import Path
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/shuntatsu/trade_rl/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100",
+              headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+          )
+          with urllib.request.urlopen(req) as r: listing=json.load(r)['artifacts']
+          by_name={x['name']:x for x in listing}
+          result_name=f"issue626-ridge-economic-result-{os.environ['GITHUB_RUN_ID']}"
+          verification_name=f"issue626-ridge-economic-fresh-verification-{os.environ['GITHUB_RUN_ID']}"
+          assert result_name in by_name and verification_name in by_name
+          result_meta=by_name[result_name]; verification_meta=by_name[verification_name]
+          assert result_meta['expired'] is False and verification_meta['expired'] is False
+          result_bytes=Path('/tmp/result/result.json').read_bytes()
+          provenance=json.loads(Path('/tmp/result/provenance.json').read_text())
+          reconstructed=Path('/tmp/verification/reconstructed-result.json').read_bytes()
+          verification=json.loads(Path('/tmp/verification/verification.json').read_text())
+          assert verification['byte_identical'] is True
+          assert result_bytes==reconstructed
+          assert hashlib.sha256(result_bytes).hexdigest()==provenance['result_json_sha256']==verification['result_json_sha256']
+          assert provenance['result_digest']==verification['result_digest']
+          assert result_meta['id']==verification['published_result_artifact_id']
+          assert result_meta['digest'].removeprefix('sha256:')==verification['published_result_api_digest']
+          result=json.loads(result_bytes)
+          assert result['research_status']==verification['research_status']
+          print('ISSUE626_RIDGE_ECONOMIC_EVALUATION_V1=VERIFIED')
+          print(f"RESULT_ARTIFACT_ID={result_meta['id']}")
+          print(f"RESULT_ARTIFACT_API_DIGEST={result_meta['digest']}")
+          print(f"FRESH_ARTIFACT_ID={verification_meta['id']}")
+          print(f"FRESH_ARTIFACT_API_DIGEST={verification_meta['digest']}")
+          print(f"RESULT_DIGEST={verification['result_digest']}")
+          print(f"RESULT_JSON_SHA256={verification['result_json_sha256']}")
+          print(f"RESEARCH_STATUS={verification['research_status']}")
+          print(f"POSITIVE_EFFECT_SYMBOLS={verification['positive_effect_symbols']}")
+          print(f"MEDIAN_EXCESS_TOTAL_RETURN={verification['median_excess_total_return']}")
+          print(f"COST_REDUCTION_SYMBOLS={verification['cost_reduction_symbols']}")
+          print(f"TURNOVER_REDUCTION_SYMBOLS={verification['turnover_reduction_symbols']}")
+          print(f"DRAWDOWN_NONWORSE_SYMBOLS={verification['drawdown_nonworse_symbols']}")
+          print(f"NEW_TERMINATION_SYMBOLS={verification['new_termination_symbols']}")
+          print(f"CANDIDATE_POSITIVE_TOTAL_RETURN_SYMBOLS={verification['candidate_positive_total_return_symbols']}")
+          for row in result['by_symbol']:
+              print(
+                  'SYMBOL_RESULT '
+                  f"symbol={row['symbol']} "
+                  f"baseline_return={row['baseline_total_return']} "
+                  f"candidate_return={row['candidate_total_return']} "
+                  f"excess_return={row['excess_total_return']} "
+                  f"baseline_cost={row['baseline_total_cost']} "
+                  f"candidate_cost={row['candidate_total_cost']} "
+                  f"baseline_turnover={row['baseline_turnover_total']} "
+                  f"candidate_turnover={row['candidate_turnover_total']} "
+                  f"baseline_drawdown={row['baseline_max_drawdown']} "
+                  f"candidate_drawdown={row['candidate_max_drawdown']} "
+                  f"new_termination={row['new_termination']}"
+              )
+          assert verification['final_test_accessed'] is False
+          assert verification['shared_cash_profitability_established'] is False
+          assert verification['production_eligible'] is False
+          assert verification['live_trading_authorized'] is False
+          assert verification['merge_authorized'] is False
+          PY

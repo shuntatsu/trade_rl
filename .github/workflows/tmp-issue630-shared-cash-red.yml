@@ -1,0 +1,41 @@
+name: tmp Issue 630 ridge shared-cash evaluator RED
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-red
+    paths:
+      - .github/workflows/tmp-issue630-shared-cash-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static precondition
+        run: |
+          uv run ruff check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run ruff format --check trade_rl tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+      - name: Semantic RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py > /tmp/red.log 2>&1
+          status=$?
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q "No module named 'trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation'" /tmp/red.log
+          ! grep -q '^FAILED ' /tmp/red.log
+          echo 'ISSUE630_SEMANTIC_RED=PASS'

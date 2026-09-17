@@ -128,11 +128,16 @@ def test_rollout_choice_is_mechanical_and_nearest_allowed_at_or_below_default() 
     assert chosen is not None
     assert chosen in feasible
     assert chosen * protocol.candidate_n_envs == 1_920
-    assert min(
-        feasible,
-        key=lambda value: protocol.reference_sequential_n_steps
-        - value * protocol.candidate_n_envs,
-    ) == chosen
+    assert (
+        min(
+            feasible,
+            key=lambda value: (
+                protocol.reference_sequential_n_steps
+                - value * protocol.candidate_n_envs
+            ),
+        )
+        == chosen
+    )
 
 
 @pytest.mark.parametrize(

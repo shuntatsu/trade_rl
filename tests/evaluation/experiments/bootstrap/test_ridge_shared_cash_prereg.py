@@ -5,12 +5,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+
 from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import (
     RidgeSharedCashProtocol,
     canonical_ridge_shared_cash_protocol,
     load_ridge_shared_cash_protocol,
 )
-
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _FEATURE_INDICES = (0, 1, 2, 4, 5, 6, 7, 10, 60, 63, 114, 118)
@@ -30,9 +30,7 @@ def test_protocol_binds_upstream_and_shared_cash_authority() -> None:
         "78a39790c4d11dc903ac48f6044b0ebab46d2d6d26cbd8cf2c380be983b90d4b"
     )
 
-    assert protocol.ridge_protocol_head == (
-        "75999e53c70224c31a62b106e4a8d2caa4b920ac"
-    )
+    assert protocol.ridge_protocol_head == ("75999e53c70224c31a62b106e4a8d2caa4b920ac")
     assert protocol.ridge_protocol_digest == (
         "167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3"
     )

@@ -1,0 +1,146 @@
+name: tmp Issue 630 v3 rebind
+
+on:
+  push:
+    branches:
+      - verify/issue630-v3-rebind
+    paths:
+      - .github/workflows/tmp-issue630-v3-rebind.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Rebind exact v3 preregistration bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin 65eb3c90e0a5fe1cea952279c28024160838da08
+          for path in \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          do
+            mkdir -p "$(dirname "$path")"
+            git show 65eb3c90e0a5fe1cea952279c28024160838da08:"$path" > "$path"
+          done
+          test "$(git hash-object trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py)" = 208e4d45b64ce4e92cd8eca59a5c427dc8be7029
+      - name: Rebind evaluator and add max-leverage fail-closed oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py')
+          text = path.read_text()
+          replacements = {
+              '6615e30773cd3035a3f2e67e608aef2afc4e143c': '65eb3c90e0a5fe1cea952279c28024160838da08',
+              'e848a0f4eec434f534455f88244eda75d97f4d04': '208e4d45b64ce4e92cd8eca59a5c427dc8be7029',
+              '14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a': 'c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88',
+              '35209118815': '35211715033',
+              '10490873666': '10491893357',
+              '9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0': '0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841',
+              '10491447310': '10492645772',
+              'e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e': 'ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56',
+              'a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27': 'b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903',
+          }
+          for old, new in replacements.items():
+              assert old in text, old
+              text = text.replace(old, new)
+          old = '    "execution_overlay": _EXECUTION_OVERLAY,\n    "symbols": _SYMBOLS,\n'
+          new = '    "execution_overlay": _EXECUTION_OVERLAY,\n    "execution_max_leverage": 1.0,\n    "symbols": _SYMBOLS,\n'
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '    execution_overlay: str\n    symbols: tuple[str, ...]\n'
+          new = '    execution_overlay: str\n    execution_max_leverage: float\n    symbols: tuple[str, ...]\n'
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '''    spec = canonical_ridge_shared_cash_evaluation_spec()\n    start, stop = _validate_dataset(dataset, spec)\n    model = fit_ridge_forecast(\n'''
+          new = '''    spec = canonical_ridge_shared_cash_evaluation_spec()\n    start, stop = _validate_dataset(dataset, spec)\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    if execution_cost.max_leverage != spec.execution_max_leverage:\n        raise ValueError(\n            "execution max leverage differs from frozen shared-cash authority"\n        )\n    model = fit_ridge_forecast(\n'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '''\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    baseline_replay = run_shared_cash_replay(\n'''
+          new = '''\n    baseline_replay = run_shared_cash_replay(\n'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py')
+          text = test.read_text()
+          replacements = {
+              'e848a0f4eec434f534455f88244eda75d97f4d04': '208e4d45b64ce4e92cd8eca59a5c427dc8be7029',
+              '6615e30773cd3035a3f2e67e608aef2afc4e143c': '65eb3c90e0a5fe1cea952279c28024160838da08',
+              '14aa47651bc075c067c09403cf69e43f45d4151e9eb9935b6ccef61c5e7b9c5a': 'c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88',
+              '35209118815': '35211715033',
+              '10490873666': '10491893357',
+              '9d77d3593a406485db981ec6409dbe6ea7d2473300bbe78948997bfc23d572c0': '0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841',
+              '10491447310': '10492645772',
+              'e2ff68438ad4bdecc0518527204f83a3c70219cf7912e59d6b80506f87a5475e': 'ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56',
+              'a0cf4db80d4aa4c25e0ee0409d96e9674d0dac5109a25dde687907da3cb74a27': 'b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903',
+          }
+          for old, new in replacements.items():
+              assert old in text, old
+              text = text.replace(old, new)
+          old = '''    assert spec.execution_overlay == (\n        "zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity"\n    )\n'''
+          new = old + '    assert spec.execution_max_leverage == 1.0\n'
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '''    assert (\n        getattr(replay_calls[0]["execution_cost"], "processing_bar_volume_capacity")\n        is False\n    )\n'''
+          new = old + '    assert getattr(replay_calls[0]["execution_cost"], "max_leverage") == 1.0\n'
+          assert old in text
+          test.write_text(text.replace(old, new, 1))
+
+          falsification = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py')
+          text = falsification.read_text()
+          import_line = 'from trade_rl.data.market import MarketDataset\n'
+          replacement = import_line + 'from trade_rl.simulation import ExecutionCostConfig\n'
+          assert import_line in text
+          text = text.replace(import_line, replacement, 1)
+          addition = '''\n\ndef test_execution_max_leverage_drift_fails_before_fit_or_replay(\n    monkeypatch: pytest.MonkeyPatch,\n) -> None:\n    import trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation as module\n\n    calls = {"fit": 0, "replay": 0}\n\n    def forbidden_fit(*args: object, **kwargs: object) -> object:\n        calls["fit"] += 1\n        raise AssertionError("fit must not run after execution authority drift")\n\n    def forbidden_replay(*args: object, **kwargs: object) -> object:\n        calls["replay"] += 1\n        raise AssertionError("replay must not run after execution authority drift")\n\n    def drifted_cost(_: str) -> ExecutionCostConfig:\n        return replace(\n            ExecutionCostConfig.zero(),\n            max_leverage=0.5,\n            processing_bar_volume_capacity=False,\n        )\n\n    monkeypatch.setattr(module, "execution_cost_for_overlay", drifted_cost)\n    monkeypatch.setattr(module, "fit_ridge_forecast", forbidden_fit)\n    monkeypatch.setattr(module, "run_shared_cash_replay", forbidden_replay)\n\n    with pytest.raises(ValueError, match="max leverage"):\n        evaluate_ridge_shared_cash(_dataset())\n    assert calls == {"fit": 0, "replay": 0}\n'''
+          assert 'test_execution_max_leverage_drift_fails_before_fit_or_replay' not in text
+          falsification.write_text(text + addition)
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+      - name: Focused v3 verification
+        run: |
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py \
+            tests/evaluation/test_shared_cash_replay.py \
+            tests/evaluation/test_shared_cash_replay_falsification.py
+      - name: Durable scope and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git rev-parse refs/remotes/origin/research/issue630-shared-cash-evaluator)" = 1e0e0e243f4e37b2fdf7ee7aa67500d04b43fa8c
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py \
+            trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+          git commit -m "research: rebind shared-cash evaluator to protocol v3"
+          git push origin HEAD:research/issue630-shared-cash-evaluator

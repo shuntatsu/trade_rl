@@ -21,7 +21,7 @@ Status: Active
   - [x] Compose saved decisions, verified later captures, depth fills and funding
     settlement events into replayable canonical account transitions.
   - [x] Independently review account composition and pass the full repository CI.
-- [ ] Add source/runtime-bound study sealing, supervised public collection and
+- [x] Add source/runtime-bound study sealing, supervised public collection and
   operational restart/report commands; verify software against real source data.
   - [x] Bind source/runtime identity before collection, check it before every
     command, and preserve a durable failure if collection or identity fails.
@@ -29,9 +29,9 @@ Status: Active
     decisions only inside their ten-second window, and supervise one collector.
   - [x] Independently review the collector, verify full CI and exercise real inputs.
   - [x] Expose a cadence CLI and report command with the separately frozen gate.
-  - [ ] Verify the expanded, versioned 100-level source profile and full cadence
+  - [x] Verify the expanded, versioned 100-level source profile and full cadence
     against real public inputs; preserve the rejected 20-level software probe.
-- [ ] Freeze forward evaluation duration/gates before starting paper positions.
+- [x] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

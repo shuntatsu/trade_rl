@@ -1,0 +1,215 @@
+name: tmp Issue 630 evidence schema v2
+
+on:
+  push:
+    branches:
+      - automation/issue630-evidence-schema-v2
+    paths:
+      - .github/workflows/tmp-issue630-evidence-schema-v2.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue630-shared-cash-evaluator
+  EXPECTED_HEAD: e0470b4e04fc16c14391e4cc327e27e1d612edc7
+  EVAL: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+  FALSIFY: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Implement evidence schema v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py")
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '_SPEC_SCHEMA = "ridge_shared_cash_evaluation_spec_v1"\n_ARM_SCHEMA = "ridge_shared_cash_arm_evidence_v1"\n_RESULT_SCHEMA = "ridge_shared_cash_evaluation_result_v1"\n',
+                  '_SPEC_SCHEMA = "ridge_shared_cash_evaluation_spec_v2"\n_ARM_SCHEMA = "ridge_shared_cash_arm_evidence_v2"\n_RESULT_SCHEMA = "ridge_shared_cash_evaluation_result_v2"\n',
+              ),
+              (
+                  '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n_FEATURE_NAMES = (\n',
+                  '_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")\n_CALENDAR_YEAR_PERIOD_COUNTS = ((2023, 8_760), (2024, 8_784))\n_EXPECTED_N_PERIODS = sum(count for _, count in _CALENDAR_YEAR_PERIOD_COUNTS)\n_FEATURE_NAMES = (\n',
+              ),
+              (
+                  '    "calendar_years": (2023, 2024),\n    "unused_data_accessed": False,\n',
+                  '    "calendar_years": (2023, 2024),\n    "calendar_year_period_counts": _CALENDAR_YEAR_PERIOD_COUNTS,\n    "expected_n_periods": _EXPECTED_N_PERIODS,\n    "unused_data_accessed": False,\n',
+              ),
+              (
+                  '    calendar_years: tuple[int, ...]\n    unused_data_accessed: bool\n',
+                  '    calendar_years: tuple[int, ...]\n    calendar_year_period_counts: tuple[tuple[int, int], ...]\n    expected_n_periods: int\n    unused_data_accessed: bool\n',
+              ),
+              (
+                  '    calendar_year_returns: tuple[tuple[int, float], ...]\n    total_cost: float\n',
+                  '    calendar_year_returns: tuple[tuple[int, float], ...]\n    calendar_year_period_counts: tuple[tuple[int, int], ...]\n    total_cost: float\n',
+              ),
+              (
+                  '            "calendar_year_returns": [\n                {"year": year, "return": value}\n                for year, value in self.calendar_year_returns\n            ],\n            "total_cost": self.total_cost,\n',
+                  '            "calendar_year_returns": [\n                {"year": year, "return": value}\n                for year, value in self.calendar_year_returns\n            ],\n            "calendar_year_period_counts": [\n                {"year": year, "count": count}\n                for year, count in self.calendar_year_period_counts\n            ],\n            "total_cost": self.total_cost,\n',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"replacement precondition failed: {old[:80]!r}")
+              text = text.replace(old, new)
+
+          old = '''def _validate_year_returns(\n    values: tuple[tuple[int, float], ...],\n) -> tuple[tuple[int, float], ...]:\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    if tuple(year for year, _ in values) != spec.calendar_years:\n        raise ValueError("calendar-year evidence differs from frozen year roster")\n    for year, value in values:\n        if isinstance(year, bool) or not isinstance(year, int):\n            raise ValueError("calendar-year evidence year must be an integer")\n        if not math.isfinite(value) or value <= -1.0:\n            raise ValueError("calendar-year return must be finite and greater than -1")\n    return values\n\n\n'''
+          new = '''def _validate_year_returns(\n    values: tuple[tuple[int, float], ...],\n) -> tuple[tuple[int, float], ...]:\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    years = tuple(year for year, _ in values)\n    if not values or years != spec.calendar_years[: len(values)]:\n        raise ValueError("calendar-year evidence differs from frozen year prefix")\n    for year, value in values:\n        if isinstance(year, bool) or not isinstance(year, int):\n            raise ValueError("calendar-year evidence year must be an integer")\n        if isinstance(value, bool) or not isinstance(value, (int, float)):\n            raise ValueError("calendar-year return must be finite and greater than -1")\n        if not math.isfinite(value) or value <= -1.0:\n            raise ValueError("calendar-year return must be finite and greater than -1")\n    return values\n\n\ndef _validate_year_period_counts(\n    values: tuple[tuple[int, int], ...],\n    *,\n    n_periods: int,\n) -> tuple[tuple[int, int], ...]:\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    years = tuple(year for year, _ in values)\n    if not values or years != spec.calendar_years[: len(values)]:\n        raise ValueError("calendar-year period counts differ from frozen year prefix")\n    total = 0\n    for year, count in values:\n        if isinstance(year, bool) or not isinstance(year, int):\n            raise ValueError("calendar-year period-count year must be an integer")\n        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:\n            raise ValueError("calendar-year period count must be a positive integer")\n        total += count\n    if total != n_periods:\n        raise ValueError("calendar-year period counts do not sum to n_periods")\n    return values\n\n\ndef _recompute_year_returns(\n    returns: tuple[float, ...],\n    period_counts: tuple[tuple[int, int], ...],\n) -> tuple[tuple[int, float], ...]:\n    offset = 0\n    result: list[tuple[int, float]] = []\n    for year, count in period_counts:\n        chunk = returns[offset : offset + count]\n        if len(chunk) != count:\n            raise ValueError("calendar-year period counts exceed raw return path")\n        result.append((year, compound_return(chunk)))\n        offset += count\n    if offset != len(returns):\n        raise ValueError("calendar-year period counts do not cover raw return path")\n    return tuple(result)\n\n\n'''
+          if text.count(old) != 1:
+              raise SystemExit("year validation block drift")
+          text = text.replace(old, new)
+
+          old = '''        expected_sha = shared_cash_return_sha256(self.returns)\n        require_sha256(self.return_sha256, field="return_sha256")\n        if self.return_sha256 != expected_sha:\n            raise ValueError("return_sha256 does not match raw returns")\n        expected_total = compound_return(self.returns)\n        if not math.isfinite(self.total_return) or self.total_return != expected_total:\n            raise ValueError("total_return does not match raw returns")\n        _validate_year_returns(self.calendar_year_returns)\n        for field_name in ("total_cost", "turnover_total", "max_drawdown"):\n            value = getattr(self, field_name)\n            if not math.isfinite(value) or value < 0.0:\n                raise ValueError(f"{field_name} must be finite and non-negative")\n'''
+          new = '''        if any(\n            isinstance(value, bool) or not isinstance(value, (int, float))\n            for value in self.returns\n        ):\n            raise ValueError("raw returns must contain finite numeric values")\n        expected_sha = shared_cash_return_sha256(self.returns)\n        require_sha256(self.return_sha256, field="return_sha256")\n        if self.return_sha256 != expected_sha:\n            raise ValueError("return_sha256 does not match raw returns")\n        expected_total = compound_return(self.returns)\n        if (\n            isinstance(self.total_return, bool)\n            or not isinstance(self.total_return, (int, float))\n            or not math.isfinite(self.total_return)\n            or self.total_return != expected_total\n        ):\n            raise ValueError("total_return does not match raw returns")\n        year_returns = _validate_year_returns(self.calendar_year_returns)\n        year_counts = _validate_year_period_counts(\n            self.calendar_year_period_counts,\n            n_periods=self.n_periods,\n        )\n        if tuple(year for year, _ in year_returns) != tuple(\n            year for year, _ in year_counts\n        ):\n            raise ValueError("calendar-year return/count rosters differ")\n        expected_year_returns = _recompute_year_returns(self.returns, year_counts)\n        if year_returns != expected_year_returns:\n            raise ValueError("calendar-year returns do not match raw returns")\n        for field_name in ("total_cost", "turnover_total", "max_drawdown"):\n            value = getattr(self, field_name)\n            if (\n                isinstance(value, bool)\n                or not isinstance(value, (int, float))\n                or not math.isfinite(value)\n                or value < 0.0\n            ):\n                raise ValueError(f"{field_name} must be finite and non-negative")\n'''
+          if text.count(old) != 1:
+              raise SystemExit("arm validation block drift")
+          text = text.replace(old, new)
+
+          old = '''    if baseline.arm != "baseline" or candidate.arm != "candidate":\n        raise ValueError("shared-cash result arm roster is invalid")\n    if baseline.n_periods != candidate.n_periods:\n        return _STOP\n    baseline_years = dict(baseline.calendar_year_returns)\n    candidate_years = dict(candidate.calendar_year_returns)\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n'''
+          new = '''    if baseline.arm != "baseline" or candidate.arm != "candidate":\n        raise ValueError("shared-cash result arm roster is invalid")\n    spec = canonical_ridge_shared_cash_evaluation_spec()\n    if (\n        baseline.n_periods != candidate.n_periods\n        or baseline.n_periods != spec.expected_n_periods\n        or candidate.n_periods != spec.expected_n_periods\n        or baseline.calendar_year_period_counts != spec.calendar_year_period_counts\n        or candidate.calendar_year_period_counts != spec.calendar_year_period_counts\n    ):\n        return _STOP\n    baseline_years = dict(baseline.calendar_year_returns)\n    candidate_years = dict(candidate.calendar_year_returns)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("shared_cash_status period block drift")
+          text = text.replace(old, new)
+
+          old = '''        if self.baseline.n_periods != self.candidate.n_periods:\n            raise ValueError("period count differs between shared-cash arms")\n        expected_status = shared_cash_status(self.baseline, self.candidate)\n'''
+          new = '''        expected_status = shared_cash_status(self.baseline, self.candidate)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("result period-count block drift")
+          text = text.replace(old, new)
+
+          old = '''def _calendar_year_returns(\n    dataset: MarketDataset,\n    *,\n    start_index: int,\n    returns: tuple[float, ...],\n    years: tuple[int, ...],\n) -> tuple[tuple[int, float], ...]:\n    timestamps = np.asarray(\n        dataset.timestamps[start_index : start_index + len(returns)],\n        dtype="datetime64[ns]",\n    )\n    if len(timestamps) != len(returns):\n        raise ValueError("return path extends beyond Dataset evaluation clock")\n    result: list[tuple[int, float]] = []\n    for year in years:\n        lower = np.datetime64(f"{year:04d}-01-01T00:00:00", "ns")\n        upper = np.datetime64(f"{year + 1:04d}-01-01T00:00:00", "ns")\n        selected = tuple(\n            value\n            for timestamp, value in zip(timestamps, returns, strict=True)\n            if lower <= timestamp < upper\n        )\n        if not selected:\n            raise ValueError(f"shared-cash return path contains no rows for {year}")\n        result.append((year, compound_return(selected)))\n    return tuple(result)\n'''
+          new = '''def _calendar_year_evidence(\n    dataset: MarketDataset,\n    *,\n    start_index: int,\n    returns: tuple[float, ...],\n    years: tuple[int, ...],\n) -> tuple[tuple[tuple[int, float], ...], tuple[tuple[int, int], ...]]:\n    timestamps = np.asarray(\n        dataset.timestamps[start_index : start_index + len(returns)],\n        dtype="datetime64[ns]",\n    )\n    if len(timestamps) != len(returns):\n        raise ValueError("return path extends beyond Dataset evaluation clock")\n    year_returns: list[tuple[int, float]] = []\n    year_counts: list[tuple[int, int]] = []\n    for year in years:\n        lower = np.datetime64(f"{year:04d}-01-01T00:00:00", "ns")\n        upper = np.datetime64(f"{year + 1:04d}-01-01T00:00:00", "ns")\n        selected = tuple(\n            value\n            for timestamp, value in zip(timestamps, returns, strict=True)\n            if lower <= timestamp < upper\n        )\n        if not selected:\n            break\n        year_returns.append((year, compound_return(selected)))\n        year_counts.append((year, len(selected)))\n    if not year_returns:\n        raise ValueError("shared-cash return path contains no rows in frozen years")\n    if sum(count for _, count in year_counts) != len(returns):\n        raise ValueError("calendar-year evidence does not cover return path")\n    return tuple(year_returns), tuple(year_counts)\n'''
+          if text.count(old) != 1:
+              raise SystemExit("calendar-year evidence function drift")
+          text = text.replace(old, new)
+
+          old = '''    return RidgeSharedCashArmEvidence(\n        arm=arm,\n        returns=returns,\n        return_sha256=shared_cash_return_sha256(returns),\n        total_return=metrics.total_return,\n        calendar_year_returns=_calendar_year_returns(\n            dataset,\n            start_index=start_index,\n            returns=returns,\n            years=years,\n        ),\n        total_cost=metrics.total_cost,\n'''
+          new = '''    year_returns, year_counts = _calendar_year_evidence(\n        dataset,\n        start_index=start_index,\n        returns=returns,\n        years=years,\n    )\n    return RidgeSharedCashArmEvidence(\n        arm=arm,\n        returns=returns,\n        return_sha256=shared_cash_return_sha256(returns),\n        total_return=metrics.total_return,\n        calendar_year_returns=year_returns,\n        calendar_year_period_counts=year_counts,\n        total_cost=metrics.total_cost,\n'''
+          if text.count(old) != 1:
+              raise SystemExit("arm evidence constructor drift")
+          text = text.replace(old, new)
+          path.write_text(text)
+          PY
+      - name: Update permanent tests for evidence schema v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          test = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py")
+          text = test.read_text()
+          needle = "from trade_rl.data.market import MarketDataset\n"
+          if text.count(needle) != 1:
+              raise SystemExit("main metrics import anchor drift")
+          text = text.replace(needle, needle + "from trade_rl.evaluation.metrics import compound_return\n")
+          needle = '    assert spec.one_way_explicit_cost == 0.0007\n'
+          if text.count(needle) != 1:
+              raise SystemExit("main spec assertion drift")
+          text = text.replace(
+              needle,
+              needle + '    assert spec.expected_n_periods == 17_544\n    assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))\n',
+          )
+          old = '''    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=total,\n        calendar_year_returns=year_returns,\n'''
+          new = '''    intended_years = dict(year_returns)\n    compact_total = compound_return(values)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = intended_years[2023]\n    expanded[8_760] = intended_years[2024]\n    values = tuple(float(value) for value in expanded)\n    canonical_year_returns = (\n        (2023, compound_return(values[:8_760])),\n        (2024, compound_return(values[8_760:])),\n    )\n    assert canonical_year_returns[0][1] == pytest.approx(intended_years[2023])\n    assert canonical_year_returns[1][1] == pytest.approx(intended_years[2024])\n    total = compound_return(values)\n    assert total == pytest.approx(compact_total)\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=total,\n        calendar_year_returns=canonical_year_returns,\n        calendar_year_period_counts=((2023, 8_760), (2024, 8_784)),\n'''
+          if text.count(old) != 1:
+              raise SystemExit("main arm helper drift")
+          text = text.replace(old, new)
+          old = '    assert result.status == "QUALIFY_UNUSED_VALIDATION"\n    assert result.baseline.n_periods == 731\n'
+          new = '    assert result.status == "STOP_BEFORE_UNUSED_VALIDATION"\n    assert result.baseline.n_periods == 731\n'
+          if text.count(old) != 1:
+              raise SystemExit("mock status drift")
+          text = text.replace(old, new)
+          needle = '''    assert tuple(\n        value for _, value in result.candidate.calendar_year_returns\n    ) == pytest.approx((0.0506, 0.02))\n'''
+          extra = needle + '''    assert result.baseline.calendar_year_period_counts == ((2023, 365), (2024, 366))\n    assert result.candidate.calendar_year_period_counts == ((2023, 365), (2024, 366))\n'''
+          if text.count(needle) != 1:
+              raise SystemExit("mock count assertion anchor drift")
+          text = text.replace(needle, extra)
+          needle = '''    with pytest.raises(ValueError, match="total_return"):\n        replace(candidate, total_return=999.0)\n'''
+          extra = needle + '''    with pytest.raises(ValueError, match="calendar-year"):\n        replace(\n            candidate,\n            calendar_year_returns=((2023, 0.99), (2024, candidate.calendar_year_returns[1][1])),\n        )\n    with pytest.raises(ValueError, match="period counts"):\n        replace(candidate, calendar_year_period_counts=((2023, 8_759), (2024, 8_784)))\n    with pytest.raises(ValueError, match="finite"):\n        replace(candidate, total_cost=True)\n'''
+          if text.count(needle) != 1:
+              raise SystemExit("main adversarial anchor drift")
+          test.write_text(text.replace(needle, extra))
+
+          falsify = Path("tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py")
+          text = falsify.read_text()
+          needle = "from trade_rl.data.market import MarketDataset\n"
+          if text.count(needle) != 1:
+              raise SystemExit("falsification metrics import anchor drift")
+          text = text.replace(needle, needle + "from trade_rl.evaluation.metrics import compound_return\n")
+          old = '''    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=total,\n        calendar_year_returns=year_returns,\n'''
+          new = '''    intended_years = dict(year_returns)\n    compact_total = compound_return(values)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = intended_years[2023]\n    expanded[8_760] = intended_years[2024]\n    values = tuple(float(value) for value in expanded)\n    canonical_year_returns = (\n        (2023, compound_return(values[:8_760])),\n        (2024, compound_return(values[8_760:])),\n    )\n    assert canonical_year_returns[0][1] == pytest.approx(intended_years[2023])\n    assert canonical_year_returns[1][1] == pytest.approx(intended_years[2024])\n    total = compound_return(values)\n    assert total == pytest.approx(compact_total)\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=total,\n        calendar_year_returns=canonical_year_returns,\n        calendar_year_period_counts=((2023, 8_760), (2024, 8_784)),\n'''
+          if text.count(old) != 1:
+              raise SystemExit("falsification arm helper drift")
+          text = text.replace(old, new)
+          anchor = 'def _baseline() -> RidgeSharedCashArmEvidence:\n'
+          short_helper = '''def _short_arm(\n    name: str,\n    values: tuple[float, ...],\n    *,\n    termination_reasons: tuple[str, ...] = (),\n) -> RidgeSharedCashArmEvidence:\n    return RidgeSharedCashArmEvidence(\n        arm=name,\n        returns=values,\n        return_sha256=shared_cash_return_sha256(values),\n        total_return=compound_return(values),\n        calendar_year_returns=((2023, compound_return(values)),),\n        calendar_year_period_counts=((2023, len(values)),),\n        total_cost=5.0,\n        turnover_total=2.0,\n        max_drawdown=0.10,\n        termination_count=len(termination_reasons),\n        termination_reasons=termination_reasons,\n        n_periods=len(values),\n    )\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("short helper anchor drift")
+          text = text.replace(anchor, short_helper + anchor)
+          replacements = {
+              'candidate = _arm("candidate", (-0.01, -0.01))': 'candidate = _arm(\n            "candidate",\n            (-0.01, -0.01),\n            year_returns=((2023, -0.01), (2024, -0.01)),\n        )',
+              'candidate = _arm("candidate", (0.005, 0.005))': 'candidate = _arm(\n            "candidate",\n            (0.005, 0.005),\n            year_returns=((2023, 0.005), (2024, 0.005)),\n        )',
+              '''candidate = replace(\n            candidate,\n            calendar_year_returns=((2023, 0.0), (2024, 0.02)),\n        )''': '''candidate = _arm(\n            "candidate",\n            (0.0, 0.02),\n            year_returns=((2023, 0.0), (2024, 0.02)),\n        )''',
+              '''candidate = replace(\n            candidate,\n            calendar_year_returns=((2023, 0.02), (2024, 0.01)),\n        )''': '''candidate = _arm(\n            "candidate",\n            (0.02, 0.01),\n            year_returns=((2023, 0.02), (2024, 0.01)),\n        )''',
+              'candidate = _arm("candidate", (0.02,))': 'candidate = _short_arm("candidate", (0.02,))',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"falsification gate replacement drift: {old[:40]}")
+              text = text.replace(old, new)
+          anchor = 'def test_new_termination_multiset_count_forces_stop() -> None:\n'
+          extra_tests = '''def test_full_window_calendar_year_evidence_cannot_be_tampered() -> None:\n    candidate = _candidate()\n    with pytest.raises(ValueError, match="calendar-year"):\n        replace(\n            candidate,\n            calendar_year_returns=((2023, 0.99), (2024, candidate.calendar_year_returns[1][1])),\n        )\n\n\ndef test_bool_numeric_alias_is_rejected() -> None:\n    candidate = _candidate()\n    with pytest.raises(ValueError, match="finite"):\n        replace(candidate, total_cost=True)\n\n\ndef test_partial_terminated_path_is_truthful_evidence_but_forces_stop() -> None:\n    baseline = _baseline()\n    candidate = _short_arm(\n        "candidate",\n        (0.01, -0.02),\n        termination_reasons=("margin_exhausted",),\n    )\n    assert candidate.calendar_year_period_counts == ((2023, 2),)\n    assert shared_cash_status(baseline, candidate) == "STOP_BEFORE_UNUSED_VALIDATION"\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("falsification test anchor drift")
+          falsify.write_text(text.replace(anchor, extra_tests + anchor))
+          PY
+      - name: Mechanical format and focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff format "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff check "$EVAL" "$TEST" "$FALSIFY"
+          uv run ruff format --check "$EVAL" "$TEST" "$FALSIFY"
+          uv run mypy "$EVAL"
+          uv run pytest -q "$TEST" "$FALSIFY"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n%s\n%s\n' "$EVAL" "$TEST" "$FALSIFY" | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+      - name: Publish non-force if target unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EVAL" "$TEST" "$FALSIFY"
+          git commit -m 'research: harden Issue 630 shared-cash evidence schema'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

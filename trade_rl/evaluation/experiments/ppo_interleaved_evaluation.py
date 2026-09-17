@@ -177,18 +177,32 @@ def canonical_ppo_interleaved_evaluator_spec() -> PPOInterleavedEvaluatorSpec:
     return PPOInterleavedEvaluatorSpec(**_canonical_spec_values())  # type: ignore[arg-type]
 
 
+def _strict_return_values(values: object) -> tuple[float, ...]:
+    raw = np.asarray(values, dtype=object)
+    if raw.ndim != 1:
+        raise ValueError("returns must be one-dimensional")
+    normalized: list[float] = []
+    for value in raw.tolist():
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (int, float, np.integer, np.floating)
+        ):
+            raise ValueError("returns must contain only real numeric values")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("return path values must be finite")
+        normalized.append(number)
+    if not normalized:
+        raise ValueError("return path must not be empty")
+    if any(value <= -1.0 for value in normalized):
+        raise ValueError("return path values must be greater than -1")
+    return tuple(normalized)
+
+
 def return_path_sha256(values: object) -> str:
     """Hash one exact one-dimensional float64 return path."""
 
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim != 1:
-        raise ValueError("return path must be one-dimensional")
-    if not np.isfinite(array).all():
-        raise ValueError("return path values must be finite")
-    if array.size == 0:
-        raise ValueError("return path must not be empty")
-    if np.any(array <= -1.0):
-        raise ValueError("return path values must be greater than -1")
+    normalized = _strict_return_values(values)
+    array = np.asarray(normalized, dtype=np.float64)
     little_endian = np.asarray(array, dtype="<f8")
     digest = hashlib.sha256()
     digest.update(int(array.size).to_bytes(8, "big", signed=False))
@@ -225,7 +239,7 @@ class PPOReturnPathEvidence:
             raise ValueError("unsupported PPO return-path evidence schema")
         if not isinstance(self.strategy_name, str) or not self.strategy_name:
             raise ValueError("strategy_name must be non-empty")
-        normalized = tuple(float(value) for value in self.returns)
+        normalized = _strict_return_values(self.returns)
         series = ReturnSeries(
             values=normalized,
             kind=ReturnKind.BASE_BAR,
@@ -474,11 +488,20 @@ class PPOSeedEvidence:
             if self.arm == "baseline"
             else spec.candidate_rollout_steps_per_env
         )
-        if self.training_layout != expected_layout:
+        if (
+            type(self.training_layout) is not str
+            or self.training_layout != expected_layout
+        ):
             raise ValueError("training_layout differs from sealed arm authority")
-        if self.rollout_steps_per_env != expected_rollout:
+        if (
+            type(self.rollout_steps_per_env) is not type(expected_rollout)
+            or self.rollout_steps_per_env != expected_rollout
+        ):
             raise ValueError("rollout_steps_per_env differs from sealed arm authority")
-        if self.caller_total_timesteps != spec.ppo_total_timesteps:
+        if (
+            type(self.caller_total_timesteps) is not int
+            or self.caller_total_timesteps != spec.ppo_total_timesteps
+        ):
             raise ValueError("caller_total_timesteps differs from sealed authority")
         if (
             isinstance(self.realized_num_timesteps, bool)

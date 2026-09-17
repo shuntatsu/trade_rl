@@ -1,0 +1,154 @@
+name: Verify Issue 634 shared-cash runner
+
+on:
+  push:
+    branches:
+      - prepare/issue634-shared-cash-runner-v1
+    paths:
+      - .github/scripts/issue634_shared_cash_runner.py
+      - .github/workflows/issue634-ridge-shared-cash-evaluation-v1.yml
+      - .github/workflows/verify-issue634-shared-cash-runner.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout preparation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue634-shared-cash-runner-v1
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d1bf25fd66834289ffddb36063b0d5cef649f444
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install exact sealed runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - name: Static and type verification for runner helper
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run ruff check ../helper/.github/scripts/issue634_shared_cash_runner.py
+          uv run ruff format --check ../helper/.github/scripts/issue634_shared_cash_runner.py
+          uv run mypy ../helper/.github/scripts/issue634_shared_cash_runner.py
+          uv run python -m py_compile ../helper/.github/scripts/issue634_shared_cash_runner.py
+
+      - name: Synthetic canonical self-check only
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py self-check | tee /tmp/self-check.log
+          grep -q '^ISSUE634_HELPER_SELF_CHECK=PASS$' /tmp/self-check.log
+          grep -q '^REAL_MARKET_DATA_ACCESSED=false$' /tmp/self-check.log
+          grep -q '^ECONOMIC_EVALUATOR_CALLED=false$' /tmp/self-check.log
+
+      - name: Re-run sealed shared-cash evaluator oracles without real Dataset
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py \
+            tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py \
+            tests/architecture/test_runs_capability_facade.py
+
+      - name: Result-blind external authority preflight
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py authority-check --result-slot empty
+          echo ISSUE634_EXTERNAL_AUTHORITY_PREFLIGHT=PASS
+          echo REAL_MARKET_DATA_ACCESSED=false
+          echo ECONOMIC_EVALUATOR_CALLED=false
+
+      - name: Verify dormant formal-workflow trigger and ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('helper')
+          workflow = root / '.github/workflows/issue634-ridge-shared-cash-evaluation-v1.yml'
+          text = workflow.read_text()
+          required = (
+              'run/issue634-ridge-shared-cash-evaluation-v1',
+              '.github/authorizations/issue634-ridge-shared-cash-evaluation-v1.authorized',
+              'issue634-ridge-shared-cash-result-v1',
+              'issue634-ridge-shared-cash-fresh-v1',
+              'issue634-ridge-shared-cash-audit-v1',
+              'authority-check --result-slot empty',
+              'authority-check --result-slot published',
+              'issue634_shared_cash_runner.py evaluate',
+              'issue634_shared_cash_runner.py reconstruct',
+              'issue634_shared_cash_runner.py audit',
+          )
+          for item in required:
+              if item not in text:
+                  raise SystemExit(f'formal workflow contract missing: {item}')
+          if 'workflow_dispatch:' in text or 'schedule:' in text:
+              raise SystemExit('formal workflow has an unauthorized trigger')
+          auth = root / '.github/authorizations/issue634-ridge-shared-cash-evaluation-v1.authorized'
+          if auth.exists():
+              raise SystemExit('formal authorization file must be absent during preparation')
+          preflight = text.index('Pre-execution authority and unused-slot gate')
+          source_download = text.index('Download exact successor Dataset authority')
+          economic = text.index('Execute sealed shared-cash comparison once without interpretation')
+          publication = text.index('Publish immutable result before interpretation')
+          fresh = text.index('Fresh independent shared-cash reconstruction')
+          audit = text.index('Independent final audit and frozen decision reveal')
+          if not preflight < source_download < economic < publication < fresh < audit:
+              raise SystemExit('formal workflow phase ordering drift')
+          helper = (root / '.github/scripts/issue634_shared_cash_runner.py').read_text()
+          if 'print(f"RESEARCH_STATUS={result.status}")' not in helper:
+              raise SystemExit('final reveal is missing from audit boundary')
+          if helper.index('def audit_command') > helper.index('print(f"RESEARCH_STATUS={result.status}")'):
+              raise SystemExit('status reveal escaped final audit function')
+          print('ISSUE634_FORMAL_WORKFLOW_DORMANT=PASS')
+          print('REAL_MARKET_DATA_ACCESSED=false')
+          print('ECONOMIC_EVALUATOR_CALLED=false')
+          PY
+
+      - name: Verify preparation durable scope and clean worktrees
+        run: |
+          set -euo pipefail
+          test -z "$(git -C impl status --porcelain)"
+          test -z "$(git -C helper status --porcelain)"
+          test ! -e helper/.github/authorizations/issue634-ridge-shared-cash-evaluation-v1.authorized
+          python - <<'PY'
+          import subprocess
+          expected = [
+              '.github/scripts/issue634_shared_cash_runner.py',
+              '.github/workflows/issue634-ridge-shared-cash-evaluation-v1.yml',
+              '.github/workflows/verify-issue634-shared-cash-runner.yml',
+          ]
+          out = subprocess.check_output(
+              ['git', '-C', 'helper', 'diff', '--name-only', 'd1bf25fd66834289ffddb36063b0d5cef649f444...HEAD'],
+              text=True,
+          ).splitlines()
+          if out != expected:
+              raise SystemExit(f'preparation durable scope drift: {out!r}')
+          print('ISSUE634_PREPARATION_SCOPE=PASS')
+          PY

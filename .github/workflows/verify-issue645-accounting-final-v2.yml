@@ -1,0 +1,81 @@
+name: Verify Issue 645 corrected accounting final v2
+
+on:
+  push:
+    branches:
+      - verify/issue645-accounting-final-v2
+    paths:
+      - .github/workflows/verify-issue645-accounting-final-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 66e93dd4e4a393e2a6fe56631bedbd8af192c282
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install complete research runtime
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+      - name: Exact 10-file scope
+        run: |
+          python - <<'PY'
+          import subprocess
+          files = sorted(subprocess.check_output([
+              'git','diff','--name-only','c80652a126780580990bf46bb206155ba469e043...HEAD'
+          ], text=True).splitlines())
+          expected = sorted([
+              'tests/architecture/test_lean_simulation_layout.py',
+              'tests/simulation/test_lot_accounting.py',
+              'tests/simulation/test_stateful_execution_characterization.py',
+              'trade_rl/simulation/accounting.py',
+              'trade_rl/simulation/execution.py',
+              'trade_rl/simulation/liquidity.py',
+              'trade_rl/simulation/orders/admission.py',
+              'trade_rl/simulation/orders/model.py',
+              'trade_rl/simulation/quantities.py',
+              'trade_rl/simulation/stateful/symbol_fills.py',
+          ])
+          if files != expected:
+              raise SystemExit(f'Issue 645 scope drift: {files!r}')
+          print('ISSUE645_FINAL_SCOPE=PASS')
+          PY
+      - name: Static analysis
+        run: |
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy trade_rl
+      - name: Full pytest
+        run: uv run pytest -q
+      - name: Build source and wheel
+        run: uv build
+      - name: Clean wheel install with declared dependencies and import smoke
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/pip" install dist/*.whl
+          "$RUNNER_TEMP/clean/bin/python" - <<'PY'
+          import trade_rl
+          from trade_rl.simulation import BookState, MarketExecutor
+          from trade_rl.simulation.quantities import quantize_quantity
+          assert quantize_quantity(0.003, 0.001) == (0.003, 3)
+          print('ISSUE645_CLEAN_WHEEL_IMPORT=PASS')
+          PY
+      - name: No economic execution boundary
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ISSUE640_RESULT_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false
+          echo FINAL_TEST_ACCESSED=false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false

@@ -133,14 +133,14 @@ def _activation_environment() -> dict[str, str]:
     return {
         "GITHUB_ACTIONS": "true",
         "GITHUB_EVENT_NAME": "push",
-        "GITHUB_REF_NAME": "run/issue640-directional-study-v1",
+        "GITHUB_REF_NAME": "run/issue645-corrected-directional-study-v1",
         "GITHUB_RUN_ID": "123456789",
         "GITHUB_RUN_NUMBER": "1",
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_SHA": "a" * 40,
         "GITHUB_WORKFLOW_REF": (
-            "shuntatsu/trade_rl/.github/workflows/issue640-directional-study-v1.yml"
-            "@refs/heads/run/issue640-directional-study-v1"
+            "shuntatsu/trade_rl/.github/workflows/issue645-corrected-directional-study-v1.yml"
+            "@refs/heads/run/issue645-corrected-directional-study-v1"
         ),
     }
 
@@ -155,7 +155,7 @@ def test_official_activation_accepts_only_first_exact_actions_run() -> None:
         "workflow_run_attempt": 1,
         "workflow_event": "push",
         "workflow_ref": environment["GITHUB_WORKFLOW_REF"],
-        "ref_name": "run/issue640-directional-study-v1",
+        "ref_name": "run/issue645-corrected-directional-study-v1",
         "head_sha": "a" * 40,
     }
 

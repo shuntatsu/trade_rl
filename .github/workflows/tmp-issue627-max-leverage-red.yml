@@ -1,0 +1,41 @@
+name: tmp Issue 627 execution max-leverage RED
+
+on:
+  push:
+    branches:
+      - verify/issue627-max-leverage-red
+    paths:
+      - .github/workflows/tmp-issue627-max-leverage-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue627-max-leverage-red
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static precondition
+        run: |
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py
+          uv run mypy trade_rl
+      - name: Semantic RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py > /tmp/red.log 2>&1
+          status=$?
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -q 'execution_max_leverage' /tmp/red.log
+          echo 'ISSUE627_MAX_LEVERAGE_RED=PASS'

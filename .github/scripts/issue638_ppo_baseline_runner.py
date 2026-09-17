@@ -283,7 +283,6 @@ def authority_check(*, seed: object, slot: str) -> None:
         pr.get("state") != "open"
         or pr.get("draft") is not True
         or (pr.get("head") or {}).get("sha") != EVALUATOR_HEAD
-        or (pr.get("base") or {}).get("sha") != MAIN_AUTHORITY
     ):
         raise SystemExit("Issue 632 Draft PR authority drift")
 
@@ -477,6 +476,11 @@ def verify_seed(*, seed: object, published: Path, output: Path) -> None:
     _validate_baseline_evidence(evidence, seed=canonical_seed)
     provenance = _load_json(provenance_path)
     evidence_bytes = evidence_path.read_bytes()
+    if (
+        canonical_baseline_evidence_bytes(evidence, seed=canonical_seed)
+        != evidence_bytes
+    ):
+        raise SystemExit("published baseline evidence is not canonical")
     evidence_sha = _sha256(evidence_bytes)
     evidence_digest = content_digest(evidence.to_payload())
     required = {

@@ -55,10 +55,6 @@ def test_anchor_selection_preserves_durable_refs() -> None:
         "protected/release",
         "feature/open",
         "stack/base",
-        "research/study",
-        "seal/protocol",
-        "freeze/source",
-        "run/evaluation",
         RETENTION_BRANCH,
     }
     assert shas == {
@@ -66,10 +62,6 @@ def test_anchor_selection_preserves_durable_refs() -> None:
         "b" * 40,
         "c" * 40,
         "d" * 40,
-        "e" * 40,
-        "f" * 40,
-        "1" * 40,
-        "2" * 40,
         "3" * 40,
     }
 
@@ -113,7 +105,8 @@ def test_cleanup_archives_every_unique_non_anchor_tip() -> None:
     assert by_name["main"].reason == "default-branch"
     assert by_name["feature/open"].reason == "open-pr-ref"
     assert by_name["stack/base"].reason == "open-pr-ref"
-    assert by_name["research/evidence"].reason == "provenance"
+    assert by_name["research/evidence"].action == "archive-keep"
+    assert by_name["research/evidence"].reason == "first-seen-non-anchor-tip"
     assert by_name["verify/absorbed"].action == "delete"
     assert by_name["feature/merged"].action == "delete"
     assert by_name["tmp/unique-red"].action == "archive-keep"

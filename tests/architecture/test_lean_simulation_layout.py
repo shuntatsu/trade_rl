@@ -14,6 +14,7 @@ EXPECTED_ROOT_FILES = {
     "bar_path.py",
     "execution.py",
     "liquidity.py",
+    "quantities.py",
 }
 
 EXPECTED_PACKAGE_FILES = {

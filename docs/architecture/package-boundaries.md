@@ -28,7 +28,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -49,6 +49,7 @@ trade_rl/
 │   ├── execution.py
 │   ├── bar_path.py
 │   ├── liquidity.py
+│   ├── quantities.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
 │   ├── targets/{execution.py,exposure_controller.py}
@@ -58,14 +59,19 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
-│   ├── rules/{trend.py,mean_reversion.py}
+│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
-│   └── rl/ppo.py
+│   └── rl/{ppo.py,ppo_normalization.py,ppo_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── metrics.py
     ├── evidence.py
     ├── series.py
+    ├── directional.py
+    ├── directional_candidates.py
+    ├── directional_selection.py
+    ├── directional_study.py
+    ├── ppo_risk_study.py
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -91,6 +97,30 @@ trade_rl/
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
 
 ## Provider evidence boundary
+
+The directional development CLI composes the existing shared-cash replay and
+maintained strategy fitters. `directional.py` owns terminal-close scheduling and
+screen metrics, `directional_candidates.py` owns the fixed fit roster,
+`directional_selection.py` owns family aggregation, and `directional_study.py`
+owns write-once study evidence. These modules do not own execution accounting,
+exchange connectivity, or the canonical Study lifecycle. Price-channel rolling
+bounds and availability belong to data; the rule consumes them as observations.
+
+`simulation/quantities.py` owns exact decimal-rational conversion, canonical
+state parsing, conservative float projection and lot quantization. Liquidity
+allocations carry accepted integer lots and their quantum; accounting and the
+pending-order state consume that same signed fill. Exact state is part of the
+book clone and pending-order persistence contract, not strategy preprocessing.
+`ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
+the completed directional baseline. It reuses the same fit and replay owners,
+checks source/runtime isolation, and reports relative loss reduction separately
+from the existing absolute qualification gate.
+
+`strategies/rl/ppo_normalization.py` owns optional fit-only local-feature
+standardization and its immutable metadata. `ppo.py` applies one shared fitted
+transform in training and inference while keeping the raw v2 default unchanged.
+`ppo_artifact.py` binds normalized policy bytes and preprocessing metadata under
+one manifest digest; load validates that digest and the feed feature schema.
 
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 

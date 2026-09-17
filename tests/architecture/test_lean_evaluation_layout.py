@@ -56,6 +56,11 @@ def test_evaluation_root_keeps_core_primitives() -> None:
 
 def test_evaluation_responsibility_packages_exist() -> None:
     required = (
+        "directional.py",
+        "directional_candidates.py",
+        "directional_selection.py",
+        "directional_study.py",
+        "ppo_risk_study.py",
         "comparison/__init__.py",
         "comparison/bootstrap.py",
         "comparison/paired.py",

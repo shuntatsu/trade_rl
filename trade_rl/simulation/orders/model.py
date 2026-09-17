@@ -13,6 +13,12 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
+    exact_quantity,
+    parse_quantity,
+    project_quantity,
+)
 
 ORDER_EVENT_SCHEMA = "order_event_v1"
 _QUANTITY_TOLERANCE = 1e-12
@@ -335,6 +341,7 @@ class PendingOrder:
     last_processed_index: int | None = None
     terminal_reason: str | None = None
     evidence_version: int = 0
+    exact_cumulative_filled_quantity: str | None = None
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -376,6 +383,28 @@ class PendingOrder:
             raise OrderDomainError("terminal orders require a terminal_reason")
         if not self.status.terminal and self.terminal_reason is not None:
             raise OrderDomainError("active orders may not have a terminal_reason")
+        raw_exact = self.exact_cumulative_filled_quantity
+        try:
+            cumulative = (
+                exact_quantity(self.cumulative_filled_quantity)
+                if raw_exact is None
+                else parse_quantity(raw_exact)
+            )
+        except ValueError as error:
+            raise OrderDomainError("invalid exact cumulative quantity") from error
+        remaining = exact_quantity(self.intent.requested_quantity) - cumulative
+        if raw_exact is not None and (
+            project_quantity(cumulative) != self.cumulative_filled_quantity
+            or project_quantity(remaining) != self.remaining_quantity
+        ):
+            raise OrderDomainError(
+                "exact pending quantity differs from its reporting view"
+            )
+        object.__setattr__(self, "exact_cumulative_filled_quantity", str(cumulative))
+        object.__setattr__(
+            self, "cumulative_filled_quantity", project_quantity(cumulative)
+        )
+        object.__setattr__(self, "remaining_quantity", project_quantity(remaining))
 
     @classmethod
     def from_intent(cls, intent: OrderIntent) -> PendingOrder:
@@ -396,7 +425,10 @@ class PendingOrder:
             "terminal_reason",
             "trigger_index",
         }
-        if set(value) != required:
+        if set(value) not in (
+            required,
+            required | {"exact_cumulative_filled_quantity"},
+        ):
             raise OrderDomainError("pending order field closure mismatch")
         raw_intent = value["intent"]
         if not isinstance(raw_intent, Mapping):
@@ -423,6 +455,12 @@ class PendingOrder:
             return raw
 
         raw_reason = value["terminal_reason"]
+        raw_exact = value.get("exact_cumulative_filled_quantity")
+        if "exact_cumulative_filled_quantity" in value and not isinstance(
+            raw_exact, str
+        ):
+            raise OrderDomainError("exact cumulative quantity must be a string")
+        assert raw_exact is None or isinstance(raw_exact, str)
         if raw_reason is not None and not isinstance(raw_reason, str):
             raise OrderDomainError("terminal_reason must be a string or null")
         raw_status = value["status"]
@@ -442,6 +480,7 @@ class PendingOrder:
             last_processed_index=optional_integer("last_processed_index"),
             terminal_reason=raw_reason,
             evidence_version=integer("evidence_version"),
+            exact_cumulative_filled_quantity=raw_exact,
         )
 
     @property
@@ -536,6 +575,8 @@ class PendingOrder:
         quantity: float,
         notional: float,
         processing_index: int,
+        lot_size: float = 0.0,
+        lot_count: int | None = None,
     ) -> PendingOrder:
         self._ensure_active()
         self._validate_processing_index(processing_index)
@@ -556,8 +597,18 @@ class PendingOrder:
         if not _is_finite(notional) or notional < 0.0:
             raise OrderDomainError("fill notional must be finite and non-negative")
 
-        cumulative_quantity = self.cumulative_filled_quantity + quantity
-        remaining = self.intent.requested_quantity - cumulative_quantity
+        accepted = accepted_fill_quantity(
+            quantity, lot_size=lot_size, lot_count=lot_count
+        )
+        assert self.exact_cumulative_filled_quantity is not None
+        exact_cumulative = (
+            parse_quantity(self.exact_cumulative_filled_quantity) + accepted
+        )
+        exact_remaining = (
+            exact_quantity(self.intent.requested_quantity) - exact_cumulative
+        )
+        cumulative_quantity = project_quantity(exact_cumulative)
+        remaining = project_quantity(exact_remaining)
         completion_tolerance = _quantity_tolerance(
             self.intent.requested_quantity,
             cumulative_quantity,
@@ -565,6 +616,7 @@ class PendingOrder:
         )
         if abs(remaining) <= completion_tolerance:
             cumulative_quantity = self.intent.requested_quantity
+            exact_cumulative = exact_quantity(self.intent.requested_quantity)
             remaining = 0.0
             status = OrderStatus.FILLED
             terminal_reason = "filled"
@@ -575,6 +627,7 @@ class PendingOrder:
             self,
             remaining_quantity=remaining,
             cumulative_filled_quantity=cumulative_quantity,
+            exact_cumulative_filled_quantity=str(exact_cumulative),
             cumulative_filled_notional=self.cumulative_filled_notional + notional,
             status=status,
             last_processed_index=processing_index,

@@ -53,6 +53,7 @@ def test_strategy_family_packages_exist() -> None:
         "rules/__init__.py",
         "rules/trend.py",
         "rules/mean_reversion.py",
+        "rules/channel_breakout.py",
         "forecasts/__init__.py",
         "forecasts/controller.py",
         "forecasts/supervised.py",
@@ -60,6 +61,8 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/lightgbm.py",
         "rl/__init__.py",
         "rl/ppo.py",
+        "rl/ppo_normalization.py",
+        "rl/ppo_artifact.py",
     ):
         assert (STRATEGIES / relative).is_file(), relative
 

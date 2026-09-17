@@ -81,6 +81,38 @@ unavailableまたはnon-finiteなlocal valueは0へmaskする。stalenessはsele
 
 Observation contractは暗黙のimplementation detailにしない。新規Candidate Runと新規Studyのresolved configはObservation schema、staleness利用、空のglobal rosterをsemantic identityへbindする。execution economics、reward、action、risk、PPO network architectureはObservation v2のpolicy inputへ追加しない。
 
+### PPO training layout
+
+`fit_ppo_strategy(normalize_features=True)` explicitly fits one immutable
+local-feature standardizer on finite/available training decisions in the selected
+symbol/window scope. Each symbol contributes equal total weight per feature;
+the pooled variance includes between-symbol mean differences. Scales at most
+1e-12 use 1; clipping and online statistic updates are absent. Both layouts and
+the returned strategy share that fitted transform. Missing inputs stay zero,
+and masks/staleness/intent/weight keep their v2 semantics. The default remains
+the raw v2 encoder and persisted default observation payload.
+
+Normalized models require their preprocessing state. `save_normalized_ppo` binds
+policy bytes and transform metadata in a write-once bundle. `load_normalized_ppo`
+requires the expected manifest digest and the feed's full ordered feature names,
+checks both before policy deserialization, and validates policy spaces. Changing
+evaluation statistics or loading a model without its transform is not supported.
+
+PPO environment/fitter callers can explicitly provide an immutable
+`PreTradeRiskConfig` via `risk_config`. The same configuration applies when the
+environment is created and after every reset, in both sequential and interleaved
+layouts. Omission preserves the legacy execution-leverage-limited risk with
+drawdown start/stop 1.0. This is a training-only opt-in; it does not alter policy
+observations, rewards, action meanings, or replay risk. Research callers must
+bind the explicit training configuration in their protocol and separately verify
+that evaluation risk matches the intended deployment objective.
+
+`fit_ppo_strategy` の既定は従来どおり `sequential` であり、単一 `PPOTradingEnv` がfit symbolをfull-window episode単位でround-robinする。既存Studyやcandidateがlayoutを明示しない場合の意味は変えない。
+
+`interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
+
+このlayoutは学習sampleの並び方を変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layoutとrollout stepsを別Controlled Factorとして結果前にpreregisterする。 interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。
+
 ## StrategyとRiskの責任分離
 
 Risk / executionが担当するもの:
@@ -107,6 +139,11 @@ P&Lの正本は `MarketExecutor + BookState` の一経路である。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - partial fill後のpositionはrealized fill quantityで更新する。
+- lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
+- signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
+- capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
+- PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。
+- 金額は既存のfloat契約を維持し、allocationとcashで同じ約定数量の射影・価格・multiplierの乗算順を使う。OrderEvent v1はfloat数量のままで、極端な非表現可能lot積のlossless ledgerとは主張しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。
 - terminal mark-to-marketとforced closeを混同しない。
@@ -143,6 +180,17 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 - Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
+
+## Separate directional development composition
+
+`data.features.price_channels` appends prior-window high/low boundaries relative
+to the current completed close. It excludes the decision candle from extrema,
+requires every window member to have been available, and derives a new content
+identity while preserving source prices and economic arrays. The channel rule
+only emits intent. The directional evaluator uses the existing shared-cash
+executor, records ledger drawdown, and schedules real terminal closing orders.
+Failed terminal fills remain holdings and fail the screen. This composition
+does not change the canonical five-candidate suite or its historical decisions.
 
 ## 非目標
 

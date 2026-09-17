@@ -36,7 +36,9 @@
       "label_ja": "市場データの共通契約",
       "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持します。",
       "variables": [],
-      "tests": ["tests/data/test_market_artifact.py"]
+      "tests": [
+        "tests/data/test_market_artifact.py"
+      ]
     },
     {
       "id": "single-symbol-strategy",
@@ -46,7 +48,9 @@
       "label_ja": "単銘柄戦略の共通インターフェース",
       "description_ja": "rule・forecast・PPOを同じStrategyObservation→PositionIntent契約で評価できるようにします。",
       "variables": [],
-      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
     },
     {
       "id": "pretrade-risk",
@@ -56,17 +60,21 @@
       "label_ja": "hard riskの所有者",
       "description_ja": "strategyが提案したtargetへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用します。",
       "variables": [],
-      "tests": ["tests/risk/test_pretrade.py"]
+      "tests": [
+        "tests/risk/test_pretrade.py"
+      ]
     },
     {
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "fbb702d584a778c125f8df814534352faddac5eccf033b5bd095db8c59437934",
+      "source_sha256": "ea70e0094dcdd2cc98b72e6083767d6d6ea55d6c46321becbbe3e396685ff811",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
-      "tests": ["tests/simulation/test_execution_v2.py"]
+      "tests": [
+        "tests/simulation/test_execution_v2.py"
+      ]
     },
     {
       "id": "single-symbol-replay",
@@ -76,7 +84,9 @@
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。",
       "variables": [],
-      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
     }
   ]
 }

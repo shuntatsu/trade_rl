@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import math
+from functools import partial
 from typing import Protocol, cast
 
 import gymnasium as gym
@@ -22,9 +23,16 @@ from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
+from trade_rl.strategies.rl.ppo_normalization import (
+    PPOFeatureNormalizer,
+    fit_ppo_feature_normalizer,
+)
 
 PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
+PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
+PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
+_PPO_BATCH_SIZE = 64
 
 
 class _PredictPolicy(Protocol):
@@ -65,9 +73,47 @@ def _validated_indices(feature_indices: tuple[int, ...]) -> tuple[int, ...]:
     return indices
 
 
+def _validated_training_layout(
+    training_layout: str,
+    rollout_steps_per_env: int | None,
+) -> str:
+    if training_layout not in {
+        PPO_TRAINING_LAYOUT_SEQUENTIAL,
+        PPO_TRAINING_LAYOUT_INTERLEAVED,
+    }:
+        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
+    if (
+        training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
+        and rollout_steps_per_env is not None
+    ):
+        raise ValueError("sequential training does not accept rollout_steps_per_env")
+    return training_layout
+
+
+def _validated_interleaved_rollout_steps(
+    rollout_steps_per_env: int | None,
+    *,
+    n_envs: int,
+) -> int:
+    if (
+        isinstance(rollout_steps_per_env, bool)
+        or not isinstance(rollout_steps_per_env, int)
+        or rollout_steps_per_env <= 0
+    ):
+        raise ValueError(
+            "rollout_steps_per_env must be a positive integer for interleaved training"
+        )
+    if rollout_steps_per_env * n_envs % _PPO_BATCH_SIZE != 0:
+        raise ValueError(
+            "interleaved rollout batch must be divisible by PPO batch_size=64"
+        )
+    return rollout_steps_per_env
+
+
 def _encode_observation(
     observation: StrategyObservation,
     feature_indices: tuple[int, ...],
+    feature_normalizer: PPOFeatureNormalizer | None = None,
 ) -> np.ndarray:
     indices = _validated_indices(feature_indices)
     if max(indices) >= observation.features.size:
@@ -87,6 +133,8 @@ def _encode_observation(
     finite = np.isfinite(selected)
     usable = available & finite
     values = np.where(usable, selected, 0.0)
+    if feature_normalizer is not None:
+        values = feature_normalizer.transform(selected, usable)
 
     state = np.asarray(
         [float(observation.current_intent), observation.current_weight],
@@ -166,14 +214,19 @@ class PPOIntentStrategy:
         policy: _PredictPolicy,
         *,
         feature_indices: tuple[int, ...],
+        feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         self.policy = policy
         self.feature_indices = _validated_indices(feature_indices)
+        if feature_normalizer is not None:
+            feature_normalizer.validate_features(self.feature_indices)
+        self.feature_normalizer = feature_normalizer
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
         encoded = _encode_observation(
             observation,
             self.feature_indices,
+            self.feature_normalizer,
         )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
@@ -195,8 +248,12 @@ class PPOTradingEnv(gym.Env):
         gross_budget: float,
         initial_capital: float = 100_000.0,
         execution_cost: ExecutionCostConfig | None = None,
+        risk_config: PreTradeRiskConfig | None = None,
+        feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         super().__init__()
+        if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
+            raise ValueError("risk_config must be a PreTradeRiskConfig or None")
         if dataset.n_symbols <= 0:
             raise ValueError("PPOTradingEnv requires at least one symbol")
         if (
@@ -221,6 +278,20 @@ class PPOTradingEnv(gym.Env):
         self.gross_budget = gross_budget
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
+        self.risk_config = risk_config
+        if feature_normalizer is not None:
+            feature_normalizer.validate_features(self.feature_indices)
+            feature_normalizer.validate_training_scope(
+                dataset, self.symbol_indices, start_index, stop_index
+            )
+        self.feature_normalizer = feature_normalizer
+        if risk_config is not None and (
+            risk_config.max_gross > self.execution_cost.max_leverage
+            or risk_config.max_abs_weight > self.execution_cost.max_leverage
+        ):
+            raise ValueError(
+                "risk max_gross/max_abs_weight must not exceed execution max_leverage"
+            )
 
         observation_size = 3 * len(self.feature_indices) + 2
         self.observation_space = spaces.Box(
@@ -234,7 +305,11 @@ class PPOTradingEnv(gym.Env):
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
-        self.risk = _default_risk(self.executor)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
@@ -275,6 +350,7 @@ class PPOTradingEnv(gym.Env):
         return _encode_observation(
             self._strategy_observation(),
             self.feature_indices,
+            self.feature_normalizer,
         ).copy()
 
     def reset(
@@ -292,7 +368,11 @@ class PPOTradingEnv(gym.Env):
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
             self.executor.reset_random_state(seed)
-        self.risk = _default_risk(self.executor)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
@@ -387,8 +467,12 @@ def fit_ppo_strategy(
     seed: int = 0,
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
+    training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    rollout_steps_per_env: int | None = None,
+    risk_config: PreTradeRiskConfig | None = None,
+    normalize_features: bool = False,
 ) -> PPOIntentStrategy:
-    """Fit one teacher-free policy across equal round-robin symbol episodes."""
+    """Fit one teacher-free policy with an explicit multi-symbol training layout."""
 
     if (
         isinstance(total_timesteps, bool)
@@ -398,18 +482,75 @@ def fit_ppo_strategy(
         raise ValueError("total_timesteps must be a positive integer")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
+    layout = _validated_training_layout(training_layout, rollout_steps_per_env)
 
     indices = validated_feature_indices(dataset, feature_indices)
-    env = PPOTradingEnv(
-        dataset,
-        feature_indices=indices,
-        symbol_indices=fit_symbol_indices,
-        start_index=start_index,
-        stop_index=stop_index,
-        gross_budget=gross_budget,
-        initial_capital=initial_capital,
-        execution_cost=execution_cost,
+    if not isinstance(normalize_features, bool):
+        raise ValueError("normalize_features must be boolean")
+    normalizer = (
+        fit_ppo_feature_normalizer(
+            dataset,
+            feature_indices=indices,
+            fit_symbol_indices=fit_symbol_indices,
+            start_index=start_index,
+            stop_index=stop_index,
+        )
+        if normalize_features
+        else None
     )
+    ppo_options: dict[str, object] = {}
+    if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+        env: object = PPOTradingEnv(
+            dataset,
+            feature_indices=indices,
+            symbol_indices=fit_symbol_indices,
+            start_index=start_index,
+            stop_index=stop_index,
+            gross_budget=gross_budget,
+            initial_capital=initial_capital,
+            execution_cost=execution_cost,
+            risk_config=risk_config,
+            feature_normalizer=normalizer,
+        )
+    else:
+        if execution_cost is not None and execution_cost.slippage_std > 0.0:
+            raise ValueError(
+                "interleaved training requires deterministic execution slippage"
+            )
+        symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)
+        rollout_steps = _validated_interleaved_rollout_steps(
+            rollout_steps_per_env,
+            n_envs=len(symbol_indices),
+        )
+        try:
+            vector_module = importlib.import_module("stable_baselines3.common.vec_env")
+            dummy_vec_env = getattr(vector_module, "DummyVecEnv")
+        except (ImportError, AttributeError) as error:
+            raise RuntimeError(
+                "stable-baselines3 is required; install the train-sb3 extra"
+            ) from error
+        env = dummy_vec_env(
+            [
+                partial(
+                    PPOTradingEnv,
+                    dataset,
+                    feature_indices=indices,
+                    symbol_indices=(symbol_index,),
+                    start_index=start_index,
+                    stop_index=stop_index,
+                    gross_budget=gross_budget,
+                    initial_capital=initial_capital,
+                    execution_cost=execution_cost,
+                    risk_config=risk_config,
+                    feature_normalizer=normalizer,
+                )
+                for symbol_index in symbol_indices
+            ]
+        )
+        ppo_options = {
+            "n_steps": rollout_steps,
+            "batch_size": _PPO_BATCH_SIZE,
+        }
 
     try:
         module = importlib.import_module("stable_baselines3")
@@ -426,17 +567,21 @@ def fit_ppo_strategy(
         seed=seed,
         ent_coef=0.0,
         verbose=0,
+        **ppo_options,
     )
     model.learn(total_timesteps=total_timesteps)
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
+        feature_normalizer=normalizer,
     )
 
 
 __all__ = [
     "PPO_GLOBAL_FEATURE_NAMES",
     "PPO_OBSERVATION_SCHEMA",
+    "PPO_TRAINING_LAYOUT_INTERLEAVED",
+    "PPO_TRAINING_LAYOUT_SEQUENTIAL",
     "PPOIntentStrategy",
     "PPOTradingEnv",
     "fit_ppo_strategy",

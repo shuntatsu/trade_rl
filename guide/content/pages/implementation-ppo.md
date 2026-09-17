@@ -30,6 +30,24 @@ local_values
 
 初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。
 
+## 学習時の銘柄スケジュールは2方式
+
+`fit_ppo_strategy`の既定は従来どおり`sequential`です。1つの`PPOTradingEnv`がfit対象銘柄をfull-window episodeごとにround-robinするため、既存のStudyやcandidateの意味は変わりません。
+
+`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Observation v2、reward、hard risk、約定・会計、network、entropy係数は変えません。
+
+```text
+sequential（既定）
+  1つのenv: BTC full window → ETH full window → ...
+
+interleaved（opt-in）
+  BTC固定env ─┐
+  ETH固定env ─┼─ DummyVecEnv → 同じPPO policy update
+  ...         ─┘
+```
+
+これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。 なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+
 ## 学習stepの全体像
 
 ```text
@@ -66,6 +84,10 @@ actionが直接rewardになるわけではありません。必ずriskとexecuti
 
 利用不能またはnon-finiteなlocal valueはmaskし、stalenessを同じfeature順序で持ちます。現在のintentとweightも含め、固定順序の`float32` vectorへ連結します。
 
+入力値の標準化は明示的に選べる追加機能です。学習対象の期間・銘柄だけで平均と標準偏差を計算し、学習中も評価中も同じ係数を使います。欠損値は標準化後も0とし、利用可否・鮮度・保有状態の意味は変えません。既定では従来の値をそのまま使います。
+
+標準化したモデルには係数も必要です。保存時にモデルと係数を一つの識別子で結び付け、読み込み時には識別子と入力項目の順序を照合します。係数が欠けたり、別のモデルの係数に置き換わった場合は推論を始めません。利益が改善するかは、別の実データ比較で判定します。
+
 このcontractを固定することで、学習時にだけ便利な情報を後から追加してバックテストを有利にする余地を減らします。
 
 ## 2. policyがactionを選ぶ
@@ -81,6 +103,8 @@ PPO policyはObservation v2から離散actionを返します。このactionは�
 ## 4. hard riskを通す
 
 PPOもrule strategyと同じ`PreTradeRisk`を通ります。PPOだけrisk上限を回避する経路はありません。
+
+学習用のリスク設定は明示的に指定でき、episodeをresetしても同じ設定を使います。省略時は従来の設定を保ちます。学習と評価で保有上限や下落時の縮小条件が違うと、同じ売買意図でも約定やコストが変わります。両者を合わせる実験ではリスク設定だけを変更し、報酬・観測・学習データの並べ方は別の比較として扱います。
 
 ## 5. 約定・会計を通す
 

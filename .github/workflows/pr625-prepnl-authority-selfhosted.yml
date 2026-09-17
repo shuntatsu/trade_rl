@@ -1,314 +1,582 @@
-name: PR625 Implementation Seal Fresh Reconstruction
+name: PR625 Real PRE-PnL Cost Authority Seal
 
 on:
   push:
     branches:
       - agent/pr625-prepnl-authority-selfhosted-2026-09-17
+    paths:
+      - .github/workflows/pr625-prepnl-authority-selfhosted.yml
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  primary-seal:
-    runs-on: ubuntu-latest
+  primary-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     outputs:
-      manifest_b64: ${{ steps.seal.outputs.manifest_b64 }}
-      manifest_sha256: ${{ steps.seal.outputs.manifest_sha256 }}
+      seal_b64: ${{ steps.build.outputs.seal_b64 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      authority_digest: ${{ steps.build.outputs.authority_digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - name: Checkout exact PR625 implementation
+      - name: Checkout exact sealed economic implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Assert exact implementation scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          head='3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
-          base='75999e53c70224c31a62b106e4a8d2caa4b920ac'
-          test "$(git rev-parse HEAD)" = "$head"
-          test "$(git merge-base "$base" HEAD)" = "$base"
-          mapfile -t changed < <(git diff --name-only "$base"...HEAD | sort)
-          expected=(
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-            tests/strategies/test_ridge_economic_gate.py
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
-            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py
-            trade_rl/strategies/forecasts/ridge_economic_gate.py
-          )
-          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
-          test "${changed[*]}" = "${expected[*]}"
-          git diff --check "$base"...HEAD
-          test -z "$(git status --porcelain)"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
 
-      - name: Build canonical implementation seal
-        id: seal
+      - name: Install result-blind authority runtime
+        run: uv sync --extra dev
+
+      - name: Fetch sealed successor and extract Dataset only
         shell: bash
         env:
-          SEAL_RUN_ID: ${{ github.run_id }}
-          SEAL_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ARTIFACT_ID: '10331899302'
+          SOURCE_API_DIGEST: 'sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce'
+          SOURCE_RUN_ID: '34803217815'
+          SOURCE_ARTIFACT_NAME: 'issue539-calibrated-causal-successor-v3-34803217815'
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          mkdir -p prepnl-source
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}" \
+            > prepnl-source/source-metadata.json
           python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          data = json.loads(Path('prepnl-source/source-metadata.json').read_text())
+          expected_id = int(os.environ['SOURCE_ARTIFACT_ID'])
+          expected_run = int(os.environ['SOURCE_RUN_ID'])
+          if data.get('id') != expected_id:
+              raise SystemExit('source Artifact ID drift')
+          if data.get('name') != os.environ['SOURCE_ARTIFACT_NAME']:
+              raise SystemExit('source Artifact name drift')
+          if data.get('digest') != os.environ['SOURCE_API_DIGEST']:
+              raise SystemExit('source Artifact API digest drift')
+          if data.get('expired') is not False:
+              raise SystemExit('source Artifact is expired')
+          workflow_run = data.get('workflow_run') or {}
+          if workflow_run.get('id') != expected_run:
+              raise SystemExit('source workflow run drift')
+          print('SOURCE_ARTIFACT_METADATA_VERIFIED=true')
+          PY
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            --output prepnl-source/source.zip
+          python - <<'PY'
+          import hashlib
+          import os
+          import shutil
+          import stat
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          raw = Path('prepnl-source/source.zip').read_bytes()
+          actual = 'sha256:' + hashlib.sha256(raw).hexdigest()
+          if actual != os.environ['SOURCE_API_DIGEST']:
+              raise SystemExit(f'source ZIP digest mismatch: {actual}')
+
+          root = Path('prepnl-source/dataset')
+          root.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile('prepnl-source/source.zip') as archive:
+              infos = archive.infolist()
+              manifest_matches = [
+                  info for info in infos
+                  if not info.is_dir() and info.filename.endswith('dataset/manifest.json')
+              ]
+              if len(manifest_matches) != 1:
+                  raise SystemExit(f'expected exactly one dataset/manifest.json, got {len(manifest_matches)}')
+              manifest_name = PurePosixPath(manifest_matches[0].filename)
+              prefix_parts = manifest_name.parts[:-2]
+              dataset_prefix = PurePosixPath(*prefix_parts, 'dataset')
+              expected_arrays = str(dataset_prefix / 'arrays.npz')
+              if sum(1 for info in infos if info.filename == expected_arrays) != 1:
+                  raise SystemExit('source Artifact does not contain the matching dataset/arrays.npz')
+
+              extracted = []
+              for info in infos:
+                  name = PurePosixPath(info.filename)
+                  try:
+                      relative = name.relative_to(dataset_prefix)
+                  except ValueError:
+                      continue
+                  if info.is_dir():
+                      continue
+                  if not relative.parts or any(part in {'', '.', '..'} for part in relative.parts):
+                      raise SystemExit(f'unsafe Dataset member path: {info.filename!r}')
+                  mode = info.external_attr >> 16
+                  if mode and stat.S_ISLNK(mode):
+                      raise SystemExit(f'Dataset member must not be a symlink: {info.filename!r}')
+                  target = root.joinpath(*relative.parts)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with archive.open(info, 'r') as source, target.open('wb') as destination:
+                      shutil.copyfileobj(source, destination)
+                  extracted.append(str(relative))
+
+          required = {'manifest.json', 'arrays.npz'}
+          if not required.issubset(extracted):
+              raise SystemExit(f'Dataset extraction incomplete: {sorted(extracted)!r}')
+          if any('study' in PurePosixPath(name).parts for name in extracted):
+              raise SystemExit('study content unexpectedly extracted')
+          print('SOURCE_ZIP_DIGEST_VERIFIED=true')
+          print('DATASET_ONLY_EXTRACTION=true')
+          print('STUDY_FILES_EXTRACTED=false')
+          print('CANDIDATE_RESULT_FILES_EXTRACTED=false')
+          PY
+
+      - name: Build canonical result-blind PRE-PnL authority
+        id: build
+        shell: bash
+        env:
+          AUTHORITY_RUN_ID: ${{ github.run_id }}
+          SOURCE_RUN_ID: '34803217815'
+          SOURCE_ARTIFACT_ID: '10331899302'
+          SOURCE_ARTIFACT_NAME: 'issue539-calibrated-causal-successor-v3-34803217815'
+          SOURCE_API_DIGEST: 'sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce'
+          EXPECTED_DATASET_ID: '6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518'
+          EXPECTED_DATASET_ARTIFACT_DIGEST: 'af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7'
+          IMPLEMENTATION_HEAD: '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          PROTOCOL_DIGEST: '167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3'
+          IMPLEMENTATION_SEAL_SHA256: 'd152072586b6b5a10cb4deb9e5280cc3711e1ac93c4d673a6ef99c7491b2758a'
+          IMPLEMENTATION_PRIMARY_ARTIFACT_ID: '10487276312'
+          IMPLEMENTATION_PRIMARY_API_DIGEST: 'sha256:708593b15300f07ee616157b33c36807b3b1e25814c9139b9668793ab9bc4431'
+          IMPLEMENTATION_FRESH_ARTIFACT_ID: '10486378100'
+          IMPLEMENTATION_FRESH_API_DIGEST: 'sha256:c6c31df2b7ff97f3fe9066baa87f6c482c946ed16d403d5b1deaece3294a8c50'
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
           import base64
           import hashlib
           import json
           import os
-          import pathlib
-          import subprocess
+          from pathlib import Path
 
-          HEAD = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
-          BASE = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
-          FILES = sorted(
-              [
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py",
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py",
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py",
-                  "tests/strategies/test_ridge_economic_gate.py",
-                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py",
-                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py",
-                  "trade_rl/strategies/forecasts/ridge_economic_gate.py",
-              ]
+          from trade_rl.data import (
+              inspect_published_market_dataset_artifact,
+              load_market_dataset_artifact,
+          )
+          from trade_rl.evaluation.experiments.bootstrap import ridge_economic_gate_execution_authority as authority_module
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation import (
+              canonical_ridge_economic_gate_evaluation_spec,
           )
 
-          def git(*args: str) -> str:
-              return subprocess.check_output(["git", *args], text=True).strip()
+          root = Path('prepnl-source/dataset')
+          published = inspect_published_market_dataset_artifact(root)
+          if published.artifact_digest != os.environ['EXPECTED_DATASET_ARTIFACT_DIGEST']:
+              raise SystemExit('Dataset artifact digest drift')
+          dataset = load_market_dataset_artifact(root)
+          if dataset.dataset_id != os.environ['EXPECTED_DATASET_ID']:
+              raise SystemExit('Dataset ID drift')
 
-          actual = sorted(git("diff", "--name-only", f"{BASE}...{HEAD}").splitlines())
-          if actual != FILES:
-              raise SystemExit(f"implementation scope mismatch: {actual!r}")
-          if git("rev-parse", "HEAD") != HEAD:
-              raise SystemExit("wrong implementation HEAD")
-          if git("merge-base", BASE, HEAD) != BASE:
-              raise SystemExit("sealed preregistration is not an ancestor")
+          called = False
+          def forbidden_evaluator(*args, **kwargs):
+              global called
+              called = True
+              raise AssertionError('PRE-P&L authority must not execute the economic evaluator')
+          authority_module.evaluate_ridge_economic_gate = forbidden_evaluator
 
-          file_entries = []
-          for name in FILES:
-              data = pathlib.Path(name).read_bytes()
-              file_entries.append(
-                  {
-                      "path": name,
-                      "git_blob": git("rev-parse", f"{HEAD}:{name}"),
-                      "sha256": hashlib.sha256(data).hexdigest(),
-                      "size": len(data),
-                  }
-              )
-
-          patch = subprocess.check_output(
-              [
-                  "git",
-                  "diff",
-                  "--binary",
-                  "--full-index",
-                  "--no-ext-diff",
-                  "--no-renames",
-                  f"{BASE}...{HEAD}",
-                  "--",
-                  *FILES,
-              ]
+          spec = canonical_ridge_economic_gate_evaluation_spec()
+          if spec.protocol_digest != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('sealed protocol digest drift')
+          authority = authority_module.build_ridge_economic_gate_pre_pnl_cost_authority(
+              dataset,
+              authority_implementation_head=os.environ['IMPLEMENTATION_HEAD'],
+              authority_run_id=int(os.environ['AUTHORITY_RUN_ID']),
+              spec=spec,
           )
+          if called:
+              raise SystemExit('economic evaluator was called during PRE-P&L authority construction')
+          if authority.evaluation_pnl_inspected is not False or authority.result_blind is not True:
+              raise SystemExit('authority result-blind flags are invalid')
+
+          source_zip_sha256 = hashlib.sha256(Path('prepnl-source/source.zip').read_bytes()).hexdigest()
           payload = {
-              "schema_version": "ridge_economic_gate_implementation_seal_v1",
-              "pr_number": 625,
-              "tracking_issue": 618,
-              "preregistration_issue": 616,
-              "preregistration_head": BASE,
-              "protocol_digest": "167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3",
-              "protocol_primary_seal_artifact_id": 10459431804,
-              "protocol_primary_seal_api_digest": "sha256:603ca1c50acfcc734762c1059b315e3a31dd6a1068fb5c6481790bfe941714c7",
-              "protocol_fresh_seal_artifact_id": 10458759061,
-              "protocol_fresh_seal_api_digest": "sha256:4b00406c1b1ff587514256bd02cc7119940f35b7830829beb21c125f5bb9fa66",
-              "implementation_head": HEAD,
-              "implementation_tree": git("rev-parse", f"{HEAD}^{{tree}}"),
-              "preregistration_tree": git("rev-parse", f"{BASE}^{{tree}}"),
-              "durable_diff_sha256": hashlib.sha256(patch).hexdigest(),
-              "files": file_entries,
-              "implementation_seal_run_id": int(os.environ["SEAL_RUN_ID"]),
-              "implementation_seal_run_attempt": int(os.environ["SEAL_RUN_ATTEMPT"]),
-              "result_blind": True,
-              "dataset_or_study_artifact_read": False,
-              "evaluation_execution_performed": False,
-              "evaluation_pnl_inspected": False,
-              "final_test_accessed": False,
-              "shared_cash_profitability_established": False,
-              "operational_eligibility_established": False,
-              "production_eligible": False,
-              "live_trading_authorized": False,
-              "merge_authorized": False,
+              'schema_version': 'issue616_real_pre_pnl_cost_authority_seal_v1',
+              'preregistration_issue': 616,
+              'implementation_pr': 625,
+              'protocol_digest': os.environ['PROTOCOL_DIGEST'],
+              'implementation_head': os.environ['IMPLEMENTATION_HEAD'],
+              'implementation_seal_sha256': os.environ['IMPLEMENTATION_SEAL_SHA256'],
+              'implementation_primary_artifact_id': int(os.environ['IMPLEMENTATION_PRIMARY_ARTIFACT_ID']),
+              'implementation_primary_api_digest': os.environ['IMPLEMENTATION_PRIMARY_API_DIGEST'],
+              'implementation_fresh_artifact_id': int(os.environ['IMPLEMENTATION_FRESH_ARTIFACT_ID']),
+              'implementation_fresh_api_digest': os.environ['IMPLEMENTATION_FRESH_API_DIGEST'],
+              'source_bundle_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'source_bundle_artifact_id': int(os.environ['SOURCE_ARTIFACT_ID']),
+              'source_bundle_artifact_name': os.environ['SOURCE_ARTIFACT_NAME'],
+              'source_bundle_api_digest': os.environ['SOURCE_API_DIGEST'],
+              'source_bundle_zip_sha256': source_zip_sha256,
+              'dataset_id': dataset.dataset_id,
+              'dataset_artifact_digest': published.artifact_digest,
+              'authority_run_id': int(os.environ['AUTHORITY_RUN_ID']),
+              'authority_digest': authority.digest,
+              'authority': authority.to_payload(),
+              'result_blind': True,
+              'source_bundle_downloaded': True,
+              'dataset_files_extracted_only': True,
+              'study_files_extracted': False,
+              'study_content_read': False,
+              'candidate_result_content_read': False,
+              'model_fit_performed': False,
+              'evaluation_execution_performed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
           }
-          canonical_payload = json.dumps(
-              payload, allow_nan=False, sort_keys=True, separators=(",", ":")
-          ).encode("utf-8")
+          canonical_payload = json.dumps(payload, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()
           document = {
-              "implementation_payload_sha256": hashlib.sha256(canonical_payload).hexdigest(),
-              "payload": payload,
+              'seal_payload_sha256': hashlib.sha256(canonical_payload).hexdigest(),
+              'payload': payload,
           }
-          raw = (
-              json.dumps(document, allow_nan=False, sort_keys=True, separators=(",", ":"))
-              + "\n"
-          ).encode("utf-8")
-          pathlib.Path("implementation-seal.json").write_bytes(raw)
-          manifest_sha256 = hashlib.sha256(raw).hexdigest()
-          manifest_b64 = base64.b64encode(raw).decode("ascii")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"manifest_sha256={manifest_sha256}\n")
-              handle.write(f"manifest_b64={manifest_b64}\n")
-          print(f"IMPLEMENTATION_SEAL_SHA256={manifest_sha256}")
-          print(f"DURABLE_DIFF_SHA256={payload['durable_diff_sha256']}")
-          print("EVALUATION_EXECUTION_PERFORMED=false")
-          print("EVALUATION_PNL_INSPECTED=false")
+          raw = (json.dumps(document, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n').encode()
+          Path('pre-pnl-cost-authority-seal.json').write_bytes(raw)
+          seal_sha256 = hashlib.sha256(raw).hexdigest()
+          seal_b64 = base64.b64encode(raw).decode('ascii')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+              handle.write(f'seal_sha256={seal_sha256}\n')
+              handle.write(f'seal_b64={seal_b64}\n')
+              handle.write(f'authority_digest={authority.digest}\n')
+          print(f'PRE_PNL_AUTHORITY_DIGEST={authority.digest}')
+          print(f'PRE_PNL_AUTHORITY_SEAL_SHA256={seal_sha256}')
+          print(f'N_EVALUATION_ROWS={authority.n_evaluation_rows}')
+          print('MODEL_FIT_PERFORMED=false')
+          print('EVALUATION_EXECUTION_PERFORMED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
           PY
+          test -z "$(git status --porcelain)" || test "$(git status --porcelain)" = '?? pre-pnl-cost-authority-seal.json'
 
-      - name: Upload primary implementation seal
+      - name: Upload primary PRE-PnL authority seal
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: pr625-implementation-seal-primary-${{ github.run_id }}
-          path: implementation-seal.json
+          name: issue616-pre-pnl-cost-authority-primary-${{ github.run_id }}
+          path: pre-pnl-cost-authority-seal.json
           if-no-files-found: error
           retention-days: 90
+          compression-level: 0
 
   fresh-reconstruction:
-    needs: primary-seal
-    runs-on: ubuntu-latest
+    needs: primary-authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - name: Checkout exact PR625 implementation independently
+      - name: Checkout exact sealed economic implementation independently
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fresh reconstruct and require byte equality
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+
+      - name: Install fresh result-blind authority runtime
+        run: uv sync --extra dev
+
+      - name: Independently re-fetch sealed successor and extract Dataset only
         shell: bash
         env:
-          PRIMARY_MANIFEST_B64: ${{ needs.primary-seal.outputs.manifest_b64 }}
-          PRIMARY_MANIFEST_SHA256: ${{ needs.primary-seal.outputs.manifest_sha256 }}
-          SEAL_RUN_ID: ${{ github.run_id }}
-          SEAL_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ARTIFACT_ID: '10331899302'
+          SOURCE_API_DIGEST: 'sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce'
+          SOURCE_RUN_ID: '34803217815'
+          SOURCE_ARTIFACT_NAME: 'issue539-calibrated-causal-successor-v3-34803217815'
         run: |
           set -euo pipefail
-          test -z "$(git status --porcelain)"
+          mkdir -p prepnl-source
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}" \
+            > prepnl-source/source-metadata.json
           python - <<'PY'
-          import base64
-          import hashlib
           import json
           import os
-          import pathlib
-          import subprocess
-
-          HEAD = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
-          BASE = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
-          FILES = sorted(
-              [
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py",
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py",
-                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py",
-                  "tests/strategies/test_ridge_economic_gate.py",
-                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py",
-                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py",
-                  "trade_rl/strategies/forecasts/ridge_economic_gate.py",
-              ]
-          )
-
-          def git(*args: str) -> str:
-              return subprocess.check_output(["git", *args], text=True).strip()
-
-          actual = sorted(git("diff", "--name-only", f"{BASE}...{HEAD}").splitlines())
-          if actual != FILES:
-              raise SystemExit(f"fresh implementation scope mismatch: {actual!r}")
-          if git("rev-parse", "HEAD") != HEAD:
-              raise SystemExit("fresh checkout is not the sealed implementation HEAD")
-          if git("merge-base", BASE, HEAD) != BASE:
-              raise SystemExit("fresh checkout lost preregistration ancestry")
-
-          file_entries = []
-          for name in FILES:
-              data = pathlib.Path(name).read_bytes()
-              file_entries.append(
-                  {
-                      "path": name,
-                      "git_blob": git("rev-parse", f"{HEAD}:{name}"),
-                      "sha256": hashlib.sha256(data).hexdigest(),
-                      "size": len(data),
-                  }
-              )
-          patch = subprocess.check_output(
-              [
-                  "git",
-                  "diff",
-                  "--binary",
-                  "--full-index",
-                  "--no-ext-diff",
-                  "--no-renames",
-                  f"{BASE}...{HEAD}",
-                  "--",
-                  *FILES,
-              ]
-          )
-          payload = {
-              "schema_version": "ridge_economic_gate_implementation_seal_v1",
-              "pr_number": 625,
-              "tracking_issue": 618,
-              "preregistration_issue": 616,
-              "preregistration_head": BASE,
-              "protocol_digest": "167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3",
-              "protocol_primary_seal_artifact_id": 10459431804,
-              "protocol_primary_seal_api_digest": "sha256:603ca1c50acfcc734762c1059b315e3a31dd6a1068fb5c6481790bfe941714c7",
-              "protocol_fresh_seal_artifact_id": 10458759061,
-              "protocol_fresh_seal_api_digest": "sha256:4b00406c1b1ff587514256bd02cc7119940f35b7830829beb21c125f5bb9fa66",
-              "implementation_head": HEAD,
-              "implementation_tree": git("rev-parse", f"{HEAD}^{{tree}}"),
-              "preregistration_tree": git("rev-parse", f"{BASE}^{{tree}}"),
-              "durable_diff_sha256": hashlib.sha256(patch).hexdigest(),
-              "files": file_entries,
-              "implementation_seal_run_id": int(os.environ["SEAL_RUN_ID"]),
-              "implementation_seal_run_attempt": int(os.environ["SEAL_RUN_ATTEMPT"]),
-              "result_blind": True,
-              "dataset_or_study_artifact_read": False,
-              "evaluation_execution_performed": False,
-              "evaluation_pnl_inspected": False,
-              "final_test_accessed": False,
-              "shared_cash_profitability_established": False,
-              "operational_eligibility_established": False,
-              "production_eligible": False,
-              "live_trading_authorized": False,
-              "merge_authorized": False,
-          }
-          canonical_payload = json.dumps(
-              payload, allow_nan=False, sort_keys=True, separators=(",", ":")
-          ).encode("utf-8")
-          document = {
-              "implementation_payload_sha256": hashlib.sha256(canonical_payload).hexdigest(),
-              "payload": payload,
-          }
-          raw = (
-              json.dumps(document, allow_nan=False, sort_keys=True, separators=(",", ":"))
-              + "\n"
-          ).encode("utf-8")
-          primary = base64.b64decode(os.environ["PRIMARY_MANIFEST_B64"], validate=True)
-          if raw != primary:
-              raise SystemExit("fresh implementation reconstruction is not byte-identical")
-          fresh_sha256 = hashlib.sha256(raw).hexdigest()
-          if fresh_sha256 != os.environ["PRIMARY_MANIFEST_SHA256"]:
-              raise SystemExit("fresh implementation seal digest mismatch")
-          pathlib.Path("implementation-seal-fresh.json").write_bytes(raw)
-          print(f"FRESH_IMPLEMENTATION_SEAL_SHA256={fresh_sha256}")
-          print("FRESH_RECONSTRUCTION_BYTE_EQUAL=true")
-          print("DATASET_OR_STUDY_ARTIFACT_READ=false")
-          print("EVALUATION_EXECUTION_PERFORMED=false")
-          print("EVALUATION_PNL_INSPECTED=false")
+          from pathlib import Path
+          data = json.loads(Path('prepnl-source/source-metadata.json').read_text())
+          if data.get('id') != int(os.environ['SOURCE_ARTIFACT_ID']): raise SystemExit('source Artifact ID drift')
+          if data.get('name') != os.environ['SOURCE_ARTIFACT_NAME']: raise SystemExit('source Artifact name drift')
+          if data.get('digest') != os.environ['SOURCE_API_DIGEST']: raise SystemExit('source Artifact API digest drift')
+          if data.get('expired') is not False: raise SystemExit('source Artifact expired')
+          if (data.get('workflow_run') or {}).get('id') != int(os.environ['SOURCE_RUN_ID']): raise SystemExit('source run drift')
           PY
-          git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD
-          test "$(git status --porcelain)" = "?? implementation-seal-fresh.json"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            --output prepnl-source/source.zip
+          python - <<'PY'
+          import hashlib, os, shutil, stat, zipfile
+          from pathlib import Path, PurePosixPath
+          raw = Path('prepnl-source/source.zip').read_bytes()
+          if 'sha256:' + hashlib.sha256(raw).hexdigest() != os.environ['SOURCE_API_DIGEST']:
+              raise SystemExit('fresh source ZIP digest mismatch')
+          root = Path('prepnl-source/dataset'); root.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile('prepnl-source/source.zip') as archive:
+              infos = archive.infolist()
+              matches = [i for i in infos if not i.is_dir() and i.filename.endswith('dataset/manifest.json')]
+              if len(matches) != 1: raise SystemExit('fresh Dataset root is ambiguous')
+              manifest = PurePosixPath(matches[0].filename)
+              prefix = PurePosixPath(*manifest.parts[:-2], 'dataset')
+              if sum(1 for i in infos if i.filename == str(prefix / 'arrays.npz')) != 1:
+                  raise SystemExit('fresh dataset/arrays.npz missing')
+              extracted = []
+              for info in infos:
+                  name = PurePosixPath(info.filename)
+                  try: rel = name.relative_to(prefix)
+                  except ValueError: continue
+                  if info.is_dir(): continue
+                  if not rel.parts or any(p in {'', '.', '..'} for p in rel.parts): raise SystemExit('unsafe Dataset member')
+                  mode = info.external_attr >> 16
+                  if mode and stat.S_ISLNK(mode): raise SystemExit('Dataset symlink rejected')
+                  target = root.joinpath(*rel.parts); target.parent.mkdir(parents=True, exist_ok=True)
+                  with archive.open(info) as src, target.open('wb') as dst: shutil.copyfileobj(src, dst)
+                  extracted.append(str(rel))
+          if not {'manifest.json','arrays.npz'}.issubset(extracted): raise SystemExit('fresh Dataset extraction incomplete')
+          print('FRESH_DATASET_ONLY_EXTRACTION=true')
+          print('FRESH_STUDY_CONTENT_READ=false')
+          print('FRESH_EVALUATION_PNL_INSPECTED=false')
+          PY
 
-      - name: Upload fresh implementation reconstruction
+      - name: Fresh reconstruct canonical PRE-PnL authority
+        id: build
+        shell: bash
+        env:
+          AUTHORITY_RUN_ID: ${{ github.run_id }}
+          PRIMARY_SEAL_B64: ${{ needs.primary-authority.outputs.seal_b64 }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary-authority.outputs.seal_sha256 }}
+          PRIMARY_AUTHORITY_DIGEST: ${{ needs.primary-authority.outputs.authority_digest }}
+          SOURCE_RUN_ID: '34803217815'
+          SOURCE_ARTIFACT_ID: '10331899302'
+          SOURCE_ARTIFACT_NAME: 'issue539-calibrated-causal-successor-v3-34803217815'
+          SOURCE_API_DIGEST: 'sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce'
+          EXPECTED_DATASET_ID: '6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518'
+          EXPECTED_DATASET_ARTIFACT_DIGEST: 'af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7'
+          IMPLEMENTATION_HEAD: '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          PROTOCOL_DIGEST: '167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3'
+          IMPLEMENTATION_SEAL_SHA256: 'd152072586b6b5a10cb4deb9e5280cc3711e1ac93c4d673a6ef99c7491b2758a'
+          IMPLEMENTATION_PRIMARY_ARTIFACT_ID: '10487276312'
+          IMPLEMENTATION_PRIMARY_API_DIGEST: 'sha256:708593b15300f07ee616157b33c36807b3b1e25814c9139b9668793ab9bc4431'
+          IMPLEMENTATION_FRESH_ARTIFACT_ID: '10486378100'
+          IMPLEMENTATION_FRESH_API_DIGEST: 'sha256:c6c31df2b7ff97f3fe9066baa87f6c482c946ed16d403d5b1deaece3294a8c50'
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          from trade_rl.data import inspect_published_market_dataset_artifact, load_market_dataset_artifact
+          from trade_rl.evaluation.experiments.bootstrap import ridge_economic_gate_execution_authority as authority_module
+          from trade_rl.evaluation.experiments.bootstrap.ridge_economic_gate_evaluation import canonical_ridge_economic_gate_evaluation_spec
+
+          root = Path('prepnl-source/dataset')
+          published = inspect_published_market_dataset_artifact(root)
+          dataset = load_market_dataset_artifact(root)
+          if dataset.dataset_id != os.environ['EXPECTED_DATASET_ID']: raise SystemExit('fresh Dataset ID drift')
+          if published.artifact_digest != os.environ['EXPECTED_DATASET_ARTIFACT_DIGEST']: raise SystemExit('fresh Dataset artifact digest drift')
+          def forbidden(*args, **kwargs): raise AssertionError('fresh PRE-P&L reconstruction must not evaluate')
+          authority_module.evaluate_ridge_economic_gate = forbidden
+          spec = canonical_ridge_economic_gate_evaluation_spec()
+          authority = authority_module.build_ridge_economic_gate_pre_pnl_cost_authority(
+              dataset,
+              authority_implementation_head=os.environ['IMPLEMENTATION_HEAD'],
+              authority_run_id=int(os.environ['AUTHORITY_RUN_ID']),
+              spec=spec,
+          )
+          if authority.digest != os.environ['PRIMARY_AUTHORITY_DIGEST']: raise SystemExit('fresh authority digest mismatch')
+          payload = {
+              'schema_version': 'issue616_real_pre_pnl_cost_authority_seal_v1',
+              'preregistration_issue': 616,
+              'implementation_pr': 625,
+              'protocol_digest': os.environ['PROTOCOL_DIGEST'],
+              'implementation_head': os.environ['IMPLEMENTATION_HEAD'],
+              'implementation_seal_sha256': os.environ['IMPLEMENTATION_SEAL_SHA256'],
+              'implementation_primary_artifact_id': int(os.environ['IMPLEMENTATION_PRIMARY_ARTIFACT_ID']),
+              'implementation_primary_api_digest': os.environ['IMPLEMENTATION_PRIMARY_API_DIGEST'],
+              'implementation_fresh_artifact_id': int(os.environ['IMPLEMENTATION_FRESH_ARTIFACT_ID']),
+              'implementation_fresh_api_digest': os.environ['IMPLEMENTATION_FRESH_API_DIGEST'],
+              'source_bundle_run_id': int(os.environ['SOURCE_RUN_ID']),
+              'source_bundle_artifact_id': int(os.environ['SOURCE_ARTIFACT_ID']),
+              'source_bundle_artifact_name': os.environ['SOURCE_ARTIFACT_NAME'],
+              'source_bundle_api_digest': os.environ['SOURCE_API_DIGEST'],
+              'source_bundle_zip_sha256': hashlib.sha256(Path('prepnl-source/source.zip').read_bytes()).hexdigest(),
+              'dataset_id': dataset.dataset_id,
+              'dataset_artifact_digest': published.artifact_digest,
+              'authority_run_id': int(os.environ['AUTHORITY_RUN_ID']),
+              'authority_digest': authority.digest,
+              'authority': authority.to_payload(),
+              'result_blind': True,
+              'source_bundle_downloaded': True,
+              'dataset_files_extracted_only': True,
+              'study_files_extracted': False,
+              'study_content_read': False,
+              'candidate_result_content_read': False,
+              'model_fit_performed': False,
+              'evaluation_execution_performed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          canonical = json.dumps(payload, allow_nan=False, sort_keys=True, separators=(',', ':')).encode()
+          raw = (json.dumps({'seal_payload_sha256': hashlib.sha256(canonical).hexdigest(), 'payload': payload}, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n').encode()
+          primary = base64.b64decode(os.environ['PRIMARY_SEAL_B64'], validate=True)
+          if raw != primary: raise SystemExit('fresh PRE-P&L authority is not byte-identical to primary')
+          seal_sha256 = hashlib.sha256(raw).hexdigest()
+          if seal_sha256 != os.environ['PRIMARY_SEAL_SHA256']: raise SystemExit('fresh PRE-P&L seal SHA mismatch')
+          Path('pre-pnl-cost-authority-seal-fresh.json').write_bytes(raw)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle: handle.write(f'seal_sha256={seal_sha256}\n')
+          print(f'FRESH_PRE_PNL_AUTHORITY_SEAL_SHA256={seal_sha256}')
+          print('FRESH_RECONSTRUCTION_BYTE_EQUAL=true')
+          print('FRESH_EVALUATION_EXECUTION_PERFORMED=false')
+          print('FRESH_EVALUATION_PNL_INSPECTED=false')
+          PY
+
+      - name: Upload fresh PRE-PnL authority reconstruction
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: pr625-implementation-seal-fresh-${{ github.run_id }}
-          path: implementation-seal-fresh.json
+          name: issue616-pre-pnl-cost-authority-fresh-${{ github.run_id }}
+          path: pre-pnl-cost-authority-seal-fresh.json
           if-no-files-found: error
           retention-days: 90
+          compression-level: 0
+
+  closure-audit:
+    needs: [primary-authority, fresh-reconstruction]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Verify uploaded artifacts and internal byte equality
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ARTIFACT_ID: ${{ needs.primary-authority.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary-authority.outputs.artifact_digest }}
+          FRESH_ARTIFACT_ID: ${{ needs.fresh-reconstruction.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh-reconstruction.outputs.artifact_digest }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary-authority.outputs.seal_sha256 }}
+          FRESH_SEAL_SHA256: ${{ needs.fresh-reconstruction.outputs.seal_sha256 }}
+          AUTHORITY_DIGEST: ${{ needs.primary-authority.outputs.authority_digest }}
+        run: |
+          set -euo pipefail
+          test "${PRIMARY_SEAL_SHA256}" = "${FRESH_SEAL_SHA256}"
+          mkdir -p audit
+          for side in primary fresh; do
+            if [ "$side" = primary ]; then id="$PRIMARY_ARTIFACT_ID"; upload_digest="$PRIMARY_UPLOAD_DIGEST"; else id="$FRESH_ARTIFACT_ID"; upload_digest="$FRESH_UPLOAD_DIGEST"; fi
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}" \
+              > "audit/${side}-metadata.json"
+            python - "$side" "$id" "$upload_digest" <<'PY'
+          import json, sys
+          from pathlib import Path
+          side, expected_id, expected_digest = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          data = json.loads(Path(f'audit/{side}-metadata.json').read_text())
+          if data.get('id') != expected_id: raise SystemExit(f'{side} artifact id drift')
+          if data.get('digest') != expected_digest: raise SystemExit(f'{side} API/upload digest mismatch')
+          if data.get('expired') is not False: raise SystemExit(f'{side} authority artifact expired')
+          PY
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "audit/${side}.zip"
+          done
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+
+          def sole_json(zip_path: str) -> bytes:
+              with zipfile.ZipFile(zip_path) as archive:
+                  files = [i for i in archive.infolist() if not i.is_dir()]
+                  if len(files) != 1: raise SystemExit(f'{zip_path} must contain exactly one authority JSON')
+                  return archive.read(files[0])
+
+          primary = sole_json('audit/primary.zip')
+          fresh = sole_json('audit/fresh.zip')
+          if primary != fresh: raise SystemExit('uploaded primary/fresh authority JSON differs')
+          actual = hashlib.sha256(primary).hexdigest()
+          if actual != os.environ['PRIMARY_SEAL_SHA256']: raise SystemExit('uploaded authority JSON SHA mismatch')
+          document = json.loads(primary)
+          payload = document.get('payload') or {}
+          if payload.get('authority_digest') != os.environ['AUTHORITY_DIGEST']: raise SystemExit('authority digest drift in uploaded seal')
+          forbidden_true = ['evaluation_execution_performed','evaluation_pnl_inspected','final_test_accessed','shared_cash_profitability_established','operational_eligibility_established','production_eligible','live_trading_authorized','merge_authorized']
+          if any(payload.get(name) is not False for name in forbidden_true): raise SystemExit('research-boundary flag drift')
+          closure = {
+              'schema_version': 'issue616_real_pre_pnl_cost_authority_closure_v1',
+              'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'authority_digest': os.environ['AUTHORITY_DIGEST'],
+              'authority_seal_sha256': actual,
+              'primary_artifact_id': int(os.environ['PRIMARY_ARTIFACT_ID']),
+              'primary_api_digest': os.environ['PRIMARY_UPLOAD_DIGEST'],
+              'fresh_artifact_id': int(os.environ['FRESH_ARTIFACT_ID']),
+              'fresh_api_digest': os.environ['FRESH_UPLOAD_DIGEST'],
+              'primary_fresh_byte_equal': True,
+              'result_blind': True,
+              'evaluation_execution_performed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('pre-pnl-cost-authority-closure.json').write_text(json.dumps(closure, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n')
+          print('ISSUE616_REAL_PRE_PNL_AUTHORITY_CLOSURE=PASS')
+          print('PRIMARY_FRESH_BYTE_EQUAL=true')
+          print('EVALUATION_EXECUTION_PERFORMED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY
+
+      - name: Upload PRE-PnL authority closure
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue616-pre-pnl-cost-authority-closure-${{ github.run_id }}
+          path: pre-pnl-cost-authority-closure.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

@@ -1,0 +1,153 @@
+name: tmp Issue 627 v3 exact-head final
+
+on:
+  push:
+    branches:
+      - verify/issue627-shared-cash-prereg-v3-final
+    paths:
+      - .github/workflows/tmp-issue627-v3-exact-final.yml
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  core:
+    name: Exact Lean Core v3
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: 65eb3c90e0a5fe1cea952279c28024160838da08
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 65eb3c90e0a5fe1cea952279c28024160838da08
+          fetch-depth: 0
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev
+      - run: uv run ruff check trade_rl tests tools
+      - run: uv run ruff format --check trade_rl tests tools
+      - run: uv run mypy trade_rl
+      - run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+      - run: uv run pytest -q tests
+      - run: uv build
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+      - name: Package identity and v3 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+          git diff --check d18434799651cfc6c07e0840c40600dcf1dfa763...HEAD
+          files="$(git diff --name-only d18434799651cfc6c07e0840c40600dcf1dfa763...HEAD | sort)"
+          expected_files=$'tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py\ntests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py\ntrade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py'
+          test "$files" = "$expected_files"
+
+  guide:
+    name: Exact Human Guide v3
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: 65eb3c90e0a5fe1cea952279c28024160838da08
+      GUIDE_SOURCE_REV: 65eb3c90e0a5fe1cea952279c28024160838da08
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 65eb3c90e0a5fe1cea952279c28024160838da08
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - working-directory: guide
+        run: npm ci
+      - working-directory: guide
+        run: npm run source-check
+      - working-directory: guide
+        run: npm run lint
+      - working-directory: guide
+        run: npm run typecheck
+      - working-directory: guide
+        run: npm run test
+      - working-directory: guide
+        run: npm run build
+      - working-directory: guide
+        run: npx playwright install --with-deps chromium
+      - working-directory: guide
+        run: npm run e2e
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue627-v3-guide-${{ github.run_id }}
+          path: |
+            guide/test-results/
+            guide/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  pr-authority:
+    name: Draft PR v3 authority
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: 65eb3c90e0a5fe1cea952279c28024160838da08
+    steps:
+      - name: Verify PR 628 remains Draft on exact head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          req=urllib.request.Request(
+              'https://api.github.com/repos/shuntatsu/trade_rl/pulls/628',
+              headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+          )
+          with urllib.request.urlopen(req) as response:
+              pr=json.load(response)
+          assert pr['draft'] is True
+          assert pr['state']=='open'
+          assert pr['head']['sha']==os.environ['TARGET_SHA']
+          assert pr['base']['ref']=='main'
+          PY

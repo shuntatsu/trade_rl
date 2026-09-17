@@ -1,0 +1,128 @@
+name: tmp Issue 630 evidence hardening runner v4
+
+on:
+  push:
+    branches:
+      - automation/issue630-evidence-hardening-runner-v4
+    paths:
+      - .github/workflows/tmp-issue630-evidence-hardening-runner-v4.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: research/issue630-shared-cash-evaluator
+  EXPECTED_HEAD: 1e0e0e243f4e37b2fdf7ee7aa67500d04b43fa8c
+  EVAL: trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+  TEST: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+  FALSIFY: tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          path: target
+          fetch-depth: 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue630-evidence-hardening-green
+          path: source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Guard exact target
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - working-directory: target
+        run: uv sync --extra dev
+      - name: Extract previously reviewed patch scripts
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RB'
+          doc = YAML.load_file('../source/.github/workflows/tmp-issue630-evidence-hardening-green.yml')
+          steps = doc.fetch('jobs').fetch('green').fetch('steps')
+          {
+            'Install permanent evidence falsification tests' => '/tmp/add.sh',
+            'Implement only evidence/window invariants' => '/tmp/impl.sh',
+            'Focused GREEN' => '/tmp/green.sh',
+          }.each do |name, output|
+            step = steps.find { |item| item['name'] == name }
+            raise "missing step #{name}" unless step
+            File.write(output, step.fetch('run'))
+          end
+          RB
+      - name: Apply reviewed tests and implementation
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash /tmp/add.sh
+          bash /tmp/impl.sh
+      - name: Canonicalize test return arithmetic and allow partial-year evidence
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          for filename in (
+              "tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py",
+              "tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py",
+          ):
+              path = Path(filename)
+              text = path.read_text()
+              needle = "from trade_rl.data.market import MarketDataset\n"
+              if needle in text and "from trade_rl.evaluation.metrics import compound_return\n" not in text:
+                  text = text.replace(needle, needle + "from trade_rl.evaluation.metrics import compound_return\n")
+              old = '''    original_total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)\n    year_map = dict(year_returns)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = year_map[2023]\n    expanded[8_760] = year_map[2024]\n    expanded_values = tuple(float(value) for value in expanded)\n    expanded_total = float(np.prod(1.0 + expanded) - 1.0)\n    assert expanded_total == pytest.approx(original_total)\n    values = expanded_values\n    total = expanded_total\n'''
+              new = '''    original_total = compound_return(values)\n    intended_years = dict(year_returns)\n    expanded = np.zeros(17_544, dtype=np.float64)\n    expanded[0] = intended_years[2023]\n    expanded[8_760] = intended_years[2024]\n    values = tuple(float(value) for value in expanded)\n    year_returns = (\n        (2023, compound_return(values[:8_760])),\n        (2024, compound_return(values[8_760:])),\n    )\n    assert year_returns[0][1] == pytest.approx(intended_years[2023])\n    assert year_returns[1][1] == pytest.approx(intended_years[2024])\n    total = compound_return(values)\n    assert total == pytest.approx(original_total)\n'''
+              if text.count(old) != 1:
+                  raise SystemExit(f"canonical helper replacement drift: {filename}")
+              path.write_text(text.replace(old, new))
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py")
+          text = path.read_text()
+          old = '''    spec = canonical_ridge_shared_cash_evaluation_spec()\n    if tuple(year for year, _ in values) != spec.calendar_years:\n        raise ValueError("calendar-year evidence differs from frozen year roster")\n'''
+          new = '''    spec = canonical_ridge_shared_cash_evaluation_spec()\n    years = tuple(year for year, _ in values)\n    if not values or years != spec.calendar_years[: len(values)]:\n        raise ValueError("calendar-year evidence differs from frozen year prefix")\n'''
+          if text.count(old) != 1:
+              raise SystemExit("calendar prefix replacement drift")
+          text = text.replace(old, new)
+          old = '''        if not selected:\n            raise ValueError(f"shared-cash return path contains no rows for {year}")\n        result.append((year, compound_return(selected)))\n'''
+          new = '''        if not selected:\n            break\n        result.append((year, compound_return(selected)))\n'''
+          if text.count(old) != 1:
+              raise SystemExit("partial year replacement drift")
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Focused GREEN
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="$(cat /tmp/green.sh)"
+          script="${script/uv run ruff check \"\$EVAL\" \"\$TEST\" \"\$FALSIFY\"/uv run ruff check --fix \"\$EVAL\" \"\$TEST\" \"\$FALSIFY\"}"
+          bash -c "$script"
+      - name: Publish non-force if target unchanged
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EVAL" "$TEST" "$FALSIFY"
+          git commit -m 'research: harden Issue 630 shared-cash evidence invariants'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

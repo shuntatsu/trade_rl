@@ -1,0 +1,57 @@
+name: tmp Issue 630 fix evidence workflow order
+
+on:
+  push:
+    branches:
+      - automation/issue630-fix-evidence-workflow-order
+    paths:
+      - .github/workflows/tmp-issue630-fix-evidence-workflow-order.yml
+
+permissions:
+  contents: write
+
+env:
+  TARGET_BRANCH: automation/issue630-evidence-hardening-green-v2
+  EXPECTED_HEAD: 2e30d61948dbb4ca80a01f71209e8756fb751515
+  WORKFLOW: .github/workflows/tmp-issue630-evidence-hardening-green-v2.yml
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+      - name: Guard exact workflow branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+      - name: Fix only Ruff ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/tmp-issue630-evidence-hardening-green-v2.yml')
+          text = path.read_text()
+          old = '          uv run ruff check "$EVAL" "$TEST" "$FALSIFY"\n          uv run ruff format "$EVAL" "$TEST" "$FALSIFY"\n'
+          new = '          uv run ruff check --fix "$EVAL" "$TEST" "$FALSIFY"\n          uv run ruff format "$EVAL" "$TEST" "$FALSIFY"\n'
+          if text.count(old) != 1:
+              raise SystemExit('Ruff ordering replacement precondition failed')
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+          test "$(git diff --name-only)" = "$WORKFLOW"
+      - name: Publish non-force
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$WORKFLOW"
+          git commit -m 'ci: run Ruff fixer before Issue 630 hardening checks'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"

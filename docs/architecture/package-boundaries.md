@@ -79,7 +79,7 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
-    ├── paper/{__init__.py,store.py,account.py,engine.py}
+    ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
     ├── robustness/
@@ -135,8 +135,13 @@ financial ledger. `paper/account.py` composes the existing FundingCarryBot,
 BookState and depth matcher, tracks exact fill-time holdings for later funding
 receipts, and owns permanent risk/quality stops. `paper/engine.py` binds verified
 source references to saved commands, commits isolated account transitions, and
-replays every result on restart. It has no network loop or production routing;
-prospective study sealing and collection supervision remain separate work.
+replays every result on restart. `paper/supervisor.py` binds public collection
+to frozen source/runtime/protocol identity and owns the single-collector lock,
+rule refresh, pending-decision resumption, terminal window and durable failure.
+`paper/control.py` records cycle start before acquisition and completion only
+after account commits, preventing restart from hiding failed or unused captures.
+These control records assign no financial meaning. The command-line cadence loop
+and future economic protocol remain separate work; there is no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

@@ -62,7 +62,7 @@ def _api_json(repository: str, token: str, path: str) -> dict[str, Any]:
 
 def _load_activation_helper(target: Path) -> ModuleType:
     path = target / ".github" / "scripts" / "issue640_directional_activation.py"
-    spec = importlib.util.spec_from_file_location("issue640_directional_activation", path)
+    spec = importlib.util.spec_from_file_location(\n        "issue640_directional_activation", path\n    )
     if spec is None or spec.loader is None:
         raise RuntimeError("Issue 640 activation helper cannot be loaded")
     module = importlib.util.module_from_spec(spec)
@@ -71,7 +71,7 @@ def _load_activation_helper(target: Path) -> ModuleType:
 
 
 def _artifact_names(repository: str, token: str, run_id: int) -> list[str]:
-    payload = _api_json(repository, token, f"actions/runs/{run_id}/artifacts?per_page=100")
+    payload = _api_json(\n        repository, token, f"actions/runs/{run_id}/artifacts?per_page=100"\n    )
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, list):
         raise ValueError("workflow artifact listing is unavailable")
@@ -247,7 +247,7 @@ def audit(
     decision: str | None = None
     winner: str | None = None
     if complete:
-        if execution.get("selection_written") is not True or not selection_path.is_file():
+        if (\n            execution.get("selection_written") is not True\n            or not selection_path.is_file()\n        ):
             raise ValueError("complete study lacks immutable selection")
         expected = select_development_candidates(results)
         expected["protocol_digest"] = protocol_digest

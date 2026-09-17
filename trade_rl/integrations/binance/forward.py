@@ -18,6 +18,7 @@ from trade_rl.integrations.binance.types import _aware_utc
 _SPOT = "https://data-api.binance.vision/api/v3"
 _FUTURES = "https://fapi.binance.com/fapi/v1"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT")
+_DEPTH_LIMIT = 100
 
 
 def _number(value: object, *, positive: bool = False) -> float:
@@ -42,7 +43,13 @@ def _fresh(value: object, received_ms: int) -> int:
     return timestamp
 
 
-def _book(value: object, *, futures: bool, received_ms: int) -> dict[str, Any]:
+def _book(
+    value: object,
+    *,
+    futures: bool,
+    received_ms: int,
+    maximum_levels: int = _DEPTH_LIMIT,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("depth response must be an object")
     _epoch(value.get("lastUpdateId"))
@@ -56,6 +63,8 @@ def _book(value: object, *, futures: bool, received_ms: int) -> dict[str, Any]:
         levels = value.get(side)
         if not isinstance(levels, list) or not levels:
             raise ValueError("depth sides must contain price and quantity levels")
+        if len(levels) > maximum_levels:
+            raise ValueError("response exceeds the requested depth bound")
         numbers = []
         for level in levels:
             if not isinstance(level, list) or len(level) != 2:
@@ -185,12 +194,14 @@ def capture_forward_snapshot(
         funding_start = start_ms - 24 * 3_600_000
         for symbol in _SYMBOLS:
             spot, received_ms = request(
-                f"{symbol}_spot_depth", f"{_SPOT}/depth?symbol={symbol}&limit=20"
+                f"{symbol}_spot_depth",
+                f"{_SPOT}/depth?symbol={symbol}&limit={_DEPTH_LIMIT}",
             )
             spot = _book(spot, futures=False, received_ms=received_ms)
             quote_times.append(received_ms)
             perp, received_ms = request(
-                f"{symbol}_perp_depth", f"{_FUTURES}/depth?symbol={symbol}&limit=20"
+                f"{symbol}_perp_depth",
+                f"{_FUTURES}/depth?symbol={symbol}&limit={_DEPTH_LIMIT}",
             )
             perp = _book(perp, futures=True, received_ms=received_ms)
             quote_times.extend((_epoch(perp["E"]), _epoch(perp["T"])))
@@ -216,7 +227,8 @@ def capture_forward_snapshot(
         for timestamp in quote_times:
             _fresh(timestamp, received_ms)
         snapshot = {
-            "schema": "binance_forward_market_snapshot_v1",
+            "schema": "binance_forward_market_snapshot_v2",
+            "depth_limit": _DEPTH_LIMIT,
             "eligible": True,
             "production_eligible": False,
             "started_at": started.isoformat(),

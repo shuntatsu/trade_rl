@@ -28,7 +28,9 @@ Status: Active
   - [x] Reuse fresh rules, persist each capture before a command, resume pending
     decisions only inside their ten-second window, and supervise one collector.
   - [x] Independently review the collector, verify full CI and exercise real inputs.
-  - [ ] Expose a cadence CLI and report command with the separately frozen gate.
+  - [x] Expose a cadence CLI and report command with the separately frozen gate.
+  - [ ] Verify the expanded, versioned 100-level source profile and full cadence
+    against real public inputs; preserve the rejected 20-level software probe.
 - [ ] Freeze forward evaluation duration/gates before starting paper positions.
 - [ ] Run prospective paper observation and report the complete declared gate.
 

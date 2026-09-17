@@ -100,6 +100,16 @@ only full offline replay at the fixed deadline may decide the paper screen.
 No formal prospective study has yet been sealed or started, and no future profit
 or deployment qualification has been established.
 
+A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
+the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
+engine rejected the unmatched hedge, actually flattened all four legs on the
+next observation, and exited with code 1. Final cash was 9988.8165415 USDT,
+fees 6.7969229 and funding zero. Preserve that rejected software attempt.
+New capture uses an explicitly versioned 100-level profile; the old v1 reader
+remains available for evidence verification. This expands observed price levels,
+while retaining 10% participation, costs, risk and qualification conditions.
+It does not establish that later quotes would have filled the earlier orders.
+
 ### Directional development study under a 20% drawdown budget
 
 The complete 13-arm study returned `NO_QUALIFIED_CANDIDATE`; all five PPO seeds

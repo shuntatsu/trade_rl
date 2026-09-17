@@ -1,0 +1,5 @@
+Authorize the final result-blind Issue 632 implementation seal v5.
+
+This recovery supersedes failed seal-v4 run 35227707295, where primary stopped before publication and only fresh artifact 10499463701 was produced. That one-sided v4 output is not authority.
+
+The v5 run must bind target 97127952af3d01b71def695a4c8043eb301b2a33, current main c4fc52777ad0ea894d0d8f3a01337bcbbd5a26a8, final verification 35227295244, and sealed Issue 629 protocol authority. It performs no real Dataset load, PPO training, economic evaluation, unused/final access, production/live authorization, or merge.

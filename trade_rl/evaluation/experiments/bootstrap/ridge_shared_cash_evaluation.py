@@ -592,20 +592,32 @@ def evaluate_ridge_shared_cash(dataset: MarketDataset) -> RidgeSharedCashEvaluat
         {id(item) for item in candidate}
     ) != len(candidate):
         raise RuntimeError("shared-cash evaluator requires distinct strategy instances")
-    if not all(item.model is model for item in (*baseline, *candidate)):
-        raise RuntimeError("shared-cash arms must share the exact fitted Ridge model")
+    if not all(item.model is model for item in baseline):
+        raise RuntimeError("baseline arm must share the exact fitted Ridge model")
+    if not all(item.model is model for item in candidate):
+        raise RuntimeError("candidate arm must share the exact fitted Ridge model")
 
     execution_cost = execution_cost_for_overlay(spec.execution_overlay)
-    common = {
-        "start_index": start,
-        "stop_index": stop,
-        "gross_budget": spec.gross_budget,
-        "initial_capital": spec.initial_capital,
-        "execution_cost": execution_cost,
-        "risk": None,
-    }
-    baseline_replay = run_shared_cash_replay(dataset, baseline, **common)
-    candidate_replay = run_shared_cash_replay(dataset, candidate, **common)
+    baseline_replay = run_shared_cash_replay(
+        dataset,
+        baseline,
+        start_index=start,
+        stop_index=stop,
+        gross_budget=spec.gross_budget,
+        initial_capital=spec.initial_capital,
+        execution_cost=execution_cost,
+        risk=None,
+    )
+    candidate_replay = run_shared_cash_replay(
+        dataset,
+        candidate,
+        start_index=start,
+        stop_index=stop,
+        gross_budget=spec.gross_budget,
+        initial_capital=spec.initial_capital,
+        execution_cost=execution_cost,
+        risk=None,
+    )
     baseline_evidence = _arm_evidence(
         "baseline",
         baseline_replay,

@@ -54,16 +54,11 @@ def _feature_names() -> tuple[str, ...]:
 
 
 def _dataset() -> MarketDataset:
-    timestamps = np.asarray(
-        [
-            "2022-12-31T23:00:00",
-            "2023-01-01T00:00:00",
-            "2023-06-01T00:00:00",
-            "2024-01-01T00:00:00",
-            "2025-01-01T00:00:00",
-        ],
-        dtype="datetime64[ns]",
-    )
+    timestamps = np.arange(
+        np.datetime64("2022-12-31", "D"),
+        np.datetime64("2025-01-02", "D"),
+        dtype="datetime64[D]",
+    ).astype("datetime64[ns]")
     n_bars = len(timestamps)
     n_symbols = len(_SYMBOLS)
     close = np.full((n_bars, n_symbols), 100.0, dtype=np.float64)
@@ -83,7 +78,7 @@ def _dataset() -> MarketDataset:
         feature_available=np.ones((n_bars, n_symbols, 119), dtype=np.bool_),
         feature_names=_feature_names(),
         global_feature_names=("regime",),
-        periods_per_year=8_760,
+        periods_per_year=365,
     )
 
 
@@ -114,7 +109,7 @@ def _replay(
         returns=ReturnSeries(
             values=values,
             kind=ReturnKind.BASE_BAR,
-            periods_per_year=8_760,
+            periods_per_year=365,
         ),
         diagnostics=SimpleNamespace(
             total_cost=total_cost,
@@ -220,10 +215,26 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
         fit_calls.append(dict(kwargs))
         return model
 
+    baseline_values = np.zeros(731, dtype=np.float64)
+    baseline_values[0] = 0.01
+    baseline_values[1] = 0.02
+    baseline_values[365] = 0.01
+    candidate_values = np.zeros(731, dtype=np.float64)
+    candidate_values[0] = 0.02
+    candidate_values[1] = 0.03
+    candidate_values[365] = 0.02
     replay_results = iter(
         (
-            _replay((0.01, 0.02, 0.01), total_cost=10.0, turnover=4.0),
-            _replay((0.02, 0.03, 0.02), total_cost=5.0, turnover=2.0),
+            _replay(
+                tuple(float(value) for value in baseline_values),
+                total_cost=10.0,
+                turnover=4.0,
+            ),
+            _replay(
+                tuple(float(value) for value in candidate_values),
+                total_cost=5.0,
+                turnover=2.0,
+            ),
         )
     )
 
@@ -268,20 +279,28 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
     )
     for call in replay_calls:
         assert call["start_index"] == 1
-        assert call["stop_index"] == 4
+        assert call["stop_index"] == 732
         assert call["gross_budget"] == 0.5
         assert call["initial_capital"] == 100_000.0
         assert call["risk"] is None
 
     assert result.status == "QUALIFY_UNUSED_VALIDATION"
-    assert result.baseline.n_periods == 3
-    assert result.candidate.n_periods == 3
-    assert result.baseline.calendar_year_returns == pytest.approx(
-        ((2023, 0.0302), (2024, 0.01))
+    assert result.baseline.n_periods == 731
+    assert result.candidate.n_periods == 731
+    assert tuple(year for year, _ in result.baseline.calendar_year_returns) == (
+        2023,
+        2024,
     )
-    assert result.candidate.calendar_year_returns == pytest.approx(
-        ((2023, 0.0506), (2024, 0.02))
+    assert tuple(
+        value for _, value in result.baseline.calendar_year_returns
+    ) == pytest.approx((0.0302, 0.01))
+    assert tuple(year for year, _ in result.candidate.calendar_year_returns) == (
+        2023,
+        2024,
     )
+    assert tuple(
+        value for _, value in result.candidate.calendar_year_returns
+    ) == pytest.approx((0.0506, 0.02))
 
 
 def test_result_truth_table_and_fail_closed_invariants() -> None:

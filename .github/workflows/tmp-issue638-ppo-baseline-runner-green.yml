@@ -72,4 +72,4 @@ jobs:
           test -z "$(git -C impl status --porcelain)"
           test -z "$(git -C helper status --porcelain)"
 
-# verification trigger after helper hardening
+# verification trigger after callable typing and canonical-bytes oracle correction

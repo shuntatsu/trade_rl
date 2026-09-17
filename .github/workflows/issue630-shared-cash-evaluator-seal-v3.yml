@@ -1,0 +1,355 @@
+name: Issue 630 Shared-Cash Evaluator Final Seal v3
+
+on:
+  push:
+    branches:
+      - seal/issue630-shared-cash-evaluator-v2
+    paths:
+      - .github/workflows/issue630-shared-cash-evaluator-seal-v3.yml
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue630-shared-cash-evaluator-final-seal-v3
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: d1bf25fd66834289ffddb36063b0d5cef649f444
+  BASE_SHA: d18434799651cfc6c07e0840c40600dcf1dfa763
+  VERIFICATION_RUN_ID: '35213065827'
+  PR_NUMBER: '633'
+  PROTOCOL_HEAD: 65eb3c90e0a5fe1cea952279c28024160838da08
+  PROTOCOL_DIGEST: c4942c190e507b2d437bd00646fd7ed09e2be5cff9b30fba6d1774b6f2af9c88
+  PROTOCOL_MODULE_BLOB: 208e4d45b64ce4e92cd8eca59a5c427dc8be7029
+  PROTOCOL_SEAL_RUN_ID: '35211715033'
+  PROTOCOL_PRIMARY_ARTIFACT_ID: '10491893357'
+  PROTOCOL_PRIMARY_API_DIGEST: sha256:0e3e1dc742c00d3a1625aa9ee8681aba86a676946083afd08eda783642dd6841
+  PROTOCOL_FRESH_ARTIFACT_ID: '10492645772'
+  PROTOCOL_FRESH_API_DIGEST: sha256:ca5fc01ed41cad6fa2f2dc2cf9ef11e4fe7cd3b5b6f7d8bc86bea1eb86842f56
+  PROTOCOL_SEAL_SHA256: b76ae3ac83109c2b6349330b0b9b0e70522320ae9bcdf1dd2a794f93668bd903
+
+jobs:
+  primary:
+    name: Primary final implementation seal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      implementation_sha256: ${{ steps.build.outputs.implementation_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+    steps:
+      - name: Enforce exactly-once seal activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Bind exact verification, PR and protocol authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFICATION_RUN_ID")"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$TARGET_SHA"
+          test "$(jq -r .base.sha <<<"$pr")" = "$BASE_SHA"
+          test "$(git rev-parse "HEAD:trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py")" = "$PROTOCOL_MODULE_BLOB"
+      - id: build
+        name: Build canonical result-blind implementation authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import canonical_ridge_shared_cash_evaluation_spec
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+
+          target=os.environ['TARGET_SHA']; base=os.environ['BASE_SHA']
+          spec=canonical_ridge_shared_cash_evaluation_spec()
+          protocol=canonical_ridge_shared_cash_protocol()
+          expected={
+              'protocol_head':os.environ['PROTOCOL_HEAD'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'protocol_seal_run_id':int(os.environ['PROTOCOL_SEAL_RUN_ID']),
+              'protocol_primary_artifact_id':int(os.environ['PROTOCOL_PRIMARY_ARTIFACT_ID']),
+              'protocol_primary_artifact_api_digest':os.environ['PROTOCOL_PRIMARY_API_DIGEST'].removeprefix('sha256:'),
+              'protocol_fresh_artifact_id':int(os.environ['PROTOCOL_FRESH_ARTIFACT_ID']),
+              'protocol_fresh_artifact_api_digest':os.environ['PROTOCOL_FRESH_API_DIGEST'].removeprefix('sha256:'),
+              'protocol_seal_sha256':os.environ['PROTOCOL_SEAL_SHA256'],
+              'execution_max_leverage':1.0,
+              'expected_n_periods':17_544,
+              'calendar_year_period_counts':((2023,8_760),(2024,8_784)),
+          }
+          for name,value in expected.items():
+              if getattr(spec,name)!=value:
+                  raise SystemExit(f'spec authority drift: {name} -> {getattr(spec,name)!r}')
+          if protocol.digest != os.environ['PROTOCOL_DIGEST']:
+              raise SystemExit('protocol digest drift')
+          if protocol.execution_max_leverage != 1.0:
+              raise SystemExit('protocol execution max leverage drift')
+          if protocol.execution_overlay != 'zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity':
+              raise SystemExit('protocol overlay drift')
+          boundary=(
+              'unused_data_accessed','final_test_accessed','final_test_authorized',
+              'operational_eligibility_established','production_eligible',
+              'live_trading_authorized','merge_authorized',
+          )
+          for name in boundary:
+              if getattr(spec,name) is not False:
+                  raise SystemExit(f'evaluator boundary drift: {name}')
+          files=[
+              'tests/architecture/test_runs_capability_facade.py',
+              'tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py',
+              'tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py',
+              'tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py',
+              'tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py',
+              'trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py',
+              'trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py',
+              'trade_rl/evaluation/runs/__init__.py',
+              'trade_rl/evaluation/runs/execute.py',
+              'trade_rl/strategies/forecasts/ridge_economic_gate.py',
+          ]
+          actual=subprocess.check_output(['git','diff','--name-only',f'{base}...{target}'],text=True).splitlines()
+          if actual != files:
+              raise SystemExit(f'durable diff drift: {actual!r}')
+          payload={
+              'schema_version':'issue630_shared_cash_evaluator_implementation_v2',
+              'issue_number':630,
+              'pull_request':633,
+              'implementation_head':target,
+              'implementation_tree_sha':subprocess.check_output(['git','rev-parse',f'{target}^{{tree}}'],text=True).strip(),
+              'carrier_base_head':base,
+              'exact_verification_run_id':int(os.environ['VERIFICATION_RUN_ID']),
+              'protocol_v3':{
+                  'head':os.environ['PROTOCOL_HEAD'],
+                  'digest':os.environ['PROTOCOL_DIGEST'],
+                  'module_blob':os.environ['PROTOCOL_MODULE_BLOB'],
+                  'seal_run_id':int(os.environ['PROTOCOL_SEAL_RUN_ID']),
+                  'primary_artifact_id':int(os.environ['PROTOCOL_PRIMARY_ARTIFACT_ID']),
+                  'primary_api_digest':os.environ['PROTOCOL_PRIMARY_API_DIGEST'],
+                  'fresh_artifact_id':int(os.environ['PROTOCOL_FRESH_ARTIFACT_ID']),
+                  'fresh_api_digest':os.environ['PROTOCOL_FRESH_API_DIGEST'],
+                  'seal_sha256':os.environ['PROTOCOL_SEAL_SHA256'],
+                  'execution_max_leverage':1.0,
+              },
+              'evidence_schema':{
+                  'evaluation_spec_schema_version':spec.schema_version,
+                  'expected_n_periods':spec.expected_n_periods,
+                  'calendar_year_period_counts':[list(item) for item in spec.calendar_year_period_counts],
+                  'annual_returns_recomputed_from_raw_returns_and_counts':True,
+                  'bool_numeric_alias_rejected':True,
+                  'partial_path_forces_stop':True,
+              },
+              'durable_files':files,
+              'blob_shas':{p:subprocess.check_output(['git','rev-parse',f'{target}:{p}'],text=True).strip() for p in files},
+              'result_blind':True,
+              'shared_cash_economic_execution_performed':False,
+              'shared_cash_economic_result_inspected':False,
+              'unused_data_accessed':False,
+              'final_test_accessed':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          out=Path('../primary'); out.mkdir(exist_ok=True)
+          impl=(json.dumps(payload,sort_keys=True,separators=(',',':'))+'\n').encode()
+          (out/'implementation.json').write_bytes(impl)
+          impl_sha=hashlib.sha256(impl).hexdigest()
+          seal_payload={
+              'schema_version':'issue630_shared_cash_evaluator_seal_v2',
+              'implementation_head':target,
+              'implementation_sha256':impl_sha,
+              'exact_verification_run_id':int(os.environ['VERIFICATION_RUN_ID']),
+              'result_blind':True,
+              'shared_cash_economic_execution_performed':False,
+              'shared_cash_economic_result_inspected':False,
+              'unused_data_accessed':False,
+              'final_test_accessed':False,
+              'production_eligible':False,
+              'live_trading_authorized':False,
+              'merge_authorized':False,
+          }
+          seal=(json.dumps(seal_payload,sort_keys=True,separators=(',',':'))+'\n').encode()
+          (out/'seal.json').write_bytes(seal)
+          seal_sha=hashlib.sha256(seal).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
+              fh.write(f'implementation_sha256={impl_sha}\n')
+              fh.write(f'seal_sha256={seal_sha}\n')
+          print(f'IMPLEMENTATION_SHA256={impl_sha}')
+          print(f'SEAL_SHA256={seal_sha}')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+          test -z "$(git status --porcelain)"
+      - id: name
+        run: echo "artifact_name=issue630-final-primary-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: ../primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh final implementation reconstruction
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      implementation_sha256: ${{ steps.build.outputs.implementation_sha256 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - id: build
+        env:
+          PRIMARY_IMPLEMENTATION_SHA256: ${{ needs.primary.outputs.implementation_sha256 }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary.outputs.seal_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          uv run python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation import canonical_ridge_shared_cash_evaluation_spec
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+
+          target=os.environ['TARGET_SHA']; base=os.environ['BASE_SHA']
+          spec=canonical_ridge_shared_cash_evaluation_spec(); protocol=canonical_ridge_shared_cash_protocol()
+          expected={
+              'protocol_head':os.environ['PROTOCOL_HEAD'],
+              'protocol_digest':os.environ['PROTOCOL_DIGEST'],
+              'protocol_seal_run_id':int(os.environ['PROTOCOL_SEAL_RUN_ID']),
+              'protocol_primary_artifact_id':int(os.environ['PROTOCOL_PRIMARY_ARTIFACT_ID']),
+              'protocol_primary_artifact_api_digest':os.environ['PROTOCOL_PRIMARY_API_DIGEST'].removeprefix('sha256:'),
+              'protocol_fresh_artifact_id':int(os.environ['PROTOCOL_FRESH_ARTIFACT_ID']),
+              'protocol_fresh_artifact_api_digest':os.environ['PROTOCOL_FRESH_API_DIGEST'].removeprefix('sha256:'),
+              'protocol_seal_sha256':os.environ['PROTOCOL_SEAL_SHA256'],
+              'execution_max_leverage':1.0,
+              'expected_n_periods':17_544,
+              'calendar_year_period_counts':((2023,8_760),(2024,8_784)),
+          }
+          for name,value in expected.items():
+              if getattr(spec,name)!=value: raise SystemExit(f'spec authority drift: {name}')
+          if protocol.digest != os.environ['PROTOCOL_DIGEST']: raise SystemExit('protocol digest drift')
+          files=['tests/architecture/test_runs_capability_facade.py','tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py','tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation_falsification.py','tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg.py','tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_prereg_execution_leverage.py','trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py','trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py','trade_rl/evaluation/runs/__init__.py','trade_rl/evaluation/runs/execute.py','trade_rl/strategies/forecasts/ridge_economic_gate.py']
+          actual=subprocess.check_output(['git','diff','--name-only',f'{base}...{target}'],text=True).splitlines()
+          if actual!=files: raise SystemExit(f'durable diff drift: {actual!r}')
+          payload={'schema_version':'issue630_shared_cash_evaluator_implementation_v2','issue_number':630,'pull_request':633,'implementation_head':target,'implementation_tree_sha':subprocess.check_output(['git','rev-parse',f'{target}^{{tree}}'],text=True).strip(),'carrier_base_head':base,'exact_verification_run_id':int(os.environ['VERIFICATION_RUN_ID']),'protocol_v3':{'head':os.environ['PROTOCOL_HEAD'],'digest':os.environ['PROTOCOL_DIGEST'],'module_blob':os.environ['PROTOCOL_MODULE_BLOB'],'seal_run_id':int(os.environ['PROTOCOL_SEAL_RUN_ID']),'primary_artifact_id':int(os.environ['PROTOCOL_PRIMARY_ARTIFACT_ID']),'primary_api_digest':os.environ['PROTOCOL_PRIMARY_API_DIGEST'],'fresh_artifact_id':int(os.environ['PROTOCOL_FRESH_ARTIFACT_ID']),'fresh_api_digest':os.environ['PROTOCOL_FRESH_API_DIGEST'],'seal_sha256':os.environ['PROTOCOL_SEAL_SHA256'],'execution_max_leverage':1.0},'evidence_schema':{'evaluation_spec_schema_version':spec.schema_version,'expected_n_periods':spec.expected_n_periods,'calendar_year_period_counts':[list(item) for item in spec.calendar_year_period_counts],'annual_returns_recomputed_from_raw_returns_and_counts':True,'bool_numeric_alias_rejected':True,'partial_path_forces_stop':True},'durable_files':files,'blob_shas':{p:subprocess.check_output(['git','rev-parse',f'{target}:{p}'],text=True).strip() for p in files},'result_blind':True,'shared_cash_economic_execution_performed':False,'shared_cash_economic_result_inspected':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          out=Path('../fresh'); out.mkdir(exist_ok=True)
+          impl=(json.dumps(payload,sort_keys=True,separators=(',',':'))+'\n').encode(); (out/'implementation.json').write_bytes(impl)
+          impl_sha=hashlib.sha256(impl).hexdigest()
+          seal_payload={'schema_version':'issue630_shared_cash_evaluator_seal_v2','implementation_head':target,'implementation_sha256':impl_sha,'exact_verification_run_id':int(os.environ['VERIFICATION_RUN_ID']),'result_blind':True,'shared_cash_economic_execution_performed':False,'shared_cash_economic_result_inspected':False,'unused_data_accessed':False,'final_test_accessed':False,'production_eligible':False,'live_trading_authorized':False,'merge_authorized':False}
+          seal=(json.dumps(seal_payload,sort_keys=True,separators=(',',':'))+'\n').encode(); (out/'seal.json').write_bytes(seal)
+          seal_sha=hashlib.sha256(seal).hexdigest()
+          if impl_sha != os.environ['PRIMARY_IMPLEMENTATION_SHA256'] or seal_sha != os.environ['PRIMARY_SEAL_SHA256']:
+              raise SystemExit('fresh reconstruction differs from primary')
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
+              fh.write(f'implementation_sha256={impl_sha}\nseal_sha256={seal_sha}\n')
+          print('PRIMARY_FRESH_RECONSTRUCTION_EQUAL=true')
+          PY
+          test -z "$(git status --porcelain)"
+      - id: name
+        run: echo "artifact_name=issue630-final-fresh-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: ../fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Final implementation authority audit
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.primary.outputs.artifact_name }}
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.fresh.outputs.artifact_name }}
+          path: fresh
+      - name: Validate API identity, byte identity and frozen boundaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ARTIFACT_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ARTIFACT_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+          IMPLEMENTATION_SHA256: ${{ needs.primary.outputs.implementation_sha256 }}
+          SEAL_SHA256: ${{ needs.primary.outputs.seal_sha256 }}
+        run: |
+          set -euo pipefail
+          cmp primary/implementation.json fresh/implementation.json
+          cmp primary/seal.json fresh/seal.json
+          test "$(sha256sum primary/implementation.json | cut -d' ' -f1)" = "$IMPLEMENTATION_SHA256"
+          test "$(sha256sum primary/seal.json | cut -d' ' -f1)" = "$SEAL_SHA256"
+          primary_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ARTIFACT_ID")"
+          fresh_meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ARTIFACT_ID")"
+          test "$(jq -r .expired <<<"$primary_meta")" = false
+          test "$(jq -r .expired <<<"$fresh_meta")" = false
+          test "$(jq -r .workflow_run.id <<<"$primary_meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .workflow_run.id <<<"$fresh_meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .digest <<<"$primary_meta")" = "$PRIMARY_UPLOAD_DIGEST"
+          test "$(jq -r .digest <<<"$fresh_meta")" = "$FRESH_UPLOAD_DIGEST"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          implementation=json.loads(Path('primary/implementation.json').read_text())
+          seal=json.loads(Path('primary/seal.json').read_text())
+          if implementation['implementation_head'] != os.environ['TARGET_SHA']: raise SystemExit('implementation head drift')
+          if implementation['exact_verification_run_id'] != int(os.environ['VERIFICATION_RUN_ID']): raise SystemExit('verification run drift')
+          if implementation['protocol_v3']['digest'] != os.environ['PROTOCOL_DIGEST']: raise SystemExit('protocol digest drift')
+          evidence=implementation['evidence_schema']
+          if evidence['expected_n_periods'] != 17544: raise SystemExit('period authority drift')
+          if evidence['calendar_year_period_counts'] != [[2023,8760],[2024,8784]]: raise SystemExit('year-period authority drift')
+          if not evidence['annual_returns_recomputed_from_raw_returns_and_counts']: raise SystemExit('annual evidence hardening absent')
+          for payload in (implementation,seal):
+              for name in ('shared_cash_economic_execution_performed','shared_cash_economic_result_inspected','unused_data_accessed','final_test_accessed','production_eligible','live_trading_authorized','merge_authorized'):
+                  if payload[name] is not False: raise SystemExit(f'boundary drift: {name}')
+          print('ISSUE630_FINAL_IMPLEMENTATION_SEAL=PASS')
+          print('PRIMARY_FRESH_BYTE_IDENTICAL=true')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY

@@ -1,0 +1,330 @@
+name: Issue 634 sealed ridge shared-cash evaluation v1
+
+on:
+  push:
+    branches:
+      - run/issue634-ridge-shared-cash-evaluation-v1
+    paths:
+      - .github/authorizations/issue634-ridge-shared-cash-evaluation-v1.authorized
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+
+concurrency:
+  group: issue634-ridge-shared-cash-evaluation-v1
+  cancel-in-progress: false
+
+jobs:
+  publisher:
+    name: Exactly-once shared-cash publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce exactly-once activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+
+      - name: Checkout verified runner helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: run/issue634-ridge-shared-cash-evaluation-v1
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact sealed evaluator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d1bf25fd66834289ffddb36063b0d5cef649f444
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install exact sealed runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - name: Pre-execution authority and unused-slot gate
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(cat ../helper/.github/authorizations/issue634-ridge-shared-cash-evaluation-v1.authorized)" = "issue634-authorized-v1"
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py authority-check --result-slot empty
+
+      - name: Download exact successor Dataset authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '34803217815'
+
+      - name: Download PRE-PnL cost authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-ridge-cost-authority-35200841490
+          path: ${{ runner.temp }}/cost-authority
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35200841490'
+
+      - name: Download Issue 630 primary implementation authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-final-authority-primary-v2
+          path: ${{ runner.temp }}/evaluator-primary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35214002467'
+
+      - name: Download Issue 630 fresh implementation authority
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-final-authority-fresh-v2
+          path: ${{ runner.temp }}/evaluator-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35214002467'
+
+      - name: Download Issue 626 immutable trigger result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-result-35201639813
+          path: ${{ runner.temp }}/trigger-result
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35201639813'
+
+      - name: Download Issue 626 fresh verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-fresh-verification-35201639813
+          path: ${{ runner.temp }}/trigger-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35201639813'
+
+      - name: Execute sealed shared-cash comparison once without interpretation
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py evaluate \
+            --successor "$RUNNER_TEMP/successor" \
+            --cost "$RUNNER_TEMP/cost-authority" \
+            --evaluator-primary "$RUNNER_TEMP/evaluator-primary" \
+            --evaluator-fresh "$RUNNER_TEMP/evaluator-fresh" \
+            --trigger-result "$RUNNER_TEMP/trigger-result" \
+            --trigger-fresh "$RUNNER_TEMP/trigger-fresh" \
+            --output "$RUNNER_TEMP/issue634-publisher"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../helper status --porcelain)"
+
+      - id: upload
+        name: Publish immutable result before interpretation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue634-ridge-shared-cash-result-v1
+          path: ${{ runner.temp }}/issue634-publisher/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh independent shared-cash reconstruction
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first-run fresh reconstruction
+        run: |
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+
+      - name: Checkout verified runner helper independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: run/issue634-ridge-shared-cash-evaluation-v1
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact sealed evaluator independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d1bf25fd66834289ffddb36063b0d5cef649f444
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install fresh exact sealed runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - name: Fresh authority and published-slot gate
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py authority-check --result-slot published
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue634-ridge-shared-cash-result-v1
+          path: ${{ runner.temp }}/published
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/successor
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '34803217815'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue618-ridge-cost-authority-35200841490
+          path: ${{ runner.temp }}/cost-authority
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35200841490'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-final-authority-primary-v2
+          path: ${{ runner.temp }}/evaluator-primary
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35214002467'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue630-final-authority-fresh-v2
+          path: ${{ runner.temp }}/evaluator-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35214002467'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-result-35201639813
+          path: ${{ runner.temp }}/trigger-result
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35201639813'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue626-ridge-economic-fresh-verification-35201639813
+          path: ${{ runner.temp }}/trigger-fresh
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: '35201639813'
+
+      - name: Reconstruct independently and require identical result bytes
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py reconstruct \
+            --successor "$RUNNER_TEMP/successor" \
+            --cost "$RUNNER_TEMP/cost-authority" \
+            --evaluator-primary "$RUNNER_TEMP/evaluator-primary" \
+            --evaluator-fresh "$RUNNER_TEMP/evaluator-fresh" \
+            --trigger-result "$RUNNER_TEMP/trigger-result" \
+            --trigger-fresh "$RUNNER_TEMP/trigger-fresh" \
+            --published "$RUNNER_TEMP/published" \
+            --output "$RUNNER_TEMP/issue634-fresh"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../helper status --porcelain)"
+
+      - id: upload
+        name: Publish fresh verification before reveal
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue634-ridge-shared-cash-fresh-v1
+          path: ${{ runner.temp }}/issue634-fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Independent final audit and frozen decision reveal
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout verified runner helper for audit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: run/issue634-ridge-shared-cash-evaluation-v1
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact sealed evaluator for strict decoding
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d1bf25fd66834289ffddb36063b0d5cef649f444
+          path: impl
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install strict audit runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue634-ridge-shared-cash-result-v1
+          path: ${{ runner.temp }}/published
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue634-ridge-shared-cash-fresh-v1
+          path: ${{ runner.temp }}/fresh
+
+      - name: Re-audit raw evidence and reveal only frozen decision
+        working-directory: impl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_ARTIFACT_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PUBLISHER_ARTIFACT_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ARTIFACT_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_ARTIFACT_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          uv run python ../helper/.github/scripts/issue634_shared_cash_runner.py audit \
+            --published "$RUNNER_TEMP/published" \
+            --fresh "$RUNNER_TEMP/fresh" \
+            --output "$RUNNER_TEMP/issue634-audit/audit.json"
+          test -z "$(git status --porcelain)"
+          test -z "$(git -C ../helper status --porcelain)"
+
+      - name: Publish final audit record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue634-ridge-shared-cash-audit-v1
+          path: ${{ runner.temp }}/issue634-audit/audit.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

@@ -1,0 +1,121 @@
+name: Verify Issue 645 official harness v3
+
+on:
+  push:
+    branches:
+      - verify/issue645-harness-v3
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 49693505987fb3c888e2f05206061558f5961331
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Prove harness-only durable diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "49693505987fb3c888e2f05206061558f5961331"
+          changed="$(git diff --name-only 928ee0886c404cdbb1383f440f731d7221c277ef 49693505987fb3c888e2f05206061558f5961331 | sort)"
+          expected="$(printf '%s\n' \
+            .github/scripts/issue645_directional_activation.py \
+            .github/scripts/issue645_official_audit.py \
+            .github/scripts/issue645_official_run_arm.sh \
+            .github/workflows/issue645-corrected-directional-study-v1.yml | sort)"
+          test "$changed" = "$expected"
+          test ! -e .github/authorizations/issue645-corrected-directional-study-v1.authorized
+
+      - name: Static-check official helpers
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run ruff check .github/scripts/issue645_directional_activation.py .github/scripts/issue645_official_audit.py
+          uv run ruff format --check .github/scripts/issue645_directional_activation.py .github/scripts/issue645_official_audit.py
+          uv run mypy .github/scripts/issue645_directional_activation.py .github/scripts/issue645_official_audit.py
+          uv run python -m py_compile .github/scripts/issue645_directional_activation.py .github/scripts/issue645_official_audit.py
+          bash -n .github/scripts/issue645_official_run_arm.sh
+
+      - name: Validate frozen workflow and pre-data ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=.github/workflows/issue645-corrected-directional-study-v1.yml
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "ISSUE645_YAML_PARSE=PASS"' "$file"
+          grep -Fq 'TARGET_SHA: 928ee0886c404cdbb1383f440f731d7221c277ef' "$file"
+          grep -Fq "IMPLEMENTATION_SEAL_RUN: '35286608859'" "$file"
+          grep -Fq "IMPLEMENTATION_PRIMARY_ID: '10525290101'" "$file"
+          grep -Fq "IMPLEMENTATION_FRESH_ID: '10525050310'" "$file"
+          grep -Fq "IMPLEMENTATION_AUDIT_ID: '10524726805'" "$file"
+          grep -Fq 'IMPLEMENTATION_PRIMARY_DIGEST: sha256:69699dcb68c06fc8ba86c69cdb77cc43813adc02ff9f88f65425fbdf44bfcc82' "$file"
+          grep -Fq 'IMPLEMENTATION_FRESH_DIGEST: sha256:792cb7c100ab3166fbdacd5177680a1add5ac30ccefe6b6906c57ae14a30bd31' "$file"
+          grep -Fq 'IMPLEMENTATION_AUDIT_DIGEST: sha256:9611dc12a556fe05961071692239d59ca930081ab3e2047924255361a1c51e88' "$file"
+          grep -Fq 'issue645-corrected-directional-activation-v1' "$file"
+          grep -Fq 'issue645-corrected-directional-protocol-v1' "$file"
+          grep -Fq 'issue645-corrected-directional-run-summary-v1' "$file"
+          ! grep -Fq 'workflow_dispatch' "$file"
+          for arm in cash constant_long constant_short trend mean_reversion ridge24 lightgbm24 channel_breakout ppo0 ppo1 ppo2 ppo3 ppo4; do
+            test "$(grep -Fc "Run $arm exactly once" "$file")" = 1
+            test "$(grep -Fc "Publish immutable $arm attempt" "$file")" = 1
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/issue645-corrected-directional-study-v1.yml').read_text()
+          order = [
+              'Re-read implementation seal boundary before Dataset load',
+              'Build pre-data protocol and activation claim without Dataset load',
+              'Publish repository-global activation before Dataset load or any arm',
+              'Publish immutable protocol before Dataset load and first arm',
+              'Load and validate Dataset only after remote activation and protocol binding',
+              'Run cash exactly once',
+          ]
+          positions = [text.index(item) for item in order]
+          assert positions == sorted(positions), positions
+          assert 'ISSUE640_COMPLETE=' not in Path('.github/scripts/issue645_official_audit.py').read_text()
+          assert 'ISSUE645_COMPLETE=' in Path('.github/scripts/issue645_official_audit.py').read_text()
+          print('ISSUE645_PREDATA_ORDER=PASS')
+          PY
+
+      - name: Rebind exact implementation seal and Artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          seal="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/35286608859)"
+          test "$(jq -r .status <<<"$seal")" = completed
+          test "$(jq -r .conclusion <<<"$seal")" = success
+          test "$(jq -r .head_sha <<<"$seal")" = 78cfad19b2bb2eb66291aec0d6de8a7ffaa0a3f6
+          for row in \
+            '10525290101|issue645-corrected-accounting-primary-v1|sha256:69699dcb68c06fc8ba86c69cdb77cc43813adc02ff9f88f65425fbdf44bfcc82' \
+            '10525050310|issue645-corrected-accounting-fresh-v1|sha256:792cb7c100ab3166fbdacd5177680a1add5ac30ccefe6b6906c57ae14a30bd31' \
+            '10524726805|issue645-corrected-accounting-audit-v1|sha256:9611dc12a556fe05961071692239d59ca930081ab3e2047924255361a1c51e88'
+          do
+            IFS='|' read -r id name digest <<<"$row"
+            a="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .name <<<"$a")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$a")" = 35286608859
+            test "$(jq -r .expired <<<"$a")" = false
+            test "$(jq -r .digest <<<"$a")" = "$digest"
+          done
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+
+      - name: Activation helper and target regression oracles
+        run: |
+          uv run pytest -q tests/evaluation/test_directional_study.py tests/simulation/test_lot_accounting.py tests/simulation/test_stateful_execution_characterization.py tests/architecture/test_lean_simulation_layout.py
+          echo ECONOMIC_RESULT_INTERPRETED=false
+          echo UNUSED_DATA_ACCESSED=false

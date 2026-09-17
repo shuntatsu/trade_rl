@@ -5,10 +5,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import IntEnum
+from fractions import Fraction
 from typing import Sequence
 
 from trade_rl._validation import require_sha256
 from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
     exact_quantity,
     project_quantity,
     quantize_quantity,
@@ -44,8 +46,11 @@ class LiquidityRequest:
     available_volume_fraction: float
     priority: LiquidityPriority
     eligible_index: int
+    reduce_only: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.reduce_only, bool):
+            raise LiquidityAllocationError("reduce_only must be a boolean")
         _validate_digest("order_id", self.order_id)
         if (
             not math.isfinite(self.remaining_quantity)
@@ -95,6 +100,7 @@ class LiquidityAllocation:
     no_fill_reason: str | None = None
     filled_lot_count: int | None = None
     lot_size: float = 0.0
+    reduce_only_exhausted: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +116,23 @@ class SymbolCapacityEvidence:
 
 
 def _capacity_quantity(
-    request: LiquidityRequest, capacity: float, lot_size: float, multiplier: float
+    request: LiquidityRequest,
+    capacity: float,
+    lot_size: float,
+    multiplier: float,
+    position: Fraction | None = None,
 ) -> tuple[float, int | None]:
     quantity, count = quantize_quantity(request.remaining_quantity, lot_size)
+    if request.reduce_only:
+        assert position is not None and position * exact_quantity(quantity) <= 0
+        if count is None:
+            quantity = math.copysign(
+                min(abs(quantity), project_quantity(abs(position))), quantity
+            )
+        else:
+            bound = abs(position) // exact_quantity(lot_size)
+            count = min(abs(count), bound) * (-1 if count < 0 else 1)
+            quantity = project_quantity(count * exact_quantity(lot_size))
     if abs(quantity) * request.execution_price * multiplier <= capacity:
         return quantity, count
     if count is None:
@@ -167,6 +187,7 @@ def allocate_symbol_capacity(
     participation_limit: float,
     lot_size: float,
     minimum_notional: float,
+    initial_position: Fraction | None = None,
 ) -> tuple[tuple[LiquidityAllocation, ...], SymbolCapacityEvidence]:
     """Allocate one deterministic shared capacity pool among symbol orders."""
 
@@ -201,6 +222,13 @@ def allocate_symbol_capacity(
         raise LiquidityAllocationError("minimum_notional must be non-negative")
 
     ordered = tuple(sorted(requests, key=lambda request: request.priority_key))
+    if any(request.reduce_only for request in ordered) and not isinstance(
+        initial_position, Fraction
+    ):
+        raise LiquidityAllocationError(
+            "reduce-only allocation requires exact Fraction initial_position"
+        )
+    position = initial_position
     order_ids = tuple(request.order_id for request in ordered)
     if len(order_ids) != len(set(order_ids)):
         raise LiquidityAllocationError(
@@ -226,6 +254,20 @@ def allocate_symbol_capacity(
             * contract_multiplier
         )
 
+        if request.reduce_only:
+            assert position is not None
+            if position * exact_quantity(request.remaining_quantity) >= 0:
+                allocations.append(
+                    _zero_allocation(
+                        request,
+                        requested_notional=requested_notional,
+                        capacity_before=capacity_before,
+                        accessible_capacity=accessible_capacity,
+                        reason="reduce_only_exhausted",
+                    )
+                )
+                continue
+
         if request.available_volume_fraction <= _TOLERANCE:
             allocations.append(
                 _zero_allocation(
@@ -250,7 +292,7 @@ def allocate_symbol_capacity(
             continue
 
         filled_quantity, filled_lot_count = _capacity_quantity(
-            request, accessible_capacity, lot_size, contract_multiplier
+            request, accessible_capacity, lot_size, contract_multiplier, position
         )
         if abs(filled_quantity) > abs(request.remaining_quantity):
             raise LiquidityAllocationError(
@@ -290,6 +332,12 @@ def allocate_symbol_capacity(
             )
 
         remaining_capacity = max(0.0, capacity_before - exact_notional)
+        if position is not None:
+            position += accepted_fill_quantity(
+                filled_quantity,
+                lot_size=lot_size if filled_lot_count is not None else 0.0,
+                lot_count=filled_lot_count,
+            )
         participation_rate = (
             0.0 if market_notional <= _TOLERANCE else exact_notional / market_notional
         )
@@ -307,6 +355,7 @@ def allocate_symbol_capacity(
                 no_fill_reason=None,
                 filled_lot_count=filled_lot_count,
                 lot_size=lot_size if filled_lot_count is not None else 0.0,
+                reduce_only_exhausted=request.reduce_only and position == 0,
             )
         )
 

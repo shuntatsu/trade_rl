@@ -125,6 +125,21 @@ def test_simulation_package_public_api_is_preserved_exactly() -> None:
         assert getattr(simulation, name) is not None
 
 
+def test_liquidity_inventory_guard_does_not_own_book_or_venue_state() -> None:
+    forbidden = (
+        "trade_rl.simulation.accounting",
+        "trade_rl.simulation.stateful",
+        "trade_rl.simulation.orders",
+        "trade_rl.integrations",
+    )
+    imports = _imported_modules(SIMULATION / "liquidity.py")
+    assert not any(
+        name == prefix or name.startswith(prefix + ".")
+        for name in imports
+        for prefix in forbidden
+    )
+
+
 def test_simulation_tree_has_no_retired_private_imports_or_upward_dependencies() -> (
     None
 ):

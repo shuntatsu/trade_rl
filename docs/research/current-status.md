@@ -248,6 +248,13 @@ is separate from the explicit reduce-only execution design in
 `docs/specs/reduce-only-exits.md`. No risk change or minimum-notional exception
 has yet been applied to a new economic comparison.
 
+Stage A now provides explicit MARKET reduce-only orders, exact fill-time inventory
+bounds and persistence/event evidence in the common simulator. It retains ordinary
+minimum notional and does not activate automatic target reconciliation. Synthetic
+verification establishes order safety only; neither the original directional
+study nor the unchanged diagnostic has been rerun with a new exit profile. The
+evidence-bound venue profile and its frozen economic comparison remain pending.
+
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,
 artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable

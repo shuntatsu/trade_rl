@@ -115,6 +115,19 @@ class OrderIntent:
     submission_reference_price: float
     decision_equity: float
     replaced_order_id: str | None = None
+    reduce_only: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reduce_only, bool):
+            raise OrderDomainError("reduce_only must be a boolean")
+        if self.reduce_only and self.order_type is not OrderType.MARKET:
+            raise OrderDomainError("reduce_only supports only MARKET orders")
+
+    def canonical_payload(self) -> dict[str, object]:
+        payload = asdict(self)
+        if not self.reduce_only:
+            payload.pop("reduce_only")
+        return payload
 
     @classmethod
     def create(
@@ -135,6 +148,7 @@ class OrderIntent:
         submission_reference_price: float,
         decision_equity: float,
         replaced_order_id: str | None = None,
+        reduce_only: bool = False,
     ) -> OrderIntent:
         if not dataset_id:
             raise OrderDomainError("dataset_id must be non-empty")
@@ -216,6 +230,8 @@ class OrderIntent:
             "target_identity": target_identity,
             "time_in_force": time_in_force.value,
         }
+        if reduce_only:
+            identity_payload["reduce_only"] = reduce_only
         order_id = hashlib.sha256(canonical_json_bytes(identity_payload)).hexdigest()
         return cls(
             order_id=order_id,
@@ -234,6 +250,7 @@ class OrderIntent:
             submission_reference_price=float(submission_reference_price),
             decision_equity=float(decision_equity),
             replaced_order_id=replaced_order_id,
+            reduce_only=reduce_only,
         )
 
     @classmethod
@@ -258,8 +275,11 @@ class OrderIntent:
             "target_identity",
             "time_in_force",
         }
-        if set(value) != required:
+        if set(value) not in (required, required | {"reduce_only"}):
             raise OrderDomainError("order intent field closure mismatch")
+        reduce_only = value.get("reduce_only", False)
+        if not isinstance(reduce_only, bool):
+            raise OrderDomainError("reduce_only must be a boolean")
 
         def string(field: str) -> str:
             raw = value[field]
@@ -324,6 +344,7 @@ class OrderIntent:
             submission_reference_price=number("submission_reference_price"),
             decision_equity=number("decision_equity"),
             replaced_order_id=optional_string("replaced_order_id"),
+            reduce_only=reduce_only,
         )
         if restored.order_id != string("order_id"):
             raise OrderDomainError("order intent identity digest mismatch")
@@ -924,8 +945,11 @@ class OrderEvent:
     reason: str | None
     path_mode: str
     path_points: tuple[float, ...]
+    reduce_only: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.reduce_only, bool):
+            raise OrderDomainError("reduce_only must be a boolean")
         if self.schema_version != ORDER_EVENT_SCHEMA:
             raise OrderDomainError("order event schema is unsupported")
         if (
@@ -1031,8 +1055,11 @@ class OrderEvent:
             "timestamp_ns",
             "trigger_segment",
         }
-        if set(value) != required:
+        if set(value) not in (required, required | {"reduce_only"}):
             raise OrderDomainError("order event field closure mismatch")
+        reduce_only = value.get("reduce_only", False)
+        if not isinstance(reduce_only, bool):
+            raise OrderDomainError("reduce_only must be a boolean")
 
         def string(field: str) -> str:
             raw = value[field]
@@ -1105,6 +1132,7 @@ class OrderEvent:
             reason=optional_string("reason"),
             path_mode=string("path_mode"),
             path_points=tuple(float(item) for item in raw_path_points),
+            reduce_only=reduce_only,
         )
 
     def canonical_payload(self) -> dict[str, object]:
@@ -1112,4 +1140,6 @@ class OrderEvent:
         payload["previous_status"] = self.previous_status.value
         payload["new_status"] = self.new_status.value
         payload["path_points"] = list(self.path_points)
+        if not self.reduce_only:
+            payload.pop("reduce_only")
         return payload

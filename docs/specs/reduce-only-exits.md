@@ -1,6 +1,6 @@
 # Explicit reduce-only exits
 
-Status: Active design
+Status: Active implementation; Stage A verification, Stages B/C pending
 
 ## Objective and evidence
 
@@ -58,6 +58,10 @@ flat, increasing and oversized reduce-only requests are rejected conservatively.
 Existing tradability, side permission, quantity, funding, cost and margin rules
 still apply. Stage A does not grant a minimum-notional exception.
 
+The stateful caller supplies actual exact inventory separately from the pending
+order projection used for economic admission. Unfilled openings cannot supply
+inventory for a reduce-only request.
+
 Admission's projected book is insufficient as the final inventory authority.
 Symbol allocation must enforce the restriction in actual deterministic fill
 order against exact inventory, including previous accepted fills in that batch.
@@ -72,9 +76,20 @@ evidence. Unused closing capacity remains unused or is allocated deterministical
 to later requests under the existing priority contract. Partial fills retain
 the same attribute after serialization and restart.
 
+A synchronous inventory check before each closing fill also covers margin
+handling that flattens the account after an earlier fill. A newly exhausted or
+insufficient position expires the remainder without execution. Such released
+capacity stays unused; later orders keep their original reservations. Capacity
+events and final totals are reconstructed from actual fills.
+
 Stage A does not change automatic target reconciliation. Later activation must
 cancel and replace an ordinary residual when the required order semantics change,
 even if its remaining quantity happens to match the new target.
+
+The implemented Stage A readers accept missing `reduce_only` as false. Explicit
+intent/event canonical payloads omit false; generic dataclass serialization adds
+the field. This preserves ordinary order IDs and canonical event evidence, while
+remaining backward-readable rather than promising identical generic JSON bytes.
 
 ## Stage B: explicit execution profile
 

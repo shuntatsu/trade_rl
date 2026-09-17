@@ -218,6 +218,16 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのa
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
+`orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
+event evidence; `orders/admission.py` rejects requests beyond exact inventory.
+`liquidity.py` takes an explicit exact initial position for reduce-only requests
+and advances it in allocation priority order for all accepted fills. It owns no
+BookState mutation. `stateful/symbol_fills.py` supplies and rechecks inventory
+after intervening margin handling, applies accepted lots to BookState, reconciles
+capacity to actual fills and expires exhausted closing remainders; `runtime.py`
+projects the order flag into events. Venue-specific minimum-notional exceptions
+and automatic reduce-only target reconciliation are not implemented.
+
 ### `strategies`
 
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。model自身やcandidate config自身の不変条件validationは各ownerに残す。

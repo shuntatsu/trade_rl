@@ -9,8 +9,8 @@ Status: Active
 - [x] Confirm the official reduce-only minimum-notional distinction and obtain
   an independent bounded design review.
 - [x] Independently audit the diagnostic and retain its scope limitations.
-- [ ] Implement Stage A explicit MARKET reduce-only identity and persistence.
-- [ ] Enforce admission and exact fill-time reduction across competing orders;
+- [x] Implement Stage A explicit MARKET reduce-only identity and persistence.
+- [x] Enforce admission and exact fill-time reduction across competing orders;
   retain existing minimum-notional rules at this stage.
 - [ ] Verify synthetic boundaries, default compatibility, independent review,
   full repository CI and normal integration for Stage A.

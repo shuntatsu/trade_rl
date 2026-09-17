@@ -143,6 +143,28 @@ P&Lの正本は `MarketExecutor + BookState` の一経路である。
 - signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
 - capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
 - PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。
+
+Explicit `OrderIntent.reduce_only=True` supports MARKET orders only. Admission
+rejects absent, same-direction or insufficient actual exact inventory, independently
+of hypothetical pending fills in the economic projection. Allocation then
+checks the actual priority sequence, including ordinary fills, and caps each
+closing fill at the opposite inventory remaining. Exhausted active remainders
+expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
+only to actual accepted lots. Minimum notional, side permissions and all other
+existing constraints still apply. Automatic target reconciliation does not opt in.
+
+Stateful execution rechecks exact inventory immediately before each closing fill:
+margin handling after a previous fill can invalidate precomputed allocations.
+An exhausted or newly insufficient position expires the closing remainder without
+a fill. Other orders retain their original capacity reservations; any released
+capacity stays unused. Events and final capacity evidence count actual fills only.
+
+The flag is strictly boolean and true changes the order ID. Intent and event
+readers accept legacy mappings without the field as false. Their explicit
+`canonical_payload()` omits false to preserve default payloads; generic dataclass
+serialization includes the new false field and is not byte-identical to old
+mappings. Restoring an intent recomputes its identity, so changing or stripping a
+true flag without changing the ID fails. Pending partials preserve the flag.
 - 金額は既存のfloat契約を維持し、allocationとcashで同じ約定数量の射影・価格・multiplierの乗算順を使う。OrderEvent v1はfloat数量のままで、極端な非表現可能lot積のlossless ledgerとは主張しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。

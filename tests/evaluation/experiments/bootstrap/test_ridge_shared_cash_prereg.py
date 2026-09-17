@@ -5,7 +5,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
-
 from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import (
     RidgeSharedCashProtocol,
     canonical_ridge_shared_cash_protocol,

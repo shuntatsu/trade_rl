@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c54ccd5bda8b41f99db51eda510fe7cdb34d4650
+          ref: 0f6c2db6746ca831ec8d348f1715eceacf4c19fa
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -66,5 +66,5 @@ jobs:
           PY
       - name: Exact clean head
         run: |
-          test "$(git rev-parse HEAD)" = "c54ccd5bda8b41f99db51eda510fe7cdb34d4650"
+          test "$(git rev-parse HEAD)" = "0f6c2db6746ca831ec8d348f1715eceacf4c19fa"
           test -z "$(git status --porcelain)"

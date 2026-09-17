@@ -1,4 +1,4 @@
-name: PR625 Core Exact-Head Verification
+name: PR625 Implementation Seal Fresh Reconstruction
 
 on:
   push:
@@ -9,111 +9,28 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  primary-seal:
     runs-on: ubuntu-latest
+    outputs:
+      manifest_b64: ${{ steps.seal.outputs.manifest_b64 }}
+      manifest_sha256: ${{ steps.seal.outputs.manifest_sha256 }}
     steps:
-      - name: Checkout exact target
+      - name: Checkout exact PR625 implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Assert exact target
+      - name: Assert exact implementation scope
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
-          test "$(git merge-base 75999e53c70224c31a62b106e4a8d2caa4b920ac HEAD)" = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
-        with:
-          python-version: "3.12"
-          enable-cache: true
-
-      - name: Install
-        run: uv sync --extra dev
-
-      - name: Ruff
-        run: uv run ruff check trade_rl tests tools
-
-      - name: Format
-        run: uv run ruff format --check trade_rl tests tools
-
-      - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
-
-      - name: Focused Issue 616 authority tests
-        run: |
-          uv run pytest -q \
-            tests/strategies/test_ridge_economic_gate.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py \
-            tests/architecture/test_runs_capability_facade.py
-
-      - name: Full repository tests
-        run: uv run pytest -q tests
-
-      - name: Build
-        run: uv build
-
-      - name: Distribution source closure and sdist rebuild
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
-          rebuilt="$(mktemp -d)"
-          trap 'rm -rf "$rebuilt"' EXIT
-          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
-          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
-
-      - name: Clean installed core smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          wheel="$(realpath dist/*.whl)"
-          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
-          clean="$(mktemp -d)"
-          trap 'rm -rf "$clean"' EXIT
-          uv venv "$clean/venv" --python 3.12
-          uv pip install --python "$clean/venv/bin/python" "$wheel"
-          cd "$clean"
-          "$clean/venv/bin/python" -I - "$expected" <<'PY'
-          import sys
-          from importlib.metadata import version
-          from pathlib import Path
-          import trade_rl
-          import trade_rl.data
-          import trade_rl.evaluation
-          import trade_rl.evaluation.experiments
-          import trade_rl.risk
-          import trade_rl.simulation
-          import trade_rl.strategies
-          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
-          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
-          print("clean installed core public imports and identity: OK")
-          PY
-          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
-          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
-
-      - name: Package identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
-          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
-          test "$module" = "$expected"
-
-      - name: Exact seven-file scope and hygiene
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t changed < <(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | sort)
+          head='3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          base='75999e53c70224c31a62b106e4a8d2caa4b920ac'
+          test "$(git rev-parse HEAD)" = "$head"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          mapfile -t changed < <(git diff --name-only "$base"...HEAD | sort)
           expected=(
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
@@ -125,5 +42,272 @@ jobs:
           )
           mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
           test "${changed[*]}" = "${expected[*]}"
+          git diff --check "$base"...HEAD
+          test -z "$(git status --porcelain)"
+
+      - name: Build canonical implementation seal
+        id: seal
+        shell: bash
+        env:
+          SEAL_RUN_ID: ${{ github.run_id }}
+          SEAL_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          HEAD = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
+          BASE = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
+          FILES = sorted(
+              [
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py",
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py",
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py",
+                  "tests/strategies/test_ridge_economic_gate.py",
+                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py",
+                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py",
+                  "trade_rl/strategies/forecasts/ridge_economic_gate.py",
+              ]
+          )
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          actual = sorted(git("diff", "--name-only", f"{BASE}...{HEAD}").splitlines())
+          if actual != FILES:
+              raise SystemExit(f"implementation scope mismatch: {actual!r}")
+          if git("rev-parse", "HEAD") != HEAD:
+              raise SystemExit("wrong implementation HEAD")
+          if git("merge-base", BASE, HEAD) != BASE:
+              raise SystemExit("sealed preregistration is not an ancestor")
+
+          file_entries = []
+          for name in FILES:
+              data = pathlib.Path(name).read_bytes()
+              file_entries.append(
+                  {
+                      "path": name,
+                      "git_blob": git("rev-parse", f"{HEAD}:{name}"),
+                      "sha256": hashlib.sha256(data).hexdigest(),
+                      "size": len(data),
+                  }
+              )
+
+          patch = subprocess.check_output(
+              [
+                  "git",
+                  "diff",
+                  "--binary",
+                  "--full-index",
+                  "--no-ext-diff",
+                  "--no-renames",
+                  f"{BASE}...{HEAD}",
+                  "--",
+                  *FILES,
+              ]
+          )
+          payload = {
+              "schema_version": "ridge_economic_gate_implementation_seal_v1",
+              "pr_number": 625,
+              "tracking_issue": 618,
+              "preregistration_issue": 616,
+              "preregistration_head": BASE,
+              "protocol_digest": "167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3",
+              "protocol_primary_seal_artifact_id": 10459431804,
+              "protocol_primary_seal_api_digest": "sha256:603ca1c50acfcc734762c1059b315e3a31dd6a1068fb5c6481790bfe941714c7",
+              "protocol_fresh_seal_artifact_id": 10458759061,
+              "protocol_fresh_seal_api_digest": "sha256:4b00406c1b1ff587514256bd02cc7119940f35b7830829beb21c125f5bb9fa66",
+              "implementation_head": HEAD,
+              "implementation_tree": git("rev-parse", f"{HEAD}^{{tree}}"),
+              "preregistration_tree": git("rev-parse", f"{BASE}^{{tree}}"),
+              "durable_diff_sha256": hashlib.sha256(patch).hexdigest(),
+              "files": file_entries,
+              "implementation_seal_run_id": int(os.environ["SEAL_RUN_ID"]),
+              "implementation_seal_run_attempt": int(os.environ["SEAL_RUN_ATTEMPT"]),
+              "result_blind": True,
+              "dataset_or_study_artifact_read": False,
+              "evaluation_execution_performed": False,
+              "evaluation_pnl_inspected": False,
+              "final_test_accessed": False,
+              "shared_cash_profitability_established": False,
+              "operational_eligibility_established": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+              "merge_authorized": False,
+          }
+          canonical_payload = json.dumps(
+              payload, allow_nan=False, sort_keys=True, separators=(",", ":")
+          ).encode("utf-8")
+          document = {
+              "implementation_payload_sha256": hashlib.sha256(canonical_payload).hexdigest(),
+              "payload": payload,
+          }
+          raw = (
+              json.dumps(document, allow_nan=False, sort_keys=True, separators=(",", ":"))
+              + "\n"
+          ).encode("utf-8")
+          pathlib.Path("implementation-seal.json").write_bytes(raw)
+          manifest_sha256 = hashlib.sha256(raw).hexdigest()
+          manifest_b64 = base64.b64encode(raw).decode("ascii")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"manifest_sha256={manifest_sha256}\n")
+              handle.write(f"manifest_b64={manifest_b64}\n")
+          print(f"IMPLEMENTATION_SEAL_SHA256={manifest_sha256}")
+          print(f"DURABLE_DIFF_SHA256={payload['durable_diff_sha256']}")
+          print("EVALUATION_EXECUTION_PERFORMED=false")
+          print("EVALUATION_PNL_INSPECTED=false")
+          PY
+
+      - name: Upload primary implementation seal
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr625-implementation-seal-primary-${{ github.run_id }}
+          path: implementation-seal.json
+          if-no-files-found: error
+          retention-days: 90
+
+  fresh-reconstruction:
+    needs: primary-seal
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR625 implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fresh reconstruct and require byte equality
+        shell: bash
+        env:
+          PRIMARY_MANIFEST_B64: ${{ needs.primary-seal.outputs.manifest_b64 }}
+          PRIMARY_MANIFEST_SHA256: ${{ needs.primary-seal.outputs.manifest_sha256 }}
+          SEAL_RUN_ID: ${{ github.run_id }}
+          SEAL_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          HEAD = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
+          BASE = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
+          FILES = sorted(
+              [
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py",
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py",
+                  "tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py",
+                  "tests/strategies/test_ridge_economic_gate.py",
+                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py",
+                  "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py",
+                  "trade_rl/strategies/forecasts/ridge_economic_gate.py",
+              ]
+          )
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          actual = sorted(git("diff", "--name-only", f"{BASE}...{HEAD}").splitlines())
+          if actual != FILES:
+              raise SystemExit(f"fresh implementation scope mismatch: {actual!r}")
+          if git("rev-parse", "HEAD") != HEAD:
+              raise SystemExit("fresh checkout is not the sealed implementation HEAD")
+          if git("merge-base", BASE, HEAD) != BASE:
+              raise SystemExit("fresh checkout lost preregistration ancestry")
+
+          file_entries = []
+          for name in FILES:
+              data = pathlib.Path(name).read_bytes()
+              file_entries.append(
+                  {
+                      "path": name,
+                      "git_blob": git("rev-parse", f"{HEAD}:{name}"),
+                      "sha256": hashlib.sha256(data).hexdigest(),
+                      "size": len(data),
+                  }
+              )
+          patch = subprocess.check_output(
+              [
+                  "git",
+                  "diff",
+                  "--binary",
+                  "--full-index",
+                  "--no-ext-diff",
+                  "--no-renames",
+                  f"{BASE}...{HEAD}",
+                  "--",
+                  *FILES,
+              ]
+          )
+          payload = {
+              "schema_version": "ridge_economic_gate_implementation_seal_v1",
+              "pr_number": 625,
+              "tracking_issue": 618,
+              "preregistration_issue": 616,
+              "preregistration_head": BASE,
+              "protocol_digest": "167af235eeba44b9ade780c95ef7bab11c7b211d81018b82ece5d7044f7c4eb3",
+              "protocol_primary_seal_artifact_id": 10459431804,
+              "protocol_primary_seal_api_digest": "sha256:603ca1c50acfcc734762c1059b315e3a31dd6a1068fb5c6481790bfe941714c7",
+              "protocol_fresh_seal_artifact_id": 10458759061,
+              "protocol_fresh_seal_api_digest": "sha256:4b00406c1b1ff587514256bd02cc7119940f35b7830829beb21c125f5bb9fa66",
+              "implementation_head": HEAD,
+              "implementation_tree": git("rev-parse", f"{HEAD}^{{tree}}"),
+              "preregistration_tree": git("rev-parse", f"{BASE}^{{tree}}"),
+              "durable_diff_sha256": hashlib.sha256(patch).hexdigest(),
+              "files": file_entries,
+              "implementation_seal_run_id": int(os.environ["SEAL_RUN_ID"]),
+              "implementation_seal_run_attempt": int(os.environ["SEAL_RUN_ATTEMPT"]),
+              "result_blind": True,
+              "dataset_or_study_artifact_read": False,
+              "evaluation_execution_performed": False,
+              "evaluation_pnl_inspected": False,
+              "final_test_accessed": False,
+              "shared_cash_profitability_established": False,
+              "operational_eligibility_established": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+              "merge_authorized": False,
+          }
+          canonical_payload = json.dumps(
+              payload, allow_nan=False, sort_keys=True, separators=(",", ":")
+          ).encode("utf-8")
+          document = {
+              "implementation_payload_sha256": hashlib.sha256(canonical_payload).hexdigest(),
+              "payload": payload,
+          }
+          raw = (
+              json.dumps(document, allow_nan=False, sort_keys=True, separators=(",", ":"))
+              + "\n"
+          ).encode("utf-8")
+          primary = base64.b64decode(os.environ["PRIMARY_MANIFEST_B64"], validate=True)
+          if raw != primary:
+              raise SystemExit("fresh implementation reconstruction is not byte-identical")
+          fresh_sha256 = hashlib.sha256(raw).hexdigest()
+          if fresh_sha256 != os.environ["PRIMARY_MANIFEST_SHA256"]:
+              raise SystemExit("fresh implementation seal digest mismatch")
+          pathlib.Path("implementation-seal-fresh.json").write_bytes(raw)
+          print(f"FRESH_IMPLEMENTATION_SEAL_SHA256={fresh_sha256}")
+          print("FRESH_RECONSTRUCTION_BYTE_EQUAL=true")
+          print("DATASET_OR_STUDY_ARTIFACT_READ=false")
+          print("EVALUATION_EXECUTION_PERFORMED=false")
+          print("EVALUATION_PNL_INSPECTED=false")
+          PY
           git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD
           test -z "$(git status --porcelain)"
+
+      - name: Upload fresh implementation reconstruction
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr625-implementation-seal-fresh-${{ github.run_id }}
+          path: implementation-seal-fresh.json
+          if-no-files-found: error
+          retention-days: 90

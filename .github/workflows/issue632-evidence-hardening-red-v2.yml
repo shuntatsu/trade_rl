@@ -1,0 +1,103 @@
+name: Issue 632 evidence hardening RED v2
+
+on:
+  push:
+    branches:
+      - verify/issue632-evidence-hardening-red-v2
+    paths:
+      - .github/workflows/issue632-evidence-hardening-red-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3387e0343998520a0b9226c61d9a7f1462bb9389
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Add remaining counterexamples only
+        shell: bash
+        run: |
+          cat > tests/evaluation/experiments/test_issue632_remaining_hardening_red.py <<'PY'
+          from dataclasses import fields
+
+          import pytest
+
+          from trade_rl.evaluation.experiments.ppo_interleaved_evaluation import (
+              PPOReturnPathEvidence,
+              PPOSeedEvidence,
+              PPOSymbolEvidence,
+              return_path_sha256,
+          )
+          from trade_rl.evaluation.metrics import compound_return
+
+
+          def _max_drawdown(values: tuple[float, ...]) -> float:
+              wealth = 1.0
+              peak = 1.0
+              maximum = 0.0
+              for value in values:
+                  wealth *= 1.0 + value
+                  peak = max(peak, wealth)
+                  maximum = max(maximum, 1.0 - wealth / peak)
+              return maximum
+
+
+          def _path(name: str, values: tuple[float, ...], *, periods_per_year: int = 8760) -> PPOReturnPathEvidence:
+              return PPOReturnPathEvidence(
+                  strategy_name=name,
+                  returns=values,
+                  return_sha256=return_path_sha256(values),
+                  total_return=compound_return(values),
+                  total_cost=0.0,
+                  turnover_total=0.0,
+                  max_drawdown=_max_drawdown(values),
+                  termination_count=0,
+                  termination_reasons=(),
+                  n_periods=len(values),
+                  periods_per_year=periods_per_year,
+              )
+
+
+          def test_symbol_evidence_requires_common_period_identity() -> None:
+              ppo = _path("ppo", (0.01, 0.0))
+              cash = _path("cash", (0.0,))
+              long = _path("constant_long", (0.0, 0.0))
+              short = _path("constant_short", (-0.01, 0.0))
+              with pytest.raises(ValueError, match="period"):
+                  PPOSymbolEvidence(
+                      symbol_index=0,
+                      symbol="BTCUSDT",
+                      ppo=ppo,
+                      cash=cash,
+                      constant_long=long,
+                      constant_short=short,
+                      ppo_returns_equal_cash=False,
+                      ppo_returns_equal_constant_long=False,
+                      ppo_returns_equal_constant_short=False,
+                  )
+
+
+          def test_seed_evidence_schema_persists_slippage_identity() -> None:
+              assert "slippage_std" in {field.name for field in fields(PPOSeedEvidence)}
+          PY
+      - name: Require both remaining counterexamples to fail
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/evaluation/experiments/test_issue632_remaining_hardening_red.py 2>&1 | tee /tmp/red.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -q '2 failed' /tmp/red.log
+          echo ISSUE632_REMAINING_HARDENING_RED=PASS

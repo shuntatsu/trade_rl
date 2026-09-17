@@ -335,9 +335,9 @@ def main() -> None:
         token=token,
         run_id=int(run_id_text),
     )
-    print(f"ISSUE640_COMPLETE={str(payload['complete']).lower()}")
-    print(f"ISSUE640_SELECTION_VERIFIED={str(payload['selection_verified']).lower()}")
-    print("ISSUE640_MODEL_REFIT_PERFORMED=false")
+    print(f"ISSUE645_COMPLETE={str(payload['complete']).lower()}")
+    print(f"ISSUE645_SELECTION_VERIFIED={str(payload['selection_verified']).lower()}")
+    print("ISSUE645_MODEL_REFIT_PERFORMED=false")
 
 
 if __name__ == "__main__":

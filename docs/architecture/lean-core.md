@@ -139,6 +139,11 @@ P&Lの正本は `MarketExecutor + BookState` の一経路である。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - partial fill後のpositionはrealized fill quantityで更新する。
+- lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
+- signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
+- capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
+- PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。
+- 金額は既存のfloat契約を維持し、allocationとcashで同じ約定数量の射影・価格・multiplierの乗算順を使う。OrderEvent v1はfloat数量のままで、極端な非表現可能lot積のlossless ledgerとは主張しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。
 - terminal mark-to-marketとforced closeを混同しない。

@@ -49,6 +49,7 @@ trade_rl/
 │   ├── execution.py
 │   ├── bar_path.py
 │   ├── liquidity.py
+│   ├── quantities.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
 │   ├── targets/{execution.py,exposure_controller.py}
@@ -104,6 +105,12 @@ screen metrics, `directional_candidates.py` owns the fixed fit roster,
 owns write-once study evidence. These modules do not own execution accounting,
 exchange connectivity, or the canonical Study lifecycle. Price-channel rolling
 bounds and availability belong to data; the rule consumes them as observations.
+
+`simulation/quantities.py` owns exact decimal-rational conversion, canonical
+state parsing, conservative float projection and lot quantization. Liquidity
+allocations carry accepted integer lots and their quantum; accounting and the
+pending-order state consume that same signed fill. Exact state is part of the
+book clone and pending-order persistence contract, not strategy preprocessing.
 `ppo_risk_study.py` binds a separate five-seed, training-risk-only comparison to
 the completed directional baseline. It reuses the same fit and replay owners,
 checks source/runtime isolation, and reports relative loss reduction separately

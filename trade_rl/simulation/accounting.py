@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
+from fractions import Fraction
 
 import numpy as np
+
+from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
+    exact_quantity,
+    parse_quantity,
+    project_quantity,
+)
 
 _TOLERANCE = 1e-12
 _MIN_EQUITY: float = float(np.finfo(np.float64).tiny)
@@ -52,6 +61,7 @@ class BookState:
     margin_deficit: float = 0.0
     insolvent: bool = False
     termination_reason: EconomicTerminationReason | str | None = None
+    _exact_quantities: tuple[str, ...] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         quantities = _finite_vector(self.quantities, field_name="quantities")
@@ -114,6 +124,16 @@ class BookState:
         object.__setattr__(self, "mark_prices", marks)
         object.__setattr__(self, "contract_multipliers", multipliers)
         object.__setattr__(self, "termination_reason", reason)
+        exact = self._exact_quantities
+        if exact is None:
+            self._exact_quantities = tuple(
+                str(exact_quantity(float(q))) for q in quantities
+            )
+        elif len(exact) != len(quantities) or any(
+            project_quantity(parse_quantity(value)) != quantity
+            for value, quantity in zip(exact, quantities, strict=True)
+        ):
+            raise ValueError("exact quantity state differs from its reporting view")
         self._refresh_economic_state()
         portfolio_value = self.portfolio_value
         comparison_tolerance = max(
@@ -247,6 +267,7 @@ class BookState:
         return self.fill_count
 
     def clone(self) -> BookState:
+        self._quantity_values()
         return BookState(
             quantities=self.quantities.copy(),
             cash=self.cash,
@@ -267,13 +288,40 @@ class BookState:
             margin_deficit=self.margin_deficit,
             insolvent=self.insolvent,
             termination_reason=self.termination_reason,
+            _exact_quantities=self._exact_quantities,
         )
+
+    def _quantity_values(self) -> tuple[Fraction, ...]:
+        assert self._exact_quantities is not None
+        previous = tuple(parse_quantity(value) for value in self._exact_quantities)
+        # Public mutable quantities remain an explicit replacement boundary.
+        # Rebase only visibly replaced coordinates, never infer lot alignment.
+        values = tuple(
+            exact
+            if project_quantity(exact) == current
+            else exact_quantity(float(current))
+            for exact, current in zip(previous, self.quantities, strict=True)
+        )
+        self._exact_quantities = tuple(str(value) for value in values)
+        return values
+
+    def _set_quantity_values(self, values: tuple[Fraction, ...]) -> None:
+        projected = np.array([project_quantity(value) for value in values])
+        self._exact_quantities = tuple(str(value) for value in values)
+        self.quantities = projected
 
     def apply_split(self, split_factor: np.ndarray) -> None:
         factors = _finite_vector(split_factor, field_name="split_factor")
         if factors.shape != self.quantities.shape or np.any(factors <= 0.0):
             raise ValueError("split_factor must match the book and be positive")
-        self.quantities *= factors
+        self._set_quantity_values(
+            tuple(
+                quantity * exact_quantity(float(factor))
+                for quantity, factor in zip(
+                    self._quantity_values(), factors, strict=True
+                )
+            )
+        )
         self.mark_prices /= factors
         self._refresh_economic_state()
 
@@ -333,16 +381,31 @@ class BookState:
             raise ValueError("settlement prices or recovery are invalid")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        proceeds = float(
-            np.sum(
-                self.quantities[settle_mask]
-                * price_vector[settle_mask]
-                * multipliers[settle_mask]
-                * recovery_vector[settle_mask]
+        quantities = self._quantity_values()
+        proceeds = math.fsum(
+            float(
+                quantity
+                * exact_quantity(float(price))
+                * exact_quantity(float(multiplier))
+                * exact_quantity(float(recovered))
             )
+            for quantity, price, multiplier, recovered, settle in zip(
+                quantities,
+                price_vector,
+                multipliers,
+                recovery_vector,
+                settle_mask,
+                strict=True,
+            )
+            if settle
         )
         self.cash += proceeds
-        self.quantities[settle_mask] = 0.0
+        self._set_quantity_values(
+            tuple(
+                Fraction(0) if settle else value
+                for value, settle in zip(quantities, settle_mask, strict=True)
+            )
+        )
         self.mark_prices = price_vector.copy()
         self._refresh_economic_state()
         self._update_drawdown()
@@ -400,8 +463,67 @@ class BookState:
         cost_amount: float,
         turnover: float,
     ) -> None:
-        prices = _finite_vector(fill_prices, field_name="fill_prices")
         targets = _finite_vector(target_quantities, field_name="target_quantities")
+        if targets.shape != self.quantities.shape:
+            raise ValueError("execution vectors must match the book")
+        exact_targets = tuple(exact_quantity(float(value)) for value in targets)
+        delta = tuple(
+            target - previous
+            for target, previous in zip(
+                exact_targets, self._quantity_values(), strict=True
+            )
+        )
+        self._record_execution(
+            fill_prices=fill_prices,
+            exact_targets=exact_targets,
+            delta=delta,
+            cost_amount=cost_amount,
+            turnover=turnover,
+        )
+
+    def execute_fill(
+        self,
+        *,
+        symbol_index: int,
+        quantity: float,
+        fill_prices: np.ndarray,
+        cost_amount: float,
+        turnover: float,
+        lot_size: float = 0.0,
+        lot_count: int | None = None,
+    ) -> None:
+        if (
+            isinstance(symbol_index, bool)
+            or not isinstance(symbol_index, int)
+            or not 0 <= symbol_index < len(self.quantities)
+        ):
+            raise ValueError("fill symbol index is outside the book")
+        accepted = accepted_fill_quantity(
+            quantity, lot_size=lot_size, lot_count=lot_count
+        )
+        values = list(self._quantity_values())
+        values[symbol_index] += accepted
+        delta = [Fraction(0) for _ in self.quantities]
+        delta[symbol_index] = accepted
+        self._record_execution(
+            fill_prices=fill_prices,
+            exact_targets=tuple(values),
+            delta=tuple(delta),
+            cost_amount=cost_amount,
+            turnover=turnover,
+        )
+
+    def _record_execution(
+        self,
+        *,
+        fill_prices: np.ndarray,
+        exact_targets: tuple[Fraction, ...],
+        delta: tuple[Fraction, ...],
+        cost_amount: float,
+        turnover: float,
+    ) -> None:
+        prices = _finite_vector(fill_prices, field_name="fill_prices")
+        targets = np.array([project_quantity(value) for value in exact_targets])
         if (
             prices.shape != self.quantities.shape
             or targets.shape != self.quantities.shape
@@ -414,13 +536,19 @@ class BookState:
         if not np.isfinite(turnover) or turnover < 0.0:
             raise ValueError("turnover must be finite and non-negative")
 
-        delta = targets - self.quantities
-        filled = np.abs(delta) > _TOLERANCE
+        filled = np.array([abs(value) > exact_quantity(_TOLERANCE) for value in delta])
         value_before = self.portfolio_value
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        self.cash -= float(np.sum(delta * prices * multipliers)) + float(cost_amount)
+        signed_notional = math.fsum(
+            project_quantity(quantity) * float(price) * float(multiplier)
+            for quantity, price, multiplier in zip(
+                delta, prices, multipliers, strict=True
+            )
+        )
+        self.cash -= signed_notional + float(cost_amount)
         self.quantities = targets
+        self._exact_quantities = tuple(str(value) for value in exact_targets)
         self.mark_prices = prices
         self.turnover_total += float(turnover)
         self.total_cost += float(cost_amount)

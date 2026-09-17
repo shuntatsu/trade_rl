@@ -8,6 +8,11 @@ from enum import IntEnum
 from typing import Sequence
 
 from trade_rl._validation import require_sha256
+from trade_rl.simulation.quantities import (
+    exact_quantity,
+    project_quantity,
+    quantize_quantity,
+)
 
 _TOLERANCE = 1e-12
 
@@ -88,6 +93,8 @@ class LiquidityAllocation:
     capacity_after: float
     participation_rate: float
     no_fill_reason: str | None = None
+    filled_lot_count: int | None = None
+    lot_size: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,16 +109,30 @@ class SymbolCapacityEvidence:
     remaining_capacity_notional: float
 
 
-def _rounded_toward_zero(quantity: float, lot_size: float) -> float:
-    if lot_size <= 0.0:
-        return quantity
-    # Nudge the dimensionless lot ratio by one representable float. Adding a
-    # fixed quantity tolerance before division can become a material fraction
-    # of very small exchange lot sizes and produce a true overfill.
-    ratio = abs(quantity) / lot_size
-    lots = math.floor(math.nextafter(ratio, math.inf))
-    rounded = lots * lot_size
-    return math.copysign(rounded, quantity) if rounded > _TOLERANCE else 0.0
+def _capacity_quantity(
+    request: LiquidityRequest, capacity: float, lot_size: float, multiplier: float
+) -> tuple[float, int | None]:
+    quantity, count = quantize_quantity(request.remaining_quantity, lot_size)
+    if abs(quantity) * request.execution_price * multiplier <= capacity:
+        return quantity, count
+    if count is None:
+        raw = capacity / (request.execution_price * multiplier)
+        return math.copysign(min(raw, abs(quantity)), quantity), None
+
+    # Capacity-derived division is not a quantity authority. Search integer
+    # lots using the same monetary arithmetic as the final allocation, with
+    # the original (strictly quantized) request as the upper bound.
+    step = exact_quantity(lot_size)
+    lower, upper = 0, abs(count) - 1
+    while lower < upper:
+        middle = (lower + upper + 1) // 2
+        projected = project_quantity(middle * step)
+        if projected * request.execution_price * multiplier <= capacity:
+            lower = middle
+        else:
+            upper = middle - 1
+    signed_count = lower if count > 0 else -lower
+    return project_quantity(signed_count * step), signed_count
 
 
 def _zero_allocation(
@@ -228,27 +249,13 @@ def allocate_symbol_capacity(
             )
             continue
 
-        candidate_notional = min(requested_notional, accessible_capacity)
-        raw_quantity = math.copysign(
-            candidate_notional / (request.execution_price * contract_multiplier),
-            request.remaining_quantity,
-        )
-        filled_quantity = _rounded_toward_zero(raw_quantity, lot_size)
-        quantity_tolerance = max(
-            _TOLERANCE,
-            32.0 * math.ulp(abs(request.remaining_quantity)),
-            32.0 * math.ulp(abs(filled_quantity)),
+        filled_quantity, filled_lot_count = _capacity_quantity(
+            request, accessible_capacity, lot_size, contract_multiplier
         )
         if abs(filled_quantity) > abs(request.remaining_quantity):
-            if (
-                abs(filled_quantity) - abs(request.remaining_quantity)
-                <= quantity_tolerance
-            ):
-                filled_quantity = request.remaining_quantity
-            else:
-                raise LiquidityAllocationError(
-                    "rounded fill exceeds the order remaining quantity"
-                )
+            raise LiquidityAllocationError(
+                "rounded fill exceeds the order remaining quantity"
+            )
         if abs(filled_quantity) <= _TOLERANCE:
             allocations.append(
                 _zero_allocation(
@@ -261,6 +268,8 @@ def allocate_symbol_capacity(
             )
             continue
 
+        # Currency retains the shared float convention. BookState debits this
+        # same projected signed fill; exact state is the quantity authority.
         exact_notional = (
             abs(filled_quantity) * request.execution_price * contract_multiplier
         )
@@ -296,6 +305,8 @@ def allocate_symbol_capacity(
                 capacity_after=remaining_capacity,
                 participation_rate=participation_rate,
                 no_fill_reason=None,
+                filled_lot_count=filled_lot_count,
+                lot_size=lot_size if filled_lot_count is not None else 0.0,
             )
         )
 

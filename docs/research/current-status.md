@@ -82,12 +82,26 @@ An opt-in fit-only PPO feature standardizer and bound model-bundle capability
 are implemented separately from the completed, immutable risk comparison.
 The design is `docs/specs/ppo-feature-standardization.md`. Synthetic scope,
 masking, default compatibility, balanced statistics and model/transform reload
-checks pass; normalized real-data training has not started. Since the risk-only
-treatment returned KEEP_BASELINE, the next comparison retains the original
-default-risk baseline. It must first freeze this preprocessing factor and its
-protocol, keep the original data, budget and evaluation contract, retain all five
-seeds, and preserve the profit/drawdown/execution gates. It does not provide
+checks and full software CI pass; the five-seed normalized real-data comparison
+is running under frozen protocol
+`464278c3390abd20e6741c7176dcc7382a3679f5351de8aa245f734fc971ff0c`.
+Results remain pending. Since the risk-only treatment returned KEEP_BASELINE,
+this comparison retains the original default-risk baseline. Its frozen
+preprocessing factor preserves the original data, budget, evaluation contract,
+all five seeds and profit/drawdown/execution gates. It does not provide
 operational profit evidence or reopen the sealed interleaved study.
+
+The user subsequently broadened the search to other RL algorithms, ensembles
+and additional data. These are permitted future candidates, subject to the same
+cost, drawdown and out-of-sample evidence requirements. The current frozen
+standardization study still changes only its registered preprocessing factor.
+Exact fill-quantity accounting now preserves accepted lot counts and genuine
+remainders across book/order updates and resume; capacity allocation searches
+integer lots against the actual monetary bound. This separate implementation
+does not alter any active frozen study or its historical results. Fresh economic
+evidence is required before attributing profit or qualification to the correction.
+Existing profitable individual seeds do not authorize selecting a model or
+changing its qualification gate.
 
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,

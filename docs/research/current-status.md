@@ -220,6 +220,34 @@ evidence is required before attributing profit or qualification to the correctio
 Existing profitable individual seeds do not authorize selecting a model or
 changing its qualification gate.
 
+### Directional exit diagnostics
+
+A separate unchanged constant-long diagnostic has now completed all 17544
+development intervals on the corrected accepted-lot ledger. Protocol
+`666c864868f09dce66e3c1ae87dea934756ed00380177135aaeda08404ccee22`
+binds source/runtime and an observer-only raw order/account trace. Net return
+was +14.02045%, with ledger maximum drawdown 11.78340%, but exact final holdings
+were BTC 0, ETH 0.004, BNB 0, XRP 0.1 and ADA 1. All three nonzero final exits
+were rejected under the unchanged minimum-notional contract. This diagnostic
+does not qualify the control or revise the original study.
+
+An independent Fraction/Decimal audit reconciled all intervals, 193 fills and
+2192 funding boundaries against the frozen dataset arrays, including exact
+inventories, cash, costs, capacity and ledger drawdown. It verified source/helper
+pins and the genuine final residuals. It did not reconstruct original exchange
+archives, every admission decision, or tick-level funding eligibility. The result
+SHA-256 is
+`a9aaa8c028edaf808752160ef34f509867b6ee6d6b83666b16c2e50e345670d5`.
+
+Its 2024 return was only +0.02473%: material positions had already been reduced
+to residual amounts during 2023. Source inspection and a fixed-price projection
+example show that feeding each constrained target into the next proposal applies
+the historical drawdown scale repeatedly. At a fixed 15% drawdown, a 50% gross
+proposal becomes 25%, 12.5%, 6.25%, and so on. This risk-contract investigation
+is separate from the explicit reduce-only execution design in
+`docs/specs/reduce-only-exits.md`. No risk change or minimum-notional exception
+has yet been applied to a new economic comparison.
+
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,
 artifact 10331899302, fits before 2023, and screens 2023-2024 only. Its immutable

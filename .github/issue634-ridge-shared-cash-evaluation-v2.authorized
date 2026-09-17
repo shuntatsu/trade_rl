@@ -1,0 +1,9 @@
+issue=634
+previous_preflight_run=35215537166
+previous_artifact_count=0
+successor_artifact_name=issue510-successor-calibrated-34803217815
+implementation_head=d1bf25fd66834289ffddb36063b0d5cef649f444
+shared_cash_economic_execution_authorized=true
+unused_data_accessed=false
+final_test_accessed=false
+production_eligible=false

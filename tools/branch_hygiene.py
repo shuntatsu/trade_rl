@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-PRESERVED_PREFIXES = ("research/", "seal/", "freeze/", "run/")
 RETENTION_BRANCH = "provenance/branch-retention"
 RETENTION_BATCH_SIZE = 20
 DELETE_BATCH_SIZE = 25
@@ -305,7 +304,7 @@ class GitHubApi:
 
 
 def is_preserved_branch(name: str) -> bool:
-    return name == RETENTION_BRANCH or name.startswith(PRESERVED_PREFIXES)
+    return name == RETENTION_BRANCH
 
 
 def open_pull_request_branch_names(

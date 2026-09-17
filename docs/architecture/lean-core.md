@@ -192,6 +192,34 @@ executor, records ledger drawdown, and schedules real terminal closing orders.
 Failed terminal fills remain holdings and fail the screen. This composition
 does not change the canonical five-candidate suite or its historical decisions.
 
+## Separate funding carry development composition
+
+The paired carry capability assembles separate spot/perpetual quote-volume
+series with published funding boundaries. It is separate from the directional
+SingleSymbolStrategy/Study selection path. Monthly equal-base quantities use
+observed prices and remain fixed between rebalances; matched partial orders keep
+completing the same target. All orders, fees and funding use the canonical ledger.
+
+Idle USDT is assumed available to futures; spot market value and synthetic short
+sale proceeds are not futures collateral. Collateral equals canonical equity
+minus spot value. Guard observed-close collateral, pre-fill open maintenance and
+post-fill adverse-high maintenance before later funding credits. Gap breaches
+cannot be erased by an exit or future funding. Canonical forced termination is
+invalid evidence, with unresolved pre-forced-flat position evidence retained.
+Carry stops submit actual exits and cannot discard residuals or reset the stop.
+
+The initial capability uses disclosed fixed research fees and perpetual-close
+mark proxies, which block production eligibility. A profitable development
+replay alone does not establish an operational winner.
+
+The optional carry spot parser requires an externally evidenced halt calendar
+bound before replay. It may insert a stale preceding-close valuation mark only
+for a missing whole bin contained in a declared halt. It blocks fills and zeros
+capacity in every intersecting hourly bin, preserves published prices and elapsed
+time, and rejects unexplained, partial-bin or unanchored leading gaps. The default
+Binance source remains strict. These stale marks are a valuation limitation,
+never executable prices; reopened prices cannot backfill an earlier observation.
+
 ## 非目標
 
 Lean coreが保証しないもの:

@@ -1,13 +1,15 @@
 # Funding carry implementation plan
 
+Status: Active
+
 Goal: implement the fixed contract in ../specs/funding-carry.md and execute its
 development experiment with evidence, without claiming a production winner.
 
 - [x] Check current main, competing PRs and latest actual research decisions.
 - [x] Isolate work on codex/funding-carry-bot; freeze the experiment before data.
-- [ ] Implement and test paired quantity sizing and irreversible risk stop.
-- [ ] Implement/test two-market dataset assembly using maintained transport.
-- [ ] Implement/test replay and immutable evidence on the canonical ledger.
+- [x] Implement and test paired quantity sizing and irreversible risk stop.
+- [x] Implement/test two-market dataset assembly using maintained transport.
+- [x] Implement/test replay on the canonical ledger; freeze immutable study evidence before economic replay.
 - [ ] Acquire declared development source, execute all fixed comparisons/stress.
 - [ ] Interpret the frozen gate; retain unfavorable results and limitations.
 - [ ] Update current architecture/research docs and Guide if referenced.

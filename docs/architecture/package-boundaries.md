@@ -38,6 +38,7 @@ trade_rl/
 │       ├── book_depth.py
 │       ├── agg_trades.py
 │       ├── metadata.py
+│       ├── carry.py
 │       └── dataset.py
 ├── risk/
 │   ├── inputs.py
@@ -59,6 +60,7 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
+│   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
 │   └── rl/{ppo.py,ppo_normalization.py,ppo_artifact.py}
@@ -68,6 +70,7 @@ trade_rl/
     ├── evidence.py
     ├── series.py
     ├── directional.py
+    ├── carry.py
     ├── directional_candidates.py
     ├── directional_selection.py
     ├── directional_study.py
@@ -97,6 +100,15 @@ trade_rl/
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
 
 ## Provider evidence boundary
+
+The separate paired-carry path keeps provider assembly in
+`integrations/binance/carry.py`, deterministic monthly matched-quantity sizing
+in `strategies/carry.py`, and replay composition/diagnostics in
+`evaluation/carry.py`. It submits explicit quantities through canonical orders
+and preserves GTC residuals; it does not convert a quantity hold to a newly sized
+weight each hour. The existing BookState and stateful executor own all P&L.
+Futures collateral checks are a projection of that same book excluding spot
+assets, not an additional ledger. No live order connection is provided.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

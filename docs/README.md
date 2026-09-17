@@ -1,7 +1,7 @@
 # Trade RL documentation
 
-Active PPO preprocessing: [design](specs/ppo-feature-standardization.md) and
-[plan](plans/ppo-feature-standardization.md).
+Active funding carry study: [design](specs/funding-carry.md) and
+[plan](plans/funding-carry.md).
 
 ## 結論
 

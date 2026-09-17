@@ -81,6 +81,7 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "metadata.py",
         "transport.py",
         "dataset.py",
+        "carry.py",
     ):
         assert (BINANCE / name).is_file(), name
 

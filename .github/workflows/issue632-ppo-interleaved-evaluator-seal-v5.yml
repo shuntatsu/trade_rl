@@ -1,0 +1,296 @@
+name: Issue 632 PPO interleaved evaluator implementation seal v5
+
+on:
+  push:
+    branches:
+      - seal/issue632-ppo-interleaved-evaluator-v5
+    paths:
+      - .github/issue632-ppo-interleaved-evaluator-seal-v5.authorized
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue632-ppo-interleaved-evaluator-seal-v5
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 97127952af3d01b71def695a4c8043eb301b2a33
+  MAIN_SHA: c4fc52777ad0ea894d0d8f3a01337bcbbd5a26a8
+  VERIFICATION_RUN: '35227295244'
+  VERIFICATION_HARNESS_SHA: c48f416f11cf9a00f28be3f13343b29ff24e5427
+  PR_NUMBER: '635'
+  PROTOCOL_RUN: '35205354305'
+  PROTOCOL_PRIMARY_ID: '10489866637'
+  PROTOCOL_PRIMARY_DIGEST: 4ca30f9884b642f32443bbb143b15e4fecbbc7a25d262e89d63649acbef00387
+  PROTOCOL_FRESH_ID: '10489661856'
+  PROTOCOL_FRESH_DIGEST: 2c9d9a71db2315dc66237c9ba4b975f0bdf5a5234ad87cf8bbd05b947867afbb
+  PROTOCOL_MODULE_BLOB: 62a71b1ca8b7d22fdfc14282508754c44d96091a
+  SUPERSEDED_V4_RUN: '35227707295'
+  SUPERSEDED_V4_FRESH_ID: '10499463701'
+
+jobs:
+  primary:
+    name: Primary recovered result-blind authority v5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      implementation_sha: ${{ steps.build.outputs.implementation_sha }}
+      seal_sha: ${{ steps.build.outputs.seal_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first v5 activation and bind superseded v4 failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SUPERSEDED_V4_RUN --jq .conclusion)" = failure
+          artifacts="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$SUPERSEDED_V4_RUN/artifacts)"
+          test "$(jq -r .total_count <<<"$artifacts")" = 1
+          test "$(jq -r '.artifacts[0].id' <<<"$artifacts")" = "$SUPERSEDED_V4_FRESH_ID"
+          test "$(jq -r '.artifacts[0].name' <<<"$artifacts")" = "issue632-ppo-interleaved-evaluator-authority-v4-fresh-$SUPERSEDED_V4_RUN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue632-evaluator-v5-primary-$GITHUB_RUN_ID" --jq .total_count)" = 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue632-evaluator-v5-fresh-$GITHUB_RUN_ID" --jq .total_count)" = 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact target runtime
+        working-directory: target
+        run: uv sync --extra dev
+      - name: Static-check recovered seal builder
+        working-directory: target
+        run: |
+          uv run ruff check ../harness/.github/scripts/issue632_implementation_seal_v5.py
+          uv run python -m py_compile ../harness/.github/scripts/issue632_implementation_seal_v5.py
+      - name: Bind final verification, Draft PR, main and protocol authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git -C target status --porcelain)"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/main --jq .commit.sha)" = "$MAIN_SHA"
+          test "$(gh api repos/$GITHUB_REPOSITORY/branches/research/issue632-ppo-interleaved-evaluator-impl --jq .commit.sha)" = "$TARGET_SHA"
+          test "$(git -C target merge-base "$MAIN_SHA" "$TARGET_SHA")" = "$MAIN_SHA"
+          verify="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$VERIFICATION_RUN)"
+          test "$(jq -r .status <<<"$verify")" = completed
+          test "$(jq -r .conclusion <<<"$verify")" = success
+          test "$(jq -r .head_sha <<<"$verify")" = "$VERIFICATION_HARNESS_SHA"
+          jobs="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$VERIFICATION_RUN/jobs?per_page=100)"
+          for name in 'Lean Core exact target' 'Human Guide exact target' 'Draft PR authority'; do
+            test "$(jq -r --arg name "$name" '.jobs[] | select(.name==$name) | .conclusion' <<<"$jobs")" = success
+          done
+          pr="$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER)"
+          test "$(jq -r .state <<<"$pr")" = open
+          test "$(jq -r .draft <<<"$pr")" = true
+          test "$(jq -r .head.sha <<<"$pr")" = "$TARGET_SHA"
+          test "$(jq -r .base.sha <<<"$pr")" = "$MAIN_SHA"
+          test "$(git -C target rev-parse HEAD:trade_rl/evaluation/experiments/ppo_interleaved_evaluation_prereg.py)" = "$PROTOCOL_MODULE_BLOB"
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/$PROTOCOL_RUN --jq .conclusion)" = success
+          for tuple in \
+            "$PROTOCOL_PRIMARY_ID $PROTOCOL_PRIMARY_DIGEST" \
+            "$PROTOCOL_FRESH_ID $PROTOCOL_FRESH_DIGEST"; do
+            read -r id digest <<<"$tuple"
+            meta="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$PROTOCOL_RUN"
+            test "$(jq -r .expired <<<"$meta")" = false
+            test "$(jq -r .digest <<<"$meta")" = "sha256:$digest"
+          done
+      - id: build
+        name: Build canonical primary v5 authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/.venv/bin/python harness/.github/scripts/issue632_implementation_seal_v5.py \
+            --target-root target \
+            --output-dir primary \
+            --authority-run-id "$GITHUB_RUN_ID" \
+            --harness-head "$GITHUB_SHA"
+          implementation_sha="$(sha256sum primary/implementation.json | awk '{print $1}')"
+          seal_sha="$(sha256sum primary/seal.json | awk '{print $1}')"
+          echo "implementation_sha=$implementation_sha" >> "$GITHUB_OUTPUT"
+          echo "seal_sha=$seal_sha" >> "$GITHUB_OUTPUT"
+          test -z "$(git -C target status --porcelain)"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue632-evaluator-v5-primary-${{ github.run_id }}
+          path: primary/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh recovered implementation reconstruction v5
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Install exact target runtime independently
+        working-directory: target
+        run: uv sync --extra dev
+      - name: Reconstruct and require primary hashes
+        env:
+          PRIMARY_IMPLEMENTATION_SHA: ${{ needs.primary.outputs.implementation_sha }}
+          PRIMARY_SEAL_SHA: ${{ needs.primary.outputs.seal_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/.venv/bin/python harness/.github/scripts/issue632_implementation_seal_v5.py \
+            --target-root target \
+            --output-dir fresh \
+            --authority-run-id "$GITHUB_RUN_ID" \
+            --harness-head "$GITHUB_SHA"
+          test "$(sha256sum fresh/implementation.json | awk '{print $1}')" = "$PRIMARY_IMPLEMENTATION_SHA"
+          test "$(sha256sum fresh/seal.json | awk '{print $1}')" = "$PRIMARY_SEAL_SHA"
+          test -z "$(git -C target status --porcelain)"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue632-evaluator-v5-fresh-${{ github.run_id }}
+          path: fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Final recovered implementation authority audit v5
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: issue632-evaluator-v5-primary-${{ github.run_id }}
+          path: primary
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: issue632-evaluator-v5-fresh-${{ github.run_id }}
+          path: fresh
+      - name: Require byte identity, API provenance and result-blind boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+          IMPLEMENTATION_SHA: ${{ needs.primary.outputs.implementation_sha }}
+          SEAL_SHA: ${{ needs.primary.outputs.seal_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp primary/implementation.json fresh/implementation.json
+          cmp primary/seal.json fresh/seal.json
+          test "$(sha256sum primary/implementation.json | awk '{print $1}')" = "$IMPLEMENTATION_SHA"
+          test "$(sha256sum primary/seal.json | awk '{print $1}')" = "$SEAL_SHA"
+          normalize() { printf '%s' "$1" | sed 's/^sha256://'; }
+          for tuple in \
+            "$PRIMARY_ID $PRIMARY_UPLOAD_DIGEST" \
+            "$FRESH_ID $FRESH_UPLOAD_DIGEST"; do
+            read -r id digest <<<"$tuple"
+            meta="$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/$id)"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$meta")" = false
+            test "$(normalize "$(jq -r .digest <<<"$meta")")" = "$(normalize "$digest")"
+          done
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          impl_raw = Path('primary/implementation.json').read_bytes()
+          seal_raw = Path('primary/seal.json').read_bytes()
+          impl = json.loads(impl_raw)
+          seal = json.loads(seal_raw)
+          assert hashlib.sha256(impl_raw).hexdigest() == os.environ['IMPLEMENTATION_SHA']
+          assert hashlib.sha256(seal_raw).hexdigest() == os.environ['SEAL_SHA']
+          assert impl['target_head'] == os.environ['TARGET_SHA']
+          assert impl['main_head'] == os.environ['MAIN_SHA']
+          assert impl['verification_run_id'] == int(os.environ['VERIFICATION_RUN'])
+          assert impl['evidence_schemas']['seed'] == 'ppo_interleaved_seed_evidence_v2'
+          assert impl['superseded_v4']['accepted_as_authority'] is False
+          assert seal['implementation_sha256'] == os.environ['IMPLEMENTATION_SHA']
+          for payload in (impl, seal):
+              for field in (
+                  'real_dataset_loaded', 'ppo_training_performed', 'economic_evaluation_performed',
+                  'economic_result_inspected', 'unused_data_accessed', 'final_test_accessed',
+                  'shared_cash_profitability_established', 'production_eligible',
+                  'live_trading_authorized', 'merge_authorized',
+              ):
+                  assert payload[field] is False, (field, payload[field])
+          audit = {
+              'schema_version': 'issue632_ppo_interleaved_evaluator_final_audit_v2',
+              'authority_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'target_head': os.environ['TARGET_SHA'],
+              'main_head': os.environ['MAIN_SHA'],
+              'verification_run_id': int(os.environ['VERIFICATION_RUN']),
+              'primary_artifact_id': int(os.environ['PRIMARY_ID']),
+              'primary_artifact_digest': 'sha256:' + os.environ['PRIMARY_UPLOAD_DIGEST'].removeprefix('sha256:'),
+              'fresh_artifact_id': int(os.environ['FRESH_ID']),
+              'fresh_artifact_digest': 'sha256:' + os.environ['FRESH_UPLOAD_DIGEST'].removeprefix('sha256:'),
+              'implementation_sha256': os.environ['IMPLEMENTATION_SHA'],
+              'seal_sha256': os.environ['SEAL_SHA'],
+              'primary_fresh_byte_identical': True,
+              'superseded_v4_run_id': int(os.environ['SUPERSEDED_V4_RUN']),
+              'real_dataset_loaded': False,
+              'ppo_training_performed': False,
+              'economic_evaluation_performed': False,
+              'economic_result_inspected': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('audit').mkdir()
+          Path('audit/audit.json').write_text(json.dumps(audit, sort_keys=True, separators=(',', ':')) + '\n')
+          print('ISSUE632_FINAL_IMPLEMENTATION_AUTHORITY_V5=VERIFIED')
+          print(f"IMPLEMENTATION_SHA256={os.environ['IMPLEMENTATION_SHA']}")
+          print(f"SEAL_SHA256={os.environ['SEAL_SHA']}")
+          print('PPO_TRAINING_PERFORMED=false')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue632-evaluator-v5-audit-${{ github.run_id }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

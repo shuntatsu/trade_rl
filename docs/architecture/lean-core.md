@@ -308,6 +308,30 @@ the terminal observation window ends 180 seconds after the fixed close, includin
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.
 
+The prospective screen is fixed at ninety UTC days and three thirty-day blocks,
+sealed at least five minutes before start with 10000 virtual USDT and unchanged
+paper cost/depth defaults. Require positive net profit, a positive causal marked
+equity change in every block, and net profit exceeding recorded fees at the
+realized trajectory. This fee headroom is not a dynamically replayed cost stress.
+Require observed drawdown below 10%, funding receipts in every block, no unpaid
+announced settlement for held quantity, no quality failure or nonterminal stop,
+all four instruments actually filled, and a final flat account without intent.
+Block marks use the last observation within 180 seconds before each boundary;
+the final block includes actual exit costs and late settlement receipts.
+
+The offline screen cannot run before close plus 180 seconds. It requires first
+observation within 180 seconds, no observation gap beyond 180 seconds and a last
+observation from close plus 120 to strictly before close plus 180 seconds. Rebuild
+against the external protocol and event-tip anchors under the collector lock,
+verify exact source/runtime identity, and reject incomplete control cycles or
+unconsumed/missing source directories. Cadence follows future sixty-second slots
+without fabricated catch-up observations. A quality-failed run may stop early
+once actual exits have made it flat; it cannot qualify. Operational status checks
+the journal chain only and must not claim raw-source financial validation.
+Even `PAPER_SCREEN_PASSED` retains `production_eligible=false`: observed paper
+marks, cost assumptions and public depth do not establish live fill guarantees,
+intraminute drawdown, optimal returns or private-account suitability.
+
 ## 非目標
 
 Lean coreが保証しないもの:

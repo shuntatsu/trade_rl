@@ -154,6 +154,27 @@ class PaperAccount:
         if at <= self.last_at:
             raise ValueError("paper command must follow the previous command")
 
+    def unsettled_funding(self) -> list[dict[str, str]]:
+        """Announced due payments whose held quantity is still unaccounted for."""
+        unpaid = []
+        for symbol, milliseconds in sorted(self.expected_funding):
+            at = datetime.fromtimestamp(milliseconds / 1000, UTC)
+            if at > self.last_at or (symbol, milliseconds) in self.settlements:
+                continue
+            index = 2 * SYMBOLS.index(symbol) + 1
+            for filled_at, quantities in reversed(self.holdings):
+                if filled_at < at:
+                    if quantities[index]:
+                        unpaid.append(
+                            dict(
+                                symbol=symbol,
+                                funding_at=at.isoformat(),
+                                quantity=str(quantities[index]),
+                            )
+                        )
+                    break
+        return unpaid
+
     def _funding(self, snapshot: dict[str, Any], at: datetime) -> list[dict[str, Any]]:
         payments: list[dict[str, Any]] = []
         now_ms = int(at.timestamp() * 1000)

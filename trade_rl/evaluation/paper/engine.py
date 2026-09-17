@@ -150,6 +150,9 @@ class PaperEngine:
     def status(self) -> dict[str, Any]:
         return dict(**self._account.status(), tip=self._tip, events=len(self._records))
 
+    def unsettled_funding(self) -> list[dict[str, str]]:
+        return self._account.unsettled_funding()
+
     def decide(
         self, key: str, *, market: EvidenceRef, rules: EvidenceRef, at: datetime
     ) -> dict[str, Any]:

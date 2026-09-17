@@ -64,6 +64,39 @@ provenance.json
 
 See `docs/research/current-status.md` for the accepted config keys, fit/evaluation rules, evidence outputs, and next-step decision process.
 
+## Prospective carry paper operation
+
+The separate BTC/ETH spot-long/perpetual-short candidate has a public-data paper
+runner. It does not place live orders. Its economic screen is ninety UTC days,
+with three thirty-day blocks, fixed costs and a 10% observed drawdown stop.
+Past development returns and short software probes do not qualify this screen.
+See `docs/research/current-status.md` for the evidence and limitations.
+
+Use a dedicated checkout and unchanged Python environment for the entire study.
+Choose an aware ISO start at least five minutes in the future. Sealing reserves
+a new directory and prints a protocol digest; preserve that digest outside the
+study directory before starting collection.
+
+```bash
+python -m trade_rl.evaluation.paper.cli seal --root <new-study-dir> --start-at <future-UTC-ISO-time>
+python -m trade_rl.evaluation.paper.cli run --root <study-dir> --protocol-sha256 <sealed-digest>
+python -m trade_rl.evaluation.paper.cli status --root <study-dir> --protocol-sha256 <sealed-digest>
+```
+
+`run` collects once per minute through the fixed close and 180-second grace.
+Keep its terminal or service running. A failure is permanent for that study;
+restarting does not erase a gap or an unfinished capture. `status` checks the
+journal chain and exposes positions, costs and last observation, but is not a
+financial audit. After the deadline and collector exit, preserve the final tip
+externally and run the complete offline replay:
+
+```bash
+python -m trade_rl.evaluation.paper.cli evaluate --root <study-dir> --protocol-sha256 <sealed-digest> --expected-tip <pinned-final-tip> --output <new-assessment.json>
+```
+
+The assessment output is write-once. A passed paper screen still requires live
+execution review and never enables production routing automatically.
+
 ## Optional perfect-information bound
 
 The public perfect-information robustness bound uses SciPy. Install it through the capability extra:

@@ -140,8 +140,14 @@ to frozen source/runtime/protocol identity and owns the single-collector lock,
 rule refresh, pending-decision resumption, terminal window and durable failure.
 `paper/control.py` records cycle start before acquisition and completion only
 after account commits, preventing restart from hiding failed or unused captures.
-These control records assign no financial meaning. The command-line cadence loop
-and future economic protocol remain separate work; there is no production routing.
+These control records assign no financial meaning. `paper/operations.py` freezes
+the ninety-day economic screen, runs sixty-second slots and exposes explicitly
+chain-only operational status. `paper/assessment.py` excludes a running collector,
+replays the pinned event tip and all financial inputs, audits control/source
+rosters, then measures and applies the fixed screen. `paper/cli.py` exposes seal,
+run, status and write-once evaluation commands. The account/engine expose due
+announced funding for previously held exact quantities, including after exits.
+These operations contain no production routing.
 
 The directional development CLI composes the existing shared-cash replay and
 maintained strategy fitters. `directional.py` owns terminal-close scheduling and

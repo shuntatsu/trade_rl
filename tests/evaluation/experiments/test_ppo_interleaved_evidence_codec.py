@@ -64,6 +64,7 @@ def _evidence() -> PPOSeedEvidence:
         dataset_artifact_digest=spec.dataset_artifact_digest,
         study_digest=spec.study_digest,
         execution_overlay=spec.execution_overlay,
+        slippage_std=spec.slippage_std,
         symbols=spec.symbols,
         feature_names=spec.feature_names,
         feature_indices=spec.feature_indices,
@@ -172,4 +173,11 @@ def test_loader_rejects_bool_alias_inside_raw_returns() -> None:
     rows[0] = first
     payload["by_symbol"] = rows
     with pytest.raises(ValueError, match="returns"):
+        ppo_seed_evidence_from_payload(payload)
+
+
+def test_loader_rejects_slippage_identity_tampering() -> None:
+    payload = _evidence().to_payload()
+    payload["slippage_std"] = 0.01
+    with pytest.raises(ValueError, match="slippage_std"):
         ppo_seed_evidence_from_payload(payload)

@@ -64,6 +64,7 @@ def _seed_evidence(*, arm: str) -> PPOSeedEvidence:
         dataset_artifact_digest=spec.dataset_artifact_digest,
         study_digest=spec.study_digest,
         execution_overlay=spec.execution_overlay,
+        slippage_std=spec.slippage_std,
         symbols=spec.symbols,
         feature_names=spec.feature_names,
         feature_indices=spec.feature_indices,
@@ -122,3 +123,33 @@ def test_seed_evidence_rejects_float_aliases_for_integer_authorities() -> None:
     candidate = _seed_evidence(arm="candidate")
     with pytest.raises(ValueError, match="rollout_steps_per_env"):
         replace(candidate, rollout_steps_per_env=384.0)  # type: ignore[arg-type]
+
+
+def test_symbol_evidence_rejects_mixed_period_identity() -> None:
+    ppo = _path("ppo")
+    cash = replace(
+        _path("cash"),
+        returns=(0.0,),
+        return_sha256=return_path_sha256((0.0,)),
+        n_periods=1,
+    )
+    with pytest.raises(ValueError, match="period identity"):
+        PPOSymbolEvidence(
+            symbol_index=0,
+            symbol="BTCUSDT",
+            ppo=ppo,
+            cash=cash,
+            constant_long=_path("constant_long"),
+            constant_short=_path("constant_short"),
+            ppo_returns_equal_cash=False,
+            ppo_returns_equal_constant_long=True,
+            ppo_returns_equal_constant_short=True,
+        )
+
+
+def test_seed_evidence_binds_slippage_identity() -> None:
+    evidence = _seed_evidence(arm="baseline")
+    spec = canonical_ppo_interleaved_evaluator_spec()
+    assert evidence.slippage_std == spec.slippage_std == 0.0
+    with pytest.raises(ValueError, match="slippage_std"):
+        replace(evidence, slippage_std=0.01)

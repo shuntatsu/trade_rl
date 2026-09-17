@@ -28,7 +28,7 @@ Arm = Literal["baseline", "candidate"]
 _SPEC_SCHEMA = "ppo_interleaved_evaluator_spec_v1"
 _PATH_SCHEMA = "ppo_interleaved_return_path_evidence_v1"
 _SYMBOL_SCHEMA = "ppo_interleaved_symbol_evidence_v1"
-_SEED_SCHEMA = "ppo_interleaved_seed_evidence_v1"
+_SEED_SCHEMA = "ppo_interleaved_seed_evidence_v2"
 
 _PROTOCOL_HEAD = "f1187dacae78e679a322cc53cbf03f3371f457b1"
 _PROTOCOL_MODULE_BLOB = "62a71b1ca8b7d22fdfc14282508754c44d96091a"
@@ -347,6 +347,12 @@ class PPOSymbolEvidence:
         for evidence, expected in expected_names:
             if evidence.strategy_name != expected:
                 raise ValueError("strategy_name differs from PPO evidence role")
+        period_identities = {
+            (evidence.n_periods, evidence.periods_per_year)
+            for evidence, _ in expected_names
+        }
+        if len(period_identities) != 1:
+            raise ValueError("strategy period identity differs within symbol")
         expected_flags = (
             self.ppo.returns == self.cash.returns,
             self.ppo.returns == self.constant_long.returns,
@@ -398,6 +404,7 @@ class PPOSeedEvidence:
     dataset_artifact_digest: str
     study_digest: str
     execution_overlay: str
+    slippage_std: float
     symbols: tuple[str, ...]
     feature_names: tuple[str, ...]
     feature_indices: tuple[int, ...]
@@ -447,6 +454,7 @@ class PPOSeedEvidence:
             "dataset_artifact_digest": spec.dataset_artifact_digest,
             "study_digest": spec.study_digest,
             "execution_overlay": spec.execution_overlay,
+            "slippage_std": spec.slippage_std,
             "symbols": spec.symbols,
             "feature_names": spec.feature_names,
             "feature_indices": spec.feature_indices,
@@ -554,6 +562,7 @@ class PPOSeedEvidence:
             "dataset_artifact_digest": self.dataset_artifact_digest,
             "study_digest": self.study_digest,
             "execution_overlay": self.execution_overlay,
+            "slippage_std": self.slippage_std,
             "symbols": list(self.symbols),
             "feature_names": list(self.feature_names),
             "feature_indices": list(self.feature_indices),
@@ -802,6 +811,7 @@ def evaluate_ppo_training_seed(
         dataset_artifact_digest=spec.dataset_artifact_digest,
         study_digest=spec.study_digest,
         execution_overlay=spec.execution_overlay,
+        slippage_std=spec.slippage_std,
         symbols=spec.symbols,
         feature_names=spec.feature_names,
         feature_indices=spec.feature_indices,

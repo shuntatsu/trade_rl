@@ -188,6 +188,9 @@ def ppo_seed_evidence_from_payload(value: object) -> PPOSeedEvidence:
         execution_overlay=_string(
             payload["execution_overlay"], field="seed_evidence.execution_overlay"
         ),
+        slippage_std=_number(
+            payload["slippage_std"], field="seed_evidence.slippage_std"
+        ),
         symbols=_string_tuple(payload["symbols"], field="seed_evidence.symbols"),
         feature_names=_string_tuple(
             payload["feature_names"], field="seed_evidence.feature_names"

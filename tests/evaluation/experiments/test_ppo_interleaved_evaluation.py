@@ -439,6 +439,7 @@ def test_seed_evidence_fails_closed_on_timestep_roster_and_authorization() -> No
         dataset_artifact_digest=spec.dataset_artifact_digest,
         study_digest=spec.study_digest,
         execution_overlay=spec.execution_overlay,
+        slippage_std=spec.slippage_std,
         symbols=spec.symbols,
         feature_names=spec.feature_names,
         feature_indices=spec.feature_indices,

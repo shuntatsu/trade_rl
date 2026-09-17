@@ -1,0 +1,80 @@
+name: tmp Issue 630 evaluator fixture fix v4
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-fixture-fix-v4
+    paths:
+      - .github/workflows/tmp-issue630-fixture-fix-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply typed evaluator and valid two-year synthetic oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py')
+          text = source.read_text()
+          old = '''    if not all(item.model is model for item in (*baseline, *candidate)):\n        raise RuntimeError("shared-cash arms must share the exact fitted Ridge model")\n\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    common = {\n        "start_index": start,\n        "stop_index": stop,\n        "gross_budget": spec.gross_budget,\n        "initial_capital": spec.initial_capital,\n        "execution_cost": execution_cost,\n        "risk": None,\n    }\n    baseline_replay = run_shared_cash_replay(dataset, baseline, **common)\n    candidate_replay = run_shared_cash_replay(dataset, candidate, **common)\n'''
+          new = '''    if not all(item.model is model for item in baseline):\n        raise RuntimeError("baseline arm must share the exact fitted Ridge model")\n    if not all(item.model is model for item in candidate):\n        raise RuntimeError("candidate arm must share the exact fitted Ridge model")\n\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    baseline_replay = run_shared_cash_replay(\n        dataset,\n        baseline,\n        start_index=start,\n        stop_index=stop,\n        gross_budget=spec.gross_budget,\n        initial_capital=spec.initial_capital,\n        execution_cost=execution_cost,\n        risk=None,\n    )\n    candidate_replay = run_shared_cash_replay(\n        dataset,\n        candidate,\n        start_index=start,\n        stop_index=stop,\n        gross_budget=spec.gross_budget,\n        initial_capital=spec.initial_capital,\n        execution_cost=execution_cost,\n        risk=None,\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('production typing target drifted')
+          source.write_text(text.replace(old, new))
+
+          test = Path('tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py')
+          text = test.read_text()
+          old = '''def _dataset() -> MarketDataset:\n    timestamps = np.asarray(\n        [\n            "2022-12-31T23:00:00",\n            "2023-01-01T00:00:00",\n            "2023-06-01T00:00:00",\n            "2024-01-01T00:00:00",\n            "2025-01-01T00:00:00",\n        ],\n        dtype="datetime64[ns]",\n    )\n'''
+          new = '''def _dataset() -> MarketDataset:\n    timestamps = np.arange(\n        np.datetime64("2022-12-31", "D"),\n        np.datetime64("2025-01-02", "D"),\n        dtype="datetime64[D]",\n    ).astype("datetime64[ns]")\n'''
+          if text.count(old) != 1:
+              raise SystemExit('dataset fixture target drifted')
+          text = text.replace(old, new)
+          old = '''    replay_results = iter(\n        (\n            _replay((0.01, 0.02, 0.01), total_cost=10.0, turnover=4.0),\n            _replay((0.02, 0.03, 0.02), total_cost=5.0, turnover=2.0),\n        )\n    )\n'''
+          new = '''    baseline_values = np.zeros(731, dtype=np.float64)\n    baseline_values[0] = 0.01\n    baseline_values[1] = 0.02\n    baseline_values[365] = 0.01\n    candidate_values = np.zeros(731, dtype=np.float64)\n    candidate_values[0] = 0.02\n    candidate_values[1] = 0.03\n    candidate_values[365] = 0.02\n    replay_results = iter(\n        (\n            _replay(\n                tuple(float(value) for value in baseline_values),\n                total_cost=10.0,\n                turnover=4.0,\n            ),\n            _replay(\n                tuple(float(value) for value in candidate_values),\n                total_cost=5.0,\n                turnover=2.0,\n            ),\n        )\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('replay fixture target drifted')
+          text = text.replace(old, new)
+          replacements = {
+              'assert call["stop_index"] == 4': 'assert call["stop_index"] == 732',
+              'assert result.baseline.n_periods == 3': 'assert result.baseline.n_periods == 731',
+              'assert result.candidate.n_periods == 3': 'assert result.candidate.n_periods == 731',
+          }
+          for old_value, new_value in replacements.items():
+              if text.count(old_value) != 1:
+                  raise SystemExit(f'fixture assertion target drifted: {old_value}')
+              text = text.replace(old_value, new_value)
+          if text.count('periods_per_year=8_760') != 2:
+              raise SystemExit('periods_per_year fixture count drifted')
+          text = text.replace('periods_per_year=8_760', 'periods_per_year=365')
+          old = '''    assert result.baseline.calendar_year_returns == pytest.approx(\n        ((2023, 0.0302), (2024, 0.01))\n    )\n    assert result.candidate.calendar_year_returns == pytest.approx(\n        ((2023, 0.0506), (2024, 0.02))\n    )\n'''
+          new = '''    assert tuple(year for year, _ in result.baseline.calendar_year_returns) == (2023, 2024)\n    assert tuple(value for _, value in result.baseline.calendar_year_returns) == pytest.approx(\n        (0.0302, 0.01)\n    )\n    assert tuple(year for year, _ in result.candidate.calendar_year_returns) == (2023, 2024)\n    assert tuple(value for _, value in result.candidate.calendar_year_returns) == pytest.approx(\n        (0.0506, 0.02)\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit('calendar-year assertion target drifted')
+          test.write_text(text.replace(old, new))
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          git diff --cached --check
+          git commit -m 'test: finalize shared-cash synthetic oracle'
+          git push origin HEAD:research/issue630-shared-cash-evaluator

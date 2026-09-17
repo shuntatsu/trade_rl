@@ -1,0 +1,32 @@
+name: tmp Issue 638 PPO baseline runner RED
+
+on:
+  push:
+    branches:
+      - verify/issue638-ppo-baseline-runner-red
+    paths:
+      - .github/workflows/tmp-issue638-ppo-baseline-runner-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verify/issue638-ppo-baseline-runner-red
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static test checks
+        run: |
+          uv run ruff check tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run ruff format --check tests/tools/test_issue638_ppo_baseline_runner.py
+          uv run mypy tests/tools/test_issue638_ppo_baseline_runner.py
+      - name: Semantic RED
+        run: uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py

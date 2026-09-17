@@ -20,32 +20,69 @@ esac
 : "${STUDY_DIR:?}"
 : "${PUBLISH_ROOT:?}"
 : "${STATUS_ROOT:?}"
-: "${GITHUB_REPOSITORY:?}"
+: "${RUNNER_TEMP:?}"
 : "${GITHUB_RUN_ID:?}"
 : "${GITHUB_RUN_NUMBER:?}"
 : "${GITHUB_RUN_ATTEMPT:?}"
 : "${TARGET_SHA:?}"
-: "${GH_TOKEN:?}"
 
 test "$GITHUB_RUN_NUMBER" = "1"
 test "$GITHUB_RUN_ATTEMPT" = "1"
 
-activation="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue640-directional-activation-v1&per_page=100")"
-test "$(jq -r .total_count <<<"$activation")" = "1"
-test "$(jq -r '.artifacts[0].expired' <<<"$activation")" = "false"
-test "$(jq -r '.artifacts[0].workflow_run.id' <<<"$activation")" = "$GITHUB_RUN_ID"
-
-artifact="issue640-directional-arm-${arm}-v1"
-existing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$artifact&per_page=100" --jq .total_count)"
-if [[ "$existing" != "0" ]]; then
-  echo "immutable arm slot already exists: $artifact" >&2
+package="$PUBLISH_ROOT/$arm"
+if [[ -e "$package" || -e "$STUDY_DIR/$arm" || -e "$STATUS_ROOT/$arm" ]]; then
+  echo "local immutable arm slot already exists: $arm" >&2
   exit 3
 fi
-
-package="$PUBLISH_ROOT/$arm"
 mkdir -p "$package" "$STATUS_ROOT"
 
 cd "$TARGET_DIR"
+ARM="$arm" uv run python - <<'PY'
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+from pathlib import Path
+
+from trade_rl.artifacts import canonical_json_bytes
+
+arm = os.environ["ARM"]
+protocol_path = Path(os.environ["STUDY_DIR"]) / "protocol.json"
+claim_path = Path(os.environ["RUNNER_TEMP"]) / "activation" / "activation.json"
+if not protocol_path.is_file() or not claim_path.is_file():
+    raise SystemExit("Issue 640 activation/protocol evidence is missing before arm")
+protocol_raw = protocol_path.read_bytes()
+claim_raw = claim_path.read_bytes()
+protocol = json.loads(protocol_raw)
+claim = json.loads(claim_raw)
+if canonical_json_bytes(protocol) != protocol_raw or canonical_json_bytes(claim) != claim_raw:
+    raise SystemExit("Issue 640 activation/protocol evidence is noncanonical")
+activation = protocol.get("official_activation")
+if not isinstance(activation, dict):
+    raise SystemExit("Issue 640 official activation is missing from protocol")
+if (
+    activation.get("workflow_run_id") != int(os.environ["GITHUB_RUN_ID"])
+    or activation.get("workflow_run_number") != 1
+    or activation.get("workflow_run_attempt") != 1
+):
+    raise SystemExit("Issue 640 official activation identity drifted before arm")
+path = Path(".github/scripts/issue640_directional_activation.py")
+spec = importlib.util.spec_from_file_location("issue640_activation", path)
+if spec is None or spec.loader is None:
+    raise SystemExit("Issue 640 activation helper cannot be loaded")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.validate_activation_claim(
+    claim,
+    protocol,
+    workflow_run_id=int(os.environ["GITHUB_RUN_ID"]),
+    implementation_head=os.environ["TARGET_SHA"],
+)
+print(f"ISSUE640_ARM_{arm}_ACTIVATION_REBOUND=true")
+print("ECONOMIC_RESULT_INTERPRETED=false")
+PY
+
 set +e
 uv run python -m trade_rl.evaluation.directional_study run \
   --source "$SOURCE_DIR" \

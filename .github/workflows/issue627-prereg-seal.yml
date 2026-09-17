@@ -1,0 +1,248 @@
+name: Issue 627 Shared-Cash Preregistration Seal
+
+on:
+  push:
+    branches:
+      - seal/issue627-shared-cash-prereg-v1
+    paths:
+      - .github/workflows/issue627-prereg-seal.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  primary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      seal_b64: ${{ steps.build.outputs.seal_b64 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      protocol_digest: ${{ steps.build.outputs.protocol_digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8e0c2cc852e26240837614ae6a54180be227ca32
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Verify exact-head CI authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '8e0c2cc852e26240837614ae6a54180be227ca32'
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/35204169619" \
+            > ci-authority.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('ci-authority.json').read_text())
+          assert data['head_sha'] == '8e0c2cc852e26240837614ae6a54180be227ca32'
+          assert data['status'] == 'completed'
+          assert data['conclusion'] == 'success'
+          assert data['event'] == 'pull_request'
+          PY
+          rm ci-authority.json
+          test -z "$(git status --porcelain)"
+      - name: Build canonical result-blind protocol seal
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+
+          head = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          path = 'trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py'
+          blob = subprocess.check_output(['git','rev-parse',f'HEAD:{path}'], text=True).strip()
+          module_sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          protocol = canonical_ridge_shared_cash_protocol()
+          payload = protocol.to_payload()
+          forbidden = {
+              'baseline_total_return','candidate_total_return','baseline_2023_return','candidate_2023_return',
+              'baseline_2024_return','candidate_2024_return','baseline_max_drawdown','candidate_max_drawdown',
+              'shared_cash_decision',
+          }
+          if forbidden.intersection(payload):
+              raise SystemExit('shared-cash result leaked into preregistration')
+          for flag in ('unused_data_accessed','final_test_accessed','final_test_authorized','operational_eligibility_established','production_eligible','live_trading_authorized','merge_authorized','shared_cash_economic_result_inspected','shared_cash_execution_authorized'):
+              if payload[flag] is not False:
+                  raise SystemExit(f'preregistration boundary flag drift: {flag}')
+          document = {
+              'schema_version': 'issue627_shared_cash_prereg_seal_v1',
+              'issue_number': 627,
+              'pull_request': 628,
+              'protocol_head': head,
+              'main_base_head': 'd18434799651cfc6c07e0840c40600dcf1dfa763',
+              'exact_head_ci_run_id': 35204169619,
+              'protocol_module_path': path,
+              'protocol_module_blob_sha': blob,
+              'protocol_module_sha256': module_sha,
+              'protocol_digest': protocol.digest,
+              'protocol': payload,
+              'result_blind': True,
+              'shared_cash_economic_execution_performed': False,
+              'unused_data_accessed': False,
+              'final_test_accessed': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+              'seal_run_id': int(os.environ['GITHUB_RUN_ID']),
+          }
+          raw = (json.dumps(document, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n').encode()
+          Path('issue627-prereg-seal.json').write_bytes(raw)
+          seal_sha = hashlib.sha256(raw).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              out.write(f"seal_b64={base64.b64encode(raw).decode()}\n")
+              out.write(f"seal_sha256={seal_sha}\n")
+              out.write(f"protocol_digest={protocol.digest}\n")
+          print(f'PROTOCOL_DIGEST={protocol.digest}')
+          print(f'PROTOCOL_SEAL_SHA256={seal_sha}')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+          test -z "$(git status --porcelain)" || test "$(git status --porcelain)" = '?? issue627-prereg-seal.json'
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue627-shared-cash-prereg-primary-${{ github.run_id }}
+          path: issue627-prereg-seal.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    needs: primary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      protocol_digest: ${{ steps.build.outputs.protocol_digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8e0c2cc852e26240837614ae6a54180be227ca32
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Independently reconstruct protocol seal
+        id: build
+        shell: bash
+        env:
+          PRIMARY_B64: ${{ needs.primary.outputs.seal_b64 }}
+          PRIMARY_SHA: ${{ needs.primary.outputs.seal_sha256 }}
+          PRIMARY_DIGEST: ${{ needs.primary.outputs.protocol_digest }}
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import base64, hashlib, json, os, subprocess
+          from pathlib import Path
+          from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_prereg import canonical_ridge_shared_cash_protocol
+          head = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          path = 'trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_prereg.py'
+          protocol = canonical_ridge_shared_cash_protocol()
+          document = {
+              'schema_version': 'issue627_shared_cash_prereg_seal_v1','issue_number': 627,'pull_request': 628,
+              'protocol_head': head,'main_base_head': 'd18434799651cfc6c07e0840c40600dcf1dfa763','exact_head_ci_run_id': 35204169619,
+              'protocol_module_path': path,'protocol_module_blob_sha': subprocess.check_output(['git','rev-parse',f'HEAD:{path}'],text=True).strip(),
+              'protocol_module_sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),'protocol_digest': protocol.digest,'protocol': protocol.to_payload(),
+              'result_blind': True,'shared_cash_economic_execution_performed': False,'unused_data_accessed': False,'final_test_accessed': False,
+              'production_eligible': False,'live_trading_authorized': False,'merge_authorized': False,'seal_run_id': int(os.environ['GITHUB_RUN_ID']),
+          }
+          raw=(json.dumps(document,allow_nan=False,sort_keys=True,separators=(',',':'))+'\n').encode()
+          primary=base64.b64decode(os.environ['PRIMARY_B64'], validate=True)
+          if raw != primary: raise SystemExit('fresh protocol seal is not byte-identical')
+          seal_sha=hashlib.sha256(raw).hexdigest()
+          if seal_sha != os.environ['PRIMARY_SHA']: raise SystemExit('fresh protocol seal SHA mismatch')
+          if protocol.digest != os.environ['PRIMARY_DIGEST']: raise SystemExit('fresh protocol digest mismatch')
+          Path('issue627-prereg-seal-fresh.json').write_bytes(raw)
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              out.write(f'seal_sha256={seal_sha}\nprotocol_digest={protocol.digest}\n')
+          print('FRESH_PROTOCOL_BYTE_EQUAL=true')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue627-shared-cash-prereg-fresh-${{ github.run_id }}
+          path: issue627-prereg-seal-fresh.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Read back artifacts and verify final seal closure
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          PRIMARY_SHA: ${{ needs.primary.outputs.seal_sha256 }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+          FRESH_SHA: ${{ needs.fresh.outputs.seal_sha256 }}
+          PROTOCOL_DIGEST: ${{ needs.primary.outputs.protocol_digest }}
+        run: |
+          set -euo pipefail
+          test "$PRIMARY_SHA" = "$FRESH_SHA"
+          mkdir audit
+          for side in primary fresh; do
+            if [ "$side" = primary ]; then id="$PRIMARY_ID"; expected="$PRIMARY_UPLOAD_DIGEST"; else id="$FRESH_ID"; expected="$FRESH_UPLOAD_DIGEST"; fi
+            curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}" > "audit/${side}.json"
+            python - "$side" "$id" "$expected" <<'PY'
+          import json, sys
+          from pathlib import Path
+          side, aid, expected = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          data=json.loads(Path(f'audit/{side}.json').read_text())
+          if data.get('id') != aid or data.get('expired') is not False: raise SystemExit(f'{side} artifact identity invalid')
+          api=(data.get('digest') or '').removeprefix('sha256:')
+          if api != expected.removeprefix('sha256:'): raise SystemExit(f'{side} upload/API digest mismatch')
+          PY
+            curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" --output "audit/${side}.zip"
+          done
+          python - <<'PY'
+          import hashlib,json,os,zipfile
+          def sole(path):
+              with zipfile.ZipFile(path) as z:
+                  files=[i for i in z.infolist() if not i.is_dir()]
+                  if len(files)!=1: raise SystemExit('seal artifact must contain one file')
+                  return z.read(files[0])
+          primary=sole('audit/primary.zip'); fresh=sole('audit/fresh.zip')
+          if primary != fresh: raise SystemExit('primary/fresh artifact bytes differ')
+          if hashlib.sha256(primary).hexdigest()!=os.environ['PRIMARY_SHA']: raise SystemExit('internal seal SHA drift')
+          doc=json.loads(primary); p=doc['protocol']
+          if doc['protocol_digest']!=os.environ['PROTOCOL_DIGEST']: raise SystemExit('protocol digest drift')
+          if doc['protocol_head']!='8e0c2cc852e26240837614ae6a54180be227ca32': raise SystemExit('protocol head drift')
+          for flag in ('unused_data_accessed','final_test_accessed','final_test_authorized','operational_eligibility_established','production_eligible','live_trading_authorized','merge_authorized','shared_cash_economic_result_inspected','shared_cash_execution_authorized'):
+              if p[flag] is not False: raise SystemExit(f'boundary flag drift: {flag}')
+          print('ISSUE627_PREREG_SEAL_CLOSURE=PASS')
+          print('PRIMARY_FRESH_BYTE_EQUAL=true')
+          print('SHARED_CASH_ECONOMIC_EXECUTION_PERFORMED=false')
+          PY

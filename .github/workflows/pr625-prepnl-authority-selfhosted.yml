@@ -1,4 +1,4 @@
-name: PR625 Architecture Repair
+name: PR625 Final Exact-Head Verification
 
 on:
   push:
@@ -6,59 +6,25 @@ on:
       - agent/pr625-prepnl-authority-selfhosted-2026-09-17
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: research/issue616-ridge-economic-gate-evaluation
+          ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Assert target did not move
+      - name: Assert exact target
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "f9d2254b458ff4f69d0e48bce16b84790355a001"
-
-      - name: Apply minimal capability-facade repair
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py")
-          text = path.read_text()
-          old = text
-          text = text.replace(
-              "from dataclasses import dataclass, fields\n",
-              "from dataclasses import dataclass, fields, replace\n",
-              1,
-          )
-          text = text.replace(
-              "from trade_rl.evaluation.runs.execute import _execution_cost_for_overlay\n",
-              "from trade_rl.simulation.execution import ExecutionCostConfig\n",
-              1,
-          )
-          text = text.replace(
-              "    execution_cost = _execution_cost_for_overlay(resolved_spec.execution_overlay)\n",
-              "    execution_cost = replace(\n"
-              "        ExecutionCostConfig.zero(),\n"
-              "        processing_bar_volume_capacity=False,\n"
-              "    )\n",
-              1,
-          )
-          if text == old:
-              raise SystemExit("expected evaluator edits were not applied")
-          if "trade_rl.evaluation.runs.execute" in text:
-              raise SystemExit("forbidden runs.execute import remains")
-          path.write_text(text)
-          PY
+          test "$(git rev-parse HEAD)" = "3d3bbc416b2ac2b9051496e3ead6e8ff96170b45"
+          test "$(git merge-base 75999e53c70224c31a62b106e4a8d2caa4b920ac HEAD)" = "75999e53c70224c31a62b106e4a8d2caa4b920ac"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -69,29 +35,54 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Verify minimal repair before push
-        shell: bash
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Repository tooling types
+        run: uv run mypy tests scripts
+
+      - name: Focused Issue 616 authority tests
         run: |
-          set -euo pipefail
-          uv run ruff check trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
-          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
-          uv run mypy trade_rl
-          uv run pytest -q tests/architecture/test_runs_capability_facade.py
           uv run pytest -q \
             tests/strategies/test_ridge_economic_gate.py \
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py \
             tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py \
-            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
-          git diff --check
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py \
+            tests/architecture/test_runs_capability_facade.py
 
-      - name: Commit and push repair to existing PR branch
+      - name: Full repository tests
+        run: uv run pytest -q tests
+
+      - name: Build
+        run: uv build
+
+      - name: Distribution closure
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git diff --name-only)" = "trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py"
-          git config user.name "Shuntatsu"
-          git config user.email "148511409+shuntatsu@users.noreply.github.com"
-          git add trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
-          git commit -m "research: respect evaluation runs capability facade" \
-            -m "Remove the forbidden direct runs.execute import from the sealed evaluator while preserving the canonical previous-completed-bar capacity execution-cost semantics."
-          git push origin HEAD:research/issue616-ridge-economic-gate-evaluation
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+
+      - name: Exact seven-file scope and hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD | sort)
+          expected=(
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation.py
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_evaluation_artifact.py
+            tests/evaluation/experiments/bootstrap/test_ridge_economic_gate_execution_authority.py
+            tests/strategies/test_ridge_economic_gate.py
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_evaluation.py
+            trade_rl/evaluation/experiments/bootstrap/ridge_economic_gate_execution_authority.py
+            trade_rl/strategies/forecasts/ridge_economic_gate.py
+          )
+          mapfile -t expected < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${changed[*]}" = "${expected[*]}"
+          git diff --check 75999e53c70224c31a62b106e4a8d2caa4b920ac...HEAD
+          test -z "$(git status --porcelain)"

@@ -23,12 +23,13 @@ jobs:
           fetch-depth: 0
       - name: Guard exact helper head
         run: test "$(git -C helper rev-parse HEAD)" = b56e7a166265f5ecca3131d33cd9842c35943050
-      - name: Apply callable typing fix only
+      - name: Apply callable typing fix and canonical-bytes oracle correction
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+
           path = Path('helper/.github/scripts/issue638_ppo_baseline_runner.py')
           text = path.read_text()
           text = text.replace('from typing import Any, Callable\n', 'from typing import Any, Callable, cast\n', 1)
@@ -37,6 +38,14 @@ jobs:
           if old not in text:
               raise SystemExit('callable typing anchor drift')
           path.write_text(text.replace(old, new, 1))
+
+          test = Path('helper/tests/tools/test_issue638_ppo_baseline_runner.py')
+          text = test.read_text()
+          old = '    assert raw.endswith(b"\\n")\n'
+          new = '''    assert raw == (\n        b'{"arm":"baseline","candidate_training_authorized":false,'\n        b'"rollout_steps_per_env":null,"seed":2,"training_layout":"sequential"}'\n    )\n'''
+          if old not in text:
+              raise SystemExit('canonical bytes oracle anchor drift')
+          test.write_text(text.replace(old, new, 1))
           PY
           git -C helper diff --check
       - name: Checkout exact sealed evaluator for validation
@@ -60,15 +69,16 @@ jobs:
           cp helper/.github/scripts/issue638_ppo_baseline_runner.py impl/.github/scripts/issue638_ppo_baseline_runner.py
           cp helper/tests/tools/test_issue638_ppo_baseline_runner.py impl/tests/tools/test_issue638_ppo_baseline_runner.py
           cd impl
-          uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py
+          uv run ruff format .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           cp .github/scripts/issue638_ppo_baseline_runner.py ../helper/.github/scripts/issue638_ppo_baseline_runner.py
+          cp tests/tools/test_issue638_ppo_baseline_runner.py ../helper/tests/tools/test_issue638_ppo_baseline_runner.py
           uv run ruff check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           uv run ruff format --check .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           uv run mypy .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
           uv run pytest -q tests/tools/test_issue638_ppo_baseline_runner.py \
             tests/evaluation/experiments/test_ppo_interleaved_evaluation.py \
             tests/evaluation/experiments/test_ppo_interleaved_evidence_codec.py
-      - name: Publish helper-only fix
+      - name: Publish helper/test fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -77,6 +87,6 @@ jobs:
           git -C helper diff --check
           git -C helper config user.name github-actions[bot]
           git -C helper config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C helper add .github/scripts/issue638_ppo_baseline_runner.py
-          git -C helper commit -m "research: fix Issue 638 runner callable typing"
+          git -C helper add .github/scripts/issue638_ppo_baseline_runner.py tests/tools/test_issue638_ppo_baseline_runner.py
+          git -C helper commit -m "research: harden Issue 638 baseline runner typing"
           git -C helper push origin HEAD:prepare/issue638-ppo-sequential-baseline-v1

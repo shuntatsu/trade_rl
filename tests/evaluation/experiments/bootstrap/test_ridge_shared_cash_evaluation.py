@@ -17,6 +17,7 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation impo
     evaluate_ridge_shared_cash,
     shared_cash_return_sha256,
 )
+from trade_rl.evaluation.metrics import compound_return
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
@@ -133,13 +134,27 @@ def _arm(
     year_returns: tuple[tuple[int, float], ...],
     termination_reasons: tuple[str, ...] = (),
 ) -> RidgeSharedCashArmEvidence:
-    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)
+    intended_years = dict(year_returns)
+    compact_total = compound_return(values)
+    expanded = np.zeros(17_544, dtype=np.float64)
+    expanded[0] = intended_years[2023]
+    expanded[8_760] = intended_years[2024]
+    values = tuple(float(value) for value in expanded)
+    canonical_year_returns = (
+        (2023, compound_return(values[:8_760])),
+        (2024, compound_return(values[8_760:])),
+    )
+    assert canonical_year_returns[0][1] == pytest.approx(intended_years[2023])
+    assert canonical_year_returns[1][1] == pytest.approx(intended_years[2024])
+    total = compound_return(values)
+    assert total == pytest.approx(compact_total)
     return RidgeSharedCashArmEvidence(
         arm=name,
         returns=values,
         return_sha256=shared_cash_return_sha256(values),
         total_return=total,
-        calendar_year_returns=year_returns,
+        calendar_year_returns=canonical_year_returns,
+        calendar_year_period_counts=((2023, 8_760), (2024, 8_784)),
         total_cost=total_cost,
         turnover_total=turnover,
         max_drawdown=max_drawdown,
@@ -204,6 +219,8 @@ def test_canonical_spec_binds_protocol_and_execution_authorities() -> None:
     assert spec.gross_budget == 0.5
     assert spec.initial_capital == 100_000.0
     assert spec.one_way_explicit_cost == 0.0007
+    assert spec.expected_n_periods == 17_544
+    assert spec.calendar_year_period_counts == ((2023, 8_760), (2024, 8_784))
     assert spec.unused_data_accessed is False
     assert spec.final_test_accessed is False
     assert spec.production_eligible is False
@@ -299,7 +316,7 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
         assert call["initial_capital"] == 100_000.0
         assert call["risk"] is None
 
-    assert result.status == "QUALIFY_UNUSED_VALIDATION"
+    assert result.status == "STOP_BEFORE_UNUSED_VALIDATION"
     assert result.baseline.n_periods == 731
     assert result.candidate.n_periods == 731
     assert tuple(year for year, _ in result.baseline.calendar_year_returns) == (
@@ -316,6 +333,8 @@ def test_evaluator_fits_once_and_replays_two_shared_accounts(
     assert tuple(
         value for _, value in result.candidate.calendar_year_returns
     ) == pytest.approx((0.0506, 0.02))
+    assert result.baseline.calendar_year_period_counts == ((2023, 365), (2024, 366))
+    assert result.candidate.calendar_year_period_counts == ((2023, 365), (2024, 366))
 
 
 def test_result_truth_table_and_fail_closed_invariants() -> None:
@@ -350,6 +369,18 @@ def test_result_truth_table_and_fail_closed_invariants() -> None:
         replace(candidate, return_sha256="0" * 64)
     with pytest.raises(ValueError, match="total_return"):
         replace(candidate, total_return=999.0)
+    with pytest.raises(ValueError, match="calendar-year"):
+        replace(
+            candidate,
+            calendar_year_returns=(
+                (2023, 0.99),
+                (2024, candidate.calendar_year_returns[1][1]),
+            ),
+        )
+    with pytest.raises(ValueError, match="period counts"):
+        replace(candidate, calendar_year_period_counts=((2023, 8_759), (2024, 8_784)))
+    with pytest.raises(ValueError, match="finite"):
+        replace(candidate, total_cost=True)
     with pytest.raises(ValueError, match="status"):
         replace(result, status="STOP_BEFORE_UNUSED_VALIDATION")
     with pytest.raises(ValueError, match="period"):

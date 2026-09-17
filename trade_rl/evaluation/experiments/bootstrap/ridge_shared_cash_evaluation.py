@@ -27,12 +27,14 @@ from trade_rl.strategies.forecasts.ridge_economic_gate import (
     RidgeEconomicGateStrategy,
 )
 
-_SPEC_SCHEMA = "ridge_shared_cash_evaluation_spec_v1"
-_ARM_SCHEMA = "ridge_shared_cash_arm_evidence_v1"
-_RESULT_SCHEMA = "ridge_shared_cash_evaluation_result_v1"
+_SPEC_SCHEMA = "ridge_shared_cash_evaluation_spec_v2"
+_ARM_SCHEMA = "ridge_shared_cash_arm_evidence_v2"
+_RESULT_SCHEMA = "ridge_shared_cash_evaluation_result_v2"
 _QUALIFY = "QUALIFY_UNUSED_VALIDATION"
 _STOP = "STOP_BEFORE_UNUSED_VALIDATION"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+_CALENDAR_YEAR_PERIOD_COUNTS = ((2023, 8_760), (2024, 8_784))
+_EXPECTED_N_PERIODS = sum(count for _, count in _CALENDAR_YEAR_PERIOD_COUNTS)
 _FEATURE_NAMES = (
     "1h__log_return_1bar",
     "1h__log_return_4bar",
@@ -110,6 +112,8 @@ _SPEC_VALUES: dict[str, object] = {
     "gross_budget": 0.5,
     "initial_capital": 100_000.0,
     "calendar_years": (2023, 2024),
+    "calendar_year_period_counts": _CALENDAR_YEAR_PERIOD_COUNTS,
+    "expected_n_periods": _EXPECTED_N_PERIODS,
     "unused_data_accessed": False,
     "final_test_accessed": False,
     "final_test_authorized": False,
@@ -198,6 +202,8 @@ class RidgeSharedCashEvaluationSpec:
     gross_budget: float
     initial_capital: float
     calendar_years: tuple[int, ...]
+    calendar_year_period_counts: tuple[tuple[int, int], ...]
+    expected_n_periods: int
     unused_data_accessed: bool
     final_test_accessed: bool
     final_test_authorized: bool
@@ -252,14 +258,55 @@ def _validate_year_returns(
     values: tuple[tuple[int, float], ...],
 ) -> tuple[tuple[int, float], ...]:
     spec = canonical_ridge_shared_cash_evaluation_spec()
-    if tuple(year for year, _ in values) != spec.calendar_years:
-        raise ValueError("calendar-year evidence differs from frozen year roster")
+    years = tuple(year for year, _ in values)
+    if not values or years != spec.calendar_years[: len(values)]:
+        raise ValueError("calendar-year evidence differs from frozen year prefix")
     for year, value in values:
         if isinstance(year, bool) or not isinstance(year, int):
             raise ValueError("calendar-year evidence year must be an integer")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("calendar-year return must be finite and greater than -1")
         if not math.isfinite(value) or value <= -1.0:
             raise ValueError("calendar-year return must be finite and greater than -1")
     return values
+
+
+def _validate_year_period_counts(
+    values: tuple[tuple[int, int], ...],
+    *,
+    n_periods: int,
+) -> tuple[tuple[int, int], ...]:
+    spec = canonical_ridge_shared_cash_evaluation_spec()
+    years = tuple(year for year, _ in values)
+    if not values or years != spec.calendar_years[: len(values)]:
+        raise ValueError("calendar-year period counts differ from frozen year prefix")
+    total = 0
+    for year, count in values:
+        if isinstance(year, bool) or not isinstance(year, int):
+            raise ValueError("calendar-year period-count year must be an integer")
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise ValueError("calendar-year period count must be a positive integer")
+        total += count
+    if total != n_periods:
+        raise ValueError("calendar-year period counts do not sum to n_periods")
+    return values
+
+
+def _recompute_year_returns(
+    returns: tuple[float, ...],
+    period_counts: tuple[tuple[int, int], ...],
+) -> tuple[tuple[int, float], ...]:
+    offset = 0
+    result: list[tuple[int, float]] = []
+    for year, count in period_counts:
+        chunk = returns[offset : offset + count]
+        if len(chunk) != count:
+            raise ValueError("calendar-year period counts exceed raw return path")
+        result.append((year, compound_return(chunk)))
+        offset += count
+    if offset != len(returns):
+        raise ValueError("calendar-year period counts do not cover raw return path")
+    return tuple(result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +318,7 @@ class RidgeSharedCashArmEvidence:
     return_sha256: str
     total_return: float
     calendar_year_returns: tuple[tuple[int, float], ...]
+    calendar_year_period_counts: tuple[tuple[int, int], ...]
     total_cost: float
     turnover_total: float
     max_drawdown: float
@@ -291,17 +339,43 @@ class RidgeSharedCashArmEvidence:
             or self.n_periods != len(self.returns)
         ):
             raise ValueError("period count does not match raw return evidence")
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in self.returns
+        ):
+            raise ValueError("raw returns must contain finite numeric values")
         expected_sha = shared_cash_return_sha256(self.returns)
         require_sha256(self.return_sha256, field="return_sha256")
         if self.return_sha256 != expected_sha:
             raise ValueError("return_sha256 does not match raw returns")
         expected_total = compound_return(self.returns)
-        if not math.isfinite(self.total_return) or self.total_return != expected_total:
+        if (
+            isinstance(self.total_return, bool)
+            or not isinstance(self.total_return, (int, float))
+            or not math.isfinite(self.total_return)
+            or self.total_return != expected_total
+        ):
             raise ValueError("total_return does not match raw returns")
-        _validate_year_returns(self.calendar_year_returns)
+        year_returns = _validate_year_returns(self.calendar_year_returns)
+        year_counts = _validate_year_period_counts(
+            self.calendar_year_period_counts,
+            n_periods=self.n_periods,
+        )
+        if tuple(year for year, _ in year_returns) != tuple(
+            year for year, _ in year_counts
+        ):
+            raise ValueError("calendar-year return/count rosters differ")
+        expected_year_returns = _recompute_year_returns(self.returns, year_counts)
+        if year_returns != expected_year_returns:
+            raise ValueError("calendar-year returns do not match raw returns")
         for field_name in ("total_cost", "turnover_total", "max_drawdown"):
             value = getattr(self, field_name)
-            if not math.isfinite(value) or value < 0.0:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0.0
+            ):
                 raise ValueError(f"{field_name} must be finite and non-negative")
         if (
             isinstance(self.termination_count, bool)
@@ -326,6 +400,10 @@ class RidgeSharedCashArmEvidence:
             "calendar_year_returns": [
                 {"year": year, "return": value}
                 for year, value in self.calendar_year_returns
+            ],
+            "calendar_year_period_counts": [
+                {"year": year, "count": count}
+                for year, count in self.calendar_year_period_counts
             ],
             "total_cost": self.total_cost,
             "turnover_total": self.turnover_total,
@@ -362,11 +440,17 @@ def shared_cash_status(
 
     if baseline.arm != "baseline" or candidate.arm != "candidate":
         raise ValueError("shared-cash result arm roster is invalid")
-    if baseline.n_periods != candidate.n_periods:
+    spec = canonical_ridge_shared_cash_evaluation_spec()
+    if (
+        baseline.n_periods != candidate.n_periods
+        or baseline.n_periods != spec.expected_n_periods
+        or candidate.n_periods != spec.expected_n_periods
+        or baseline.calendar_year_period_counts != spec.calendar_year_period_counts
+        or candidate.calendar_year_period_counts != spec.calendar_year_period_counts
+    ):
         return _STOP
     baseline_years = dict(baseline.calendar_year_returns)
     candidate_years = dict(candidate.calendar_year_returns)
-    spec = canonical_ridge_shared_cash_evaluation_spec()
     qualifies = (
         candidate.total_return > 0.0
         and candidate.total_return > baseline.total_return
@@ -410,8 +494,6 @@ class RidgeSharedCashEvaluation:
             raise ValueError("spec_digest differs from frozen shared-cash evaluation")
         if self.dataset_id != spec.dataset_id or self.symbols != spec.symbols:
             raise ValueError("shared-cash result Dataset/symbol authority mismatch")
-        if self.baseline.n_periods != self.candidate.n_periods:
-            raise ValueError("period count differs between shared-cash arms")
         expected_status = shared_cash_status(self.baseline, self.candidate)
         if self.status != expected_status:
             raise ValueError("status does not match frozen shared-cash rule")
@@ -488,20 +570,21 @@ def _validate_dataset(
     return start, stop
 
 
-def _calendar_year_returns(
+def _calendar_year_evidence(
     dataset: MarketDataset,
     *,
     start_index: int,
     returns: tuple[float, ...],
     years: tuple[int, ...],
-) -> tuple[tuple[int, float], ...]:
+) -> tuple[tuple[tuple[int, float], ...], tuple[tuple[int, int], ...]]:
     timestamps = np.asarray(
         dataset.timestamps[start_index : start_index + len(returns)],
         dtype="datetime64[ns]",
     )
     if len(timestamps) != len(returns):
         raise ValueError("return path extends beyond Dataset evaluation clock")
-    result: list[tuple[int, float]] = []
+    year_returns: list[tuple[int, float]] = []
+    year_counts: list[tuple[int, int]] = []
     for year in years:
         lower = np.datetime64(f"{year:04d}-01-01T00:00:00", "ns")
         upper = np.datetime64(f"{year + 1:04d}-01-01T00:00:00", "ns")
@@ -511,9 +594,14 @@ def _calendar_year_returns(
             if lower <= timestamp < upper
         )
         if not selected:
-            raise ValueError(f"shared-cash return path contains no rows for {year}")
-        result.append((year, compound_return(selected)))
-    return tuple(result)
+            break
+        year_returns.append((year, compound_return(selected)))
+        year_counts.append((year, len(selected)))
+    if not year_returns:
+        raise ValueError("shared-cash return path contains no rows in frozen years")
+    if sum(count for _, count in year_counts) != len(returns):
+        raise ValueError("calendar-year evidence does not cover return path")
+    return tuple(year_returns), tuple(year_counts)
 
 
 def _arm_evidence(
@@ -538,17 +626,19 @@ def _arm_evidence(
         rebalance_events=diagnostics.rebalance_events,
         termination_count=len(termination_reasons),
     )
+    year_returns, year_counts = _calendar_year_evidence(
+        dataset,
+        start_index=start_index,
+        returns=returns,
+        years=years,
+    )
     return RidgeSharedCashArmEvidence(
         arm=arm,
         returns=returns,
         return_sha256=shared_cash_return_sha256(returns),
         total_return=metrics.total_return,
-        calendar_year_returns=_calendar_year_returns(
-            dataset,
-            start_index=start_index,
-            returns=returns,
-            years=years,
-        ),
+        calendar_year_returns=year_returns,
+        calendar_year_period_counts=year_counts,
         total_cost=metrics.total_cost,
         turnover_total=metrics.turnover_total,
         max_drawdown=metrics.max_drawdown,

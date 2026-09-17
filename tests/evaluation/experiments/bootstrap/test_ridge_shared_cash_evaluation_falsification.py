@@ -12,6 +12,7 @@ from trade_rl.evaluation.experiments.bootstrap.ridge_shared_cash_evaluation impo
     shared_cash_return_sha256,
     shared_cash_status,
 )
+from trade_rl.evaluation.metrics import compound_return
 from trade_rl.simulation import ExecutionCostConfig
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
@@ -44,16 +45,52 @@ def _arm(
     ),
     termination_reasons: tuple[str, ...] = (),
 ) -> RidgeSharedCashArmEvidence:
-    total = float(np.prod(1.0 + np.asarray(values, dtype=np.float64)) - 1.0)
+    intended_years = dict(year_returns)
+    compact_total = compound_return(values)
+    expanded = np.zeros(17_544, dtype=np.float64)
+    expanded[0] = intended_years[2023]
+    expanded[8_760] = intended_years[2024]
+    values = tuple(float(value) for value in expanded)
+    canonical_year_returns = (
+        (2023, compound_return(values[:8_760])),
+        (2024, compound_return(values[8_760:])),
+    )
+    assert canonical_year_returns[0][1] == pytest.approx(intended_years[2023])
+    assert canonical_year_returns[1][1] == pytest.approx(intended_years[2024])
+    total = compound_return(values)
+    assert total == pytest.approx(compact_total)
     return RidgeSharedCashArmEvidence(
         arm=name,
         returns=values,
         return_sha256=shared_cash_return_sha256(values),
         total_return=total,
-        calendar_year_returns=year_returns,
+        calendar_year_returns=canonical_year_returns,
+        calendar_year_period_counts=((2023, 8_760), (2024, 8_784)),
         total_cost=total_cost,
         turnover_total=turnover,
         max_drawdown=max_drawdown,
+        termination_count=len(termination_reasons),
+        termination_reasons=termination_reasons,
+        n_periods=len(values),
+    )
+
+
+def _short_arm(
+    name: str,
+    values: tuple[float, ...],
+    *,
+    termination_reasons: tuple[str, ...] = (),
+) -> RidgeSharedCashArmEvidence:
+    return RidgeSharedCashArmEvidence(
+        arm=name,
+        returns=values,
+        return_sha256=shared_cash_return_sha256(values),
+        total_return=compound_return(values),
+        calendar_year_returns=((2023, compound_return(values)),),
+        calendar_year_period_counts=((2023, len(values)),),
+        total_cost=5.0,
+        turnover_total=2.0,
+        max_drawdown=0.10,
         termination_count=len(termination_reasons),
         termination_reasons=termination_reasons,
         n_periods=len(values),
@@ -93,18 +130,28 @@ def test_each_frozen_shared_cash_gate_can_force_stop(gate: str) -> None:
     candidate = _candidate()
 
     if gate == "candidate_positive_total":
-        candidate = _arm("candidate", (-0.01, -0.01))
+        candidate = _arm(
+            "candidate",
+            (-0.01, -0.01),
+            year_returns=((2023, -0.01), (2024, -0.01)),
+        )
     elif gate == "candidate_beats_baseline_total":
-        candidate = _arm("candidate", (0.005, 0.005))
+        candidate = _arm(
+            "candidate",
+            (0.005, 0.005),
+            year_returns=((2023, 0.005), (2024, 0.005)),
+        )
     elif gate == "candidate_2023_positive_and_better":
-        candidate = replace(
-            candidate,
-            calendar_year_returns=((2023, 0.0), (2024, 0.02)),
+        candidate = _arm(
+            "candidate",
+            (0.0, 0.02),
+            year_returns=((2023, 0.0), (2024, 0.02)),
         )
     elif gate == "candidate_2024_positive_and_better":
-        candidate = replace(
-            candidate,
-            calendar_year_returns=((2023, 0.02), (2024, 0.01)),
+        candidate = _arm(
+            "candidate",
+            (0.02, 0.01),
+            year_returns=((2023, 0.02), (2024, 0.01)),
         )
     elif gate == "cost_lower":
         candidate = replace(candidate, total_cost=10.0)
@@ -113,10 +160,39 @@ def test_each_frozen_shared_cash_gate_can_force_stop(gate: str) -> None:
     elif gate == "drawdown_nonworse":
         candidate = replace(candidate, max_drawdown=0.21)
     elif gate == "equal_period_count":
-        candidate = _arm("candidate", (0.02,))
+        candidate = _short_arm("candidate", (0.02,))
     else:  # pragma: no cover - parametrization is closed above
         raise AssertionError(gate)
 
+    assert shared_cash_status(baseline, candidate) == "STOP_BEFORE_UNUSED_VALIDATION"
+
+
+def test_full_window_calendar_year_evidence_cannot_be_tampered() -> None:
+    candidate = _candidate()
+    with pytest.raises(ValueError, match="calendar-year"):
+        replace(
+            candidate,
+            calendar_year_returns=(
+                (2023, 0.99),
+                (2024, candidate.calendar_year_returns[1][1]),
+            ),
+        )
+
+
+def test_bool_numeric_alias_is_rejected() -> None:
+    candidate = _candidate()
+    with pytest.raises(ValueError, match="finite"):
+        replace(candidate, total_cost=True)
+
+
+def test_partial_terminated_path_is_truthful_evidence_but_forces_stop() -> None:
+    baseline = _baseline()
+    candidate = _short_arm(
+        "candidate",
+        (0.01, -0.02),
+        termination_reasons=("margin_exhausted",),
+    )
+    assert candidate.calendar_year_period_counts == ((2023, 2),)
     assert shared_cash_status(baseline, candidate) == "STOP_BEFORE_UNUSED_VALIDATION"
 
 

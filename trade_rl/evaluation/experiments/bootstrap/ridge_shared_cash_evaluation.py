@@ -308,7 +308,10 @@ class RidgeSharedCashArmEvidence:
             or self.termination_count != len(self.termination_reasons)
         ):
             raise ValueError("termination count/reasons are inconsistent")
-        if any(not isinstance(reason, str) or not reason for reason in self.termination_reasons):
+        if any(
+            not isinstance(reason, str) or not reason
+            for reason in self.termination_reasons
+        ):
             raise ValueError("termination reasons must contain non-empty strings")
 
     def to_payload(self) -> dict[str, object]:
@@ -366,8 +369,7 @@ def shared_cash_status(
         candidate.total_return > 0.0
         and candidate.total_return > baseline.total_return
         and all(
-            candidate_years[year] > 0.0
-            and candidate_years[year] > baseline_years[year]
+            candidate_years[year] > 0.0 and candidate_years[year] > baseline_years[year]
             for year in spec.calendar_years
         )
         and candidate.total_cost < baseline.total_cost
@@ -422,7 +424,9 @@ class RidgeSharedCashEvaluation:
         ):
             value = getattr(self, field_name)
             if type(value) is not bool or value:
-                raise ValueError("research result cannot authorize production/final/unused use")
+                raise ValueError(
+                    "research result cannot authorize production/final/unused use"
+                )
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -463,10 +467,14 @@ def _validate_dataset(
     if dataset.dataset_id != spec.dataset_id:
         raise ValueError("Dataset identity differs from frozen shared-cash evaluation")
     if tuple(dataset.symbols) != spec.symbols:
-        raise ValueError("Dataset symbol roster differs from frozen shared-cash evaluation")
+        raise ValueError(
+            "Dataset symbol roster differs from frozen shared-cash evaluation"
+        )
     for name, index in zip(spec.feature_names, spec.feature_indices, strict=True):
         if index >= len(dataset.feature_names) or dataset.feature_names[index] != name:
-            raise ValueError("Ridge feature identity differs from frozen shared-cash evaluation")
+            raise ValueError(
+                "Ridge feature identity differs from frozen shared-cash evaluation"
+            )
     start = _exact_index(dataset, spec.evaluation_start, field="evaluation_start")
     stop = _exact_index(
         dataset,

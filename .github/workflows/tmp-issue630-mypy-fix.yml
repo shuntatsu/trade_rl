@@ -1,0 +1,49 @@
+name: tmp Issue 630 evaluator mypy fix
+
+on:
+  push:
+    branches:
+      - verify/issue630-shared-cash-mypy-fix-v1
+    paths:
+      - .github/workflows/tmp-issue630-mypy-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: research/issue630-shared-cash-evaluator
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Apply typing-only source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py')
+          text = path.read_text()
+          old1 = '''    if not all(item.model is model for item in (*baseline, *candidate)):\n        raise RuntimeError("shared-cash arms must share the exact fitted Ridge model")\n\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    common = {\n        "start_index": start,\n        "stop_index": stop,\n        "gross_budget": spec.gross_budget,\n        "initial_capital": spec.initial_capital,\n        "execution_cost": execution_cost,\n        "risk": None,\n    }\n    baseline_replay = run_shared_cash_replay(dataset, baseline, **common)\n    candidate_replay = run_shared_cash_replay(dataset, candidate, **common)\n'''
+          new1 = '''    if not all(item.model is model for item in baseline):\n        raise RuntimeError("baseline arm must share the exact fitted Ridge model")\n    if not all(item.model is model for item in candidate):\n        raise RuntimeError("candidate arm must share the exact fitted Ridge model")\n\n    execution_cost = execution_cost_for_overlay(spec.execution_overlay)\n    baseline_replay = run_shared_cash_replay(\n        dataset,\n        baseline,\n        start_index=start,\n        stop_index=stop,\n        gross_budget=spec.gross_budget,\n        initial_capital=spec.initial_capital,\n        execution_cost=execution_cost,\n        risk=None,\n    )\n    candidate_replay = run_shared_cash_replay(\n        dataset,\n        candidate,\n        start_index=start,\n        stop_index=stop,\n        gross_budget=spec.gross_budget,\n        initial_capital=spec.initial_capital,\n        execution_cost=execution_cost,\n        risk=None,\n    )\n'''
+          if text.count(old1) != 1:
+              raise SystemExit('typing repair target drifted')
+          path.write_text(text.replace(old1, new1))
+          PY
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run ruff format trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_ridge_shared_cash_evaluation.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/evaluation/experiments/bootstrap/ridge_shared_cash_evaluation.py
+          git diff --cached --check
+          git commit -m 'fix: preserve typed shared-cash replay contract'
+          git push origin HEAD:research/issue630-shared-cash-evaluator

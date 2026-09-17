@@ -1,0 +1,66 @@
+name: Verify Issue 645 preauthorization v2
+on:
+  push:
+    branches:
+      - verify/issue645-preauthorization-v2
+permissions:
+  actions: read
+  contents: read
+jobs:
+  slots:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 49693505987fb3c888e2f05206061558f5961331
+          persist-credentials: false
+      - name: Verify final authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          for row in \
+            '35286382568|31029ddf466fd716d39c42c3224260cc5782a5fa' \
+            '35286608859|78cfad19b2bb2eb66291aec0d6de8a7ffaa0a3f6' \
+            '35287111415|0befe49b1010468870dac991f8a2ed19b47f5acf'
+          do
+            IFS='|' read -r run sha <<<"$row"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run")"
+            test "$(jq -r .status <<<"$payload")" = completed
+            test "$(jq -r .conclusion <<<"$payload")" = success
+            test "$(jq -r .head_sha <<<"$payload")" = "$sha"
+          done
+      - name: Prove all repository-global Issue 645 result slots empty
+        shell: bash
+        run: |
+          set -euo pipefail
+          names=(
+            issue645-corrected-directional-activation-v1
+            issue645-corrected-directional-protocol-v1
+            issue645-corrected-directional-run-summary-v1
+            issue645-corrected-directional-audit-v1
+          )
+          for arm in cash constant_long constant_short trend mean_reversion ridge24 lightgbm24 channel_breakout ppo0 ppo1 ppo2 ppo3 ppo4; do
+            names+=("issue645-corrected-directional-arm-$arm-v1")
+          done
+          for name in "${names[@]}"; do
+            listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+            test "$(jq -r .total_count <<<"$listing")" = 0
+          done
+          echo ISSUE645_ALL_RESULT_SLOTS=EMPTY
+      - name: Prove official branch and workflow lineage absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/branches/run/issue645-corrected-directional-study-v1" >/dev/null 2>&1; then
+            echo 'official Issue 645 branch already exists' >&2
+            exit 1
+          fi
+          runs="$(gh api 'repos/'"$GITHUB_REPOSITORY"'/actions/runs?branch=run%2Fissue645-corrected-directional-study-v1&per_page=20')"
+          test "$(jq -r .total_count <<<"$runs")" = 0
+          echo ISSUE645_OFFICIAL_REF=ABSENT
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ECONOMIC_RESULT_INTERPRETED=false

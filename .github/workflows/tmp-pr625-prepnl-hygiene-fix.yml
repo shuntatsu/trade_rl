@@ -1,0 +1,41 @@
+name: tmp PR625 PRE-PnL hygiene fix
+
+on:
+  push:
+    branches:
+      - agent/pr625-prepnl-authority-selfhosted-2026-09-17
+    paths:
+      - .github/workflows/tmp-pr625-prepnl-hygiene-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/pr625-prepnl-authority-selfhosted-2026-09-17
+          fetch-depth: 1
+      - name: Fix only temporary-source hygiene and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/pr625-prepnl-authority-selfhosted.yml')
+          text = path.read_text()
+          old = '''          test -z "$(git status --porcelain)" || test "$(git status --porcelain)" = '?? pre-pnl-cost-authority-seal.json'\n'''
+          new = '''          rm -rf prepnl-source\n          test "$(git status --porcelain)" = '?? pre-pnl-cost-authority-seal.json'\n'''
+          if text.count(old) != 1:
+              raise SystemExit('PRE-P&L hygiene target drifted')
+          path.write_text(text.replace(old, new))
+          PY
+          git rm .github/workflows/tmp-pr625-prepnl-hygiene-fix.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/pr625-prepnl-authority-selfhosted.yml
+          git commit -m 'ci: ignore consumed PRE-PnL source workspace in hygiene'
+          git push origin HEAD:agent/pr625-prepnl-authority-selfhosted-2026-09-17

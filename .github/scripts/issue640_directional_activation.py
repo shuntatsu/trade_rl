@@ -59,13 +59,17 @@ def build_activation_claim(
         raise ValueError("workflow_run_attempt must be exactly 1")
     head = _text(implementation_head, field="implementation_head", length=40)
     if any(char not in "0123456789abcdef" for char in head):
-        raise ValueError("implementation_head must be a lowercase hexadecimal commit SHA")
+        raise ValueError(
+            "implementation_head must be a lowercase hexadecimal commit SHA"
+        )
 
     protocol_dict = _mapping(protocol, field="protocol")
     runtime = _runtime_packages(protocol_dict)
     provenance = _mapping(protocol_dict.get("provenance"), field="protocol provenance")
     implementation_digest = _text(
-        provenance.get("implementation_digest"), field="implementation_digest", length=64
+        provenance.get("implementation_digest"),
+        field="implementation_digest",
+        length=64,
     )
     runtime_environment_digest = _text(
         provenance.get("runtime_environment_digest"),
@@ -73,8 +77,10 @@ def build_activation_claim(
         length=64,
     )
     arms = protocol_dict.get("arms")
-    if not isinstance(arms, list) or not arms or any(
-        not isinstance(item, str) or not item for item in arms
+    if (
+        not isinstance(arms, list)
+        or not arms
+        or any(not isinstance(item, str) or not item for item in arms)
     ):
         raise ValueError("protocol arm roster must be a non-empty string array")
 
@@ -127,14 +133,22 @@ def validate_remote_slot(
     data = _mapping(payload, field="artifact listing")
     total_count = data.get("total_count")
     artifacts = data.get("artifacts")
-    if isinstance(total_count, bool) or not isinstance(total_count, int) or total_count < 0:
+    if (
+        isinstance(total_count, bool)
+        or not isinstance(total_count, int)
+        or total_count < 0
+    ):
         raise ValueError("artifact total_count must be a non-negative integer")
-    if not isinstance(artifacts, list) or any(not isinstance(item, Mapping) for item in artifacts):
+    if not isinstance(artifacts, list) or any(
+        not isinstance(item, Mapping) for item in artifacts
+    ):
         raise ValueError("artifact listing must contain an artifact array")
     if total_count != len(artifacts):
         raise ValueError("artifact total_count differs from artifact array length")
 
-    matching = [dict(item) for item in artifacts if item.get("name") == ACTIVATION_ARTIFACT_NAME]
+    matching = [
+        dict(item) for item in artifacts if item.get("name") == ACTIVATION_ARTIFACT_NAME
+    ]
     if state == "empty":
         if matching:
             raise RuntimeError("directional activation slot is already claimed")
@@ -146,13 +160,19 @@ def validate_remote_slot(
 
     artifact = matching[0]
     if artifact.get("expired") is not False:
-        raise RuntimeError("directional activation Artifact must be present and unexpired")
+        raise RuntimeError(
+            "directional activation Artifact must be present and unexpired"
+        )
     if workflow_run_id is None:
-        raise ValueError("workflow_run_id is required for claimed activation validation")
+        raise ValueError(
+            "workflow_run_id is required for claimed activation validation"
+        )
     expected_run = _positive_int(workflow_run_id, field="workflow_run_id")
     run = _mapping(artifact.get("workflow_run"), field="activation artifact workflow")
     if run.get("id") != expected_run:
-        raise RuntimeError("directional activation Artifact belongs to another workflow")
+        raise RuntimeError(
+            "directional activation Artifact belongs to another workflow"
+        )
     return artifact
 
 
@@ -176,9 +196,13 @@ def validate_activation_claim(
         raise ValueError("activation claim keys differ from protocol authority")
     for field, value in expected.items():
         if type(actual[field]) is not type(value) or actual[field] != value:
-            raise ValueError(f"activation claim {field} differs from protocol authority")
+            raise ValueError(
+                f"activation claim {field} differs from protocol authority"
+            )
     if activation_claim_bytes(actual) != activation_claim_bytes(expected):
-        raise ValueError("activation claim canonical bytes differ from protocol authority")
+        raise ValueError(
+            "activation claim canonical bytes differ from protocol authority"
+        )
 
 
 __all__ = [

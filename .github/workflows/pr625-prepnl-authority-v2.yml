@@ -1,0 +1,329 @@
+name: PR625 Real PRE-PnL Cost Authority Seal v2
+
+on:
+  push:
+    branches:
+      - agent/pr625-prepnl-authority-selfhosted-2026-09-17
+    paths:
+      - .github/workflows/pr625-prepnl-authority-v2.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  primary-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      seal_b64: ${{ steps.build.outputs.seal_b64 }}
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      authority_digest: ${{ steps.build.outputs.authority_digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout helper harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/pr625-prepnl-authority-selfhosted-2026-09-17
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact sealed implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+
+      - name: Install exact implementation runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - name: Fetch sealed successor artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C impl rev-parse HEAD)" = '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          mkdir -p impl/prepnl-source
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/10331899302" \
+            > impl/prepnl-source/source-metadata.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/10331899302/zip" \
+            --output impl/prepnl-source/source.zip
+
+      - name: Build primary result-blind authority
+        id: build
+        shell: bash
+        env:
+          AUTHORITY_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          cd impl
+          uv run python ../helper/.github/scripts/issue616_prepnl_authority.py build \
+            --metadata prepnl-source/source-metadata.json \
+            --zip prepnl-source/source.zip \
+            --dataset-root prepnl-source/dataset \
+            --run-id "${AUTHORITY_RUN_ID}" \
+            --output ../pre-pnl-cost-authority-primary.json \
+            --github-output "${GITHUB_OUTPUT}"
+          rm -rf prepnl-source
+          test -z "$(git status --porcelain)"
+          cd ..
+          test -z "$(git -C helper status --porcelain)"
+
+      - name: Upload primary authority seal
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue616-pre-pnl-cost-authority-primary-${{ github.run_id }}
+          path: pre-pnl-cost-authority-primary.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh-reconstruction:
+    needs: primary-authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      seal_sha256: ${{ steps.build.outputs.seal_sha256 }}
+      authority_digest: ${{ steps.build.outputs.authority_digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout helper harness independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/pr625-prepnl-authority-selfhosted-2026-09-17
+          path: helper
+          persist-credentials: false
+
+      - name: Checkout exact implementation independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3d3bbc416b2ac2b9051496e3ead6e8ff96170b45
+          path: impl
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          python-version: '3.12'
+
+      - name: Install fresh exact implementation runtime
+        working-directory: impl
+        run: uv sync --extra dev
+
+      - name: Re-fetch sealed successor independently
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C impl rev-parse HEAD)" = '3d3bbc416b2ac2b9051496e3ead6e8ff96170b45'
+          mkdir -p impl/prepnl-source
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/10331899302" \
+            > impl/prepnl-source/source-metadata.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/10331899302/zip" \
+            --output impl/prepnl-source/source.zip
+
+      - name: Fresh reconstruct and require byte equality
+        id: build
+        shell: bash
+        env:
+          AUTHORITY_RUN_ID: ${{ github.run_id }}
+          PRIMARY_SEAL_B64: ${{ needs.primary-authority.outputs.seal_b64 }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary-authority.outputs.seal_sha256 }}
+          PRIMARY_AUTHORITY_DIGEST: ${{ needs.primary-authority.outputs.authority_digest }}
+        run: |
+          set -euo pipefail
+          cd impl
+          uv run python ../helper/.github/scripts/issue616_prepnl_authority.py build \
+            --metadata prepnl-source/source-metadata.json \
+            --zip prepnl-source/source.zip \
+            --dataset-root prepnl-source/dataset \
+            --run-id "${AUTHORITY_RUN_ID}" \
+            --output ../pre-pnl-cost-authority-fresh.json \
+            --github-output "${GITHUB_OUTPUT}" \
+            --primary-b64 "${PRIMARY_SEAL_B64}" \
+            --primary-sha256 "${PRIMARY_SEAL_SHA256}" \
+            --primary-authority-digest "${PRIMARY_AUTHORITY_DIGEST}"
+          rm -rf prepnl-source
+          test -z "$(git status --porcelain)"
+          cd ..
+          test -z "$(git -C helper status --porcelain)"
+
+      - name: Upload fresh authority reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue616-pre-pnl-cost-authority-fresh-${{ github.run_id }}
+          path: pre-pnl-cost-authority-fresh.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  closure-audit:
+    needs: [primary-authority, fresh-reconstruction]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Read back artifacts and verify canonical closure
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ARTIFACT_ID: ${{ needs.primary-authority.outputs.artifact_id }}
+          PRIMARY_UPLOAD_DIGEST: ${{ needs.primary-authority.outputs.artifact_digest }}
+          PRIMARY_SEAL_SHA256: ${{ needs.primary-authority.outputs.seal_sha256 }}
+          PRIMARY_AUTHORITY_DIGEST: ${{ needs.primary-authority.outputs.authority_digest }}
+          FRESH_ARTIFACT_ID: ${{ needs.fresh-reconstruction.outputs.artifact_id }}
+          FRESH_UPLOAD_DIGEST: ${{ needs.fresh-reconstruction.outputs.artifact_digest }}
+          FRESH_SEAL_SHA256: ${{ needs.fresh-reconstruction.outputs.seal_sha256 }}
+          FRESH_AUTHORITY_DIGEST: ${{ needs.fresh-reconstruction.outputs.authority_digest }}
+        run: |
+          set -euo pipefail
+          test "${PRIMARY_SEAL_SHA256}" = "${FRESH_SEAL_SHA256}"
+          test "${PRIMARY_AUTHORITY_DIGEST}" = "${FRESH_AUTHORITY_DIGEST}"
+          mkdir audit
+          for side in primary fresh; do
+            if [ "$side" = primary ]; then
+              id="$PRIMARY_ARTIFACT_ID"; expected="$PRIMARY_UPLOAD_DIGEST"
+            else
+              id="$FRESH_ARTIFACT_ID"; expected="$FRESH_UPLOAD_DIGEST"
+            fi
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}" \
+              > "audit/${side}-metadata.json"
+            python - "$side" "$id" "$expected" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          side, expected_id, expected_digest = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          data = json.loads(Path(f'audit/{side}-metadata.json').read_text())
+          if data.get('id') != expected_id:
+              raise SystemExit(f'{side} artifact id drift')
+          if data.get('digest') != expected_digest:
+              raise SystemExit(f'{side} artifact digest read-back mismatch')
+          if data.get('expired') is not False:
+              raise SystemExit(f'{side} authority artifact is expired')
+          PY
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "audit/${side}.zip"
+          done
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          def sole_file(path: str) -> bytes:
+              with zipfile.ZipFile(path) as archive:
+                  files = [info for info in archive.infolist() if not info.is_dir()]
+                  if len(files) != 1:
+                      raise SystemExit(f'{path} must contain exactly one JSON file')
+                  return archive.read(files[0])
+
+          primary = sole_file('audit/primary.zip')
+          fresh = sole_file('audit/fresh.zip')
+          if primary != fresh:
+              raise SystemExit('uploaded primary/fresh authority bytes differ')
+          internal_sha = hashlib.sha256(primary).hexdigest()
+          if internal_sha != os.environ['PRIMARY_SEAL_SHA256']:
+              raise SystemExit('uploaded authority internal SHA mismatch')
+          document = json.loads(primary)
+          payload = document.get('payload') or {}
+          if payload.get('authority_digest') != os.environ['PRIMARY_AUTHORITY_DIGEST']:
+              raise SystemExit('uploaded authority digest drift')
+          for field in (
+              'study_files_extracted',
+              'study_content_read',
+              'candidate_result_content_read',
+              'model_fit_performed',
+              'evaluation_execution_performed',
+              'evaluation_pnl_inspected',
+              'final_test_accessed',
+              'shared_cash_profitability_established',
+              'operational_eligibility_established',
+              'production_eligible',
+              'live_trading_authorized',
+              'merge_authorized',
+          ):
+              if payload.get(field) is not False:
+                  raise SystemExit(f'research boundary flag drift: {field}')
+          closure = {
+              'schema_version': 'issue616_real_pre_pnl_cost_authority_closure_v1',
+              'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'authority_digest': os.environ['PRIMARY_AUTHORITY_DIGEST'],
+              'authority_seal_sha256': internal_sha,
+              'primary_artifact_id': int(os.environ['PRIMARY_ARTIFACT_ID']),
+              'primary_api_digest': os.environ['PRIMARY_UPLOAD_DIGEST'],
+              'fresh_artifact_id': int(os.environ['FRESH_ARTIFACT_ID']),
+              'fresh_api_digest': os.environ['FRESH_UPLOAD_DIGEST'],
+              'primary_fresh_byte_equal': True,
+              'result_blind': True,
+              'evaluation_execution_performed': False,
+              'evaluation_pnl_inspected': False,
+              'final_test_accessed': False,
+              'shared_cash_profitability_established': False,
+              'operational_eligibility_established': False,
+              'production_eligible': False,
+              'live_trading_authorized': False,
+              'merge_authorized': False,
+          }
+          Path('pre-pnl-cost-authority-closure.json').write_text(
+              json.dumps(closure, allow_nan=False, sort_keys=True, separators=(',', ':')) + '\n'
+          )
+          print('ISSUE616_REAL_PRE_PNL_AUTHORITY_CLOSURE=PASS')
+          print('PRIMARY_FRESH_BYTE_EQUAL=true')
+          print('MODEL_FIT_PERFORMED=false')
+          print('EVALUATION_EXECUTION_PERFORMED=false')
+          print('EVALUATION_PNL_INSPECTED=false')
+          PY
+
+      - name: Upload authority closure record
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue616-pre-pnl-cost-authority-closure-${{ github.run_id }}
+          path: pre-pnl-cost-authority-closure.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

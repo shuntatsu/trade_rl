@@ -1,0 +1,130 @@
+name: Verify Issue 663 v2 preflight v1
+
+on:
+  push:
+    branches:
+      - verify/issue663-v2-preflight-v1
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+  SEAL_RUN: '35378478461'
+  PROTOCOL_SHA: de6179570dae339c4a3fe3d62d076edc811c332372185efc17d1566e7602fd55
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Rebind immutable authorities and empty candidate slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          seal="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SEAL_RUN")"
+          test "$(jq -r .status <<<"$seal")" = completed
+          test "$(jq -r .conclusion <<<"$seal")" = success
+          test "$(jq -r .head_sha <<<"$seal")" = b162a577f950501c9582c1f55b92c65a66694c5a
+
+          cat > "$RUNNER_TEMP/expected.tsv" <<'EOF'
+          10561760521	issue663-normalization-authority-primary-v2	sha256:c351109dfc8ac40d2ea857bfbc1756bdae9d31c83cd8279398cf9a8b541e10ba	35378478461
+          10560986913	issue663-normalization-authority-fresh-v2	sha256:cad40e73afd0b246a1f9e44f9cb63d04a651b6cceb65e4db985dbfd69fbfe30f	35378478461
+          10560807119	issue663-normalization-authority-audit-v2	sha256:e18effba92f130046938d085b104a0e3efa82d46af80ab8a4468f74963be52ec	35378478461
+          10526185891	issue645-corrected-directional-arm-ppo0-v1	sha256:ffc2fde5ccf1c56a34a14b4b61be42acd51fdbf93722d36bf9c7e323f0c28280	35287338444
+          10526377242	issue645-corrected-directional-arm-ppo1-v1	sha256:c96d901280fbfb8bb15f91ad511e398469e5946341d2612d199096afe22b4228	35287338444
+          10526288771	issue645-corrected-directional-arm-ppo2-v1	sha256:e185ac3d4f47068d7c8c21a1e301f1662a83de4730858e4965893e0ab1019951	35287338444
+          10527945300	issue645-corrected-directional-arm-ppo3-v1	sha256:4a8645c0e8eabdca926fc462d63716f434ad21a81218d7d0ef3887cce934f498	35287338444
+          10528031191	issue645-corrected-directional-arm-ppo4-v1	sha256:3a329e9b13d29879ace07af2a9dc700431ccd094e6754c02ef92f85000b7c3f8	35287338444
+          10528400988	issue645-corrected-directional-run-summary-v1	sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9	35287338444
+          10527862342	issue645-corrected-directional-audit-v1	sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b	35287338444
+          10331899302	issue539-calibrated-causal-successor-v3-34803217815	sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce	34803217815
+          10332575500	issue539-calibrated-causal-fresh-verify-v3-34803432434	sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589	34803432434
+          EOF
+          while IFS=$'\t' read -r id name digest run; do
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$run"
+            test "$(jq -r .expired <<<"$meta")" = false
+          done < "$RUNNER_TEMP/expected.tsv"
+
+          for name in             issue663-normalization-activation-v1             issue663-normalization-seed0-v1 issue663-normalization-seed1-v1 issue663-normalization-seed2-v1 issue663-normalization-seed3-v1 issue663-normalization-seed4-v1             issue663-normalization-seed0-fresh-v1 issue663-normalization-seed1-fresh-v1 issue663-normalization-seed2-fresh-v1 issue663-normalization-seed3-fresh-v1 issue663-normalization-seed4-fresh-v1             issue663-normalization-comparison-v1             issue663-normalization-decision-audit-v1
+          do
+            listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+            test "$(jq -r .total_count <<<"$listing")" = 0
+          done
+          echo ISSUE663_V2_FUTURE_SLOTS=EMPTY
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install and verify frozen candidate trainer runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run python - <<'PY'
+          import importlib.metadata as metadata
+          import stable_baselines3
+          import torch
+          from trade_rl.strategies.rl.ppo import fit_ppo_strategy
+          from trade_rl.strategies.rl.ppo_artifact import (
+              load_normalized_ppo,
+              save_normalized_ppo,
+          )
+          assert metadata.version("stable-baselines3") == "2.3.2"
+          assert metadata.version("torch") == "2.4.1"
+          assert callable(fit_ppo_strategy)
+          assert callable(save_normalized_ppo)
+          assert callable(load_normalized_ppo)
+          print("ISSUE663_TRAINER_RUNTIME=PASS")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          PY
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/seal
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+
+      - name: Verify v2 canonical protocol without economic source load
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEAL="$RUNNER_TEMP/seal" uv run python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ["SEAL"])
+          raw=(root/"protocol.json").read_bytes()
+          protocol=json.loads(raw)
+          assert hashlib.sha256(raw).hexdigest() == os.environ["PROTOCOL_SHA"]
+          assert protocol["issue"] == 663
+          assert protocol["factor"] == "PPO_FIT_ONLY_FEATURE_STANDARDIZATION"
+          assert protocol["candidate"]["normalize_features"] is True
+          assert protocol["candidate"]["seeds"] == [0,1,2,3,4]
+          assert protocol["candidate"]["total_timesteps"] == 262144
+          assert protocol["candidate"]["training_layout"] == "sequential"
+          assert protocol["candidate"]["risk_config"] is None
+          assert protocol["absolute_gate"]["terminal_flatness_semantics"] == "issue645_reporting_quantity_abs_le_1e-10"
+          assert "exact_terminal_flatness" not in protocol["absolute_gate"]
+          assert protocol["protocol_revision"]["candidate_results_inspected"] is False
+          for value in protocol["boundaries"].values():
+              assert value is False
+          print("ISSUE663_PROTOCOL_V2=PASS")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          print("ECONOMIC_REPLAY_PERFORMED=false")
+          PY

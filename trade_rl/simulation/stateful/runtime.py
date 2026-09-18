@@ -54,7 +54,6 @@ class StatefulExecutionRuntime:
     expired_count: int
     fill_count: int
     max_participation: float
-    gross_factor: float
     requested_by_symbol: np.ndarray
     filled_by_symbol: np.ndarray
     participation_by_symbol: np.ndarray
@@ -90,7 +89,6 @@ class StatefulExecutionRuntime:
             expired_count=0,
             fill_count=0,
             max_participation=0.0,
-            gross_factor=1.0,
             requested_by_symbol=np.zeros(n_symbols, dtype=np.float64),
             filled_by_symbol=np.zeros(n_symbols, dtype=np.float64),
             participation_by_symbol=np.zeros(n_symbols, dtype=np.float64),
@@ -267,6 +265,23 @@ class StatefulExecutionRuntime:
             ending_value / self.starting_value - 1.0,
             -1.0 + 1e-12,
         )
+        # Attribute the realized execution path, rather than rerunning a
+        # hypothetical zero-cost strategy. Trades themselves exchange cash for
+        # inventory at their actual fill prices; remove only explicit non-price
+        # cash flows from ending equity to recover observed-path price P&L.
+        observed_path_gross_value = (
+            ending_value
+            + self.total_cost
+            - self.total_funding
+            + self.total_borrow
+            - self.total_dividend
+            - self.total_cash_interest
+        )
+        interval_gross_return = (
+            observed_path_gross_value / self.starting_value - 1.0
+        )
+        if not math.isfinite(interval_gross_return):
+            raise ValueError("stateful gross return became non-finite")
         requested_turnover = self.requested_notional / max(
             self.starting_value, _TOLERANCE
         )
@@ -289,7 +304,7 @@ class StatefulExecutionRuntime:
             "interval_borrow_cost": self.total_borrow,
             "interval_dividend": self.total_dividend,
             "interval_cash_interest": self.total_cash_interest,
-            "interval_gross_return": self.gross_factor - 1.0,
+            "interval_gross_return": interval_gross_return,
             "interval_net_return": interval_net_return,
             "interval_log_return": math.log1p(interval_net_return),
             "requested_notional": self.requested_notional,

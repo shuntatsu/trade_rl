@@ -217,6 +217,18 @@ def run_seed(
 
         if base["qualified"]:
             factory = _strategy_factory(loaded)
+            stresses = (
+                {
+                    "cost_multiplier": protocol["absolute_gate"][
+                        "cost_stress_multiplier"
+                    ]
+                },
+                {
+                    "latency_bars": protocol["absolute_gate"][
+                        "latency_stress_bars"
+                    ]
+                },
+            )
             base["stress"] = [
                 evaluate_directional_arm(
                     dataset,
@@ -225,11 +237,7 @@ def run_seed(
                     stop_index=stop,
                     **stress,
                 )
-                for stress in protocol["absolute_gate"]
-                and (
-                    {"cost_multiplier": protocol["absolute_gate"]["cost_stress_multiplier"]},
-                    {"latency_bars": protocol["absolute_gate"]["latency_stress_bars"]},
-                )
+                for stress in stresses
             ]
             base["by_symbol"] = {
                 symbol: evaluate_directional_arm(

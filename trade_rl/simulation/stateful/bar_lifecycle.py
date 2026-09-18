@@ -69,16 +69,6 @@ class StatefulBarLifecycle:
                 index=processing_index,
                 year_fraction=gap_year_fraction,
             )
-            executor._update_margin(runtime.book)
-            if runtime.book.insolvent:
-                runtime.cancel_active_orders(
-                    processing_index=processing_index,
-                    reason="economic_termination",
-                )
-                executor._flatten_after_termination(
-                    runtime.book,
-                    runtime.book.mark_prices,
-                )
 
         split = dataset.resolved_array("split_factor")[processing_index]
         split_mask = np.abs(split - 1.0) > _TOLERANCE
@@ -109,6 +99,14 @@ class StatefulBarLifecycle:
         open_prices = dataset.open[processing_index]
         runtime.book.revalue(open_prices)
         runtime.book.refresh_drawdown()
+        if gap_year_fraction > 0.0:
+            executor._update_margin(runtime.book)
+            if runtime.book.insolvent:
+                runtime.cancel_active_orders(
+                    processing_index=processing_index,
+                    reason="economic_termination",
+                )
+                executor._flatten_after_termination(runtime.book, open_prices)
 
         tick, lot, minimum = executor.effective_rule_arrays(index=processing_index)
         return StatefulBarContext(

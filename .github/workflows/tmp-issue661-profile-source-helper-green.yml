@@ -1,4 +1,4 @@
-name: tmp Issue 661 profile source hardening RED
+name: tmp Issue 661 profile source semantic RED
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 37a997d0162632dce414dee6dd41cac3f8adfa8a
+          ref: 306c204842d0a9fca2c1b2442fa2a8831b843c42
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -28,7 +28,7 @@ jobs:
       - name: Guard helper-only scope
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "37a997d0162632dce414dee6dd41cac3f8adfa8a"
+          test "$(git rev-parse HEAD)" = "306c204842d0a9fca2c1b2442fa2a8831b843c42"
           mapfile -t changed < <(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)
           printf '%s\n' "${changed[@]}"
           test "${#changed[@]}" -eq 3

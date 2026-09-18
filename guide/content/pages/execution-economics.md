@@ -53,6 +53,8 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
 
+区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。
+
 発注単位の整数個数を正確に記録し、保有数量と注文残量の両方へ同じ約定を反映します。小数の表示値を繰り返し加減して、最後の1単位が決済できなくなることを防ぎます。現金は実際の約定数量から計算し、最小発注額に届かない本当の端数は保持します。
 
 流動性の上限で部分約定になる場合も、注文数量と約定金額の上限に収まる最大の発注単位数を求めます。逆算時の小数誤差を理由に、有効な1単位を落としたり、上限を超えたりしません。

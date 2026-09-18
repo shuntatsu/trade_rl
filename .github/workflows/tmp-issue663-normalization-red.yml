@@ -1,0 +1,45 @@
+name: tmp Issue 663 corrected PPO normalization RED
+
+on:
+  push:
+    branches:
+      - research/issue663-ppo-normalization-corrected
+    paths:
+      - .github/workflows/tmp-issue663-normalization-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ed5ff6019339cf253fcbe76f65103ed65f7d80a9
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static test oracle
+        run: |
+          set -euo pipefail
+          uv run ruff check tests/strategies/test_ppo_feature_normalization.py tests/strategies/test_ppo_model_artifact.py
+          uv run ruff format --check tests/strategies/test_ppo_feature_normalization.py tests/strategies/test_ppo_model_artifact.py
+      - name: Prove normalization capability is the semantic RED
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/strategies/test_ppo_feature_normalization.py tests/strategies/test_ppo_model_artifact.py > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Eq "No module named .*ppo_(normalization|artifact)" "$RUNNER_TEMP/red.log"
+          ! grep -Eq "FAILED .*assert" "$RUNNER_TEMP/red.log"
+          echo ISSUE663_NORMALIZATION_SEMANTIC_RED=PASS
+          echo REAL_DATASET_LOADED=false
+          echo PPO_TRAINING_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false

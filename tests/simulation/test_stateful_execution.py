@@ -445,9 +445,7 @@ def test_interval_gross_return_reconciles_explicit_execution_cost() -> None:
         - result.interval_dividend
         - result.interval_cash_interest
     )
-    assert gross_value / 1_000.0 - 1.0 == pytest.approx(
-        result.interval_gross_return
-    )
+    assert gross_value / 1_000.0 - 1.0 == pytest.approx(result.interval_gross_return)
 
 
 def test_open_gap_refreshes_peak_before_projected_book_clone() -> None:

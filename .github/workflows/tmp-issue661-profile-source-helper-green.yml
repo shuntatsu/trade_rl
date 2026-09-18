@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 95a85320d47b363fbde325abca5cf8feea964fdd
+          ref: 372a71d553ea68245d8b968527128a94f4e85900
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -28,12 +28,13 @@ jobs:
       - name: Guard helper-only scope
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "95a85320d47b363fbde325abca5cf8feea964fdd"
+          test "$(git rev-parse HEAD)" = "372a71d553ea68245d8b968527128a94f4e85900"
           mapfile -t changed < <(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)
           printf '%s\n' "${changed[@]}"
-          test "${#changed[@]}" -eq 2
+          test "${#changed[@]}" -eq 3
           test "${changed[0]}" = ".github/scripts/issue661_profile_source.py"
-          test "${changed[1]}" = "tests/tools/test_issue661_profile_source.py"
+          test "${changed[1]}" = ".github/workflows/tmp-issue661-profile-source-helper-green.yml"
+          test "${changed[2]}" = "tests/tools/test_issue661_profile_source.py"
       - name: Static checks
         run: |
           set -euo pipefail

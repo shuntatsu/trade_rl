@@ -208,9 +208,13 @@ def run_seed(
             start_index=start,
             stop_index=stop,
         )
-        base_counts = {name: int(counter.get(name, 0)) for name in ("SHORT", "FLAT", "LONG")}
+        base_counts = {
+            name: int(counter.get(name, 0)) for name in ("SHORT", "FLAT", "LONG")
+        }
         decision_count = sum(base_counts.values())
-        dominant_intent = max(base_counts, key=base_counts.get) if decision_count else None
+        dominant_intent = (
+            max(base_counts, key=base_counts.get) if decision_count else None
+        )
         dominant_fraction = (
             max(base_counts.values()) / decision_count if decision_count else None
         )
@@ -223,11 +227,7 @@ def run_seed(
                         "cost_stress_multiplier"
                     ]
                 },
-                {
-                    "latency_bars": protocol["absolute_gate"][
-                        "latency_stress_bars"
-                    ]
-                },
+                {"latency_bars": protocol["absolute_gate"]["latency_stress_bars"]},
             )
             base["stress"] = [
                 evaluate_directional_arm(
@@ -252,7 +252,9 @@ def run_seed(
 
         after = build_candidate_run_provenance()
         if after != before:
-            raise ValueError("candidate implementation/runtime changed during seed execution")
+            raise ValueError(
+                "candidate implementation/runtime changed during seed execution"
+            )
 
         diagnostics = {
             "intent_counts": base_counts,
@@ -284,7 +286,9 @@ def run_seed(
             "live_trading_authorized": False,
         }
         _write_once(output / "result.json", result)
-        _write_once(output / "result.sha256.json", {"sha256": _sha(output / "result.json")})
+        _write_once(
+            output / "result.sha256.json", {"sha256": _sha(output / "result.json")}
+        )
         _write_once(
             output / "attempt.json",
             {
@@ -397,7 +401,9 @@ def fresh_verify(
         loaded.feature_normalizer is None
         or loaded.feature_normalizer.to_payload() != recomputed.to_payload()
     ):
-        raise ValueError("published normalizer differs from fresh fit-scope reconstruction")
+        raise ValueError(
+            "published normalizer differs from fresh fit-scope reconstruction"
+        )
 
     base = wrapper["result"]
     returns = tuple(float(value) for value in base["returns"])
@@ -426,7 +432,9 @@ def fresh_verify(
         ):
             raise ValueError(f"candidate {year} return differs from raw returns")
     terminal_flat = bool(
-        np.all(np.abs(np.asarray(base["terminal_quantities"], dtype=np.float64)) <= 1e-10)
+        np.all(
+            np.abs(np.asarray(base["terminal_quantities"], dtype=np.float64)) <= 1e-10
+        )
     )
     if terminal_flat is not base["terminal_flat"]:
         raise ValueError("candidate terminal-flat flag differs from #645 semantics")
@@ -578,13 +586,13 @@ def compare(
         and median(deltas) > 0.0
         and all(len(row["returns"]) == 17_544 for row in candidate_rows)
         and all(
-            0.0 <= float(row["ledger_max_drawdown"])
+            0.0
+            <= float(row["ledger_max_drawdown"])
             <= protocol["relative_gate"]["max_candidate_drawdown"]
             for row in candidate_rows
         )
         and all(
-            len(candidate["termination_reasons"])
-            <= len(control["termination_reasons"])
+            len(candidate["termination_reasons"]) <= len(control["termination_reasons"])
             for candidate, control in zip(candidate_rows, controls_rows, strict=True)
         )
     )
@@ -603,19 +611,14 @@ def compare(
         for year in ("2023", "2024")
     }
     absolute = bool(
-        sum(stress_passes)
-        >= protocol["absolute_gate"]["ppo_required_qualifying_seeds"]
+        sum(stress_passes) >= protocol["absolute_gate"]["ppo_required_qualifying_seeds"]
         and median_total > 0.0
         and all(value > 0.0 for value in median_years.values())
     )
     decision = (
         "KEEP_BASELINE"
         if not relative
-        else (
-            "PROSPECTIVE_PAPER_REQUIRED"
-            if absolute
-            else "RELATIVE_IMPROVEMENT_ONLY"
-        )
+        else ("PROSPECTIVE_PAPER_REQUIRED" if absolute else "RELATIVE_IMPROVEMENT_ONLY")
     )
 
     comparison = {
@@ -655,6 +658,7 @@ def compare(
         "live_trading_authorized": False,
     }
     _write_once(output / "comparison.json", comparison)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

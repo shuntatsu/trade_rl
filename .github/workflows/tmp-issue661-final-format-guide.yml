@@ -3,26 +3,54 @@ on:
   push:
     branches:
       - automation/issue661-final-format-guide-v1
+    paths:
+      - .github/workflows/tmp-issue661-final-format-guide.yml
 permissions:
-  contents: read
+  contents: write
 jobs:
   derive:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 17dfa5b03ebb0efa2e9c1caee98a4166433520fa
-          persist-credentials: false
+          ref: automation/issue661-final-format-guide-v1
+          persist-credentials: true
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
-      - run: |
+      - name: Derive mechanical formatting and Guide fingerprints
+        run: |
           set -euo pipefail
+          test "$(git merge-base --is-ancestor 17dfa5b03ebb0efa2e9c1caee98a4166433520fa HEAD; echo $?)" = "0"
           uv sync --extra dev
           uv run ruff format trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py
           cd guide
           python3 tools/content_contract.py --refresh-code implementation-replay
+          python3 tools/content_contract.py --refresh-code code-map
           python3 tools/content_contract.py --check
           cd ..
-          git diff -- trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py guide/content/meta/implementation-replay.json
+          uv run ruff format --check trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py
+          git diff --check
+          mapfile -t changed < <(git diff --name-only)
+          printf '%s\n' "${changed[@]}"
+          python - <<'PY'
+          import subprocess
+          expected = {
+              "guide/content/meta/code-map.json",
+              "guide/content/meta/implementation-replay.json",
+              "trade_rl/simulation/execution.py",
+              "trade_rl/simulation/stateful/execution.py",
+          }
+          actual = set(subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines())
+          if actual != expected:
+              raise SystemExit(f"derived scope drift: {sorted(actual)!r}")
+          PY
+      - name: Commit derived files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             trade_rl/simulation/execution.py             trade_rl/simulation/stateful/execution.py             guide/content/meta/code-map.json             guide/content/meta/implementation-replay.json
+          git commit -m "chore: format Issue 661 observer and refresh Guide fingerprints"
+          git push origin HEAD:automation/issue661-final-format-guide-v1

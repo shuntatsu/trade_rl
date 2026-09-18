@@ -1,0 +1,55 @@
+name: tmp Issue 661 profile source helper GREEN
+
+on:
+  push:
+    branches:
+      - prepare/issue661-profile-source-v1
+    paths:
+      - .github/workflows/tmp-issue661-profile-source-helper-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 95a85320d47b363fbde325abca5cf8feea964fdd
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Guard helper-only scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "95a85320d47b363fbde325abca5cf8feea964fdd"
+          mapfile -t changed < <(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/scripts/issue661_profile_source.py"
+          test "${changed[1]}" = "tests/tools/test_issue661_profile_source.py"
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run ruff format --check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run mypy .github/scripts/issue661_profile_source.py
+          uv run python -m py_compile .github/scripts/issue661_profile_source.py
+      - name: Synthetic source/profile oracles
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/tools/test_issue661_profile_source.py tests/integrations/test_binance_market_order_profile.py
+          echo REAL_EXCHANGE_INFO_REQUEST_PERFORMED=false
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo ECONOMIC_RESULT_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false
+      - name: Exact clean target
+        run: test -z "$(git status --porcelain)"

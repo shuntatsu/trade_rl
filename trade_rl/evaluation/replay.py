@@ -466,7 +466,8 @@ def run_shared_cash_replay(
     decisions: list[SharedCashReplayDecision] = []
     returns: list[float] = []
     ledger_intervals: list[SharedCashLedgerIntervalEvidence] = []
-    last_execution = None
+    active_order_remainders: tuple[tuple[str, float], ...] = ()
+    terminal_order_reasons: tuple[tuple[str, str], ...] = ()
     index = start_index
 
     while index < stop_index:
@@ -546,15 +547,26 @@ def run_shared_cash_replay(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
-        execution = executor.execute_interval(
-            book,
-            constrained.weights,
-            start_index=index,
-            bars=1,
-        )
+        stateful_evidence = None
+        if capture_ledger_evidence:
+            execution, stateful_evidence = executor.execute_interval_with_evidence(
+                book,
+                constrained.weights,
+                start_index=index,
+                bars=1,
+            )
+        else:
+            execution = executor.execute_interval(
+                book,
+                constrained.weights,
+                start_index=index,
+                bars=1,
+            )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
         if capture_ledger_evidence:
+            if stateful_evidence is None:
+                raise RuntimeError("stateful evidence was not returned")
             ledger_intervals.append(
                 SharedCashLedgerIntervalEvidence(
                     start_index=index,
@@ -584,11 +596,18 @@ def run_shared_cash_replay(
                     interval_cash_interest=float(execution.interval_cash_interest),
                     interval_net_return=float(execution.interval_net_return),
                     termination_reason=execution.termination_reason,
-                    order_events=execution.order_events,
-                    funding_events=execution.funding_evidence,
+                    order_events=stateful_evidence.order_events,
+                    funding_events=stateful_evidence.funding_evidence,
                 )
             )
-        last_execution = execution
+            active_order_remainders = tuple(
+                (order.order_id, float(order.remaining_quantity))
+                for order in stateful_evidence.order_book.active_orders
+            )
+            terminal_order_reasons = tuple(
+                (order.order_id, str(order.terminal_reason))
+                for order in stateful_evidence.order_book.terminal_orders
+            )
         book = execution.book
         returns.append(execution.interval_net_return)
         current_intents = intents
@@ -614,7 +633,7 @@ def run_shared_cash_replay(
     )
     ledger_evidence = None
     if capture_ledger_evidence:
-        if last_execution is None:
+        if not ledger_intervals:
             raise RuntimeError("captured replay produced no execution interval")
         terminal_reason = (
             None
@@ -642,14 +661,8 @@ def run_shared_cash_replay(
             final_turnover_total=float(book.turnover_total),
             final_max_drawdown=float(book.max_drawdown),
             termination_reason=terminal_reason,
-            active_order_remainders=tuple(
-                (order.order_id, float(order.remaining_quantity))
-                for order in last_execution.order_book.active_orders
-            ),
-            terminal_order_reasons=tuple(
-                (order.order_id, str(order.terminal_reason))
-                for order in last_execution.order_book.terminal_orders
-            ),
+            active_order_remainders=active_order_remainders,
+            terminal_order_reasons=terminal_order_reasons,
         )
     return SharedCashReplayResult(
         book=book.clone(),

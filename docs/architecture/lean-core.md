@@ -81,6 +81,22 @@ unavailableまたはnon-finiteなlocal valueは0へmaskする。stalenessはsele
 
 Observation contractは暗黙のimplementation detailにしない。新規Candidate Runと新規Studyのresolved configはObservation schema、staleness利用、空のglobal rosterをsemantic identityへbindする。execution economics、reward、action、risk、PPO network architectureはObservation v2のpolicy inputへ追加しない。
 
+### PPO fit-only feature standardization
+
+`fit_ppo_strategy(normalize_features=True)` is an explicit opt-in preprocessing
+factor. It fits one immutable local-feature standardizer only on finite,
+available training decisions in the selected fit-symbol/window scope. Each fit
+symbol contributes equal total weight per feature; no development/future row,
+clipping, winsorization, online update or per-symbol inference transform is
+allowed. Missing inputs remain zero after masking, while availability,
+staleness, intent and current-weight semantics remain unchanged.
+
+Training and inference share the same fitted transform. Normalized policies must
+bind their policy bytes and preprocessing metadata together; loading verifies the
+manifest digest, ordered feature schema and policy spaces before deserializing the
+policy. Omitting `normalize_features` preserves the existing raw Observation v2
+behavior. This capability is software only and does not establish profitability.
+
 ### PPO training layout
 
 `fit_ppo_strategy` の既定は従来どおり `sequential` であり、単一 `PPOTradingEnv` がfit symbolをfull-window episode単位でround-robinする。既存Studyやcandidateがlayoutを明示しない場合の意味は変えない。

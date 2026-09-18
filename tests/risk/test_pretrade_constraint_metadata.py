@@ -31,6 +31,30 @@ def test_pretrade_result_carries_constraint_limits_for_causal_cost_derivation() 
     assert result.drawdown_budget == pytest.approx(0.12)
 
 
+def test_projection_l1_measures_proposal_to_final_emergency_projection() -> None:
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+        )
+    )
+
+    result = risk.constrain(
+        np.array([0.4, 0.2]),
+        current=np.array([0.4, 0.2]),
+        drawdown=0.0,
+        emergency_flatten_mask=np.array([True, False]),
+    )
+
+    np.testing.assert_allclose(result.proposal_weights, [0.4, 0.2])
+    np.testing.assert_allclose(result.pretrade_weights, [0.0, 0.2])
+    assert result.projection_l1 == pytest.approx(0.4)
+    assert result.projection_l1 == pytest.approx(
+        float(np.abs(result.proposal_weights - result.pretrade_weights).sum())
+    )
+
+
 @pytest.mark.parametrize(
     "metadata",
     [

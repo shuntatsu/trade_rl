@@ -22,8 +22,12 @@ jobs:
           uv sync --extra dev
           uv run ruff format trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py
           cd guide
-          python3 tools/content_contract.py --refresh-code implementation-replay
-          python3 tools/content_contract.py --refresh-code code-map
-          python3 tools/content_contract.py --check
+          python3 - <<'PY'
+          from tools import content_contract as contract
+
+          contract.refresh_code_topic("implementation-replay")
+          contract.refresh_code_topic("code-map")
+          contract.check_contract()
+          PY
           cd ..
           git diff -- trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py guide/content/meta/implementation-replay.json guide/content/meta/code-map.json

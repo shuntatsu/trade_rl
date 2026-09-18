@@ -109,7 +109,10 @@ def audit(
 
         fresh_package = _fresh_package(fresh_root, seed)
         _, fresh = _canonical_object(fresh_package / "fresh.json")
-        if fresh.get("seed") != seed or fresh.get("policy_model_refit_performed") is not False:
+        if (
+            fresh.get("seed") != seed
+            or fresh.get("policy_model_refit_performed") is not False
+        ):
             raise ValueError(f"candidate seed {seed} fresh record drifted")
         fresh_records.append(fresh)
 
@@ -127,8 +130,13 @@ def audit(
             raise ValueError(f"candidate seed {seed} exit code is invalid")
         if exit_code != 0:
             failed_seeds.append(seed)
-            if fresh.get("candidate_failed") is not True or fresh.get("verified") is not False:
-                raise ValueError(f"failed candidate seed {seed} fresh disposition drifted")
+            if (
+                fresh.get("candidate_failed") is not True
+                or fresh.get("verified") is not False
+            ):
+                raise ValueError(
+                    f"failed candidate seed {seed} fresh disposition drifted"
+                )
             continue
 
         candidate_raw, candidate_wrapper = _canonical_object(
@@ -146,9 +154,15 @@ def audit(
             or candidate_wrapper.get("live_trading_authorized") is not False
         ):
             raise ValueError(f"candidate seed {seed} result identity drifted")
-        if fresh.get("verified") is not True or fresh.get("candidate_failed") is not False:
+        if (
+            fresh.get("verified") is not True
+            or fresh.get("candidate_failed") is not False
+        ):
             raise ValueError(f"candidate seed {seed} fresh verification is not Green")
-        if fresh.get("candidate_result_sha256") != hashlib.sha256(candidate_raw).hexdigest():
+        if (
+            fresh.get("candidate_result_sha256")
+            != hashlib.sha256(candidate_raw).hexdigest()
+        ):
             raise ValueError(f"candidate seed {seed} fresh result hash drifted")
         _verify_bundle(candidate_package, candidate_wrapper["bundle_digest"])
 
@@ -174,12 +188,18 @@ def audit(
         ):
             raise ValueError("gross-return evidence boundary drifted")
         intent_counts = diagnostics["intent_counts"]
-        if sum(int(value) for value in intent_counts.values()) != diagnostics["decision_count"]:
+        if (
+            sum(int(value) for value in intent_counts.values())
+            != diagnostics["decision_count"]
+        ):
             raise ValueError(f"candidate seed {seed} intent diagnostics drifted")
 
         base_pass = passes_screen(candidate, require_positive_years=True)
         stress_pass = bool(base_pass and passes_stress(candidate))
-        if fresh.get("base_pass") is not base_pass or fresh.get("stress_pass") is not stress_pass:
+        if (
+            fresh.get("base_pass") is not base_pass
+            or fresh.get("stress_pass") is not stress_pass
+        ):
             raise ValueError(f"candidate seed {seed} fresh screen drifted")
 
         delta = float(candidate["metrics"]["total_return"]) - float(
@@ -224,7 +244,8 @@ def audit(
             and median(deltas) > 0.0
             and all(len(row["returns"]) == 17_544 for row in candidate_results)
             and all(
-                0.0 <= float(row["ledger_max_drawdown"])
+                0.0
+                <= float(row["ledger_max_drawdown"])
                 <= protocol["relative_gate"]["max_candidate_drawdown"]
                 for row in candidate_results
             )
@@ -237,8 +258,7 @@ def audit(
             )
         )
         base_passes = [
-            passes_screen(row, require_positive_years=True)
-            for row in candidate_results
+            passes_screen(row, require_positive_years=True) for row in candidate_results
         ]
         stress_passes = [
             base and passes_stress(row)
@@ -273,7 +293,9 @@ def audit(
         if comparison.get("failed_seeds") != []:
             raise ValueError("complete comparison contains failed seeds")
         if comparison.get("seed_rows") != rows:
-            raise ValueError("comparison seed rows differ from independent reconstruction")
+            raise ValueError(
+                "comparison seed rows differ from independent reconstruction"
+            )
         if comparison.get("paired_win_count") != wins:
             raise ValueError("comparison paired-win count drifted")
         if not math.isclose(

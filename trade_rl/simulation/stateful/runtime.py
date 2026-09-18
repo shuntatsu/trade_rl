@@ -277,9 +277,7 @@ class StatefulExecutionRuntime:
             - self.total_dividend
             - self.total_cash_interest
         )
-        interval_gross_return = (
-            observed_path_gross_value / self.starting_value - 1.0
-        )
+        interval_gross_return = observed_path_gross_value / self.starting_value - 1.0
         if not math.isfinite(interval_gross_return):
             raise ValueError("stateful gross return became non-finite")
         requested_turnover = self.requested_notional / max(

@@ -215,10 +215,24 @@ standardization study changed only its registered preprocessing factor.
 Exact fill-quantity accounting now preserves accepted lot counts and genuine
 remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
-does not alter any active frozen study or its historical results. Fresh economic
-evidence is required before attributing profit or qualification to the correction.
-Existing profitable individual seeds do not authorize selecting a model or
-changing its qualification gate.
+does not alter any active frozen study or its historical results.
+
+The separately preregistered corrected-accounting replication in Issue #645 then
+ran the unchanged 13-arm screen from frozen source `c80652a12678` plus only
+the accounting-correction source `95a4831bfbd5`. Official run `35287338444` on
+workflow HEAD `6dcbde815de7` completed exactly once with all 13 immutable arm
+slots and an independent no-refit publication audit. Its canonical selection is
+`NO_QUALIFIED_CANDIDATE`, `winner=null`, and `production_eligible=false`; no
+candidate qualified. Run-summary Artifact `10528400988` has API digest
+`sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9`,
+and independent audit Artifact `10527862342` has API digest
+`sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b`.
+This corrected-accounting development evidence does not alter the earlier pre-fix
+Issue #640 result and does not validate the later #657/#658/#659
+reduce-only/profile semantics now present on `main`. It accessed no unused/final
+data and authorizes neither production nor live trading. Existing profitable
+individual seeds do not authorize selecting a model or changing its qualification
+gate.
 
 ### Directional exit diagnostics
 
@@ -441,7 +455,7 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - preregistrationとbaselineは同じDataset artifactと**完全に同一のStudyPlan**へbindされ、preregistrationはplan-only、baselineはbaseline-onlyのままでExperiment countは0、未freezeである。
 - preregisteredな5 PPO seedsと5 symbols × 8 strategiesの完全なbaseline evidenceが存在する。
 - tradeが発生した175 observationsすべてで`total_cost > 0`、cash 25 observationsはzero-trade / zero-cost / zero-return、aggregate realized trading costは正である。
-- fresh post-Artifact verifier run `34704606059` はsealed source、portable preregistration、baseline Artifactを再取得し、Dataset / StudyPlanを独立再構築したうえでraw Candidate Runsからreturn・cost・seed invarianceを再検証した。verifier Artifact IDは `10300932825`、outer digestは `sha256:77c26e8cdeecdc023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9` である。
+- fresh post-Artifact verifier run `34704606059` はsealed source、portable preregistration、baseline Artifactを再取得し、Dataset / StudyPlanを独立再構築したうえでraw Candidate Runsからreturn・cost・seed invarianceを再検証した。verifier Artifact IDは `10300932825`、outer digestは `sha256:77c26e8cdeec023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9` である。
 - Portable Controlled Experiment 0001 (#511) は結果前preregistrationを封印・fresh verificationした唯一のcandidate EvidenceSetを再実行せずに完遂し、fresh runnerで公開result Artifactを再取得して独立再検証した。formal decisionは`KEEP_BASELINE`。mean-reversionのfactor effectは5 / 5 symbolsで正、median excess total returnは`+0.16996869069426646`、candidate positive-total-return symbolsは1 / 5、candidate median turnoverは`467.48617120292243`（baseline `858.3114067468092`）だった。unaffected raw-return equality 150 checks、deterministic metric seed invariance 1120 checks、tradeあり175 / 175 positive-cost、cash 25 zero-trade / zero-cost / zero-returnもGreenである。
 - publication indexは独立再構築後のcross-checkにだけ使い、結果のoracleにはしていない。
 - `research/m2-canonical-study-004` はpre-portable `market_build_v2` numericsで生成されたimmutable historical evidenceとしてhead/treeを維持するが、current canonical inputとしてはportable successorにsupersedeされた。旧Studyを書き換えたり削除したりしない。

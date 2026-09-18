@@ -30,7 +30,6 @@ from trade_rl.strategies.position_intent import (
 )
 
 
-
 @dataclass(frozen=True, slots=True)
 class ReplayDecision:
     index: int
@@ -566,10 +565,14 @@ def run_shared_cash_replay(
             raise RuntimeError("execution did not advance replay index")
         if capture_ledger_evidence:
             if len(execution_observations) != len(ledger_intervals) + 1:
-                raise RuntimeError("execution observer did not emit exactly one interval")
+                raise RuntimeError(
+                    "execution observer did not emit exactly one interval"
+                )
             stateful_evidence = execution_observations[-1]
             if stateful_evidence.next_index != execution.next_index:
-                raise RuntimeError("execution observer index differs from replay result")
+                raise RuntimeError(
+                    "execution observer index differs from replay result"
+                )
             ledger_intervals.append(
                 SharedCashLedgerIntervalEvidence(
                     start_index=index,

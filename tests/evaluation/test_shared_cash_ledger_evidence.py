@@ -69,7 +69,7 @@ def _assert_interval_chain(ledger, observed) -> None:
         assert interval.turnover_total_after >= interval.turnover_total_before
         assert interval.max_drawdown_after >= interval.max_drawdown_before
 
-    for previous, current in zip(intervals, intervals[1:], strict=True):
+    for previous, current in zip(intervals[:-1], intervals[1:], strict=True):
         assert previous.next_index == current.start_index
         assert previous.exact_quantities_after == current.exact_quantities_before
         assert previous.cash_after == current.cash_before

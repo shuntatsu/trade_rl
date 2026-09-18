@@ -25,6 +25,7 @@ class StatefulBarContext:
     tick_size: np.ndarray
     lot_size: np.ndarray
     minimum_notional: np.ndarray
+    processing_year_fraction: float
 
 
 class StatefulBarLifecycle:
@@ -73,6 +74,39 @@ class StatefulBarLifecycle:
         open_prices = dataset.open[processing_index]
         runtime.book.revalue(open_prices)
         runtime.book.refresh_drawdown()
+
+        elapsed_hours = dataset.elapsed_hours(previous_index, processing_index)
+        elapsed_year_fraction = dataset.elapsed_year_fraction(
+            previous_index,
+            processing_index,
+        )
+        if elapsed_hours <= dataset.bar_hours + _TOLERANCE:
+            processing_year_fraction = elapsed_year_fraction
+            gap_year_fraction = 0.0
+        else:
+            processing_year_fraction = (
+                elapsed_year_fraction * dataset.bar_hours / elapsed_hours
+            )
+            gap_year_fraction = elapsed_year_fraction - processing_year_fraction
+
+        if gap_year_fraction > 0.0:
+            runtime.total_cash_interest += runtime.book.apply_cash_interest(
+                float(dataset.resolved_array("cash_rate")[processing_index]),
+                year_fraction=gap_year_fraction,
+            )
+            runtime.total_borrow += executor._charge_borrow(
+                runtime.book,
+                index=processing_index,
+                year_fraction=gap_year_fraction,
+            )
+            executor._update_margin(runtime.book)
+            if runtime.book.insolvent:
+                runtime.cancel_active_orders(
+                    processing_index=processing_index,
+                    reason="economic_termination",
+                )
+                executor._flatten_after_termination(runtime.book, open_prices)
+
         tick, lot, minimum = executor.effective_rule_arrays(index=processing_index)
         return StatefulBarContext(
             previous_index=previous_index,
@@ -82,6 +116,7 @@ class StatefulBarLifecycle:
             tick_size=tick,
             lot_size=lot,
             minimum_notional=minimum,
+            processing_year_fraction=processing_year_fraction,
         )
 
     def finish_bar(
@@ -105,14 +140,12 @@ class StatefulBarLifecycle:
         )
         runtime.total_cash_interest += runtime.book.apply_cash_interest(
             float(dataset.resolved_array("cash_rate")[processing_index]),
-            year_fraction=dataset.elapsed_year_fraction(
-                context.previous_index,
-                processing_index,
-            ),
+            year_fraction=context.processing_year_fraction,
         )
         funding_amount, borrow_amount = executor._charge_carry(
             runtime.book,
             index=processing_index,
+            year_fraction=context.processing_year_fraction,
         )
         runtime.total_funding += funding_amount
         runtime.total_borrow += borrow_amount

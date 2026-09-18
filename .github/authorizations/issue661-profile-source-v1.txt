@@ -1,0 +1,9 @@
+Issue #661 profile-source activation v1
+helper_head=63ae234526748c04eea6fa5d522d4155f7f173bc
+helper_verify_run=35337203341
+software_authority=275f7122437906796958094db295b319d4989768
+observer_head=547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616
+observer_ci=35335526577
+dataset_artifact_id=10331899302
+dataset_recovery_run=34803432434
+economic_execution_authorized=false

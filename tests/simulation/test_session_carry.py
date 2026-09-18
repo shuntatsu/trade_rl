@@ -115,4 +115,3 @@ def test_next_open_entry_excludes_prior_gap_carry() -> None:
     assert result.book.quantities[0] == pytest.approx(-5.0)
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.interval_cash_interest == pytest.approx(expected_interest)
-

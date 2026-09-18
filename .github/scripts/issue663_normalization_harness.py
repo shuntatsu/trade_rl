@@ -489,18 +489,35 @@ def compare(
     output: Path,
 ) -> None:
     protocol = load_protocol(protocol_path)
-    rows = []
-    candidate_rows = []
-    controls_rows = []
+    rows: list[dict[str, Any]] = []
+    candidate_rows: list[dict[str, Any]] = []
+    controls_rows: list[dict[str, Any]] = []
+    failed_seeds: list[int] = []
     verified = True
+
     for seed in SEEDS:
-        _attempt, candidate = _load_candidate(candidates, seed)
+        candidate_package = candidates / f"issue663-normalization-seed{seed}-v1"
+        _attempt_raw, attempt = _canonical_object(candidate_package / "attempt.json")
         fresh = _load_fresh(fresh_root, seed)
         control = _load_control(controls, seed)
+        controls_rows.append(control)
+
+        exit_code = attempt.get("exit_code")
+        if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+            raise ValueError(f"candidate seed {seed} exit code is invalid")
+        if exit_code != 0:
+            failed_seeds.append(seed)
+            verified = False
+            if fresh.get("candidate_failed") is not True:
+                raise ValueError(f"failed candidate seed {seed} fresh record drifted")
+            continue
+
+        _candidate_raw, candidate = _canonical_object(candidate_package / "result.json")
+        if candidate.get("seed") != seed:
+            raise ValueError(f"candidate seed {seed} result identity drifted")
         verified = verified and fresh.get("verified") is True
         base = candidate["result"]
         candidate_rows.append(base)
-        controls_rows.append(control)
         rows.append(
             {
                 "seed": seed,
@@ -521,6 +538,38 @@ def compare(
             }
         )
 
+    complete = not failed_seeds and len(candidate_rows) == len(SEEDS)
+    output.mkdir(parents=True, exist_ok=False)
+
+    if not complete:
+        comparison = {
+            "schema": "issue663_normalization_comparison_v1",
+            "issue": ISSUE,
+            "protocol_sha256": PROTOCOL_SHA,
+            "complete": False,
+            "failed_seeds": failed_seeds,
+            "seed_rows": rows,
+            "paired_win_count": None,
+            "median_paired_delta": None,
+            "robust_relative_improvement": False,
+            "candidate_base_pass_count": None,
+            "candidate_stress_pass_count": None,
+            "candidate_family_median_total_return": None,
+            "candidate_family_median_year_returns": None,
+            "absolute_family_qualified": False,
+            "decision": None,
+            "mandatory_diagnostics": {
+                "status": "incomplete_consumed_seed_roster",
+                "gross_return_status": "not_exposed_by_frozen_issue645_evaluator",
+            },
+            "unused_data_accessed": False,
+            "final_test_accessed": False,
+            "production_eligible": False,
+            "live_trading_authorized": False,
+        }
+        _write_once(output / "comparison.json", comparison)
+        return
+
     deltas = [float(row["paired_delta"]) for row in rows]
     wins = sum(delta > 0.0 for delta in deltas)
     relative = bool(
@@ -539,7 +588,9 @@ def compare(
             for candidate, control in zip(candidate_rows, controls_rows, strict=True)
         )
     )
-    base_passes = [passes_screen(row, require_positive_years=True) for row in candidate_rows]
+    base_passes = [
+        passes_screen(row, require_positive_years=True) for row in candidate_rows
+    ]
     stress_passes = [
         base and passes_stress(row)
         for base, row in zip(base_passes, candidate_rows, strict=True)
@@ -557,18 +608,22 @@ def compare(
         and median_total > 0.0
         and all(value > 0.0 for value in median_years.values())
     )
-    if not relative:
-        decision = "KEEP_BASELINE"
-    elif absolute:
-        decision = "PROSPECTIVE_PAPER_REQUIRED"
-    else:
-        decision = "RELATIVE_IMPROVEMENT_ONLY"
+    decision = (
+        "KEEP_BASELINE"
+        if not relative
+        else (
+            "PROSPECTIVE_PAPER_REQUIRED"
+            if absolute
+            else "RELATIVE_IMPROVEMENT_ONLY"
+        )
+    )
 
-    output.mkdir(parents=True, exist_ok=False)
     comparison = {
         "schema": "issue663_normalization_comparison_v1",
         "issue": ISSUE,
         "protocol_sha256": PROTOCOL_SHA,
+        "complete": True,
+        "failed_seeds": [],
         "seed_rows": rows,
         "paired_win_count": wins,
         "median_paired_delta": float(median(deltas)),
@@ -600,7 +655,6 @@ def compare(
         "live_trading_authorized": False,
     }
     _write_once(output / "comparison.json", comparison)
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()

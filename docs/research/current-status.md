@@ -264,20 +264,28 @@ has yet been applied to a new economic comparison.
 
 The common simulator provides explicit MARKET reduce-only orders, exact fill-time
 inventory bounds and persistence/event evidence. An opt-in source-bound USD-M
-one-way MARKET profile now enables same-side reduction reconciliation and its
+one-way MARKET profile enables same-side reduction reconciliation and its
 per-order venue-notional exception, retaining runtime minima and source quantity
 bounds. False/true profiles support a matched comparison; omission retains default
 behavior. Current exchange filters on historical bars are a declared assumption,
-not point-in-time source recovery. Synthetic verification establishes execution
-behavior only. Neither the original directional study nor the unchanged diagnostic
-has been rerun with this profile; its frozen economic comparison remains pending.
-The shared-cash directional evaluator now accepts the verified profile explicitly
-and records its actual execution-policy identity and exact terminal inventory in
-a distinct result schema. Its new flatness gate requires exact zero quantities;
-legacy results are not reinterpreted. Matched ordinary/reduce-only profile artifacts
-for the five-symbol successor Dataset have been saved and reloaded with raw-source
-verification. Model roster, full comparison protocol, runs and independent economic
-audit are still pending; this connection does not establish economic improvement.
+not point-in-time source recovery. The shared-cash directional evaluator accepts
+the profile explicitly, records actual execution-policy identity and exact terminal
+inventory, and now has observer-only interval ledger evidence for independent
+reconciliation without changing replay economics. These are software contracts,
+not economic improvement evidence.
+
+Issue #661 preregistered the matched Stage C economic comparison but could not
+establish its required current-rule source authority. Official source run
+`35337609697` on Ubuntu and recovery run `35343362615` on macOS both stopped
+at the first Binance USD-M `exchangeInfo` request with HTTP 451 and published no
+source artifact. Two separately frozen transport recoveries also produced no valid
+`exchangeInfo` bytes: a single direct GET failed before validation, and a single
+live raw-body fetch returned Binance's HTTP-451 restricted-location error JSON.
+No successful response was substituted, no alternate host/mirror was shopped, and
+no model fit or ordinary/reduce-only economic replay occurred. The terminal Stage C
+status is therefore `SOURCE_AUTHORITY_UNAVAILABLE`: the reduce-only economic
+hypothesis is **untested, not rejected**. No unused/final data was accessed and
+nothing from this stopped lineage authorizes production or live trading.
 
 On 2026-09-17 the user selected 20% as a research drawdown tolerance. A separate
 directional study uses the frozen successor Dataset from run 34803217815,

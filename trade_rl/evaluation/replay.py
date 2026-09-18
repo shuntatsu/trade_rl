@@ -147,7 +147,7 @@ class SharedCashReplayLedgerEvidence:
     final_max_drawdown: float
     termination_reason: str | None
     active_order_remainders: tuple[tuple[str, float], ...]
-    terminal_order_reasons: tuple[tuple[str, str], ...]
+    terminal_order_reasons: tuple[tuple[str, str | None], ...]
     schema_version: str = "shared_cash_replay_ledger_v1"
 
     def to_mapping(self) -> dict[str, object]:

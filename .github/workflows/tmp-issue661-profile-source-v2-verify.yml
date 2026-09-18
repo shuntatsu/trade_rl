@@ -1,0 +1,57 @@
+name: Verify Issue 661 profile source v2
+
+on:
+  push:
+    branches:
+      - verify/issue661-profile-source-v2
+    paths:
+      - .github/workflows/tmp-issue661-profile-source-v2-verify.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 89a891a043870c3041a1235ea1f380d343fa9d8e
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Verify exact dormant v2 scope and helper
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "89a891a043870c3041a1235ea1f380d343fa9d8e"
+          test "$(git diff --name-only 62ab0f512a76a975efcc0707a89f9a44287984f4..HEAD)" = ".github/workflows/issue661-profile-source-v2.yml"
+          uv run ruff check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run ruff format --check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run pytest -q tests/tools/test_issue661_profile_source.py
+      - name: Verify result-blind workflow contract and empty slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file=.github/workflows/issue661-profile-source-v2.yml
+          grep -Fq 'run/issue661-profile-source-v2' "$file"
+          grep -Fq '.github/authorizations/issue661-profile-source-v2.txt' "$file"
+          grep -Fq "V1_FAILED_RUN: '35337609697'" "$file"
+          grep -Fq 'publisher:' "$file"
+          grep -Fq 'runs-on: macos-14' "$file"
+          grep -Fq 'issue661-profile-source-v2-' "$file"
+          grep -Fq 'issue661-profile-source-fresh-v2-' "$file"
+          grep -Fq 'issue661-profile-source-authority-v2-' "$file"
+          grep -Fq 'Fresh no-network profile rederivation' "$file"
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/35337609697 --jq .conclusion)" = failure
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/35337609697/artifacts --jq .total_count)" = 0
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue661-profile-source-v2-" --jq .total_count)" = 0
+          echo REAL_EXCHANGE_INFO_REQUEST_PERFORMED=false
+          echo ECONOMIC_EXECUTION_STARTED=false
+          echo ECONOMIC_RESULT_INSPECTED=false

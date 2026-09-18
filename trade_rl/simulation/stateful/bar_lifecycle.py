@@ -45,36 +45,6 @@ class StatefulBarLifecycle:
         dataset = executor.dataset
         period_start_value = max(runtime.book.portfolio_value, _TOLERANCE)
 
-        split = dataset.resolved_array("split_factor")[processing_index]
-        split_mask = np.abs(split - 1.0) > _TOLERANCE
-        if np.any(split_mask):
-            runtime.cancel_active_orders(
-                processing_index=processing_index,
-                reason="split_adjustment_required",
-                symbol_mask=split_mask,
-            )
-        runtime.book.apply_split(split)
-
-        inactive = ~dataset.resolved_array("asset_active")[processing_index]
-        if np.any(inactive):
-            runtime.cancel_active_orders(
-                processing_index=processing_index,
-                reason="inactive_asset",
-                symbol_mask=inactive,
-            )
-            if np.any(inactive & (np.abs(runtime.book.quantities) > _TOLERANCE)):
-                runtime.book.settle_positions(
-                    mask=inactive,
-                    prices=dataset.open[processing_index],
-                    recovery=dataset.resolved_array("delisting_recovery")[
-                        processing_index
-                    ],
-                )
-
-        open_prices = dataset.open[processing_index]
-        runtime.book.revalue(open_prices)
-        runtime.book.refresh_drawdown()
-
         elapsed_hours = dataset.elapsed_hours(previous_index, processing_index)
         elapsed_year_fraction = dataset.elapsed_year_fraction(
             previous_index,
@@ -105,7 +75,40 @@ class StatefulBarLifecycle:
                     processing_index=processing_index,
                     reason="economic_termination",
                 )
-                executor._flatten_after_termination(runtime.book, open_prices)
+                executor._flatten_after_termination(
+                    runtime.book,
+                    runtime.book.mark_prices,
+                )
+
+        split = dataset.resolved_array("split_factor")[processing_index]
+        split_mask = np.abs(split - 1.0) > _TOLERANCE
+        if np.any(split_mask):
+            runtime.cancel_active_orders(
+                processing_index=processing_index,
+                reason="split_adjustment_required",
+                symbol_mask=split_mask,
+            )
+        runtime.book.apply_split(split)
+
+        inactive = ~dataset.resolved_array("asset_active")[processing_index]
+        if np.any(inactive):
+            runtime.cancel_active_orders(
+                processing_index=processing_index,
+                reason="inactive_asset",
+                symbol_mask=inactive,
+            )
+            if np.any(inactive & (np.abs(runtime.book.quantities) > _TOLERANCE)):
+                runtime.book.settle_positions(
+                    mask=inactive,
+                    prices=dataset.open[processing_index],
+                    recovery=dataset.resolved_array("delisting_recovery")[
+                        processing_index
+                    ],
+                )
+
+        open_prices = dataset.open[processing_index]
+        runtime.book.revalue(open_prices)
+        runtime.book.refresh_drawdown()
 
         tick, lot, minimum = executor.effective_rule_arrays(index=processing_index)
         return StatefulBarContext(

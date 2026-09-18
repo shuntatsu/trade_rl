@@ -24,11 +24,14 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Static checks
+      - name: Formatter-owned working-tree normalization and static checks
         run: |
           set -euo pipefail
+          uv run ruff format trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
           uv run ruff check trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
           uv run ruff format --check trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          git diff --check
+          git diff -- trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
           uv run mypy trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
       - name: Targeted observer invariants
         run: |

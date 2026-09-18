@@ -1,4 +1,4 @@
-name: tmp Issue 661 observer hardening RED
+name: tmp Issue 661 observer semantic RED
 
 on:
   push:
@@ -24,15 +24,6 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Formatter-owned working-tree normalization and static checks
-        run: |
-          set -euo pipefail
-          uv run ruff format trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run ruff check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run ruff format --check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          git diff --check
-          git diff -- trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run mypy trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
       - name: Targeted observer invariants
         run: |
           set -euo pipefail
@@ -42,6 +33,15 @@ jobs:
             tests/evaluation/test_shared_cash_replay_falsification.py \
             tests/evaluation/test_directional.py \
             tests/evaluation/test_directional_market_profile.py
+      - name: Formatter-owned working-tree normalization and static checks
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff format --check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          git diff --check
+          git diff -- trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run mypy trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
       - name: No economic source access
         run: |
           echo REAL_DATASET_LOADED=false

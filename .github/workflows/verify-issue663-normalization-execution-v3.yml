@@ -1,0 +1,257 @@
+name: Verify Issue 663 normalization execution v3
+on:
+  push:
+    branches:
+      - verify/issue663-normalization-execution-v3
+permissions:
+  actions: read
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 00e90c7510347475e1177cc50cbaa91966257ad6
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove harness-only diff and dormant authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 00e90c7510347475e1177cc50cbaa91966257ad6
+          git diff --name-only 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e HEAD | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          .github/scripts/issue663_normalization_audit.py
+          .github/scripts/issue663_normalization_harness.py
+          .github/research-workflows/issue663-normalization-execution-v2.yml
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test ! -e .github/authorizations/issue663-normalization-v1.authorized
+          test -z "$(git diff --name-only 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e HEAD -- trade_rl tests docs guide)"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - name: Static/type checks for harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py
+          uv run ruff format --check .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py
+          uv run mypy .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py
+          uv run python -m py_compile .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py
+      - name: Validate workflow contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=.github/research-workflows/issue663-normalization-execution-v2.yml
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "YAML_OK"' "$file"
+          grep -Fq 'run/issue663-normalization-v1' "$file"
+          grep -Fq 'PROTOCOL_SHA: de6179570dae339c4a3fe3d62d076edc811c332372185efc17d1566e7602fd55' "$file"
+          grep -Fq "PREFLIGHT_RUN: '35378800997'" "$file"
+          grep -Fq "SEAL_RUN: '35378478461'" "$file"
+          grep -Fq 'matrix:' "$file"
+          grep -Fq 'seed: [0, 1, 2, 3, 4]' "$file"
+          grep -Fq 'fail-fast: false' "$file"
+          grep -Fq 'issue663-normalization-decision-audit-v1' "$file"
+          ! grep -Fq 'workflow_dispatch' "$file"
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path(".github/research-workflows/issue663-normalization-execution-v2.yml").read_text()
+          order=[
+              "Verify trainer runtime before seed claim",
+              "Build activation claim from sealed protocol without Dataset load",
+              "Bind activation Artifact",
+              "Fit and replay this consumed seed exactly once",
+              "Fresh no-refit verify seed",
+              "Frozen paired decision",
+              "Independent Artifact-only decision audit",
+          ]
+          positions=[text.index(value) for value in order]
+          assert positions == sorted(positions), positions
+          print("ISSUE663_WORKFLOW_ORDER=PASS")
+          PY
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+      - name: Falsify all three frozen decision paths with synthetic Artifacts
+        env:
+          PROTOCOL: ${{ runner.temp }}/authority/protocol.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import tempfile
+          from pathlib import Path
+
+          from trade_rl.artifacts import canonical_json_bytes, content_digest
+
+          def load(path: str, name: str):
+              spec=importlib.util.spec_from_file_location(name, path)
+              assert spec is not None and spec.loader is not None
+              module=importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(module)
+              return module
+
+          harness=load(".github/scripts/issue663_normalization_harness.py","issue663_h")
+          audit=load(".github/scripts/issue663_normalization_audit.py","issue663_a")
+          protocol=Path(os.environ["PROTOCOL"])
+
+          def write(path: Path, value: object) -> bytes:
+              path.parent.mkdir(parents=True,exist_ok=True)
+              raw=canonical_json_bytes(value)
+              path.write_bytes(raw)
+              return raw
+
+          def base_result(total: float) -> dict[str, object]:
+              return {
+                  "metrics":{
+                      "total_return":total,
+                      "turnover_total":10.0,
+                      "total_cost":1.0,
+                      "funding_pnl":0.0,
+                      "borrow_cost":0.0,
+                  },
+                  "year_returns":{"2023":0.01,"2024":0.01},
+                  "returns":[0.0]*17544,
+                  "terminal_flat":True,
+                  "terminal_quantities":[0.0]*5,
+                  "ledger_max_drawdown":0.1,
+                  "termination_reasons":[],
+                  "start_index":0,
+                  "stop_index":17544,
+              }
+
+          scenarios=[
+              ("KEEP_BASELINE",[0.10,0.08,0.05,-0.01,-0.02],False),
+              ("RELATIVE_IMPROVEMENT_ONLY",[0.10,0.08,0.05,0.03,-0.02],False),
+              ("PROSPECTIVE_PAPER_REQUIRED",[0.10,0.08,0.05,0.03,0.02],True),
+          ]
+          for expected,candidate_returns,absolute in scenarios:
+              root=Path(tempfile.mkdtemp(prefix="issue663-synth-"))
+              candidates=root/"candidates"; fresh_root=root/"fresh"; controls=root/"controls"
+              for seed,total in enumerate(candidate_returns):
+                  cpackage=candidates/f"issue663-normalization-seed{seed}-v1"
+                  fpackage=fresh_root/f"issue663-normalization-seed{seed}-fresh-v1"
+                  control=controls/f"issue645-corrected-directional-arm-ppo{seed}-v1"
+                  policy=b"synthetic-policy-"+bytes([seed])
+                  (cpackage/"bundle").mkdir(parents=True,exist_ok=True)
+                  (cpackage/"bundle"/"policy.zip").write_bytes(policy)
+                  manifest={
+                      "schema":"ppo_normalized_model_v1",
+                      "observation":{},
+                      "normalizer":{"schema":"ppo_feature_standardization_v1"},
+                      "policy_sha256":hashlib.sha256(policy).hexdigest(),
+                  }
+                  write(cpackage/"bundle"/"manifest.json",manifest)
+                  bundle_digest=content_digest(manifest)
+                  result=base_result(total)
+                  diagnostics={
+                      "intent_counts":{"SHORT":1,"FLAT":1,"LONG":1},
+                      "decision_count":3,
+                      "dominant_intent":"SHORT",
+                      "dominant_fraction":1/3,
+                      "net_total_return":total,
+                      "turnover_total":10.0,
+                      "total_cost":1.0,
+                      "funding_pnl":0.0,
+                      "borrow_cost":0.0,
+                      "gross_total_return":None,
+                      "gross_total_return_status":"not_exposed_by_frozen_issue645_evaluator",
+                  }
+                  wrapper={
+                      "schema":"issue663_normalization_seed_result_v1",
+                      "issue":663,
+                      "seed":seed,
+                      "protocol_sha256":harness.PROTOCOL_SHA,
+                      "implementation_head":harness.TARGET_SHA,
+                      "bundle_digest":bundle_digest,
+                      "result":result,
+                      "diagnostics":diagnostics,
+                      "provenance":{},
+                      "model_fit_performed":True,
+                      "unused_data_accessed":False,
+                      "final_test_accessed":False,
+                      "production_eligible":False,
+                      "live_trading_authorized":False,
+                  }
+                  result_raw=write(cpackage/"result.json",wrapper)
+                  write(cpackage/"result.sha256.json",{"sha256":hashlib.sha256(result_raw).hexdigest()})
+                  write(cpackage/"attempt.json",{
+                      "schema":"issue663_normalization_seed_attempt_v1",
+                      "issue":663,"seed":seed,"exit_code":0,
+                      "result_written":True,"failure_written":False,
+                      "model_fit_may_have_started":True,
+                      "workflow_run_id":1,"workflow_run_attempt":1,
+                      "unused_data_accessed":False,
+                      "production_eligible":False,
+                      "live_trading_authorized":False,
+                  })
+                  write(fpackage/"fresh.json",{
+                      "schema":"issue663_normalization_seed_fresh_v1",
+                      "issue":663,"seed":seed,"verified":True,
+                      "candidate_failed":False,
+                      "candidate_result_sha256":hashlib.sha256(result_raw).hexdigest(),
+                      "bundle_digest":bundle_digest,
+                      "normalizer_payload_digest":"0"*64,
+                      "base_pass":absolute,
+                      "stress_pass":absolute,
+                      "policy_model_refit_performed":False,
+                      "normalizer_recomputed_from_frozen_fit_scope":True,
+                      "unused_data_accessed":False,
+                      "final_test_accessed":False,
+                      "production_eligible":False,
+                      "live_trading_authorized":False,
+                  })
+                  control_result=base_result(0.0)
+                  control_result["arm"]=f"ppo{seed}"
+                  control_raw=write(control/"result.json",control_result)
+                  write(control/"result.sha256.json",{"sha256":hashlib.sha256(control_raw).hexdigest()})
+
+              harness.passes_screen=lambda row, require_positive_years: absolute
+              harness.passes_stress=lambda row: absolute
+              comparison=root/"comparison"
+              harness.compare(
+                  protocol_path=protocol,
+                  candidates=candidates,
+                  fresh_root=fresh_root,
+                  controls=controls,
+                  output=comparison,
+              )
+              value=json.loads((comparison/"comparison.json").read_bytes())
+              assert value["decision"] == expected, (expected,value["decision"])
+
+              audit.passes_screen=lambda row, require_positive_years: absolute
+              audit.passes_stress=lambda row: absolute
+              audited=root/"audit"
+              result=audit.audit(
+                  protocol_path=protocol,
+                  candidates=candidates,
+                  fresh_root=fresh_root,
+                  controls=controls,
+                  comparison_path=comparison/"comparison.json",
+                  output=audited,
+              )
+              assert result["decision"] == expected
+              assert result["artifact_only_decision_reconstruction"] is True
+              assert result["policy_model_refit_performed"] is False
+          print("ISSUE663_SYNTHETIC_DECISION_ORACLE=PASS")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          print("ECONOMIC_REPLAY_PERFORMED=false")
+          PY

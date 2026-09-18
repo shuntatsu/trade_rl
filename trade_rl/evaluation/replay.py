@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
+from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
@@ -26,6 +31,67 @@ from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
+
+
+def _ledger_mapping(value: object, *, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+        raise ValueError(f"{field} must be an object with string keys")
+    return value
+
+
+def _ledger_sequence(value: object, *, field: str) -> Sequence[object]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{field} must be a sequence")
+    return value
+
+
+def _ledger_integer(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _ledger_number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def _ledger_string(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be a non-empty string")
+    return value
+
+
+def _ledger_optional_string(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    return _ledger_string(value, field=field)
+
+
+def _ledger_exact_quantities(value: object, *, field: str) -> tuple[str, ...]:
+    raw = _ledger_sequence(value, field=field)
+    if not raw:
+        raise ValueError(f"{field} must contain at least one quantity")
+    result: list[str] = []
+    for index, item in enumerate(raw):
+        text = _ledger_string(item, field=f"{field}[{index}]")
+        try:
+            quantity = Fraction(text)
+        except (ValueError, ZeroDivisionError) as error:
+            raise ValueError(f"{field}[{index}] is not an exact quantity") from error
+        if str(quantity) != text:
+            raise ValueError(f"{field}[{index}] is not canonically encoded")
+        result.append(text)
+    return tuple(result)
+
+
+def _ledger_close(left: float, right: float, *, field: str) -> None:
+    if not math.isclose(left, right, rel_tol=1e-12, abs_tol=1e-9):
+        raise ValueError(f"{field} does not reconcile")
 
 
 @dataclass(frozen=True, slots=True)

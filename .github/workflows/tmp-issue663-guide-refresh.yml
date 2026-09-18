@@ -1,0 +1,38 @@
+name: tmp Issue 663 Guide refresh
+
+on:
+  push:
+    branches:
+      - automation/issue663-guide-refresh
+    paths:
+      - .github/workflows/tmp-issue663-guide-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue663-guide-refresh
+          persist-credentials: true
+      - name: Refresh reviewed PPO topic only
+        working-directory: guide
+        run: |
+          set -euo pipefail
+          python3 tools/content_contract.py --refresh-code implementation-ppo
+          python3 tools/content_contract.py --refresh implementation-ppo
+          python3 tools/content_contract.py --check
+      - name: Commit generated metadata only
+        run: |
+          set -euo pipefail
+          git diff -- guide/content/meta/implementation-ppo.json
+          test -z "$(git diff --name-only | grep -v '^guide/content/meta/implementation-ppo.json$' || true)"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add guide/content/meta/implementation-ppo.json
+          git commit -m "docs: refresh Issue 663 PPO Guide metadata"
+          git push origin HEAD:automation/issue663-guide-refresh

@@ -76,7 +76,9 @@ class StatefulExecutionObservation:
     terminal_order_reasons: tuple[tuple[str, str], ...]
 
     @classmethod
-    def from_result(\n        cls, result: StatefulExecutionResult\n    ) -> StatefulExecutionObservation:
+    def from_result(
+        cls, result: StatefulExecutionResult
+    ) -> StatefulExecutionObservation:
         terminal_reasons: list[tuple[str, str]] = []
         for order in result.order_book.terminal_orders:
             reason = order.terminal_reason

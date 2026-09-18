@@ -373,7 +373,7 @@ def test_stateful_result_reports_symbol_level_execution_observation_fields() -> 
     assert np.isfinite(result.interval_gross_return)
 
 
-def test_fill_completion_uses_submission_reference_basis_not_adverse_fill_price() -> None:
+def test_fill_ratio_uses_submission_reference_basis() -> None:
     shape = (6, 1)
     open_price = np.full(shape, 100.0)
     close = np.full(shape, 100.0)

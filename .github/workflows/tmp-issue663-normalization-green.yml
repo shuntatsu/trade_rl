@@ -1,0 +1,42 @@
+name: tmp Issue 663 corrected PPO normalization GREEN
+
+on:
+  push:
+    branches:
+      - research/issue663-ppo-normalization-corrected
+    paths:
+      - .github/workflows/tmp-issue663-normalization-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 6073b08dd053e9898fd310b8919640334f4c1c3e
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check             trade_rl/strategies/rl/ppo.py             trade_rl/strategies/rl/ppo_normalization.py             trade_rl/strategies/rl/ppo_artifact.py             tests/strategies/test_ppo_feature_normalization.py             tests/strategies/test_ppo_model_artifact.py
+          uv run ruff format --check             trade_rl/strategies/rl/ppo.py             trade_rl/strategies/rl/ppo_normalization.py             trade_rl/strategies/rl/ppo_artifact.py             tests/strategies/test_ppo_feature_normalization.py             tests/strategies/test_ppo_model_artifact.py
+          uv run mypy             trade_rl/strategies/rl/ppo.py             trade_rl/strategies/rl/ppo_normalization.py             trade_rl/strategies/rl/ppo_artifact.py
+      - name: Focused normalization and unchanged-layout tests
+        run: |
+          set -euo pipefail
+          uv run pytest -q             tests/strategies/test_ppo_feature_normalization.py             tests/strategies/test_ppo_model_artifact.py             tests/strategies/test_ppo_interleaved_training.py
+      - name: No economic access
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo PPO_REAL_TRAINING_PERFORMED=false
+          echo DEVELOPMENT_PNL_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false

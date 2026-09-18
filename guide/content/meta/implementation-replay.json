@@ -78,7 +78,7 @@
       "id": "risk-constrain",
       "symbol": "trade_rl.risk.pretrade.PreTradeRisk.constrain",
       "kind": "method",
-      "source_sha256": "673e49bff55fda729a2c187fa25a440982c04858d8124d9c3bee0a2142dd5a30",
+      "source_sha256": "cbded5e455675e7eff6a58e343a4f0e2a5a5c38ec86151f3d1c737c5885caf0a",
       "label_ja": "ハードリスクを適用",
       "description_ja": "提案ウェイトへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用し、実行可能な目標へ射影します。",
       "variables": [],

@@ -59,7 +59,7 @@ trade_rl/
 │   ├── depth.py
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
-│   ├── targets/{execution.py,exposure_controller.py}
+│   ├── targets/execution.py
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
 │   ├── dataset_scope.py

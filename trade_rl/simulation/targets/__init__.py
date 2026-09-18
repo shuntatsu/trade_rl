@@ -1,1 +1,1 @@
-"""Target execution and exposure-control ownership."""
+"""Target-to-order execution ownership."""

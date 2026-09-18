@@ -11,6 +11,7 @@ from types import ModuleType
 import numpy as np
 import pytest
 
+from tests.integrations.test_binance_forward_rules import symbol
 from trade_rl.data.market import MarketDataset
 
 
@@ -53,39 +54,11 @@ def _dataset(module: ModuleType) -> MarketDataset:
 
 
 def _raw(module: ModuleType) -> bytes:
-    symbols = []
-    for name in module.SYMBOLS:
-        symbols.append(
-            {
-                "symbol": name,
-                "status": "TRADING",
-                "baseAsset": name[:-4],
-                "quoteAsset": "USDT",
-                "contractType": "PERPETUAL",
-                "marginAsset": "USDT",
-                "orderTypes": ["LIMIT", "MARKET"],
-                "onboardDate": 1_600_000_000_000,
-                "filters": [
-                    {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
-                    {
-                        "filterType": "LOT_SIZE",
-                        "stepSize": "0.001",
-                        "minQty": "0.001",
-                        "maxQty": "1000",
-                    },
-                    {
-                        "filterType": "MARKET_LOT_SIZE",
-                        "stepSize": "0.001",
-                        "minQty": "0.001",
-                        "maxQty": "1000",
-                    },
-                    {"filterType": "MIN_NOTIONAL", "notional": "5"},
-                ],
-            }
-        )
-    return json.dumps(
-        {"serverTime": 1, "symbols": symbols}, separators=(",", ":")
-    ).encode()
+    payload = {
+        "serverTime": 1,
+        "symbols": [symbol("perpetual", name) for name in module.SYMBOLS],
+    }
+    return json.dumps(payload, separators=(",", ":")).encode()
 
 
 def test_bundle_derives_both_profiles_from_one_raw_source(

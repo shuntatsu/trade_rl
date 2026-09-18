@@ -1,0 +1,335 @@
+name: Issue 661 exactly-once profile source capture v2
+
+on:
+  push:
+    branches:
+      - run/issue661-profile-source-v2
+    paths:
+      - .github/authorizations/issue661-profile-source-v2.txt
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  V1_FAILED_RUN: '35337609697'
+  SOFTWARE_AUTHORITY_SHA: 275f7122437906796958094db295b319d4989768
+  OBSERVER_HEAD: 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616
+  OBSERVER_CI_RUN: '35335526577'
+  HELPER_HEAD: 63ae234526748c04eea6fa5d522d4155f7f173bc
+  HELPER_VERIFY_RUN: '35337203341'
+  DATASET_RUN: '34803217815'
+  DATASET_PUBLISHER_JOB: '103849873066'
+  DATASET_ARTIFACT_ID: '10331899302'
+  DATASET_ARTIFACT_NAME: issue539-calibrated-causal-successor-v3-34803217815
+  DATASET_ARTIFACT_API_DIGEST: sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce
+  DATASET_RECOVERY_RUN: '34803432434'
+  DATASET_RECOVERY_ARTIFACT_ID: '10332575500'
+  DATASET_RECOVERY_ARTIFACT_NAME: issue539-calibrated-causal-fresh-verify-v3-34803432434
+  DATASET_RECOVERY_API_DIGEST: sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589
+
+jobs:
+  publisher:
+    runs-on: macos-14
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce exactly-once workflow identity
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "run/issue661-profile-source-v2"
+          test "${GITHUB_RUN_NUMBER}" = "1"
+          test "${GITHUB_RUN_ATTEMPT}" = "1"
+      - name: Checkout verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact Issue 659 software authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOFTWARE_AUTHORITY_SHA }}
+          path: impl
+          persist-credentials: false
+      - name: Bind result-blind authorities before any market-data request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_HEAD"
+          test "$(git -C impl rev-parse HEAD)" = "$SOFTWARE_AUTHORITY_SHA"
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/$HELPER_VERIFY_RUN --jq .conclusion)" = success
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/$OBSERVER_CI_RUN --jq .conclusion)" = success
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/$V1_FAILED_RUN --jq .conclusion)" = failure
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/$V1_FAILED_RUN/artifacts --jq .total_count)" = 0
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/jobs/$DATASET_PUBLISHER_JOB --jq .conclusion)" = success
+          test "$(gh api /repos/$GITHUB_REPOSITORY/actions/runs/$DATASET_RECOVERY_RUN --jq .conclusion)" = success
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$DATASET_ARTIFACT_ID > "$RUNNER_TEMP/dataset-artifact.json"
+          test "$(jq -r .name "$RUNNER_TEMP/dataset-artifact.json")" = "$DATASET_ARTIFACT_NAME"
+          test "$(jq -r .digest "$RUNNER_TEMP/dataset-artifact.json")" = "$DATASET_ARTIFACT_API_DIGEST"
+          test "$(jq -r .expired "$RUNNER_TEMP/dataset-artifact.json")" = false
+          test "$(jq -r .workflow_run.id "$RUNNER_TEMP/dataset-artifact.json")" = "$DATASET_RUN"
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$DATASET_RECOVERY_ARTIFACT_ID > "$RUNNER_TEMP/recovery-artifact.json"
+          test "$(jq -r .name "$RUNNER_TEMP/recovery-artifact.json")" = "$DATASET_RECOVERY_ARTIFACT_NAME"
+          test "$(jq -r .digest "$RUNNER_TEMP/recovery-artifact.json")" = "$DATASET_RECOVERY_API_DIGEST"
+          test "$(jq -r .expired "$RUNNER_TEMP/recovery-artifact.json")" = false
+          test "$(jq -r .workflow_run.id "$RUNNER_TEMP/recovery-artifact.json")" = "$DATASET_RECOVERY_RUN"
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=issue661-profile-source-v2-$GITHUB_RUN_ID" --jq .total_count)" = 0
+          for path in             trade_rl/integrations/binance/market_order_profile.py             trade_rl/integrations/binance/forward_rules.py             trade_rl/integrations/binance/metadata.py             trade_rl/data/artifacts/codec.py             trade_rl/data/market.py
+          do
+            test "$(git -C helper rev-parse "$HELPER_HEAD:$path")" = "$(git -C impl rev-parse "$SOFTWARE_AUTHORITY_SHA:$path")"
+          done
+          mkdir -p impl/.github/scripts
+          cp helper/.github/scripts/issue661_profile_source.py impl/.github/scripts/
+          echo REAL_EXCHANGE_INFO_REQUEST_PERFORMED=false
+          echo ECONOMIC_EXECUTION_STARTED=false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: impl
+      - name: Install exact source-derivation environment
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Download exact Dataset authority and extract Dataset only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$DATASET_ARTIFACT_ID/zip > "$RUNNER_TEMP/dataset.zip"
+          cd impl
+          uv run python - "$RUNNER_TEMP/dataset.zip" "$RUNNER_TEMP/dataset" <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+
+          spec = importlib.util.spec_from_file_location("issue661_profile_source", ".github/scripts/issue661_profile_source.py")
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.extract_dataset_only(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+          PY
+          echo ECONOMIC_RESULT_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false
+      - name: Capture first validated exchangeInfo response exactly once
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run python .github/scripts/issue661_profile_source.py capture             --dataset-root "$RUNNER_TEMP/dataset"             --output "$RUNNER_TEMP/profile-source"
+      - name: Upload immutable source/profile bundle
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue661-profile-source-v2-${{ github.run_id }}
+          path: ${{ runner.temp }}/profile-source/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  fresh:
+    needs: publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout verified helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.HELPER_HEAD }}
+          path: helper
+          persist-credentials: false
+      - name: Checkout exact Issue 659 software authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOFTWARE_AUTHORITY_SHA }}
+          path: impl
+          persist-credentials: false
+      - name: Bind publisher artifact and source authorities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_NUMBER}" = "1"
+          test "${GITHUB_RUN_ATTEMPT}" = "1"
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID > "$RUNNER_TEMP/primary-meta.json"
+          test "$(jq -r .name "$RUNNER_TEMP/primary-meta.json")" = "issue661-profile-source-v2-$GITHUB_RUN_ID"
+          test "$(jq -r .expired "$RUNNER_TEMP/primary-meta.json")" = false
+          api_digest="$(jq -r .digest "$RUNNER_TEMP/primary-meta.json")"
+          test "${api_digest#sha256:}" = "${PRIMARY_DIGEST#sha256:}"
+          test "$(jq -r .workflow_run.id "$RUNNER_TEMP/primary-meta.json")" = "$GITHUB_RUN_ID"
+          mkdir -p impl/.github/scripts
+          cp helper/.github/scripts/issue661_profile_source.py impl/.github/scripts/
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: impl
+      - name: Install exact source-derivation environment
+        working-directory: impl
+        run: uv sync --extra dev
+      - name: Independently download immutable inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID/zip > "$RUNNER_TEMP/primary.zip"
+          mkdir "$RUNNER_TEMP/primary"
+          unzip -q "$RUNNER_TEMP/primary.zip" -d "$RUNNER_TEMP/primary"
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$DATASET_ARTIFACT_ID/zip > "$RUNNER_TEMP/dataset.zip"
+          cd impl
+          uv run python - "$RUNNER_TEMP/dataset.zip" "$RUNNER_TEMP/dataset" <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+
+          spec = importlib.util.spec_from_file_location("issue661_profile_source", ".github/scripts/issue661_profile_source.py")
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.extract_dataset_only(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+          PY
+      - name: Fresh no-network profile rederivation
+        working-directory: impl
+        run: |
+          set -euo pipefail
+          uv run python .github/scripts/issue661_profile_source.py rederive             --dataset-root "$RUNNER_TEMP/dataset"             --source-root "$RUNNER_TEMP/primary"             --output "$RUNNER_TEMP/fresh"
+          diff -qr "$RUNNER_TEMP/primary" "$RUNNER_TEMP/fresh"
+          echo BINANCE_NETWORK_ACCESS_PERFORMED=false
+          echo ECONOMIC_EXECUTION_STARTED=false
+          echo ECONOMIC_RESULT_INSPECTED=false
+          echo UNUSED_DATA_ACCESSED=false
+      - name: Upload immutable fresh reconstruction
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue661-profile-source-fresh-v2-${{ github.run_id }}
+          path: ${{ runner.temp }}/fresh/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  audit:
+    needs: [publisher, fresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Bind immutable Artifact API metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          for pair in primary:$PRIMARY_ID:$PRIMARY_DIGEST fresh:$FRESH_ID:$FRESH_DIGEST
+          do
+            label="${pair%%:*}"
+            rest="${pair#*:}"
+            id="${rest%%:*}"
+            expected="${rest#*:}"
+            gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$id > "$RUNNER_TEMP/$label-meta.json"
+            test "$(jq -r .expired "$RUNNER_TEMP/$label-meta.json")" = false
+            api_digest="$(jq -r .digest "$RUNNER_TEMP/$label-meta.json")"
+            test "${api_digest#sha256:}" = "${expected#sha256:}"
+            test "$(jq -r .workflow_run.id "$RUNNER_TEMP/$label-meta.json")" = "$GITHUB_RUN_ID"
+          done
+          test "$(jq -r .name "$RUNNER_TEMP/primary-meta.json")" = "issue661-profile-source-v2-$GITHUB_RUN_ID"
+          test "$(jq -r .name "$RUNNER_TEMP/fresh-meta.json")" = "issue661-profile-source-fresh-v2-$GITHUB_RUN_ID"
+      - name: Download and byte-compare primary/fresh bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ID/zip > "$RUNNER_TEMP/primary.zip"
+          gh api /repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_ID/zip > "$RUNNER_TEMP/fresh.zip"
+          mkdir "$RUNNER_TEMP/primary" "$RUNNER_TEMP/fresh"
+          unzip -q "$RUNNER_TEMP/primary.zip" -d "$RUNNER_TEMP/primary"
+          unzip -q "$RUNNER_TEMP/fresh.zip" -d "$RUNNER_TEMP/fresh"
+          diff -qr "$RUNNER_TEMP/primary" "$RUNNER_TEMP/fresh"
+          sha256sum "$RUNNER_TEMP/primary/"* | sort > "$RUNNER_TEMP/primary.sha"
+          (cd "$RUNNER_TEMP/fresh" && sha256sum * | sort) > "$RUNNER_TEMP/fresh.sha"
+      - name: Build result-blind source authority record
+        env:
+          PRIMARY_ID: ${{ needs.publisher.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.publisher.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/primary/manifest.json" "$RUNNER_TEMP/primary/exchange-info.raw.json" "$RUNNER_TEMP/authority.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          manifest = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+          raw = pathlib.Path(sys.argv[2]).read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == manifest["raw_payload_sha256"]
+          assert manifest["network_request_count"] == 1
+          assert manifest["first_successful_validated_response"] is True
+          for key in (
+              "economic_execution_started",
+              "economic_result_inspected",
+              "unused_data_accessed",
+              "final_test_accessed",
+              "production_eligible",
+              "live_trading_authorized",
+          ):
+              assert manifest[key] is False
+          record = {
+              "schema_version": "issue661_profile_source_authority_v2",
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "workflow_run_number": int(os.environ["GITHUB_RUN_NUMBER"]),
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "publisher_runner": "macos-14",
+              "v1_failed_run": int(os.environ["V1_FAILED_RUN"]),
+              "software_authority_sha": os.environ["SOFTWARE_AUTHORITY_SHA"],
+              "observer_head": os.environ["OBSERVER_HEAD"],
+              "observer_ci_run": int(os.environ["OBSERVER_CI_RUN"]),
+              "helper_head": os.environ["HELPER_HEAD"],
+              "helper_verify_run": int(os.environ["HELPER_VERIFY_RUN"]),
+              "dataset_run": int(os.environ["DATASET_RUN"]),
+              "dataset_publisher_job": int(os.environ["DATASET_PUBLISHER_JOB"]),
+              "dataset_artifact_id": int(os.environ["DATASET_ARTIFACT_ID"]),
+              "dataset_artifact_api_digest": os.environ["DATASET_ARTIFACT_API_DIGEST"],
+              "dataset_recovery_run": int(os.environ["DATASET_RECOVERY_RUN"]),
+              "dataset_recovery_artifact_id": int(os.environ["DATASET_RECOVERY_ARTIFACT_ID"]),
+              "dataset_recovery_api_digest": os.environ["DATASET_RECOVERY_API_DIGEST"],
+              "primary_artifact_id": int(os.environ["PRIMARY_ID"]),
+              "primary_artifact_upload_digest": os.environ["PRIMARY_DIGEST"],
+              "fresh_artifact_id": int(os.environ["FRESH_ID"]),
+              "fresh_artifact_upload_digest": os.environ["FRESH_DIGEST"],
+              "source": manifest,
+              "primary_fresh_byte_equal": True,
+              "economic_execution_started": False,
+              "economic_result_inspected": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          pathlib.Path(sys.argv[3]).write_text(json.dumps(record, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+          print("ISSUE661_PROFILE_SOURCE_AUDIT=PASS")
+          print("ECONOMIC_EXECUTION_STARTED=false")
+          print("UNUSED_DATA_ACCESSED=false")
+          PY
+      - name: Upload immutable source authority
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue661-profile-source-authority-v2-${{ github.run_id }}
+          path: ${{ runner.temp }}/authority.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90

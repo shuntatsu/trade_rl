@@ -1,4 +1,4 @@
-name: tmp Issue 661 profile source RED format diff
+name: tmp Issue 661 profile source semantic RED final
 on:
   push:
     branches:
@@ -8,19 +8,35 @@ on:
 permissions:
   contents: read
 jobs:
-  format:
+  verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 0019cd074fd543f2f5cd325ad0607d85b35b00fe
+          ref: c0d7f26addeb91988406deba990e7c65412b4441
+          fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
-      - run: |
+      - run: uv sync --extra dev
+      - name: Guard result-blind helper scope
+        run: |
           set -euo pipefail
-          uv sync --extra dev
-          uv run ruff format tests/tools/test_issue661_profile_source.py
-          git diff -- tests/tools/test_issue661_profile_source.py
+          test "$(git rev-parse HEAD)" = "c0d7f26addeb91988406deba990e7c65412b4441"
+          changed="$(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)"
+          expected="$(printf '%s\n'             .github/scripts/issue661_profile_source.py             .github/workflows/tmp-issue661-profile-source-helper-green.yml             tests/tools/test_issue661_profile_source.py | sort)"
+          test "$changed" = "$expected"
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run ruff format --check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run mypy .github/scripts/issue661_profile_source.py
+          uv run python -m py_compile .github/scripts/issue661_profile_source.py
+      - name: Semantic hardening RED
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/tools/test_issue661_profile_source.py tests/integrations/test_binance_market_order_profile.py

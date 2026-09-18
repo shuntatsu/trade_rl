@@ -304,7 +304,7 @@ class PreTradeRisk:
                 )
 
         self._validate_final(weights, risk_scale=scale)
-        projection_l1 = float(np.abs(requested - weights).sum())
+        projection_l1 = float(np.abs(proposal_weights - weights).sum())
         return RiskConstrainedTarget(
             weights=weights,
             requested_turnover=requested_turnover,

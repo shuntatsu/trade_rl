@@ -19,6 +19,8 @@ from trade_rl.simulation import (
     ExecutionCostConfig,
     MarketExecutor,
 )
+from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
+from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import (
     PositionIntent,
@@ -55,6 +57,114 @@ class SharedCashReplayDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class SharedCashLedgerIntervalEvidence:
+    """Observer-only evidence for one completed shared-cash execution interval."""
+
+    start_index: int
+    next_index: int
+    exact_quantities_before: tuple[str, ...]
+    exact_quantities_after: tuple[str, ...]
+    cash_before: float
+    cash_after: float
+    portfolio_value_before: float
+    portfolio_value_after: float
+    total_cost_before: float
+    total_cost_after: float
+    funding_pnl_before: float
+    funding_pnl_after: float
+    borrow_cost_before: float
+    borrow_cost_after: float
+    turnover_total_before: float
+    turnover_total_after: float
+    max_drawdown_before: float
+    max_drawdown_after: float
+    interval_cost: float
+    interval_funding: float
+    interval_borrow_cost: float
+    interval_dividend: float
+    interval_cash_interest: float
+    interval_net_return: float
+    termination_reason: str | None
+    order_events: tuple[OrderEvent, ...]
+    funding_events: tuple[FundingBoundaryEvidence, ...]
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "borrow_cost_after": self.borrow_cost_after,
+            "borrow_cost_before": self.borrow_cost_before,
+            "cash_after": self.cash_after,
+            "cash_before": self.cash_before,
+            "exact_quantities_after": self.exact_quantities_after,
+            "exact_quantities_before": self.exact_quantities_before,
+            "funding_events": tuple(event.to_mapping() for event in self.funding_events),
+            "funding_pnl_after": self.funding_pnl_after,
+            "funding_pnl_before": self.funding_pnl_before,
+            "interval_borrow_cost": self.interval_borrow_cost,
+            "interval_cash_interest": self.interval_cash_interest,
+            "interval_cost": self.interval_cost,
+            "interval_dividend": self.interval_dividend,
+            "interval_funding": self.interval_funding,
+            "interval_net_return": self.interval_net_return,
+            "max_drawdown_after": self.max_drawdown_after,
+            "max_drawdown_before": self.max_drawdown_before,
+            "next_index": self.next_index,
+            "order_events": tuple(event.canonical_payload() for event in self.order_events),
+            "portfolio_value_after": self.portfolio_value_after,
+            "portfolio_value_before": self.portfolio_value_before,
+            "start_index": self.start_index,
+            "termination_reason": self.termination_reason,
+            "total_cost_after": self.total_cost_after,
+            "total_cost_before": self.total_cost_before,
+            "turnover_total_after": self.turnover_total_after,
+            "turnover_total_before": self.turnover_total_before,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SharedCashReplayLedgerEvidence:
+    """Canonical observer trace for one shared-cash replay."""
+
+    dataset_id: str
+    execution_policy_digest: str
+    start_index: int
+    stop_index: int
+    intervals: tuple[SharedCashLedgerIntervalEvidence, ...]
+    terminal_exact_quantities: tuple[str, ...]
+    final_cash: float
+    final_portfolio_value: float
+    final_total_cost: float
+    final_funding_pnl: float
+    final_borrow_cost: float
+    final_turnover_total: float
+    final_max_drawdown: float
+    termination_reason: str | None
+    active_order_remainders: tuple[tuple[str, float], ...]
+    terminal_order_reasons: tuple[tuple[str, str], ...]
+    schema_version: str = "shared_cash_replay_ledger_v1"
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "active_order_remainders": self.active_order_remainders,
+            "dataset_id": self.dataset_id,
+            "execution_policy_digest": self.execution_policy_digest,
+            "final_borrow_cost": self.final_borrow_cost,
+            "final_cash": self.final_cash,
+            "final_funding_pnl": self.final_funding_pnl,
+            "final_max_drawdown": self.final_max_drawdown,
+            "final_portfolio_value": self.final_portfolio_value,
+            "final_total_cost": self.final_total_cost,
+            "final_turnover_total": self.final_turnover_total,
+            "intervals": tuple(interval.to_mapping() for interval in self.intervals),
+            "schema_version": self.schema_version,
+            "start_index": self.start_index,
+            "stop_index": self.stop_index,
+            "terminal_exact_quantities": self.terminal_exact_quantities,
+            "terminal_order_reasons": self.terminal_order_reasons,
+            "termination_reason": self.termination_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SharedCashReplayResult:
     """One shared-account multi-symbol replay result."""
 
@@ -62,6 +172,7 @@ class SharedCashReplayResult:
     returns: ReturnSeries
     diagnostics: ExecutionDiagnostics
     decisions: tuple[SharedCashReplayDecision, ...]
+    ledger_evidence: SharedCashReplayLedgerEvidence | None = None
 
 
 def _desired_quantity_from_weight(
@@ -302,6 +413,7 @@ def run_shared_cash_replay(
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
     market_order_profile: MarketOrderProfile | None = None,
+    capture_ledger_evidence: bool = False,
 ) -> SharedCashReplayResult:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -349,6 +461,8 @@ def run_shared_cash_replay(
     desired_quantities = np.zeros(dataset.n_symbols, dtype=np.float64)
     decisions: list[SharedCashReplayDecision] = []
     returns: list[float] = []
+    ledger_intervals: list[SharedCashLedgerIntervalEvidence] = []
+    last_execution = None
     index = start_index
 
     while index < stop_index:
@@ -420,6 +534,14 @@ def run_shared_cash_replay(
                 risk_reasons=constrained.reasons,
             )
         )
+        exact_quantities_before = tuple(str(value) for value in book.exact_quantities)
+        cash_before = float(book.cash)
+        portfolio_value_before = float(book.portfolio_value)
+        total_cost_before = float(book.total_cost)
+        funding_pnl_before = float(book.funding_pnl)
+        borrow_cost_before = float(book.borrow_cost)
+        turnover_total_before = float(book.turnover_total)
+        max_drawdown_before = float(book.max_drawdown)
         execution = executor.execute_interval(
             book,
             constrained.weights,
@@ -428,6 +550,41 @@ def run_shared_cash_replay(
         )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
+        if capture_ledger_evidence:
+            ledger_intervals.append(
+                SharedCashLedgerIntervalEvidence(
+                    start_index=index,
+                    next_index=execution.next_index,
+                    exact_quantities_before=exact_quantities_before,
+                    exact_quantities_after=tuple(
+                        str(value) for value in execution.book.exact_quantities
+                    ),
+                    cash_before=cash_before,
+                    cash_after=float(execution.book.cash),
+                    portfolio_value_before=portfolio_value_before,
+                    portfolio_value_after=float(execution.book.portfolio_value),
+                    total_cost_before=total_cost_before,
+                    total_cost_after=float(execution.book.total_cost),
+                    funding_pnl_before=funding_pnl_before,
+                    funding_pnl_after=float(execution.book.funding_pnl),
+                    borrow_cost_before=borrow_cost_before,
+                    borrow_cost_after=float(execution.book.borrow_cost),
+                    turnover_total_before=turnover_total_before,
+                    turnover_total_after=float(execution.book.turnover_total),
+                    max_drawdown_before=max_drawdown_before,
+                    max_drawdown_after=float(execution.book.max_drawdown),
+                    interval_cost=float(execution.interval_cost),
+                    interval_funding=float(execution.interval_funding),
+                    interval_borrow_cost=float(execution.interval_borrow_cost),
+                    interval_dividend=float(execution.interval_dividend),
+                    interval_cash_interest=float(execution.interval_cash_interest),
+                    interval_net_return=float(execution.interval_net_return),
+                    termination_reason=execution.termination_reason,
+                    order_events=execution.order_events,
+                    funding_events=execution.funding_evidence,
+                )
+            )
+        last_execution = execution
         book = execution.book
         returns.append(execution.interval_net_return)
         current_intents = intents
@@ -451,6 +608,45 @@ def run_shared_cash_replay(
         rebalance_events=book.rebalance_events,
         termination_reasons=termination_reasons,
     )
+    ledger_evidence = None
+    if capture_ledger_evidence:
+        if last_execution is None:
+            raise RuntimeError("captured replay produced no execution interval")
+        terminal_reason = (
+            None
+            if book.termination_reason is None
+            else (
+                book.termination_reason.value
+                if isinstance(book.termination_reason, EconomicTerminationReason)
+                else str(book.termination_reason)
+            )
+        )
+        ledger_evidence = SharedCashReplayLedgerEvidence(
+            dataset_id=dataset.dataset_id,
+            execution_policy_digest=executor.execution_policy_digest,
+            start_index=start_index,
+            stop_index=stop_index,
+            intervals=tuple(ledger_intervals),
+            terminal_exact_quantities=tuple(
+                str(value) for value in book.exact_quantities
+            ),
+            final_cash=float(book.cash),
+            final_portfolio_value=float(book.portfolio_value),
+            final_total_cost=float(book.total_cost),
+            final_funding_pnl=float(book.funding_pnl),
+            final_borrow_cost=float(book.borrow_cost),
+            final_turnover_total=float(book.turnover_total),
+            final_max_drawdown=float(book.max_drawdown),
+            termination_reason=terminal_reason,
+            active_order_remainders=tuple(
+                (order.order_id, float(order.remaining_quantity))
+                for order in last_execution.order_book.active_orders
+            ),
+            terminal_order_reasons=tuple(
+                (order.order_id, str(order.terminal_reason))
+                for order in last_execution.order_book.terminal_orders
+            ),
+        )
     return SharedCashReplayResult(
         book=book.clone(),
         returns=ReturnSeries(
@@ -460,12 +656,15 @@ def run_shared_cash_replay(
         ),
         diagnostics=diagnostics,
         decisions=tuple(decisions),
+        ledger_evidence=ledger_evidence,
     )
 
 
 __all__ = [
     "ReplayDecision",
+    "SharedCashLedgerIntervalEvidence",
     "SharedCashReplayDecision",
+    "SharedCashReplayLedgerEvidence",
     "SharedCashReplayResult",
     "SingleSymbolReplayResult",
     "run_shared_cash_replay",

@@ -218,14 +218,12 @@ integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
 
 The separately preregistered corrected-accounting replication in Issue #645 then
-ran the unchanged 13-arm screen from frozen source
-`c80652a126780580990bf46bb206155ba469e043` plus only PR #643 source
-`95a4831bfbd5dfac2b77371b0c99d6894edc4d3`. Official run `35287338444` on
-workflow HEAD `6dcbde815de7072c23d6f866d851a6cb5a1f9a83` completed exactly once with
-all 13 immutable arm slots and an independent no-refit publication audit. Its
-canonical selection is `NO_QUALIFIED_CANDIDATE`, `winner=null`, and
-`production_eligible=false`; no candidate qualified. Run-summary Artifact
-`10528400988` has API digest
+ran the unchanged 13-arm screen from frozen source `c80652a12678` plus only
+PR #643 source `95a4831bfbd5`. Official run `35287338444` on workflow HEAD
+`6dcbde815de7` completed exactly once with all 13 immutable arm slots and an
+independent no-refit publication audit. Its canonical selection is
+`NO_QUALIFIED_CANDIDATE`, `winner=null`, and `production_eligible=false`; no
+candidate qualified. Run-summary Artifact `10528400988` has API digest
 `sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9`,
 and independent audit Artifact `10527862342` has API digest
 `sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b`.

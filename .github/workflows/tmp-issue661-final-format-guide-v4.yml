@@ -1,0 +1,39 @@
+name: tmp Issue 661 final format and Guide refresh v4
+on:
+  push:
+    branches:
+      - automation/issue661-final-format-guide-v4
+permissions:
+  contents: read
+jobs:
+  derive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 17dfa5b03ebb0efa2e9c1caee98a4166433520fa
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+      - run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff format trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py
+          cd guide
+          npm ci
+          npm run code-index
+          python3 - <<'PY'
+          from tools.content_contract import refresh_code_topic, check_contract
+          refresh_code_topic('implementation-replay')
+          refresh_code_topic('code-map')
+          check_contract()
+          PY
+          cd ..
+          git diff -- trade_rl/simulation/execution.py trade_rl/simulation/stateful/execution.py guide/content/meta/implementation-replay.json guide/content/meta/code-map.json

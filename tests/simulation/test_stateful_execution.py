@@ -373,6 +373,51 @@ def test_stateful_result_reports_symbol_level_execution_observation_fields() -> 
     assert np.isfinite(result.interval_gross_return)
 
 
+def test_fill_ratio_uses_submission_reference_basis() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 100.0)
+    close = np.full(shape, 100.0)
+    high = np.full(shape, 120.0)
+    low = np.full(shape, 90.0)
+    volume = np.full(shape, 1_000.0)
+    volume[1, 0] = 10.8
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        lot_size=1.0,
+        trigger_volume_fractions=(1.0, 1.0, 1.0, 1.0),
+    )
+    intent = _intent(
+        executor,
+        10.0,
+        order_type=OrderType.STOP_MARKET,
+        stop_price=105.0,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.order_book.active_orders[0].remaining_quantity == pytest.approx(1.0)
+    assert result.requested_notional == pytest.approx(1_000.0)
+    assert result.filled_notional == pytest.approx(1_080.0)
+    assert result.requested_turnover == pytest.approx(1.0)
+    assert result.filled_turnover == pytest.approx(1.08)
+    assert result.fill_ratio == pytest.approx(0.9)
+    assert result.unfilled_turnover == pytest.approx(0.1)
+
+
 def test_interval_gross_return_uses_actual_fill_price_on_observed_path() -> None:
     open_price = np.full((6, 1), 100.0)
     close = np.full((6, 1), 100.0)

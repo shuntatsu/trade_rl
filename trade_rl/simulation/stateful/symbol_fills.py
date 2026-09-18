@@ -363,6 +363,14 @@ class StatefulSymbolFillProcessor:
                 )
                 runtime.total_cost += cost_amount
                 runtime.filled_notional += allocation.filled_notional
+                multipliers = runtime.book.contract_multipliers
+                if multipliers is None:
+                    raise RuntimeError("filled book is missing contract multipliers")
+                runtime.filled_reference_notional += (
+                    abs(allocation.filled_quantity)
+                    * order.intent.submission_reference_price
+                    * float(multipliers[symbol])
+                )
                 runtime.filled_by_symbol[symbol] += allocation.filled_notional
                 runtime.participation_by_symbol[symbol] = max(
                     runtime.participation_by_symbol[symbol],

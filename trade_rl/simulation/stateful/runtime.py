@@ -44,6 +44,7 @@ class StatefulExecutionRuntime:
     starting_rebalance_events: int
     requested_notional: float
     filled_notional: float
+    filled_reference_notional: float
     total_cost: float
     total_funding: float
     total_borrow: float
@@ -79,6 +80,7 @@ class StatefulExecutionRuntime:
             starting_rebalance_events=result_book.rebalance_events,
             requested_notional=0.0,
             filled_notional=0.0,
+            filled_reference_notional=0.0,
             total_cost=0.0,
             total_funding=0.0,
             total_borrow=0.0,
@@ -284,6 +286,9 @@ class StatefulExecutionRuntime:
             self.starting_value, _TOLERANCE
         )
         filled_turnover = self.filled_notional / max(self.starting_value, _TOLERANCE)
+        filled_reference_turnover = self.filled_reference_notional / max(
+            self.starting_value, _TOLERANCE
+        )
         reason = (
             None
             if self.book.termination_reason is None
@@ -309,11 +314,16 @@ class StatefulExecutionRuntime:
             "filled_notional": self.filled_notional,
             "requested_turnover": requested_turnover,
             "filled_turnover": filled_turnover,
-            "unfilled_turnover": max(0.0, requested_turnover - filled_turnover),
+            "unfilled_turnover": max(
+                0.0, requested_turnover - filled_reference_turnover
+            ),
             "fill_ratio": (
                 1.0
                 if self.requested_notional <= _TOLERANCE
-                else min(1.0, self.filled_notional / self.requested_notional)
+                else min(
+                    1.0,
+                    self.filled_reference_notional / self.requested_notional,
+                )
             ),
             "rebalance_events": (
                 self.book.rebalance_events - self.starting_rebalance_events

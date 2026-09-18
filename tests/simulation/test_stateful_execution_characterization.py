@@ -194,7 +194,11 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     result = _baseline_result()
     normalized = _normalize(_result_payload(result))
     corrected_gross_return = normalized["interval_gross_return"]
+    corrected_fill_ratio = normalized["fill_ratio"]
+    corrected_unfilled_turnover = normalized["unfilled_turnover"]
     assert corrected_gross_return == pytest.approx(0.013)
+    assert corrected_fill_ratio == pytest.approx(0.8)
+    assert corrected_unfilled_turnover == pytest.approx(0.1)
     observed_path_gross_value = (
         result.book.portfolio_value
         + result.interval_cost
@@ -211,6 +215,8 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     # frozen pre-correction diagnostic value so the original hash still proves
     # that every unrelated field stayed byte-for-byte equivalent.
     normalized["interval_gross_return"] = 0.008128863822075338
+    normalized["fill_ratio"] = 0.79
+    normalized["unfilled_turnover"] = 0.5 - 0.395
     canonical = json.dumps(
         normalized,
         sort_keys=True,
@@ -257,7 +263,8 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     assert len(result.capacity_evidence) == 3
     assert result.requested_notional == pytest.approx(500.0)
     assert result.filled_notional == pytest.approx(395.0)
-    assert result.fill_ratio == pytest.approx(0.79)
+    assert result.fill_ratio == pytest.approx(0.8)
+    assert result.unfilled_turnover == pytest.approx(0.1)
     assert result.interval_cost == pytest.approx(0.7117369819382167)
     assert result.interval_net_return == pytest.approx(0.012288263018061851)
     assert result.book.quantities.tolist() == pytest.approx([2.0])

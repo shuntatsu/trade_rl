@@ -88,7 +88,7 @@
       "id": "execute-interval",
       "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
       "kind": "method",
-      "source_sha256": "2017109526a8fbbeb5710366c214b9b6cad98395f3d156574ecf38e0512cda27",
+      "source_sha256": "1f78a92e5b6b3d31397ed219d1951cf801fdcbe5e47bf020ee3dd5b68fff7289",
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],

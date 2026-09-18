@@ -1,0 +1,50 @@
+name: Verify Issue 663 v2 seal recovery v1
+on:
+  push:
+    branches:
+      - verify/issue663-v2-seal-recovery-v1
+permissions:
+  actions: read
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 945d37026f6d6318367a99721662214eb0497bad
+          persist-credentials: false
+      - name: Parse and inspect workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0], aliases: true); puts "YAML_OK"' .github/workflows/issue663-normalization-authority-seal-v2-recovery.yml
+          grep -Fq 'TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e' .github/workflows/issue663-normalization-authority-seal-v2-recovery.yml
+          grep -Fq 'issue645_reporting_quantity_abs_le_1e-10' .github/workflows/issue663-normalization-authority-seal-v2-recovery.yml
+          grep -Fq 'candidate_results_inspected": False' .github/workflows/issue663-normalization-authority-seal-v2-recovery.yml
+          test ! -e .github/authorizations/issue663-normalization-authority-v2-recovery.authorized
+      - name: Rebind v1 authorities and empty v2 slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          v1="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/35352070089")"
+          test "$(jq -r .status <<<"$v1")" = completed
+          test "$(jq -r .conclusion <<<"$v1")" = success
+          for row in             '10550190302|issue663-normalization-authority-primary-v1|sha256:b46d45fc443a4ec43406ed84afab638ebfc98f4f4b025913d1da26f89cd386a0'             '10550195843|issue663-normalization-authority-fresh-v1|sha256:f3516e3e40cf9637a667e6fe9ff99fc04ec89af77d813ea222f41e3c6bcf4b31'
+          do
+            IFS='|' read -r id name digest <<<"$row"
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = 35352070089
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .expired <<<"$meta")" = false
+          done
+          for name in issue663-normalization-authority-primary-v2 issue663-normalization-authority-fresh-v2 issue663-normalization-authority-audit-v2; do
+            listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+            test "$(jq -r .total_count <<<"$listing")" = 0
+          done
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false

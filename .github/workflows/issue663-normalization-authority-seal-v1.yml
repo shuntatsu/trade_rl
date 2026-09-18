@@ -1,0 +1,524 @@
+name: Issue 663 normalization authority seal v1
+
+on:
+  push:
+    branches:
+      - seal/issue663-normalization-authority-v1
+    paths:
+      - .github/authorizations/issue663-normalization-authority-v1.authorized
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+  BASE_SHA: 928ee0886c404cdbb1383f440f731d7221c277ef
+  PR642_HEAD: 3548e783bc0bfb1d68f238a37e64b4b4273a8cec
+  FULL_VERIFY_RUN: '35351524425'
+  FULL_VERIFY_WORKFLOW_HEAD: 5ff4f05d474125ae49ec92d2865bbcf6b1503cf2
+  PRIMARY_NAME: issue663-normalization-authority-primary-v1
+  FRESH_NAME: issue663-normalization-authority-fresh-v1
+  AUDIT_NAME: issue663-normalization-authority-audit-v1
+
+jobs:
+  primary:
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first authorization and empty artifact slots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = 1
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          for name in "$PRIMARY_NAME" "$FRESH_NAME" "$AUDIT_NAME"; do
+            test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name" --jq .total_count)" = 0
+          done
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN" --jq .conclusion)" = success
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN" --jq .head_sha)" = "$FULL_VERIFY_WORKFLOW_HEAD"
+          jobs="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$FULL_VERIFY_RUN/jobs?per_page=100")"
+          test "$(jq '[.jobs[] | select(.name=="Lean Core" and .conclusion=="success")] | length' <<<"$jobs")" = 1
+          test "$(jq '[.jobs[] | select(.name=="Human Guide" and .conclusion=="success")] | length' <<<"$jobs")" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rebind reviewed normalization-only scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$PR642_HEAD^{commit}" || git fetch --no-tags origin "$PR642_HEAD"
+          python - <<'PY'
+          import subprocess
+          expected = sorted([
+              "docs/architecture/lean-core.md",
+              "docs/architecture/package-boundaries.md",
+              "guide/content/meta/implementation-ppo.json",
+              "guide/content/pages/implementation-ppo.md",
+              "tests/strategies/test_ppo_feature_normalization.py",
+              "tests/strategies/test_ppo_model_artifact.py",
+              "trade_rl/strategies/rl/ppo.py",
+              "trade_rl/strategies/rl/ppo_artifact.py",
+              "trade_rl/strategies/rl/ppo_normalization.py",
+          ])
+          observed = subprocess.check_output(
+              ["git", "diff", "--name-only", "928ee0886c404cdbb1383f440f731d7221c277ef..5cefa36ca3ba47cc9ed9b80df18130ec2720f86e"],
+              text=True,
+          ).splitlines()
+          assert sorted(observed) == expected, (observed, expected)
+          production = sorted(path for path in observed if path.startswith("trade_rl/"))
+          assert production == sorted([
+              "trade_rl/strategies/rl/ppo.py",
+              "trade_rl/strategies/rl/ppo_artifact.py",
+              "trade_rl/strategies/rl/ppo_normalization.py",
+          ]), production
+          PY
+          for path in trade_rl/strategies/rl/ppo_normalization.py trade_rl/strategies/rl/ppo_artifact.py; do
+            test "$(git rev-parse "$TARGET_SHA:$path")" = "$(git rev-parse "$PR642_HEAD:$path")"
+          done
+          ! git diff "$BASE_SHA..$TARGET_SHA" -- trade_rl/strategies/rl/ppo.py | grep -E '^[+-].*risk_config'
+      - name: Generate canonical authority
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/authority"
+          mkdir -p "$out"
+          python - "$out" <<'PY'
+          from __future__ import annotations
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          target = "5cefa36ca3ba47cc9ed9b80df18130ec2720f86e"
+          base = "928ee0886c404cdbb1383f440f731d7221c277ef"
+          files = (
+              "docs/architecture/lean-core.md",
+              "docs/architecture/package-boundaries.md",
+              "guide/content/meta/implementation-ppo.json",
+              "guide/content/pages/implementation-ppo.md",
+              "tests/strategies/test_ppo_feature_normalization.py",
+              "tests/strategies/test_ppo_model_artifact.py",
+              "trade_rl/strategies/rl/ppo.py",
+              "trade_rl/strategies/rl/ppo_artifact.py",
+              "trade_rl/strategies/rl/ppo_normalization.py",
+          )
+          def canon(value: object) -> bytes:
+              return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+          def sha(raw: bytes) -> str:
+              return hashlib.sha256(raw).hexdigest()
+          def blob(path: str) -> str:
+              return subprocess.check_output(["git", "rev-parse", f"{target}:{path}"], text=True).strip()
+          def patch_sha(path: str) -> str:
+              raw = subprocess.check_output(["git", "diff", f"{base}..{target}", "--", path])
+              return sha(raw)
+
+          implementation = {
+              "schema": "issue663_normalization_implementation_v1",
+              "issue": 663,
+              "base_corrected_accounting_head": base,
+              "target_head": target,
+              "pr642_factor_head": "3548e783bc0bfb1d68f238a37e64b4b4273a8cec",
+              "full_verify_run": 35351524425,
+              "full_verify_workflow_head": "5ff4f05d474125ae49ec92d2865bbcf6b1503cf2",
+              "factor": "PPO_FIT_ONLY_FEATURE_STANDARDIZATION",
+              "production_files": [
+                  "trade_rl/strategies/rl/ppo.py",
+                  "trade_rl/strategies/rl/ppo_artifact.py",
+                  "trade_rl/strategies/rl/ppo_normalization.py",
+              ],
+              "changed_files": list(files),
+              "blob_shas": {path: blob(path) for path in files},
+              "patch_sha256": {path: patch_sha(path) for path in files},
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+          }
+          protocol = {
+              "schema": "issue663_ppo_feature_standardization_protocol_v1",
+              "issue": 663,
+              "factor": "PPO_FIT_ONLY_FEATURE_STANDARDIZATION",
+              "control": {
+                  "run": 35287338444,
+                  "implementation_head": "928ee0886c404cdbb1383f440f731d7221c277ef",
+                  "workflow_head": "6dcbde815de7072c23d6f866d851a6cb5a1f9a83",
+                  "summary_artifact": {
+                      "id": 10528400988,
+                      "digest": "sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9",
+                  },
+                  "audit_artifact": {
+                      "id": 10527862342,
+                      "digest": "sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b",
+                  },
+                  "seed_artifacts": [
+                      {"seed": 0, "id": 10526185891, "digest": "sha256:ffc2fde5ccf1c56a34a14b4b61be42acd51fdbf93722d36bf9c7e323f0c28280"},
+                      {"seed": 1, "id": 10526377242, "digest": "sha256:c96d901280fbfb8bb15f91ad511e398469e5946341d2612d199096afe22b4228"},
+                      {"seed": 2, "id": 10526288771, "digest": "sha256:e185ac3d4f47068d7c8c21a1e301f1662a83de4730858e4965893e0ab1019951"},
+                      {"seed": 3, "id": 10527945300, "digest": "sha256:4a8645c0e8eabdca926fc462d63716f434ad21a81218d7d0ef3887cce934f498"},
+                      {"seed": 4, "id": 10528031191, "digest": "sha256:3a329e9b13d29879ace07af2a9dc700431ccd094e6754c02ef92f85000b7c3f8"},
+                  ],
+              },
+              "dataset": {
+                  "producer_run": 34803217815,
+                  "artifact_id": 10331899302,
+                  "artifact_digest": "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce",
+                  "dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
+                  "dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
+                  "study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
+                  "recovery_run": 34803432434,
+                  "recovery_artifact_id": 10332575500,
+                  "recovery_artifact_digest": "sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589",
+              },
+              "candidate": {
+                  "normalize_features": True,
+                  "normalizer_schema": "ppo_feature_standardization_v1",
+                  "training_layout": "sequential",
+                  "seeds": [0, 1, 2, 3, 4],
+                  "total_timesteps": 262144,
+                  "risk_config": None,
+                  "gross_training_budget": 0.1,
+                  "initial_capital": 10000.0,
+                  "ordinary_execution_profile": True,
+                  "fit_scope_only": True,
+                  "equal_fit_symbol_weight": True,
+                  "unavailable_values_zero": True,
+                  "same_transform_training_inference": True,
+              },
+              "window": {
+                  "fit_strictly_before": "2023-01-01T00:00:00Z",
+                  "evaluation_start": "2023-01-01T00:00:00Z",
+                  "evaluation_stop_exclusive": "2025-01-01T00:00:00Z",
+                  "evaluation_intervals": 17544,
+              },
+              "relative_gate": {
+                  "required_seed_wins": 4,
+                  "median_paired_delta_strictly_positive": True,
+                  "max_candidate_drawdown": 0.2,
+                  "complete_replay_required": True,
+                  "candidate_termination_not_greater_than_control": True,
+              },
+              "absolute_gate": {
+                  "positive_full_return": True,
+                  "positive_each_calendar_year": True,
+                  "max_drawdown": 0.2,
+                  "complete_replay_required": True,
+                  "no_termination": True,
+                  "exact_terminal_flatness": True,
+                  "ppo_required_qualifying_seeds": 4,
+                  "cost_stress_multiplier": 2.0,
+                  "latency_stress_bars": 1,
+              },
+              "decisions": [
+                  "KEEP_BASELINE",
+                  "RELATIVE_IMPROVEMENT_ONLY",
+                  "PROSPECTIVE_PAPER_REQUIRED",
+              ],
+              "boundaries": {
+                  "unused_data_accessed": False,
+                  "final_test_accessed": False,
+                  "production_eligible": False,
+                  "live_trading_authorized": False,
+              },
+          }
+          impl_raw = canon(implementation)
+          protocol_raw = canon(protocol)
+          (out / "implementation.json").write_bytes(impl_raw)
+          (out / "protocol.json").write_bytes(protocol_raw)
+          seal = {
+              "schema": "issue663_normalization_authority_seal_v1",
+              "implementation_sha256": sha(impl_raw),
+              "protocol_sha256": sha(protocol_raw),
+              "target_head": target,
+              "base_corrected_accounting_head": base,
+              "full_verify_run": 35351524425,
+              "economic_result_inspected": False,
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (out / "seal.json").write_bytes(canon(seal))
+          PY
+          sha256sum "$out"/*.json
+      - name: Upload primary authority
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/authority/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false
+
+  fresh:
+    needs: primary
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently regenerate canonical authority
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PR642_HEAD^{commit}" || git fetch --no-tags origin "$PR642_HEAD"
+          out="$RUNNER_TEMP/fresh"
+          mkdir -p "$out"
+          python - "$out" <<'PY'
+          from __future__ import annotations
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          target = "5cefa36ca3ba47cc9ed9b80df18130ec2720f86e"
+          base = "928ee0886c404cdbb1383f440f731d7221c277ef"
+          files = (
+              "docs/architecture/lean-core.md",
+              "docs/architecture/package-boundaries.md",
+              "guide/content/meta/implementation-ppo.json",
+              "guide/content/pages/implementation-ppo.md",
+              "tests/strategies/test_ppo_feature_normalization.py",
+              "tests/strategies/test_ppo_model_artifact.py",
+              "trade_rl/strategies/rl/ppo.py",
+              "trade_rl/strategies/rl/ppo_artifact.py",
+              "trade_rl/strategies/rl/ppo_normalization.py",
+          )
+          def canon(value: object) -> bytes:
+              return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+          def sha(raw: bytes) -> str:
+              return hashlib.sha256(raw).hexdigest()
+          def blob(path: str) -> str:
+              return subprocess.check_output(["git", "rev-parse", f"{target}:{path}"], text=True).strip()
+          def patch_sha(path: str) -> str:
+              return sha(subprocess.check_output(["git", "diff", f"{base}..{target}", "--", path]))
+
+          implementation = {
+              "schema": "issue663_normalization_implementation_v1",
+              "issue": 663,
+              "base_corrected_accounting_head": base,
+              "target_head": target,
+              "pr642_factor_head": "3548e783bc0bfb1d68f238a37e64b4b4273a8cec",
+              "full_verify_run": 35351524425,
+              "full_verify_workflow_head": "5ff4f05d474125ae49ec92d2865bbcf6b1503cf2",
+              "factor": "PPO_FIT_ONLY_FEATURE_STANDARDIZATION",
+              "production_files": [
+                  "trade_rl/strategies/rl/ppo.py",
+                  "trade_rl/strategies/rl/ppo_artifact.py",
+                  "trade_rl/strategies/rl/ppo_normalization.py",
+              ],
+              "changed_files": list(files),
+              "blob_shas": {path: blob(path) for path in files},
+              "patch_sha256": {path: patch_sha(path) for path in files},
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+          }
+          protocol = {
+              "schema": "issue663_ppo_feature_standardization_protocol_v1",
+              "issue": 663,
+              "factor": "PPO_FIT_ONLY_FEATURE_STANDARDIZATION",
+              "control": {
+                  "run": 35287338444,
+                  "implementation_head": "928ee0886c404cdbb1383f440f731d7221c277ef",
+                  "workflow_head": "6dcbde815de7072c23d6f866d851a6cb5a1f9a83",
+                  "summary_artifact": {"id": 10528400988, "digest": "sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9"},
+                  "audit_artifact": {"id": 10527862342, "digest": "sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b"},
+                  "seed_artifacts": [
+                      {"seed": 0, "id": 10526185891, "digest": "sha256:ffc2fde5ccf1c56a34a14b4b61be42acd51fdbf93722d36bf9c7e323f0c28280"},
+                      {"seed": 1, "id": 10526377242, "digest": "sha256:c96d901280fbfb8bb15f91ad511e398469e5946341d2612d199096afe22b4228"},
+                      {"seed": 2, "id": 10526288771, "digest": "sha256:e185ac3d4f47068d7c8c21a1e301f1662a83de4730858e4965893e0ab1019951"},
+                      {"seed": 3, "id": 10527945300, "digest": "sha256:4a8645c0e8eabdca926fc462d63716f434ad21a81218d7d0ef3887cce934f498"},
+                      {"seed": 4, "id": 10528031191, "digest": "sha256:3a329e9b13d29879ace07af2a9dc700431ccd094e6754c02ef92f85000b7c3f8"},
+                  ],
+              },
+              "dataset": {
+                  "producer_run": 34803217815,
+                  "artifact_id": 10331899302,
+                  "artifact_digest": "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce",
+                  "dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
+                  "dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
+                  "study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
+                  "recovery_run": 34803432434,
+                  "recovery_artifact_id": 10332575500,
+                  "recovery_artifact_digest": "sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589",
+              },
+              "candidate": {
+                  "normalize_features": True,
+                  "normalizer_schema": "ppo_feature_standardization_v1",
+                  "training_layout": "sequential",
+                  "seeds": [0,1,2,3,4],
+                  "total_timesteps": 262144,
+                  "risk_config": None,
+                  "gross_training_budget": 0.1,
+                  "initial_capital": 10000.0,
+                  "ordinary_execution_profile": True,
+                  "fit_scope_only": True,
+                  "equal_fit_symbol_weight": True,
+                  "unavailable_values_zero": True,
+                  "same_transform_training_inference": True,
+              },
+              "window": {
+                  "fit_strictly_before": "2023-01-01T00:00:00Z",
+                  "evaluation_start": "2023-01-01T00:00:00Z",
+                  "evaluation_stop_exclusive": "2025-01-01T00:00:00Z",
+                  "evaluation_intervals": 17544,
+              },
+              "relative_gate": {
+                  "required_seed_wins": 4,
+                  "median_paired_delta_strictly_positive": True,
+                  "max_candidate_drawdown": 0.2,
+                  "complete_replay_required": True,
+                  "candidate_termination_not_greater_than_control": True,
+              },
+              "absolute_gate": {
+                  "positive_full_return": True,
+                  "positive_each_calendar_year": True,
+                  "max_drawdown": 0.2,
+                  "complete_replay_required": True,
+                  "no_termination": True,
+                  "exact_terminal_flatness": True,
+                  "ppo_required_qualifying_seeds": 4,
+                  "cost_stress_multiplier": 2.0,
+                  "latency_stress_bars": 1,
+              },
+              "decisions": ["KEEP_BASELINE","RELATIVE_IMPROVEMENT_ONLY","PROSPECTIVE_PAPER_REQUIRED"],
+              "boundaries": {"unused_data_accessed":False,"final_test_accessed":False,"production_eligible":False,"live_trading_authorized":False},
+          }
+          impl_raw, protocol_raw = canon(implementation), canon(protocol)
+          (out/"implementation.json").write_bytes(impl_raw)
+          (out/"protocol.json").write_bytes(protocol_raw)
+          seal = {
+              "schema":"issue663_normalization_authority_seal_v1",
+              "implementation_sha256":sha(impl_raw),
+              "protocol_sha256":sha(protocol_raw),
+              "target_head":target,
+              "base_corrected_accounting_head":base,
+              "full_verify_run":35351524425,
+              "economic_result_inspected":False,
+              "real_dataset_loaded":False,
+              "model_fit_performed":False,
+              "economic_replay_performed":False,
+              "unused_data_accessed":False,
+              "final_test_accessed":False,
+              "production_eligible":False,
+              "live_trading_authorized":False,
+          }
+          (out/"seal.json").write_bytes(canon(seal))
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/primary
+      - name: Require byte identity with primary
+        run: |
+          set -euo pipefail
+          for f in implementation.json protocol.json seal.json; do
+            cmp "$RUNNER_TEMP/fresh/$f" "$RUNNER_TEMP/primary/$f"
+          done
+      - name: Upload fresh authority
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: ${{ runner.temp }}/fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false
+
+  audit:
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: ${{ runner.temp }}/fresh
+      - name: Independently audit canonical bytes and Artifact identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          for f in implementation.json protocol.json seal.json; do
+            cmp "$RUNNER_TEMP/primary/$f" "$RUNNER_TEMP/fresh/$f"
+          done
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          for root in (Path(os.environ["RUNNER_TEMP"])/"primary", Path(os.environ["RUNNER_TEMP"])/"fresh"):
+              values = {}
+              for name in ("implementation.json","protocol.json","seal.json"):
+                  raw=(root/name).read_bytes()
+                  value=json.loads(raw)
+                  assert json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()==raw
+                  values[name]=(value,hashlib.sha256(raw).hexdigest())
+              seal=values["seal.json"][0]
+              assert seal["implementation_sha256"]==values["implementation.json"][1]
+              assert seal["protocol_sha256"]==values["protocol.json"][1]
+              for key in ("economic_result_inspected","real_dataset_loaded","model_fit_performed","economic_replay_performed","unused_data_accessed","final_test_accessed","production_eligible","live_trading_authorized"):
+                  assert seal[key] is False
+          PY
+          for tuple in "PRIMARY:$PRIMARY_ID:$PRIMARY_NAME:$PRIMARY_DIGEST" "FRESH:$FRESH_ID:$FRESH_NAME:$FRESH_DIGEST"; do
+            IFS=: read -r label id expected_name action_digest <<<"$tuple"
+            meta="$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$expected_name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$meta")" = false
+            api_digest="$(jq -r .digest <<<"$meta")"
+            test "${api_digest#sha256:}" = "${action_digest#sha256:}"
+          done
+          mkdir -p "$RUNNER_TEMP/audit"
+          python - "$RUNNER_TEMP/audit/audit.json" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"primary"
+          def h(name): return hashlib.sha256((root/name).read_bytes()).hexdigest()
+          value={
+            "schema":"issue663_normalization_authority_audit_v1",
+            "run_id":int(os.environ["GITHUB_RUN_ID"]),
+            "target_head":"5cefa36ca3ba47cc9ed9b80df18130ec2720f86e",
+            "implementation_sha256":h("implementation.json"),
+            "protocol_sha256":h("protocol.json"),
+            "seal_sha256":h("seal.json"),
+            "primary_artifact_id":int(os.environ["PRIMARY_ID"]),
+            "fresh_artifact_id":int(os.environ["FRESH_ID"]),
+            "byte_identical":True,
+            "real_dataset_loaded":False,
+            "model_fit_performed":False,
+            "economic_replay_performed":False,
+            "unused_data_accessed":False,
+            "final_test_accessed":False,
+            "production_eligible":False,
+            "live_trading_authorized":False,
+          }
+          Path(sys.argv[1]).write_bytes(json.dumps(value,sort_keys=True,separators=(",",":")).encode())
+          PY
+      - name: Upload immutable audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.AUDIT_NAME }}
+          path: ${{ runner.temp }}/audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false

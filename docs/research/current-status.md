@@ -219,9 +219,9 @@ does not alter any active frozen study or its historical results.
 
 The separately preregistered corrected-accounting replication in Issue #645 then
 ran the unchanged 13-arm screen from frozen source `c80652a12678` plus only
-PR #643 source `95a4831bfbd5`. Official run `35287338444` on workflow HEAD
-`6dcbde815de7` completed exactly once with all 13 immutable arm slots and an
-independent no-refit publication audit. Its canonical selection is
+the accounting-correction source `95a4831bfbd5`. Official run `35287338444` on
+workflow HEAD `6dcbde815de7` completed exactly once with all 13 immutable arm
+slots and an independent no-refit publication audit. Its canonical selection is
 `NO_QUALIFIED_CANDIDATE`, `winner=null`, and `production_eligible=false`; no
 candidate qualified. Run-summary Artifact `10528400988` has API digest
 `sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9`,

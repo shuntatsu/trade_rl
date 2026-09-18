@@ -117,6 +117,7 @@ def test_next_open_entry_excludes_prior_gap_carry() -> None:
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.interval_cash_interest == pytest.approx(expected_interest)
 
+
 def test_session_gap_borrow_uses_previous_close_before_next_open() -> None:
     timestamps = np.array(
         [

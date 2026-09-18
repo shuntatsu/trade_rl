@@ -1,0 +1,350 @@
+name: Issue 663 normalization protocol seal v2 recovery
+
+on:
+  push:
+    branches:
+      - seal/issue663-normalization-authority-v2-recovery
+    paths:
+      - .github/authorizations/issue663-normalization-authority-v2-recovery.authorized
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+  V1_RUN: '35352070089'
+  V1_PRIMARY_ID: '10550190302'
+  V1_PRIMARY_DIGEST: sha256:b46d45fc443a4ec43406ed84afab638ebfc98f4f4b025913d1da26f89cd386a0
+  V1_FRESH_ID: '10550195843'
+  V1_FRESH_DIGEST: sha256:f3516e3e40cf9637a667e6fe9ff99fc04ec89af77d813ea222f41e3c6bcf4b31
+  V1_PROTOCOL_SHA: d82a78fd1dde984158909ff8bdb062dbe63da30d437118a8c85a7bb2901cab58
+  PRIMARY_NAME: issue663-normalization-authority-primary-v2
+  FRESH_NAME: issue663-normalization-authority-fresh-v2
+  AUDIT_NAME: issue663-normalization-authority-audit-v2
+
+jobs:
+  primary:
+    name: Primary v2 authority
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Rebind v1 and require empty v2 slots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          v1="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$V1_RUN")"
+          test "$(jq -r .status <<<"$v1")" = completed
+          test "$(jq -r .conclusion <<<"$v1")" = success
+          for name in "$PRIMARY_NAME" "$FRESH_NAME" "$AUDIT_NAME"; do
+            listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+            test "$(jq -r .total_count <<<"$listing")" = 0
+          done
+          for row in             "$V1_PRIMARY_ID|issue663-normalization-authority-primary-v1|$V1_PRIMARY_DIGEST"             "$V1_FRESH_ID|issue663-normalization-authority-fresh-v1|$V1_FRESH_DIGEST"
+          do
+            IFS='|' read -r id name digest <<<"$row"
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$V1_RUN"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .expired <<<"$meta")" = false
+          done
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v1
+          path: ${{ runner.temp }}/v1
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35352070089'
+
+      - name: Generate canonical v2 from canonical v1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v2"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          src = Path(os.environ["RUNNER_TEMP"]) / "v1"
+          out = Path(os.environ["RUNNER_TEMP"]) / "v2"
+
+          def canon(value):
+              return json.dumps(
+                  value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+              ).encode()
+
+          def sha(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+          implementation = (src / "implementation.json").read_bytes()
+          old_raw = (src / "protocol.json").read_bytes()
+          old = json.loads(old_raw)
+          assert canon(old) == old_raw
+          assert sha(old_raw) == os.environ["V1_PROTOCOL_SHA"]
+
+          absolute = old["absolute_gate"]
+          assert absolute.pop("exact_terminal_flatness") is True
+          absolute["terminal_flatness_semantics"] = (
+              "issue645_reporting_quantity_abs_le_1e-10"
+          )
+          old["protocol_revision"] = {
+              "candidate_results_inspected": False,
+              "reason": "align_terminal_flatness_with_frozen_issue645_evaluator",
+              "supersedes_protocol_sha256": os.environ["V1_PROTOCOL_SHA"],
+          }
+
+          protocol = canon(old)
+          seal = {
+              "schema": "issue663_normalization_authority_seal_v2",
+              "target_head": os.environ["TARGET_SHA"],
+              "implementation_sha256": sha(implementation),
+              "protocol_sha256": sha(protocol),
+              "supersedes_protocol_sha256": os.environ["V1_PROTOCOL_SHA"],
+              "candidate_results_inspected": False,
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (out / "implementation.json").write_bytes(implementation)
+          (out / "protocol.json").write_bytes(protocol)
+          (out / "seal.json").write_bytes(canon(seal))
+          print("V2_PROTOCOL_SHA=" + sha(protocol))
+          PY
+
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/v2/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh v2 reconstruction
+    needs: primary
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-fresh-v1
+          path: ${{ runner.temp }}/v1
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35352070089'
+
+      - name: Independently regenerate v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v2"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          src = Path(os.environ["RUNNER_TEMP"]) / "v1"
+          out = Path(os.environ["RUNNER_TEMP"]) / "v2"
+
+          def canon(value):
+              return json.dumps(
+                  value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+              ).encode()
+
+          def sha(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+          implementation = (src / "implementation.json").read_bytes()
+          old_raw = (src / "protocol.json").read_bytes()
+          old = json.loads(old_raw)
+          assert canon(old) == old_raw
+          assert sha(old_raw) == os.environ["V1_PROTOCOL_SHA"]
+
+          absolute = old["absolute_gate"]
+          assert absolute.pop("exact_terminal_flatness") is True
+          absolute["terminal_flatness_semantics"] = (
+              "issue645_reporting_quantity_abs_le_1e-10"
+          )
+          old["protocol_revision"] = {
+              "candidate_results_inspected": False,
+              "reason": "align_terminal_flatness_with_frozen_issue645_evaluator",
+              "supersedes_protocol_sha256": os.environ["V1_PROTOCOL_SHA"],
+          }
+
+          protocol = canon(old)
+          seal = {
+              "schema": "issue663_normalization_authority_seal_v2",
+              "target_head": os.environ["TARGET_SHA"],
+              "implementation_sha256": sha(implementation),
+              "protocol_sha256": sha(protocol),
+              "supersedes_protocol_sha256": os.environ["V1_PROTOCOL_SHA"],
+              "candidate_results_inspected": False,
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (out / "implementation.json").write_bytes(implementation)
+          (out / "protocol.json").write_bytes(protocol)
+          (out / "seal.json").write_bytes(canon(seal))
+          PY
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/primary
+
+      - name: Require byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in implementation.json protocol.json seal.json; do
+            cmp "$RUNNER_TEMP/v2/$file" "$RUNNER_TEMP/primary/$file"
+          done
+
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: ${{ runner.temp }}/v2/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Independent v2 audit
+    needs: [primary, fresh]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PRIMARY_NAME }}
+          path: ${{ runner.temp }}/primary
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_NAME }}
+          path: ${{ runner.temp }}/fresh
+
+      - name: Audit canonical bytes, semantics and Artifact identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_ID: ${{ needs.primary.outputs.artifact_id }}
+          PRIMARY_DIGEST: ${{ needs.primary.outputs.artifact_digest }}
+          FRESH_ID: ${{ needs.fresh.outputs.artifact_id }}
+          FRESH_DIGEST: ${{ needs.fresh.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in implementation.json protocol.json seal.json; do
+            cmp "$RUNNER_TEMP/primary/$file" "$RUNNER_TEMP/fresh/$file"
+          done
+          mkdir -p "$RUNNER_TEMP/audit"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "primary"
+
+          def canon(value):
+              return json.dumps(
+                  value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+              ).encode()
+
+          def read(name):
+              raw = (root / name).read_bytes()
+              value = json.loads(raw)
+              assert canon(value) == raw
+              return raw, value
+
+          implementation_raw, _implementation = read("implementation.json")
+          protocol_raw, protocol = read("protocol.json")
+          seal_raw, seal = read("seal.json")
+
+          assert "exact_terminal_flatness" not in protocol["absolute_gate"]
+          assert protocol["absolute_gate"]["terminal_flatness_semantics"] == (
+              "issue645_reporting_quantity_abs_le_1e-10"
+          )
+          assert protocol["protocol_revision"]["supersedes_protocol_sha256"] == (
+              os.environ["V1_PROTOCOL_SHA"]
+          )
+          assert protocol["protocol_revision"]["candidate_results_inspected"] is False
+          assert seal["implementation_sha256"] == hashlib.sha256(
+              implementation_raw
+          ).hexdigest()
+          assert seal["protocol_sha256"] == hashlib.sha256(protocol_raw).hexdigest()
+          for key in (
+              "candidate_results_inspected",
+              "real_dataset_loaded",
+              "model_fit_performed",
+              "economic_replay_performed",
+              "unused_data_accessed",
+              "final_test_accessed",
+              "production_eligible",
+              "live_trading_authorized",
+          ):
+              assert seal[key] is False
+
+          audit = {
+              "schema": "issue663_normalization_authority_audit_v2",
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "target_head": os.environ["TARGET_SHA"],
+              "protocol_sha256": hashlib.sha256(protocol_raw).hexdigest(),
+              "implementation_sha256": hashlib.sha256(implementation_raw).hexdigest(),
+              "seal_sha256": hashlib.sha256(seal_raw).hexdigest(),
+              "supersedes_protocol_sha256": os.environ["V1_PROTOCOL_SHA"],
+              "byte_identical": True,
+              "candidate_results_inspected": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          (Path(os.environ["RUNNER_TEMP"]) / "audit" / "audit.json").write_bytes(
+              canon(audit)
+          )
+          PY
+
+          for row in             "P|$PRIMARY_ID|$PRIMARY_NAME|$PRIMARY_DIGEST"             "F|$FRESH_ID|$FRESH_NAME|$FRESH_DIGEST"
+          do
+            IFS='|' read -r _label id name digest <<<"$row"
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .expired <<<"$meta")" = false
+            api_digest="$(jq -r .digest <<<"$meta")"
+            case "$digest" in sha256:*) expected="$digest" ;; *) expected="sha256:$digest" ;; esac
+            test "$api_digest" = "$expected"
+          done
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.AUDIT_NAME }}
+          path: ${{ runner.temp }}/audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

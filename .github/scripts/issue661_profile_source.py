@@ -45,9 +45,18 @@ def _parse_utc(value: object) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def _snapshot(raw: bytes, retrieved_at: datetime) -> BinanceExchangeInfoSnapshot:
     try:
-        payload = json.loads(raw)
+        payload = json.loads(raw, object_pairs_hook=_strict_json_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("exchangeInfo response is not valid JSON") from error
     if not isinstance(payload, dict):
@@ -105,6 +114,8 @@ def build_bundle(
         "dataset_artifact_digest": DATASET_ARTIFACT_DIGEST,
         "selected_symbols": list(SYMBOLS),
         "account_mode": "one_way",
+        "network_request_count": 1,
+        "first_successful_validated_response": True,
         "control_profile_digest": profiles["control"].digest,
         "treatment_profile_digest": profiles["treatment"].digest,
         "control_reduce_only_exits": False,

@@ -298,6 +298,7 @@ def test_session_gap_carry_drawdown_is_recorded_before_open_recovery() -> None:
     assert gap_borrow == pytest.approx(100.0)
     assert result.book.max_drawdown == pytest.approx(0.1)
 
+
 def test_continuous_bar_retains_post_fill_one_bar_carry() -> None:
     timestamps = np.array(
         [
@@ -344,4 +345,3 @@ def test_continuous_bar_retains_post_fill_one_bar_carry() -> None:
     assert result.book.quantities[0] == pytest.approx(-5.0)
     assert result.interval_borrow_cost == pytest.approx(500.0 * 0.365 * one_hour)
     assert result.interval_cash_interest == pytest.approx(1_500.0 * 0.365 * one_hour)
-

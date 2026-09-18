@@ -392,6 +392,7 @@ def test_fill_ratio_uses_submission_reference_basis() -> None:
         dataset,
         max_participation_rate=1.0,
         lot_size=1.0,
+        trigger_volume_fractions=(1.0, 1.0, 1.0, 1.0),
     )
     intent = _intent(
         executor,

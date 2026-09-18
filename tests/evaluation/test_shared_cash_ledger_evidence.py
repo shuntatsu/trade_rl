@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import FrozenInstanceError
 
 import numpy as np
 import pytest
@@ -11,7 +12,7 @@ from tests.integrations.test_binance_market_order_profile import _profile
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.directional import evaluate_directional_arm
 from trade_rl.evaluation.replay import run_shared_cash_replay
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -121,6 +122,14 @@ def test_directional_ledger_capture_preserves_profile_economics(
         for interval in ledger["intervals"]
         for event in interval["order_events"]
     )
+    assert all("capacity_events" in interval for interval in ledger["intervals"])
+    if reduce_only_exits:
+        assert ledger["terminal_exact_quantities"] == ("0",)
+    else:
+        assert any(
+            reason == "below_minimum_notional"
+            for _, reason in ledger["terminal_order_reasons"]
+        )
 
 
 def test_ledger_payload_is_detached_from_replay_state() -> None:
@@ -142,3 +151,31 @@ def test_ledger_payload_is_detached_from_replay_state() -> None:
     mutated["intervals"][0]["cash_after"] = -123.0
     assert ledger.to_mapping() == payload
     assert result.book.cash != -123.0
+
+
+def test_execution_observer_is_detached_and_policy_neutral() -> None:
+    dataset = _market(np.full((4, 1), 100.0))
+    observations: list[object] = []
+    plain = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    observed = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        execution_observer=observations.append,
+    )
+    assert observed.execution_policy_digest == plain.execution_policy_digest
+
+    book = BookState.zero(1, 1_000.0, dataset.close[0])
+    result = observed.execute_interval(
+        book,
+        np.array([0.2]),
+        start_index=0,
+        bars=1,
+    )
+    assert result.next_index == 1
+    assert len(observations) == 1
+    interval = observations[0]
+    assert not hasattr(interval, "book")
+    assert not hasattr(interval, "order_book")
+    assert getattr(interval, "order_events")
+    with pytest.raises(FrozenInstanceError):
+        setattr(interval, "next_index", 99)

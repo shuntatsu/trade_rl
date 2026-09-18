@@ -20,8 +20,10 @@ from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
 )
+from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.orders.model import (
     OrderBookState,
+    OrderEvent,
     OrderIntent,
 )
 from trade_rl.simulation.orders.model import (
@@ -302,6 +304,31 @@ class ExecutionResult:
     )
     cost_by_symbol: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionObserverSnapshot:
+    """Detached execution evidence exposed only to opt-in observers."""
+
+    order_events: tuple[OrderEvent, ...]
+    funding_evidence: tuple[FundingBoundaryEvidence, ...]
+    active_order_remainders: tuple[tuple[str, float], ...]
+    terminal_order_reasons: tuple[tuple[str, str | None], ...]
+
+
+def _observer_snapshot(stateful: StatefulExecutionResult) -> ExecutionObserverSnapshot:
+    return ExecutionObserverSnapshot(
+        order_events=stateful.order_events,
+        funding_evidence=stateful.funding_evidence,
+        active_order_remainders=tuple(
+            (order.order_id, float(order.remaining_quantity))
+            for order in stateful.order_book.active_orders
+        ),
+        terminal_order_reasons=tuple(
+            (order.order_id, order.terminal_reason)
+            for order in stateful.order_book.terminal_orders
+        ),
     )
 
 
@@ -895,6 +922,8 @@ class MarketExecutor:
             bars=bars,
             target_identity=target_identity,
         )
+        if observer is not None:
+            observer(_observer_snapshot(stateful))
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
 
@@ -944,6 +973,7 @@ class MarketExecutor:
         *,
         start_index: int,
         bars: int,
+        observer: Callable[[ExecutionObserverSnapshot], None] | None = None,
     ) -> ExecutionResult:
         compatibility, stateful = self._execute_interval_with_stateful_evidence(
             book,

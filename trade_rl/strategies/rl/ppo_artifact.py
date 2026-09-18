@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
+import tempfile
 from hashlib import sha256
 from pathlib import Path
 
@@ -24,18 +26,28 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     if normalizer is None:
         raise ValueError("a normalized model must include its fitted normalizer")
     normalizer.validate_features(strategy.feature_indices)
-    root.mkdir(parents=True, exist_ok=False)
-    policy_path = root / "policy.zip"
-    getattr(strategy.policy, "save")(str(policy_path))
-    manifest = {
-        "schema": _SCHEMA,
-        "observation": ppo_observation_contract_payload(),
-        "normalizer": normalizer.to_payload(),
-        "policy_sha256": sha256(policy_path.read_bytes()).hexdigest(),
-    }
-    encoded = canonical_json_bytes(manifest)
-    with (root / "manifest.json").open("xb") as stream:
-        stream.write(encoded)
+    if root.exists():
+        raise FileExistsError(f"normalized PPO destination already exists: {root}")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))
+    )
+    try:
+        policy_path = staging / "policy.zip"
+        getattr(strategy.policy, "save")(str(policy_path))
+        manifest = {
+            "schema": _SCHEMA,
+            "observation": ppo_observation_contract_payload(),
+            "normalizer": normalizer.to_payload(),
+            "policy_sha256": sha256(policy_path.read_bytes()).hexdigest(),
+        }
+        encoded = canonical_json_bytes(manifest)
+        with (staging / "manifest.json").open("xb") as stream:
+            stream.write(encoded)
+        staging.rename(root)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return content_digest(manifest)
 
 

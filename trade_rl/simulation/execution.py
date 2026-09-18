@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -28,6 +29,7 @@ from trade_rl.simulation.orders.model import (
 )
 from trade_rl.simulation.quantities import exact_quantity
 from trade_rl.simulation.stateful.execution import (
+    StatefulExecutionObservation,
     StatefulExecutionResult,
     execute_stateful_orders,
 )
@@ -327,6 +329,8 @@ class MarketExecutor:
         *,
         rule_stress: ExecutionRuleStress | None = None,
         market_order_profile: MarketOrderProfile | None = None,
+        execution_observer: Callable[[StatefulExecutionObservation], None]
+        | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -337,6 +341,9 @@ class MarketExecutor:
             )
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self.market_order_profile = market_order_profile
+        if execution_observer is not None and not callable(execution_observer):
+            raise TypeError("execution_observer must be callable")
+        self._execution_observer = execution_observer
         if market_order_profile is not None:
             if type(market_order_profile) is not MarketOrderProfile:
                 raise ValueError(
@@ -856,14 +863,14 @@ class MarketExecutor:
             bars=bars,
         )
 
-    def execute_interval(
+    def _execute_interval_with_stateful_evidence(
         self,
         book: BookState,
         target: np.ndarray,
         *,
         start_index: int,
         bars: int,
-    ) -> ExecutionResult:
+    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
         state = (
             self._compatibility_order_book
             if book is self._compatibility_last_book
@@ -902,7 +909,7 @@ class MarketExecutor:
             else np.zeros_like(stateful.requested_notional_by_symbol)
         )
         fill_ratio = stateful.fill_ratio if attempted else 1.0
-        return ExecutionResult(
+        compatibility = ExecutionResult(
             book=stateful.book,
             next_index=stateful.next_index,
             bars_advanced=stateful.bars_advanced,
@@ -928,6 +935,25 @@ class MarketExecutor:
             participation_by_symbol=stateful.participation_by_symbol,
             cost_by_symbol=stateful.cost_by_symbol,
         )
+        return compatibility, stateful
+
+    def execute_interval(
+        self,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        compatibility, stateful = self._execute_interval_with_stateful_evidence(
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+        )
+        if self._execution_observer is not None:
+            self._execution_observer(StatefulExecutionObservation.from_result(stateful))
+        return compatibility
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
         if self.market_order_profile is not None:

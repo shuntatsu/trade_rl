@@ -61,7 +61,7 @@ def test_borrow_and_cash_interest_use_actual_elapsed_time() -> None:
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.interval_cash_interest == pytest.approx(expected_interest)
 
-def test_next_open_entry_does_not_accrue_carry_over_prior_session_gap() -> None:
+def test_next_open_entry_excludes_prior_gap_carry() -> None:
     timestamps = np.array(
         [
             "2026-01-02T16:00:00",

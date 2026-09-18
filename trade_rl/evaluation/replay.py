@@ -96,7 +96,9 @@ class SharedCashLedgerIntervalEvidence:
             "cash_before": self.cash_before,
             "exact_quantities_after": self.exact_quantities_after,
             "exact_quantities_before": self.exact_quantities_before,
-            "funding_events": tuple(event.to_mapping() for event in self.funding_events),
+            "funding_events": tuple(
+                event.to_mapping() for event in self.funding_events
+            ),
             "funding_pnl_after": self.funding_pnl_after,
             "funding_pnl_before": self.funding_pnl_before,
             "interval_borrow_cost": self.interval_borrow_cost,
@@ -108,7 +110,9 @@ class SharedCashLedgerIntervalEvidence:
             "max_drawdown_after": self.max_drawdown_after,
             "max_drawdown_before": self.max_drawdown_before,
             "next_index": self.next_index,
-            "order_events": tuple(event.canonical_payload() for event in self.order_events),
+            "order_events": tuple(
+                event.canonical_payload() for event in self.order_events
+            ),
             "portfolio_value_after": self.portfolio_value_after,
             "portfolio_value_before": self.portfolio_value_before,
             "start_index": self.start_index,

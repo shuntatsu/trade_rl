@@ -856,14 +856,14 @@ class MarketExecutor:
             bars=bars,
         )
 
-    def execute_interval(
+    def _execute_interval_with_stateful_evidence(
         self,
         book: BookState,
         target: np.ndarray,
         *,
         start_index: int,
         bars: int,
-    ) -> ExecutionResult:
+    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
         state = (
             self._compatibility_order_book
             if book is self._compatibility_last_book
@@ -902,7 +902,7 @@ class MarketExecutor:
             else np.zeros_like(stateful.requested_notional_by_symbol)
         )
         fill_ratio = stateful.fill_ratio if attempted else 1.0
-        return ExecutionResult(
+        compatibility = ExecutionResult(
             book=stateful.book,
             next_index=stateful.next_index,
             bars_advanced=stateful.bars_advanced,
@@ -927,6 +927,40 @@ class MarketExecutor:
             filled_notional_by_symbol=stateful.filled_notional_by_symbol,
             participation_by_symbol=stateful.participation_by_symbol,
             cost_by_symbol=stateful.cost_by_symbol,
+        )
+        return compatibility, stateful
+
+    def execute_interval(
+        self,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        compatibility, _ = self._execute_interval_with_stateful_evidence(
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+        )
+        return compatibility
+
+    def execute_interval_with_evidence(
+        self,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
+        """Execute once while exposing observer-only stateful evidence."""
+
+        return self._execute_interval_with_stateful_evidence(
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
         )
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:

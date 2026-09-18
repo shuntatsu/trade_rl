@@ -84,6 +84,10 @@ actionが直接rewardになるわけではありません。必ずriskとexecuti
 
 利用不能またはnon-finiteなlocal valueはmaskし、stalenessを同じfeature順序で持ちます。現在のintentとweightも含め、固定順序の`float32` vectorへ連結します。
 
+入力値の標準化は明示的に選ぶ追加機能です。fit対象の期間・銘柄だけで係数を計算し、学習中と推論時に同じ係数を使います。欠損値は0のまま、availability・staleness・intent・weightの意味は変えません。既定では従来のraw値をそのまま使います。
+
+標準化したpolicyはモデルbytesと前処理metadataを一体で保存し、読み込み時にmanifest digestと入力feature順序を照合します。係数欠落・別modelへの差し替え・future/development rowでの再fitは許しません。この機能自体は利益改善の証拠ではなく、経済比較は別の事前登録実験で行います。
+
 このcontractを固定することで、学習時にだけ便利な情報を後から追加してバックテストを有利にする余地を減らします。
 
 ## 2. policyがactionを選ぶ

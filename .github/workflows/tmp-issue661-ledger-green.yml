@@ -1,4 +1,4 @@
-name: tmp Issue 661 observer semantic RED
+name: tmp Issue 661 detached observer GREEN
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e2307c792367281bfc643a29007edf670cbdb672
+          ref: 202462ae91012101b856dbec97961da1620fefd0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -36,12 +36,12 @@ jobs:
       - name: Formatter-owned working-tree normalization and static checks
         run: |
           set -euo pipefail
-          uv run ruff format trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run ruff check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run ruff format --check trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff format trade_rl/simulation/stateful/execution.py trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff check trade_rl/simulation/stateful/execution.py trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff format --check trade_rl/simulation/stateful/execution.py trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
           git diff --check
           git diff -- trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
-          uv run mypy trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
+          uv run mypy trade_rl/simulation/stateful/execution.py trade_rl/simulation/execution.py trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
       - name: No economic source access
         run: |
           echo REAL_DATASET_LOADED=false

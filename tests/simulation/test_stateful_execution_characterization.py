@@ -193,13 +193,30 @@ def _result_payload(result: Any) -> dict[str, Any]:
 def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     result = _baseline_result()
     normalized = _normalize(_result_payload(result))
-    gross_return = normalized.pop("interval_gross_return")
+    corrected_gross_return = normalized["interval_gross_return"]
+    assert corrected_gross_return == pytest.approx(0.013)
+    observed_path_gross_value = (
+        result.book.portfolio_value
+        + result.interval_cost
+        - result.interval_funding
+        + result.interval_borrow_cost
+        - result.interval_dividend
+        - result.interval_cash_interest
+    )
+    assert observed_path_gross_value / 1_000.0 - 1.0 == pytest.approx(
+        corrected_gross_return
+    )
+
+    # The full characterization predates the semantic correction. Reinsert the
+    # frozen pre-correction diagnostic value so the original hash still proves
+    # that every unrelated field stayed byte-for-byte equivalent.
+    normalized["interval_gross_return"] = 0.008128863822075338
     canonical = json.dumps(
         normalized,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    exact_digest = hashlib.sha256(canonical).hexdigest()
+    assert hashlib.sha256(canonical).hexdigest() == _EXPECTED_EXACT_STATE_SHA256
 
     # Independent old/new fixture inspection established these state additions
     # as the only changes. Keep every pre-existing field under the original hash.
@@ -212,11 +229,7 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
             int(order["cumulative_filled_quantity"])
         )
     legacy = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
-    legacy_digest = hashlib.sha256(legacy).hexdigest()
-    raise AssertionError(
-        f"gross_return={gross_return!r} exact_digest={exact_digest} "
-        f"legacy_digest={legacy_digest}"
-    )
+    assert hashlib.sha256(legacy).hexdigest() == _EXPECTED_BASELINE_SHA256
     assert result.next_index == 3
     assert result.bars_advanced == 3
     assert [event.sequence for event in result.order_events] == list(range(13))

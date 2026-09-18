@@ -1,0 +1,125 @@
+name: Verify Issue 661 ledger observer exact head
+
+on:
+  push:
+    branches:
+      - verify/issue661-ledger-oracle-v1
+    paths:
+      - .github/workflows/verify-issue661-ledger-oracle-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TARGET_SHA: 17dfa5b03ebb0efa2e9c1caee98a4166433520fa
+      BASE_SHA: 1547abaf649a26acda83d4966da8ab9afdab454e
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact ancestry and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA...$TARGET_SHA")
+          printf '%s\n' "${changed[@]}"
+          python - <<'PY'
+          import subprocess
+          expected = {
+              "tests/evaluation/test_shared_cash_ledger_evidence.py",
+              "trade_rl/evaluation/directional.py",
+              "trade_rl/evaluation/replay.py",
+              "trade_rl/simulation/execution.py",
+              "trade_rl/simulation/stateful/execution.py",
+          }
+          actual = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only",
+                   "1547abaf649a26acda83d4966da8ab9afdab454e..."
+                   "17dfa5b03ebb0efa2e9c1caee98a4166433520fa"],
+                  text=True,
+              ).splitlines()
+          )
+          if actual != expected:
+              raise SystemExit(f"scope drift: {sorted(actual)!r}")
+          PY
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Non-mutating static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests tools
+          uv run ruff format --check trade_rl tests tools
+          uv run mypy trade_rl
+          uv run mypy tools/agent_repo tests/architecture/distribution.py
+          git diff --check
+          git diff --exit-code
+
+      - name: Observer and execution oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q             tests/evaluation/test_shared_cash_ledger_evidence.py             tests/evaluation/test_shared_cash_replay.py             tests/evaluation/test_shared_cash_replay_falsification.py             tests/evaluation/test_directional.py             tests/evaluation/test_directional_market_profile.py             tests/simulation/test_reduce_only.py             tests/simulation/test_market_order_profile.py
+
+      - name: Full Core tests
+        run: uv run pytest -q tests
+
+      - name: Build and distribution closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          PY
+
+      - name: Result-blind boundary
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_ON_REAL_DATA=false

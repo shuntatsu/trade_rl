@@ -298,8 +298,13 @@ def audit(
             )
         if comparison.get("paired_win_count") != wins:
             raise ValueError("comparison paired-win count drifted")
+        comparison_median = comparison.get("median_paired_delta")
+        if isinstance(comparison_median, bool) or not isinstance(
+            comparison_median, (int, float)
+        ):
+            raise ValueError("comparison median paired delta is not numeric")
         if not math.isclose(
-            float(comparison.get("median_paired_delta")),
+            float(comparison_median),
             float(median(deltas)),
             rel_tol=0.0,
             abs_tol=1e-15,

@@ -28,7 +28,7 @@ EXPECTED_PACKAGE_FILES = {
         "order_transitions.py",
         "symbol_fills.py",
     },
-    "targets": {"__init__.py", "execution.py", "exposure_controller.py"},
+    "targets": {"__init__.py", "execution.py"},
     "diagnostics": {
         "__init__.py",
         "execution_stress.py",

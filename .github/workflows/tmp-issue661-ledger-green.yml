@@ -1,4 +1,4 @@
-name: tmp Issue 661 shared-cash ledger GREEN
+name: tmp Issue 661 observer hardening RED
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: aca764ecf1b5c8c834f753ead8fda82a1b85b3a0
+          ref: e2307c792367281bfc643a29007edf670cbdb672
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:

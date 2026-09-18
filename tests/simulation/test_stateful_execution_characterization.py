@@ -263,7 +263,8 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     assert len(result.capacity_evidence) == 3
     assert result.requested_notional == pytest.approx(500.0)
     assert result.filled_notional == pytest.approx(395.0)
-    assert result.fill_ratio == pytest.approx(0.79)
+    assert result.fill_ratio == pytest.approx(0.8)
+    assert result.unfilled_turnover == pytest.approx(0.1)
     assert result.interval_cost == pytest.approx(0.7117369819382167)
     assert result.interval_net_return == pytest.approx(0.012288263018061851)
     assert result.book.quantities.tolist() == pytest.approx([2.0])

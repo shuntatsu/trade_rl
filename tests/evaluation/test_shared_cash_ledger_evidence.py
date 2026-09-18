@@ -184,6 +184,16 @@ def test_directional_ledger_capture_preserves_profile_economics(
         for interval in ledger["intervals"]
         for event in interval["order_events"]
     )
+    reasons = {
+        event["reason"]
+        for interval in ledger["intervals"]
+        for event in interval["order_events"]
+        if event["reason"] is not None
+    }
+    if reduce_only_exits:
+        assert tuple(ledger["terminal_exact_quantities"]) == ("0",)
+    else:
+        assert "below_minimum_notional" in reasons
     assert all("capacity_events" in interval for interval in ledger["intervals"])
     if reduce_only_exits:
         assert ledger["terminal_exact_quantities"] == ("0",)

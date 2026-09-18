@@ -1,0 +1,41 @@
+name: tmp Issue 661 profile source formatter
+
+on:
+  push:
+    branches:
+      - automation/issue661-profile-source-format-v1
+    paths:
+      - .github/workflows/tmp-issue661-profile-source-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: automation/issue661-profile-source-format-v1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format exact helper/test only
+        run: |
+          set -euo pipefail
+          uv run ruff format .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run ruff check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          uv run ruff format --check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          git diff --check
+          git status --short
+      - name: Commit formatted bytes
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
+          git diff --cached --quiet && exit 1
+          git commit -m "style: format Issue 661 profile source helper"
+          git push origin HEAD:automation/issue661-profile-source-format-v1

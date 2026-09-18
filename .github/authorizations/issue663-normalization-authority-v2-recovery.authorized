@@ -1,0 +1,9 @@
+issue=663
+purpose=normalization_protocol_v2_recovery
+target_head=5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+supersedes_v1_protocol_sha=d82a78fd1dde984158909ff8bdb062dbe63da30d437118a8c85a7bb2901cab58
+candidate_results_inspected=false
+real_dataset_loaded=false
+model_fit_performed=false
+economic_replay_performed=false
+unused_data_accessed=false

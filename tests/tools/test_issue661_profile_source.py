@@ -128,7 +128,7 @@ class _Response:
 
 def test_source_parser_rejects_duplicate_json_keys() -> None:
     module = _load()
-    duplicated = b\'{"symbols":[],"symbols":[]}\'
+    duplicated = b'{"symbols":[],"symbols":[]}'
     with pytest.raises(ValueError, match="duplicate"):
         module._snapshot(duplicated, datetime(2026, 9, 18, 10, 0, tzinfo=UTC))
 

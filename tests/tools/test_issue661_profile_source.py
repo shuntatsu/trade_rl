@@ -29,7 +29,7 @@ def _dataset(module: ModuleType) -> MarketDataset:
     shape = (6, len(symbols))
     prices = np.full(shape, 100.0)
     dataset = MarketDataset(
-        dataset_id="placeholder",
+        dataset_id="0" * 64,
         symbols=symbols,
         timestamps=np.datetime64("2024-01-01", "ns")
         + np.arange(6) * np.timedelta64(1, "h"),

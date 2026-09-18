@@ -1,0 +1,162 @@
+name: Verify Issue 663 control/runtime preflight v1
+
+on:
+  push:
+    branches:
+      - verify/issue663-control-runtime-preflight-v1
+    paths:
+      - .github/workflows/verify-issue663-control-runtime-preflight-v1.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+  CONTROL_RUN: '35287338444'
+  DATASET_RUN: '34803217815'
+  DATASET_RECOVERY_RUN: '34803432434'
+  SEAL_RUN: '35352070089'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Rebind immutable API authorities and prove future slots empty
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > "$RUNNER_TEMP/expected.json"
+          import json
+          value = {
+            "seal": [
+              [10550190302, "issue663-normalization-authority-primary-v1", "sha256:b46d45fc443a4ec43406ed84afab638ebfc98f4f4b025913d1da26f89cd386a0", 35352070089],
+              [10550195843, "issue663-normalization-authority-fresh-v1", "sha256:f3516e3e40cf9637a667e6fe9ff99fc04ec89af77d813ea222f41e3c6bcf4b31", 35352070089],
+              [10550215891, "issue663-normalization-authority-audit-v1", "sha256:0c983258154dfc4f76a02c51b7c8f5509d429df0f10ccf092841c512256dbaf6", 35352070089],
+            ],
+            "controls": [
+              [10526185891, "issue645-corrected-directional-arm-ppo0-v1", "sha256:ffc2fde5ccf1c56a34a14b4b61be42acd51fdbf93722d36bf9c7e323f0c28280", 35287338444],
+              [10526377242, "issue645-corrected-directional-arm-ppo1-v1", "sha256:c96d901280fbfb8bb15f91ad511e398469e5946341d2612d199096afe22b4228", 35287338444],
+              [10526288771, "issue645-corrected-directional-arm-ppo2-v1", "sha256:e185ac3d4f47068d7c8c21a1e301f1662a83de4730858e4965893e0ab1019951", 35287338444],
+              [10527945300, "issue645-corrected-directional-arm-ppo3-v1", "sha256:4a8645c0e8eabdca926fc462d63716f434ad21a81218d7d0ef3887cce934f498", 35287338444],
+              [10528031191, "issue645-corrected-directional-arm-ppo4-v1", "sha256:3a329e9b13d29879ace07af2a9dc700431ccd094e6754c02ef92f85000b7c3f8", 35287338444],
+              [10528400988, "issue645-corrected-directional-run-summary-v1", "sha256:8d07b6b6119bf71416742c33ef3d2c0eb4fe14c8c6ce329208daa281f8950bc9", 35287338444],
+              [10527862342, "issue645-corrected-directional-audit-v1", "sha256:2d6c88ee811a795543e1d772d3b5f4c7162661da38a706a6ee7ce3324913587b", 35287338444],
+            ],
+            "dataset": [
+              [10331899302, "issue539-calibrated-causal-successor-v3-34803217815", "sha256:89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce", 34803217815],
+              [10332575500, "issue539-calibrated-causal-fresh-verify-v3-34803432434", "sha256:2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589", 34803432434],
+            ],
+          }
+          print(json.dumps(value))
+          PY
+          python - "$RUNNER_TEMP/expected.json" <<'PY'
+          import json, os, subprocess, sys
+          expected=json.load(open(sys.argv[1]))
+          repo=os.environ["GITHUB_REPOSITORY"]
+          for group in expected.values():
+              for artifact_id, name, digest, run_id in group:
+                  raw=subprocess.check_output(["gh","api",f"/repos/{repo}/actions/artifacts/{artifact_id}"],text=True)
+                  meta=json.loads(raw)
+                  assert meta["name"] == name, (artifact_id,meta["name"],name)
+                  assert meta["digest"] == digest, (artifact_id,meta["digest"],digest)
+                  assert meta["workflow_run"]["id"] == run_id, (artifact_id,meta["workflow_run"]["id"],run_id)
+                  assert meta["expired"] is False
+          PY
+          for name in             issue663-normalization-activation-v1             issue663-normalization-seed0-v1 issue663-normalization-seed1-v1 issue663-normalization-seed2-v1 issue663-normalization-seed3-v1 issue663-normalization-seed4-v1             issue663-normalization-seed0-fresh-v1 issue663-normalization-seed1-fresh-v1 issue663-normalization-seed2-fresh-v1 issue663-normalization-seed3-fresh-v1 issue663-normalization-seed4-fresh-v1             issue663-normalization-comparison-v1             issue663-normalization-decision-audit-v1
+          do
+            test "$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name" --jq .total_count)" = 0
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+
+      - name: Install frozen candidate trainer runtime without loading Dataset
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run python - <<'PY'
+          import gymnasium, stable_baselines3, torch
+          assert stable_baselines3.__version__ == "2.3.2"
+          assert gymnasium.__version__ == "0.29.1"
+          assert torch.__version__.startswith("2.4.1")
+          from trade_rl.strategies.rl.ppo import fit_ppo_strategy
+          assert callable(fit_ppo_strategy)
+          print("TRAINER_RUNTIME_PREFLIGHT=PASS")
+          PY
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue645-corrected-directional-arm-ppo*-v1
+          path: ${{ runner.temp }}/controls
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CONTROL_RUN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-directional-run-summary-v1
+          path: ${{ runner.temp }}/control-summary
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CONTROL_RUN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue645-corrected-directional-audit-v1
+          path: ${{ runner.temp }}/control-audit
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CONTROL_RUN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/dataset
+          repository: ${{ github.repository }}
+          run-id: ${{ env.DATASET_RUN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-fresh-verify-v3-34803432434
+          path: ${{ runner.temp }}/dataset-recovery
+          repository: ${{ github.repository }}
+          run-id: ${{ env.DATASET_RECOVERY_RUN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: issue663-normalization-authority-*-v1
+          path: ${{ runner.temp }}/seal
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SEAL_RUN }}
+
+      - name: Verify downloaded closure without Dataset load or model fit
+        run: |
+          set -euo pipefail
+          test "$(find "$RUNNER_TEMP/controls" -mindepth 1 -maxdepth 1 -type d | wc -l)" = 5
+          for seed in 0 1 2 3 4; do
+            test -d "$RUNNER_TEMP/controls/issue645-corrected-directional-arm-ppo$seed-v1"
+            test "$(find "$RUNNER_TEMP/controls/issue645-corrected-directional-arm-ppo$seed-v1" -type f | wc -l)" -gt 0
+          done
+          test "$(find "$RUNNER_TEMP/control-summary" -type f | wc -l)" -gt 0
+          test "$(find "$RUNNER_TEMP/control-audit" -type f | wc -l)" -gt 0
+          test "$(find "$RUNNER_TEMP/dataset" -type f | wc -l)" -gt 0
+          test "$(find "$RUNNER_TEMP/dataset-recovery" -type f | wc -l)" -gt 0
+          cmp "$RUNNER_TEMP/seal/issue663-normalization-authority-primary-v1/implementation.json" "$RUNNER_TEMP/seal/issue663-normalization-authority-fresh-v1/implementation.json"
+          cmp "$RUNNER_TEMP/seal/issue663-normalization-authority-primary-v1/protocol.json" "$RUNNER_TEMP/seal/issue663-normalization-authority-fresh-v1/protocol.json"
+          cmp "$RUNNER_TEMP/seal/issue663-normalization-authority-primary-v1/seal.json" "$RUNNER_TEMP/seal/issue663-normalization-authority-fresh-v1/seal.json"
+          test -s "$RUNNER_TEMP/seal/issue663-normalization-authority-audit-v1/audit.json"
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+          echo CANDIDATE_SLOT_CLAIMED=false
+          echo UNUSED_DATA_ACCESSED=false
+          echo FINAL_TEST_ACCESSED=false

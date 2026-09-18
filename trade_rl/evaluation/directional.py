@@ -42,6 +42,7 @@ def evaluate_directional_arm(
     cost_multiplier: float = 1.0,
     symbol_index: int | None = None,
     market_order_profile: MarketOrderProfile | None = None,
+    capture_ledger_evidence: bool = False,
 ) -> dict[str, Any]:
     """Evaluate one fixed arm; a pass is a development screen only."""
     if (
@@ -90,6 +91,7 @@ def evaluate_directional_arm(
         initial_capital=10_000.0,
         execution_cost=execution,
         market_order_profile=market_order_profile,
+        capture_ledger_evidence=capture_ledger_evidence,
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=0.5,
@@ -167,4 +169,8 @@ def evaluate_directional_arm(
             market_order_profile=market_order_profile.canonical_payload(),
             terminal_exact_quantities=[str(q) for q in replay.book.exact_quantities],
         )
+    if capture_ledger_evidence:
+        if replay.ledger_evidence is None:
+            raise RuntimeError("ledger evidence capture was requested but not produced")
+        result["ledger_evidence"] = replay.ledger_evidence.to_mapping()
     return result

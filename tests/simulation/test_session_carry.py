@@ -297,3 +297,51 @@ def test_session_gap_carry_drawdown_is_recorded_before_open_recovery() -> None:
     gap_borrow = 500.0 * 27.375 * gap_fraction
     assert gap_borrow == pytest.approx(100.0)
     assert result.book.max_drawdown == pytest.approx(0.1)
+
+def test_continuous_bar_retains_post_fill_one_bar_carry() -> None:
+    timestamps = np.array(
+        [
+            "2026-01-01T00:00:00",
+            "2026-01-01T01:00:00",
+            "2026-01-01T02:00:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    prices = np.full((3, 1), 100.0)
+    dataset = MarketDataset(
+        dataset_id="f" * 64,
+        symbols=("A",),
+        timestamps=timestamps,
+        features=np.zeros((3, 1, 1), dtype=np.float32),
+        global_features=np.zeros((3, 1), dtype=np.float32),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        volume=np.full((3, 1), 10_000.0),
+        funding_rate=np.zeros((3, 1)),
+        tradable=np.ones((3, 1), dtype=np.bool_),
+        feature_available=np.ones((3, 1, 1), dtype=np.bool_),
+        feature_names=("x",),
+        global_feature_names=("g",),
+        periods_per_year=8_760,
+        borrow_rate=np.full((3, 1), 0.365),
+        cash_rate=np.full(3, 0.365),
+    )
+    book = BookState.zero(
+        1,
+        1_000.0,
+        prices[0],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+
+    result = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0),
+    ).execute_interval(book, np.array([-0.5]), start_index=0, bars=1)
+
+    one_hour = 1.0 / (365.0 * 24.0)
+    assert result.book.quantities[0] == pytest.approx(-5.0)
+    assert result.interval_borrow_cost == pytest.approx(500.0 * 0.365 * one_hour)
+    assert result.interval_cash_interest == pytest.approx(1_500.0 * 0.365 * one_hour)
+

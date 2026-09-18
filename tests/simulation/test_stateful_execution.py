@@ -448,6 +448,41 @@ def test_interval_gross_return_reconciles_explicit_execution_cost() -> None:
     assert gross_value / 1_000.0 - 1.0 == pytest.approx(result.interval_gross_return)
 
 
+def test_interval_gross_return_removes_signed_funding_from_same_fill_path() -> None:
+    shape = (6, 1)
+    funding_rate = np.zeros(shape)
+    funding_rate[1, 0] = 0.001
+    funding_due = np.zeros(shape, dtype=np.bool_)
+    funding_due[1, 0] = True
+    dataset = _market(
+        funding_rate=funding_rate,
+        funding_due=funding_due,
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (_intent(executor, 10.0),),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.interval_cost == 0.0
+    assert result.interval_funding == pytest.approx(-1.0)
+    assert result.interval_net_return == pytest.approx(-0.001)
+    assert result.interval_gross_return == pytest.approx(0.0)
+    gross_value = (
+        result.book.portfolio_value
+        + result.interval_cost
+        - result.interval_funding
+        + result.interval_borrow_cost
+        - result.interval_dividend
+        - result.interval_cash_interest
+    )
+    assert gross_value / 1_000.0 - 1.0 == pytest.approx(result.interval_gross_return)
+
+
 def test_open_gap_refreshes_peak_before_projected_book_clone() -> None:
     open_price = np.full((6, 1), 100.0)
     close = np.full((6, 1), 100.0)

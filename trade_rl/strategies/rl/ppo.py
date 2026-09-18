@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import math
 from functools import partial
+from numbers import Integral
 from typing import Protocol, cast
 
 import gymnasium as gym
@@ -157,10 +158,10 @@ def _intent_from_action(action: object) -> PositionIntent:
     if values.size != 1:
         raise ValueError("PPO action must contain exactly one value")
     raw = values[0]
-    if isinstance(raw, np.bool_):
+    if isinstance(raw, (bool, np.bool_)) or not isinstance(raw, Integral):
         raise ValueError("PPO action must be an integer in {0, 1, 2}")
     value = int(raw)
-    if not math.isclose(float(raw), float(value)) or value not in {0, 1, 2}:
+    if value not in {0, 1, 2}:
         raise ValueError("PPO action must be an integer in {0, 1, 2}")
     return PositionIntent(value - 1)
 
@@ -304,6 +305,7 @@ class PPOTradingEnv(gym.Env):
 
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
+        self._execution_seed_stream: np.random.Generator | None = None
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = (
             _default_risk(self.executor)
@@ -365,9 +367,18 @@ class PPOTradingEnv(gym.Env):
             self.symbol_indices
         )
         self.active_symbol_index = self.symbol_indices[self._active_symbol_offset]
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
-            self.executor.reset_random_state(seed)
+            self._execution_seed_stream = np.random.default_rng(seed)
+            execution_seed = seed
+        elif self._execution_seed_stream is None:
+            execution_seed = self.execution_cost.random_seed
+            self._execution_seed_stream = np.random.default_rng(execution_seed)
+        else:
+            execution_seed = int(
+                self._execution_seed_stream.integers(0, np.iinfo(np.int64).max)
+            )
+        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor.reset_random_state(execution_seed)
         self.risk = (
             _default_risk(self.executor)
             if self.risk_config is None

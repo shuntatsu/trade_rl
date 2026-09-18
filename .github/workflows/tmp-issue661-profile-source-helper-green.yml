@@ -1,4 +1,4 @@
-name: tmp Issue 661 profile source semantic RED clean
+name: tmp Issue 661 profile source semantic RED isolated
 on:
   push:
     branches:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 218cbda020d09607e2914dedd49160e4df09f7e0
+          ref: c8470015cb1cc909e7f1a55cbcc1e21088a35c39
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -25,7 +25,7 @@ jobs:
       - name: Guard result-blind helper scope
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "218cbda020d09607e2914dedd49160e4df09f7e0"
+          test "$(git rev-parse HEAD)" = "c8470015cb1cc909e7f1a55cbcc1e21088a35c39"
           changed="$(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)"
           expected="$(printf '%s\n'             .github/scripts/issue661_profile_source.py             .github/workflows/tmp-issue661-profile-source-helper-green.yml             tests/tools/test_issue661_profile_source.py | sort)"
           test "$changed" = "$expected"

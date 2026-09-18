@@ -109,10 +109,9 @@ def test_next_open_entry_excludes_prior_gap_carry() -> None:
     gap_fraction = 64.0 / (365.0 * 24.0)
     processing_bar_fraction = 1.0 / (365.0 * 24.0)
     expected_borrow = 500.0 * 0.365 * processing_bar_fraction
-    expected_interest = (
-        1_000.0 * 0.365 * gap_fraction
-        + 1_500.0 * 0.365 * processing_bar_fraction
-    )
+    gap_interest = 1_000.0 * 0.365 * gap_fraction
+    processing_interest = 1_500.0 * 0.365 * processing_bar_fraction
+    expected_interest = gap_interest + processing_interest
     assert result.book.quantities[0] == pytest.approx(-5.0)
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.interval_cash_interest == pytest.approx(expected_interest)

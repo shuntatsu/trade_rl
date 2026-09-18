@@ -152,7 +152,9 @@ def load_and_verify_bundle(dataset: MarketDataset, root: Path) -> dict[str, byte
     rebuilt = build_bundle(dataset, raw, _parse_utc(manifest.get("retrieved_at")))
     actual = {name: (source / name).read_bytes() for name in rebuilt}
     if actual != rebuilt:
-        raise ValueError("published profile source bundle differs from independent rederivation")
+        raise ValueError(
+            "published profile source bundle differs from independent rederivation"
+        )
     return rebuilt
 
 

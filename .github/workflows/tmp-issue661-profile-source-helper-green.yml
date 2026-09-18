@@ -1,4 +1,4 @@
-name: tmp Issue 661 profile source semantic RED isolated
+name: tmp Issue 661 profile source GREEN candidate
 on:
   push:
     branches:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c8470015cb1cc909e7f1a55cbcc1e21088a35c39
+          ref: e49956549041fe548b98b7b87d3bb7f044a28f90
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -25,7 +25,7 @@ jobs:
       - name: Guard result-blind helper scope
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "c8470015cb1cc909e7f1a55cbcc1e21088a35c39"
+          test "$(git rev-parse HEAD)" = "e49956549041fe548b98b7b87d3bb7f044a28f90"
           changed="$(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)"
           expected="$(printf '%s\n'             .github/scripts/issue661_profile_source.py             .github/workflows/tmp-issue661-profile-source-helper-green.yml             tests/tools/test_issue661_profile_source.py | sort)"
           test "$changed" = "$expected"
@@ -36,7 +36,7 @@ jobs:
           uv run ruff format --check .github/scripts/issue661_profile_source.py tests/tools/test_issue661_profile_source.py
           uv run mypy .github/scripts/issue661_profile_source.py
           uv run python -m py_compile .github/scripts/issue661_profile_source.py
-      - name: Semantic hardening RED
+      - name: Synthetic source/profile oracles
         run: |
           set -euo pipefail
           uv run pytest -q tests/tools/test_issue661_profile_source.py tests/integrations/test_binance_market_order_profile.py

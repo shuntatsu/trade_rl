@@ -130,9 +130,7 @@ def test_source_parser_rejects_duplicate_json_keys() -> None:
     module = _load()
     duplicated = b'{"symbols":[],"symbols":[]}'
     with pytest.raises(ValueError, match="duplicate"):
-        module._snapshot(
-            duplicated, datetime(2026, 9, 18, 10, 0, tzinfo=UTC)
-        )
+        module._snapshot(duplicated, datetime(2026, 9, 18, 10, 0, tzinfo=UTC))
 
 
 def test_capture_uses_exact_url_once_without_retry_or_fallback() -> None:

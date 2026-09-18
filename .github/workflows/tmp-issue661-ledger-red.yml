@@ -1,0 +1,42 @@
+name: tmp Issue 661 shared-cash ledger RED
+
+on:
+  push:
+    branches:
+      - research/issue661-shared-cash-ledger-evidence
+    paths:
+      - .github/workflows/tmp-issue661-ledger-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8aec5ddad6c7f42b1ead4ab2c8ae35a0a9ec78c2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static test quality
+        run: |
+          set -euo pipefail
+          uv run ruff check tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff format --check tests/evaluation/test_shared_cash_ledger_evidence.py
+      - name: Prove ledger API is the expected RED
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/evaluation/test_shared_cash_ledger_evidence.py > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Eq 'capture_ledger_evidence|ledger_evidence' "$RUNNER_TEMP/red.log"
+          ! grep -Eq 'ERROR collecting|SyntaxError' "$RUNNER_TEMP/red.log"
+          echo ISSUE661_LEDGER_SEMANTIC_RED=PASS

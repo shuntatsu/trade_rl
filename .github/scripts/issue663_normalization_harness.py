@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from statistics import median
@@ -82,7 +84,9 @@ def load_protocol(path: Path) -> dict[str, Any]:
     return protocol
 
 
-def _load_source(source: Path, protocol: dict[str, Any]):
+def _load_source(
+    source: Path, protocol: dict[str, Any]
+) -> tuple[Any, Any, int, int, int]:
     dataset = load_market_dataset_artifact(source / "dataset")
     identity = inspect_published_market_dataset_artifact(source / "dataset")
     expected = protocol["dataset"]
@@ -127,7 +131,9 @@ class _CountingStrategy:
         return intent
 
 
-def _strategy_factory(strategy: PPOIntentStrategy):
+def _strategy_factory(
+    strategy: PPOIntentStrategy,
+) -> Callable[[], PPOIntentStrategy]:
     def factory() -> PPOIntentStrategy:
         return PPOIntentStrategy(
             strategy.policy,
@@ -167,8 +173,7 @@ def run_seed(
     try:
         dataset, config, start, stop, cutoff = _load_source(source, protocol)
         before = build_candidate_run_provenance()
-        import torch
-
+        torch = importlib.import_module("torch")
         torch.set_num_threads(1)
         strategy = fit_ppo_strategy(
             dataset,
@@ -213,7 +218,7 @@ def run_seed(
         }
         decision_count = sum(base_counts.values())
         dominant_intent = (
-            max(base_counts, key=base_counts.get) if decision_count else None
+            max(base_counts, key=lambda name: base_counts[name]) if decision_count else None
         )
         dominant_fraction = (
             max(base_counts.values()) / decision_count if decision_count else None

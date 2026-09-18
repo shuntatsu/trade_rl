@@ -59,7 +59,11 @@ def _raw(module: ModuleType) -> bytes:
             {
                 "symbol": name,
                 "status": "TRADING",
+                "baseAsset": name[:-4],
+                "quoteAsset": "USDT",
                 "contractType": "PERPETUAL",
+                "marginAsset": "USDT",
+                "orderTypes": ["LIMIT", "MARKET"],
                 "onboardDate": 1_600_000_000_000,
                 "filters": [
                     {"filterType": "PRICE_FILTER", "tickSize": "0.10"},

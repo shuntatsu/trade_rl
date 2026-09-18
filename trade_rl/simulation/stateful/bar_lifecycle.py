@@ -69,6 +69,7 @@ class StatefulBarLifecycle:
                 index=processing_index,
                 year_fraction=gap_year_fraction,
             )
+            runtime.book.refresh_drawdown()
 
         split = dataset.resolved_array("split_factor")[processing_index]
         split_mask = np.abs(split - 1.0) > _TOLERANCE

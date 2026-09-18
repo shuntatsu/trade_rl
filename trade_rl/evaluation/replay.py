@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from fractions import Fraction
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from trade_rl._validation import require_sha256
-from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
@@ -25,73 +20,15 @@ from trade_rl.simulation import (
     MarketExecutor,
 )
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
+from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import OrderEvent
+from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
 
-
-def _ledger_mapping(value: object, *, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
-        raise ValueError(f"{field} must be an object with string keys")
-    return value
-
-
-def _ledger_sequence(value: object, *, field: str) -> Sequence[object]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        raise ValueError(f"{field} must be a sequence")
-    return value
-
-
-def _ledger_integer(value: object, *, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    return value
-
-
-def _ledger_number(value: object, *, field: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{field} must be numeric")
-    result = float(value)
-    if not math.isfinite(result):
-        raise ValueError(f"{field} must be finite")
-    return result
-
-
-def _ledger_string(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{field} must be a non-empty string")
-    return value
-
-
-def _ledger_optional_string(value: object, *, field: str) -> str | None:
-    if value is None:
-        return None
-    return _ledger_string(value, field=field)
-
-
-def _ledger_exact_quantities(value: object, *, field: str) -> tuple[str, ...]:
-    raw = _ledger_sequence(value, field=field)
-    if not raw:
-        raise ValueError(f"{field} must contain at least one quantity")
-    result: list[str] = []
-    for index, item in enumerate(raw):
-        text = _ledger_string(item, field=f"{field}[{index}]")
-        try:
-            quantity = Fraction(text)
-        except (ValueError, ZeroDivisionError) as error:
-            raise ValueError(f"{field}[{index}] is not an exact quantity") from error
-        if str(quantity) != text:
-            raise ValueError(f"{field}[{index}] is not canonically encoded")
-        result.append(text)
-    return tuple(result)
-
-
-def _ledger_close(left: float, right: float, *, field: str) -> None:
-    if not math.isclose(left, right, rel_tol=1e-12, abs_tol=1e-9):
-        raise ValueError(f"{field} does not reconcile")
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +89,7 @@ class SharedCashLedgerIntervalEvidence:
     interval_net_return: float
     termination_reason: str | None
     order_events: tuple[OrderEvent, ...]
+    capacity_events: tuple[SymbolCapacityEvidence, ...]
     funding_events: tuple[FundingBoundaryEvidence, ...]
 
     def to_mapping(self) -> dict[str, object]:
@@ -160,6 +98,7 @@ class SharedCashLedgerIntervalEvidence:
             "borrow_cost_before": self.borrow_cost_before,
             "cash_after": self.cash_after,
             "cash_before": self.cash_before,
+            "capacity_events": tuple(asdict(event) for event in self.capacity_events),
             "exact_quantities_after": self.exact_quantities_after,
             "exact_quantities_before": self.exact_quantities_before,
             "funding_events": tuple(
@@ -520,10 +459,14 @@ def run_shared_cash_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
+    execution_observations: list[StatefulExecutionObservation] = []
     executor = MarketExecutor(
         dataset,
         execution_cost or ExecutionCostConfig.zero(),
         market_order_profile=market_order_profile,
+        execution_observer=(
+            execution_observations.append if capture_ledger_evidence else None
+        ),
     )
     risk_controller = risk or _default_replay_risk(executor)
     _validate_risk_execution_compatibility(risk_controller, executor)
@@ -613,26 +556,20 @@ def run_shared_cash_replay(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
-        stateful_evidence = None
-        if capture_ledger_evidence:
-            execution, stateful_evidence = executor.execute_interval_with_evidence(
-                book,
-                constrained.weights,
-                start_index=index,
-                bars=1,
-            )
-        else:
-            execution = executor.execute_interval(
-                book,
-                constrained.weights,
-                start_index=index,
-                bars=1,
-            )
+        execution = executor.execute_interval(
+            book,
+            constrained.weights,
+            start_index=index,
+            bars=1,
+        )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
         if capture_ledger_evidence:
-            if stateful_evidence is None:
-                raise RuntimeError("stateful evidence was not returned")
+            if len(execution_observations) != len(ledger_intervals) + 1:
+                raise RuntimeError("execution observer did not emit exactly one interval")
+            stateful_evidence = execution_observations[-1]
+            if stateful_evidence.next_index != execution.next_index:
+                raise RuntimeError("execution observer index differs from replay result")
             ledger_intervals.append(
                 SharedCashLedgerIntervalEvidence(
                     start_index=index,
@@ -663,17 +600,12 @@ def run_shared_cash_replay(
                     interval_net_return=float(execution.interval_net_return),
                     termination_reason=execution.termination_reason,
                     order_events=stateful_evidence.order_events,
+                    capacity_events=stateful_evidence.capacity_evidence,
                     funding_events=stateful_evidence.funding_evidence,
                 )
             )
-            active_order_remainders = tuple(
-                (order.order_id, float(order.remaining_quantity))
-                for order in stateful_evidence.order_book.active_orders
-            )
-            terminal_order_reasons = tuple(
-                (order.order_id, str(order.terminal_reason))
-                for order in stateful_evidence.order_book.terminal_orders
-            )
+            active_order_remainders = stateful_evidence.active_order_remainders
+            terminal_order_reasons = stateful_evidence.terminal_order_reasons
         book = execution.book
         returns.append(execution.interval_net_return)
         current_intents = intents

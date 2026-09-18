@@ -64,6 +64,38 @@ class StatefulExecutionResult:
     termination_reason: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class StatefulExecutionObservation:
+    """Detached immutable facts observed after one stateful execution call."""
+
+    next_index: int
+    order_events: tuple[OrderEvent, ...]
+    capacity_evidence: tuple[SymbolCapacityEvidence, ...]
+    funding_evidence: tuple[FundingBoundaryEvidence, ...]
+    active_order_remainders: tuple[tuple[str, float], ...]
+    terminal_order_reasons: tuple[tuple[str, str], ...]
+
+    @classmethod
+    def from_result(cls, result: StatefulExecutionResult) -> StatefulExecutionObservation:
+        terminal_reasons: list[tuple[str, str]] = []
+        for order in result.order_book.terminal_orders:
+            reason = order.terminal_reason
+            if reason is None:
+                raise RuntimeError("terminal order observation is missing its reason")
+            terminal_reasons.append((order.order_id, reason))
+        return cls(
+            next_index=result.next_index,
+            order_events=result.order_events,
+            capacity_evidence=result.capacity_evidence,
+            funding_evidence=result.funding_evidence,
+            active_order_remainders=tuple(
+                (order.order_id, float(order.remaining_quantity))
+                for order in result.order_book.active_orders
+            ),
+            terminal_order_reasons=tuple(terminal_reasons),
+        )
+
+
 def execute_stateful_orders(
     executor: MarketExecutor,
     book: BookState,

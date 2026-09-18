@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -28,6 +29,7 @@ from trade_rl.simulation.orders.model import (
 )
 from trade_rl.simulation.quantities import exact_quantity
 from trade_rl.simulation.stateful.execution import (
+    StatefulExecutionObservation,
     StatefulExecutionResult,
     execute_stateful_orders,
 )
@@ -327,6 +329,7 @@ class MarketExecutor:
         *,
         rule_stress: ExecutionRuleStress | None = None,
         market_order_profile: MarketOrderProfile | None = None,
+        execution_observer: Callable[[StatefulExecutionObservation], None] | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -337,6 +340,9 @@ class MarketExecutor:
             )
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self.market_order_profile = market_order_profile
+        if execution_observer is not None and not callable(execution_observer):
+            raise TypeError("execution_observer must be callable")
+        self._execution_observer = execution_observer
         if market_order_profile is not None:
             if type(market_order_profile) is not MarketOrderProfile:
                 raise ValueError(
@@ -938,30 +944,15 @@ class MarketExecutor:
         start_index: int,
         bars: int,
     ) -> ExecutionResult:
-        compatibility, _ = self._execute_interval_with_stateful_evidence(
+        compatibility, stateful = self._execute_interval_with_stateful_evidence(
             book,
             target,
             start_index=start_index,
             bars=bars,
         )
+        if self._execution_observer is not None:
+            self._execution_observer(StatefulExecutionObservation.from_result(stateful))
         return compatibility
-
-    def execute_interval_with_evidence(
-        self,
-        book: BookState,
-        target: np.ndarray,
-        *,
-        start_index: int,
-        bars: int,
-    ) -> tuple[ExecutionResult, StatefulExecutionResult]:
-        """Execute once while exposing observer-only stateful evidence."""
-
-        return self._execute_interval_with_stateful_evidence(
-            book,
-            target,
-            start_index=start_index,
-            bars=bars,
-        )
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
         if self.market_order_profile is not None:

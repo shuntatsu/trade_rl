@@ -6,7 +6,10 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
+from tests.strategies.test_ppo_intent import SequenceStrategy, market
 from tests.strategies.test_ppo_interleaved_training import pooled_market
+from trade_rl.evaluation.replay import run_single_symbol_replay
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -130,3 +133,57 @@ def test_failed_normalized_policy_save_leaves_no_partial_destination(
         save_normalized_ppo(root, strategy)
 
     assert not root.exists()
+
+
+def test_env_matches_canonical_replay_with_cost_capacity_and_turnover_risk() -> None:
+    dataset = market()
+    intents = (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)
+    execution_cost = ExecutionCostConfig(max_participation_rate=1e-6)
+    risk_config = PreTradeRiskConfig(
+        max_gross=0.5,
+        max_abs_weight=0.5,
+        max_turnover=0.2,
+        drawdown_start=1.0,
+        drawdown_stop=1.0,
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(intents),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk=PreTradeRisk(risk_config),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk_config=risk_config,
+    )
+    env.reset(seed=7)
+
+    observed_returns: list[float] = []
+    observed_rewards: list[float] = []
+    for action in (2, 2, 1):
+        _, reward, terminated, truncated, info = env.step(action)
+        observed_rewards.append(reward)
+        observed_returns.append(float(info["interval_net_return"]))
+        assert truncated is False
+    assert terminated is True
+
+    np.testing.assert_allclose(observed_returns, replay.returns.values)
+    np.testing.assert_allclose(
+        observed_rewards,
+        np.log1p(replay.returns.values),
+    )
+    np.testing.assert_allclose(env.book.quantities, replay.book.quantities)
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+    assert replay.diagnostics.total_cost > 0.0
+    assert replay.book.fill_count > 0
+    assert replay.book.quantities[0] > 0.0

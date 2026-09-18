@@ -1,0 +1,541 @@
+name: Issue 663 normalized PPO corrected-accounting comparison v2
+
+on:
+  push:
+    branches:
+      - run/issue663-normalization-v1
+    paths:
+      - .github/authorizations/issue663-normalization-v1.authorized
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: issue663-normalization-v1
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 5cefa36ca3ba47cc9ed9b80df18130ec2720f86e
+  PROTOCOL_SHA: de6179570dae339c4a3fe3d62d076edc811c332372185efc17d1566e7602fd55
+  SEAL_RUN: '35378478461'
+  PREFLIGHT_RUN: '35378800997'
+  SEAL_PRIMARY_ID: '10561760521'
+  SEAL_PRIMARY_DIGEST: sha256:c351109dfc8ac40d2ea857bfbc1756bdae9d31c83cd8279398cf9a8b541e10ba
+  SEAL_FRESH_ID: '10560986913'
+  SEAL_FRESH_DIGEST: sha256:cad40e73afd0b246a1f9e44f9cb63d04a651b6cceb65e4db985dbfd69fbfe30f
+  SEAL_AUDIT_ID: '10560807119'
+  SEAL_AUDIT_DIGEST: sha256:e18effba92f130046938d085b104a0e3efa82d46af80ab8a4468f74963be52ec
+  ACTIVATION_NAME: issue663-normalization-activation-v1
+
+jobs:
+  activation:
+    name: Result-blind global activation
+    runs-on: ubuntu-24.04
+    outputs:
+      activation_id: ${{ steps.activation_upload.outputs.artifact-id }}
+      activation_digest: ${{ steps.activation_upload.outputs.artifact-digest }}
+    steps:
+      - name: Enforce first exact official run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_NUMBER" = "1"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "run/issue663-normalization-v1"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+
+      - name: Rebind exact authorities and require empty result slots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          git -C harness merge-base --is-ancestor "$TARGET_SHA" "$GITHUB_SHA"
+          git -C harness diff --name-only "$TARGET_SHA" "$GITHUB_SHA" | sort > "$RUNNER_TEMP/actual"
+          cat > "$RUNNER_TEMP/expected" <<'EOF'
+          .github/authorizations/issue663-normalization-v1.authorized
+          .github/scripts/issue663_normalization_audit.py
+          .github/scripts/issue663_normalization_harness.py
+          .github/workflows/issue663-normalization-execution-v1.yml
+          EOF
+          sort -o "$RUNNER_TEMP/expected" "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+
+          for row in \
+            "$SEAL_RUN|b162a577f950501c9582c1f55b92c65a66694c5a" \
+            "$PREFLIGHT_RUN|f69a788c83946ea53345710ff7ff7989381c056a"
+          do
+            IFS='|' read -r run sha <<<"$row"
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run")"
+            test "$(jq -r .status <<<"$payload")" = completed
+            test "$(jq -r .conclusion <<<"$payload")" = success
+            test "$(jq -r .head_sha <<<"$payload")" = "$sha"
+          done
+
+          for row in \
+            "$SEAL_PRIMARY_ID|issue663-normalization-authority-primary-v2|$SEAL_PRIMARY_DIGEST" \
+            "$SEAL_FRESH_ID|issue663-normalization-authority-fresh-v2|$SEAL_FRESH_DIGEST" \
+            "$SEAL_AUDIT_ID|issue663-normalization-authority-audit-v2|$SEAL_AUDIT_DIGEST"
+          do
+            IFS='|' read -r id name digest <<<"$row"
+            meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r .name <<<"$meta")" = "$name"
+            test "$(jq -r .workflow_run.id <<<"$meta")" = "$SEAL_RUN"
+            test "$(jq -r .digest <<<"$meta")" = "$digest"
+            test "$(jq -r .expired <<<"$meta")" = false
+          done
+
+          for name in \
+            "$ACTIVATION_NAME" \
+            issue663-normalization-seed0-v1 issue663-normalization-seed1-v1 issue663-normalization-seed2-v1 issue663-normalization-seed3-v1 issue663-normalization-seed4-v1 \
+            issue663-normalization-seed0-fresh-v1 issue663-normalization-seed1-fresh-v1 issue663-normalization-seed2-fresh-v1 issue663-normalization-seed3-fresh-v1 issue663-normalization-seed4-fresh-v1 \
+            issue663-normalization-comparison-v1 \
+            issue663-normalization-decision-audit-v1
+          do
+            listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+            test "$(jq -r .total_count <<<"$listing")" = 0
+          done
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+
+      - name: Verify trainer runtime before seed claim
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run python - <<'PY'
+          import importlib.metadata as metadata
+          import stable_baselines3
+          import torch
+          assert metadata.version("stable-baselines3") == "2.3.2"
+          assert metadata.version("torch") == "2.4.1"
+          print("ISSUE663_RUNTIME_BEFORE_ACTIVATION=PASS")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          PY
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+
+      - name: Build activation claim from sealed protocol without Dataset load
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/activation"
+          PROTOCOL="$RUNNER_TEMP/authority/protocol.json" python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          raw = Path(os.environ["PROTOCOL"]).read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == os.environ["PROTOCOL_SHA"]
+          claim = {
+              "schema": "issue663_normalization_activation_v1",
+              "issue": 663,
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "workflow_run_number": int(os.environ["GITHUB_RUN_NUMBER"]),
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "official_ref": os.environ["GITHUB_REF_NAME"],
+              "workflow_head": os.environ["GITHUB_SHA"],
+              "implementation_head": os.environ["TARGET_SHA"],
+              "protocol_sha256": os.environ["PROTOCOL_SHA"],
+              "seed_roster": [0, 1, 2, 3, 4],
+              "control_run": 35287338444,
+              "dataset_run": 34803217815,
+              "candidate_slots_claimed": True,
+              "candidate_result_inspected": False,
+              "real_dataset_loaded": False,
+              "model_fit_performed": False,
+              "economic_replay_performed": False,
+              "unused_data_accessed": False,
+              "final_test_accessed": False,
+              "production_eligible": False,
+              "live_trading_authorized": False,
+          }
+          encoded = json.dumps(
+              claim, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+          ).encode()
+          Path(os.environ["RUNNER_TEMP"], "activation", "activation.json").write_bytes(encoded)
+          PY
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false
+
+      - id: activation_upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.ACTIVATION_NAME }}
+          path: ${{ runner.temp }}/activation/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Bind activation Artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.activation_upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$meta")" = "$ACTIVATION_NAME"
+          test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$meta")" = false
+          listing="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ACTIVATION_NAME&per_page=100")"
+          test "$(jq -r .total_count <<<"$listing")" = 1
+          echo ISSUE663_GLOBAL_ACTIVATION=CLAIMED
+
+  train:
+    name: Fit/replay normalized PPO seed ${{ matrix.seed }}
+    needs: activation
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - name: Install exact candidate runtime
+        working-directory: target
+        run: |
+          uv sync --extra dev --extra train-sb3
+          uv run python - <<'PY'
+          import importlib.metadata as metadata
+          assert metadata.version("stable-baselines3") == "2.3.2"
+          assert metadata.version("torch") == "2.4.1"
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-activation-v1
+          path: ${{ runner.temp }}/activation
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/source
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '34803217815'
+      - name: Validate activation before loading Dataset
+        shell: bash
+        env:
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          ACTIVATION="$RUNNER_TEMP/activation/activation.json" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          value=json.loads(Path(os.environ["ACTIVATION"]).read_bytes())
+          assert value["schema"] == "issue663_normalization_activation_v1"
+          assert value["workflow_run_id"] == int(os.environ["GITHUB_RUN_ID"])
+          assert value["workflow_run_attempt"] == 1
+          assert value["protocol_sha256"] == os.environ["PROTOCOL_SHA"]
+          assert value["implementation_head"] == os.environ["TARGET_SHA"]
+          assert int(os.environ["SEED"]) in value["seed_roster"]
+          assert value["candidate_result_inspected"] is False
+          assert value["real_dataset_loaded"] is False
+          assert value["unused_data_accessed"] is False
+          print("ISSUE663_SEED_ACTIVATION=BOUND")
+          print("REAL_DATASET_LOADED=false")
+          print("MODEL_FIT_PERFORMED=false")
+          PY
+      - name: Fit and replay this consumed seed exactly once
+        working-directory: target
+        env:
+          SEED: ${{ matrix.seed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/candidate"
+          set +e
+          uv run python ../harness/.github/scripts/issue663_normalization_harness.py run-seed \
+            --seed "$SEED" \
+            --source "$RUNNER_TEMP/source" \
+            --protocol "$RUNNER_TEMP/authority/protocol.json" \
+            --output "$output"
+          code=$?
+          set -e
+          test -s "$output/attempt.json"
+          echo "ISSUE663_SEED_$SEED_ATTEMPT_RECORDED=true"
+          echo "ECONOMIC_RESULT_INTERPRETED=false"
+          exit 0
+      - name: Publish immutable seed attempt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue663-normalization-seed${{ matrix.seed }}-v1
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  fresh:
+    name: Fresh no-refit verify seed ${{ matrix.seed }}
+    needs: train
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - name: Install no-refit verification runtime
+        working-directory: target
+        run: uv sync --extra dev --extra train-sb3
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-seed${{ matrix.seed }}-v1
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue539-calibrated-causal-successor-v3-34803217815
+          path: ${{ runner.temp }}/source
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '34803217815'
+      - name: Verify published seed without policy refit
+        working-directory: target
+        env:
+          SEED: ${{ matrix.seed }}
+        run: |
+          set -euo pipefail
+          uv run python ../harness/.github/scripts/issue663_normalization_harness.py fresh \
+            --seed "$SEED" \
+            --source "$RUNNER_TEMP/source" \
+            --protocol "$RUNNER_TEMP/authority/protocol.json" \
+            --candidate "$RUNNER_TEMP/candidate" \
+            --output "$RUNNER_TEMP/fresh"
+          echo ISSUE663_POLICY_MODEL_REFIT_PERFORMED=false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue663-normalization-seed${{ matrix.seed }}-fresh-v1
+          path: ${{ runner.temp }}/fresh/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  comparison:
+    name: Frozen paired decision
+    needs: fresh
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - working-directory: target
+        run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue663-normalization-seed?-v1'
+          path: ${{ runner.temp }}/candidates
+          merge-multiple: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue663-normalization-seed?-fresh-v1'
+          path: ${{ runner.temp }}/fresh
+          merge-multiple: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue645-corrected-directional-arm-ppo*-v1'
+          path: ${{ runner.temp }}/controls
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35287338444'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+      - name: Compute frozen decision without logging economics
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run python ../harness/.github/scripts/issue663_normalization_harness.py compare \
+            --protocol "$RUNNER_TEMP/authority/protocol.json" \
+            --candidates "$RUNNER_TEMP/candidates" \
+            --fresh-root "$RUNNER_TEMP/fresh" \
+            --controls "$RUNNER_TEMP/controls" \
+            --output "$RUNNER_TEMP/comparison"
+          test -s "$RUNNER_TEMP/comparison/comparison.json"
+          echo ISSUE663_COMPARISON_WRITTEN=true
+          echo ECONOMIC_RESULT_INTERPRETED=false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue663-normalization-comparison-v1
+          path: ${{ runner.temp }}/comparison/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  audit:
+    name: Independent Artifact-only decision audit
+    needs: comparison
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+          working-directory: target
+      - working-directory: target
+        run: uv sync --extra dev
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue663-normalization-seed?-v1'
+          path: ${{ runner.temp }}/candidates
+          merge-multiple: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue663-normalization-seed?-fresh-v1'
+          path: ${{ runner.temp }}/fresh
+          merge-multiple: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: 'issue645-corrected-directional-arm-ppo*-v1'
+          path: ${{ runner.temp }}/controls
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35287338444'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-authority-primary-v2
+          path: ${{ runner.temp }}/authority
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '35378478461'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: issue663-normalization-comparison-v1
+          path: ${{ runner.temp }}/comparison
+      - name: Recompute decision independently from immutable Artifacts
+        working-directory: target
+        run: |
+          set -euo pipefail
+          uv run python ../harness/.github/scripts/issue663_normalization_audit.py \
+            --protocol "$RUNNER_TEMP/authority/protocol.json" \
+            --candidates "$RUNNER_TEMP/candidates" \
+            --fresh-root "$RUNNER_TEMP/fresh" \
+            --controls "$RUNNER_TEMP/controls" \
+            --comparison "$RUNNER_TEMP/comparison/comparison.json" \
+            --output "$RUNNER_TEMP/audit"
+          test -s "$RUNNER_TEMP/audit/audit.json"
+          echo ISSUE663_ARTIFACT_ONLY_AUDIT=PASS
+          echo POLICY_MODEL_REFIT_PERFORMED=false
+          echo UNUSED_DATA_ACCESSED=false
+          echo FINAL_TEST_ACCESSED=false
+      - id: audit_upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: issue663-normalization-decision-audit-v1
+          path: ${{ runner.temp }}/audit/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Bind final audit Artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.audit_upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r .name <<<"$meta")" = issue663-normalization-decision-audit-v1
+          test "$(jq -r .workflow_run.id <<<"$meta")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .expired <<<"$meta")" = false
+          echo PRODUCTION_ELIGIBLE=false
+          echo LIVE_TRADING_AUTHORIZED=false

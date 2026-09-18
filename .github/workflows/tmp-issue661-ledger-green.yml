@@ -1,0 +1,46 @@
+name: tmp Issue 661 shared-cash ledger GREEN
+
+on:
+  push:
+    branches:
+      - research/issue661-shared-cash-ledger-evidence
+    paths:
+      - .github/workflows/tmp-issue661-ledger-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 27448e87145097b9aa0ec4e54d203365eda65d33
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run ruff format --check trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py tests/evaluation/test_shared_cash_ledger_evidence.py
+          uv run mypy trade_rl/evaluation/replay.py trade_rl/evaluation/directional.py
+      - name: Targeted observer invariants
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/evaluation/test_shared_cash_ledger_evidence.py \
+            tests/evaluation/test_shared_cash_replay.py \
+            tests/evaluation/test_shared_cash_replay_falsification.py \
+            tests/evaluation/test_directional.py \
+            tests/evaluation/test_directional_market_profile.py
+      - name: No economic source access
+        run: |
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_ON_REAL_DATA=false

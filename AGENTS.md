@@ -8,6 +8,13 @@ Trade RL の変更を行う Agent は、この入口を読んだら、詳細文�
 
 Local repository tooling (`python -m tools.agent_repo`) は preflight / context / impact / semantic diff / verification routing をsource-derivedで要約するために利用してよい。ただし、その出力はsource review、GitHub open-PR/branch overlap確認、final full CIの代替ではない。生成reportはcommitしない。
 
+
+## Development loop
+
+新規のproduction function/classは、production sourceへ追加する前に、可能な範囲でlocalの最小mock/fake/stubを使い、意図した入出力・状態変化・主要failureを実行確認する。実装後はtargeted test/smokeとfinal diff/statusをlocalで確認してからpushする。mock/smokeは重要境界の実Integration/E2Eを置き換えない。
+
+CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Core + Guideを実行する。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
+
 ## Git / PR boundary
 
 Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。Integration invariant: tested PR head contains current `main`. merge直前にcurrent `main` のSHAを再確認し、tested PR headがそのcommitを包含していることと、その同一PR HEADに対する最新CI結果を確認する。`main` が進んだ場合、古いGreenを再利用せず、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作って再検証する。

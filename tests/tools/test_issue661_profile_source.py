@@ -79,7 +79,9 @@ def _raw(module: ModuleType) -> bytes:
                 ],
             }
         )
-    return json.dumps({"serverTime": 1, "symbols": symbols}, separators=(",", ":")).encode()
+    return json.dumps(
+        {"serverTime": 1, "symbols": symbols}, separators=(",", ":")
+    ).encode()
 
 
 def test_bundle_derives_both_profiles_from_one_raw_source(
@@ -194,7 +196,9 @@ def test_dataset_extraction_ignores_non_dataset_evidence(tmp_path: Path) -> None
     assert not (tmp_path / "study").exists()
 
 
-def test_dataset_extraction_rejects_unsafe_or_ambiguous_archives(tmp_path: Path) -> None:
+def test_dataset_extraction_rejects_unsafe_or_ambiguous_archives(
+    tmp_path: Path,
+) -> None:
     module = _load()
     unsafe = tmp_path / "unsafe.zip"
     with zipfile.ZipFile(unsafe, "w") as target:

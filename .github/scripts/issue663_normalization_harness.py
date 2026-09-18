@@ -218,7 +218,9 @@ def run_seed(
         }
         decision_count = sum(base_counts.values())
         dominant_intent = (
-            max(base_counts, key=lambda name: base_counts[name]) if decision_count else None
+            max(base_counts, key=lambda name: base_counts[name])
+            if decision_count
+            else None
         )
         dominant_fraction = (
             max(base_counts.values()) / decision_count if decision_count else None

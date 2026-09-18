@@ -1,0 +1,24 @@
+name: tmp Issue 663 harness format v2
+on:
+  push:
+    branches:
+      - automation/issue663-harness-format-v2
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a4dc37bc7f5bb1f5aec05aac676b0cfc95d787c6
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff format .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py
+          git diff -- .github/scripts/issue663_normalization_harness.py .github/scripts/issue663_normalization_audit.py

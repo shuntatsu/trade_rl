@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: b7d5852896ba1d3f46fb9430c47c22807cc9aba4
+          ref: 0019cd074fd543f2f5cd325ad0607d85b35b00fe
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
@@ -28,7 +28,7 @@ jobs:
       - name: Guard helper-only scope
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "b7d5852896ba1d3f46fb9430c47c22807cc9aba4"
+          test "$(git rev-parse HEAD)" = "0019cd074fd543f2f5cd325ad0607d85b35b00fe"
           mapfile -t changed < <(git diff --name-only 547e8c20aaa7eb8c8b3e4d0f4ad7501d05ce0616..HEAD | sort)
           printf '%s\n' "${changed[@]}"
           test "${#changed[@]}" -eq 3

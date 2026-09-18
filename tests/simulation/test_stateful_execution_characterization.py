@@ -216,7 +216,7 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     # that every unrelated field stayed byte-for-byte equivalent.
     normalized["interval_gross_return"] = 0.008128863822075338
     normalized["fill_ratio"] = 0.79
-    normalized["unfilled_turnover"] = 0.105
+    normalized["unfilled_turnover"] = 0.5 - 0.395
     canonical = json.dumps(
         normalized,
         sort_keys=True,

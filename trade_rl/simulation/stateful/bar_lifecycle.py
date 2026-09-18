@@ -25,7 +25,6 @@ class StatefulBarContext:
     tick_size: np.ndarray
     lot_size: np.ndarray
     minimum_notional: np.ndarray
-    gap_return: float
 
 
 class StatefulBarLifecycle:
@@ -74,8 +73,6 @@ class StatefulBarLifecycle:
         open_prices = dataset.open[processing_index]
         runtime.book.revalue(open_prices)
         runtime.book.refresh_drawdown()
-        value_at_open = max(runtime.book.portfolio_value, 0.0)
-        gap_return = value_at_open / period_start_value - 1.0
         tick, lot, minimum = executor.effective_rule_arrays(index=processing_index)
         return StatefulBarContext(
             previous_index=previous_index,
@@ -85,7 +82,6 @@ class StatefulBarLifecycle:
             tick_size=tick,
             lot_size=lot,
             minimum_notional=minimum,
-            gap_return=gap_return,
         )
 
     def finish_bar(
@@ -104,15 +100,6 @@ class StatefulBarLifecycle:
             )
             executor._flatten_after_termination(runtime.book, context.open_prices)
 
-        intrabar_asset_returns = (
-            dataset.resolved_array("mark_price")[processing_index] / context.open_prices
-            - 1.0
-        )
-        intrabar_return = float(np.dot(runtime.book.weights, intrabar_asset_returns))
-        runtime.gross_factor *= max(
-            (1.0 + context.gap_return) * (1.0 + intrabar_return),
-            _TOLERANCE,
-        )
         runtime.total_dividend += runtime.book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
         )

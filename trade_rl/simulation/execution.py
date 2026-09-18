@@ -329,7 +329,7 @@ class MarketExecutor:
         *,
         rule_stress: ExecutionRuleStress | None = None,
         market_order_profile: MarketOrderProfile | None = None,
-        execution_observer: Callable[[StatefulExecutionObservation], None] | None = None,
+        execution_observer: Callable[[StatefulExecutionObservation], None]\n        | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()

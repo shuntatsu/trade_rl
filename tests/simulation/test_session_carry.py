@@ -177,6 +177,7 @@ def test_session_gap_borrow_uses_previous_close_before_next_open() -> None:
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.interval_cash_interest == pytest.approx(expected_interest)
 
+
 def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
     timestamps = np.array(
         [
@@ -238,4 +239,3 @@ def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
     assert result.termination_reason == EconomicTerminationReason.MARGIN_CALL.value
     assert result.book.quantities[0] == pytest.approx(0.0)
     assert result.book.cash == pytest.approx(100.0)
-

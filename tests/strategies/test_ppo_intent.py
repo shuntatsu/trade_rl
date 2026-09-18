@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
+from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -259,3 +261,53 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     assert fitted.kwargs["ent_coef"] == 0.0
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)
+
+
+def test_ppo_fixed_drawdown_does_not_compound_risk_scale() -> None:
+    close = np.asarray([[100.0], [70.0], [70.0], [70.0], [70.0]])
+    open_price = np.vstack((close[0], close[:-1]))
+    dataset = MarketDataset(
+        dataset_id="6" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        ),
+    )
+    env.reset(seed=3)
+
+    _, _, _, _, first = env.step(2)
+    _, _, _, _, second = env.step(2)
+    _, _, _, _, third = env.step(2)
+
+    assert env.book.max_drawdown == pytest.approx(0.15)
+    assert first["target_weight"] == pytest.approx(0.5)
+    assert second["target_weight"] == pytest.approx(0.20588235294117646)
+    assert third["target_weight"] == pytest.approx(second["target_weight"])

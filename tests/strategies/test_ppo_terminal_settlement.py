@@ -10,9 +10,9 @@ from trade_rl.evaluation.directional import CloseAtEndStrategy
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.strategies.rl.ppo_normalization import fit_ppo_feature_normalizer
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import PPOTradingEnv
+from trade_rl.strategies.rl.ppo_normalization import fit_ppo_feature_normalizer
 
 
 def _flat_cost_market():

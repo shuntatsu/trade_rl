@@ -1,0 +1,31 @@
+name: tmp Issue 663 normalized execution GREEN
+on:
+  push:
+    branches: [prepare/issue663-normalization-execution-v2]
+    paths: [.github/workflows/tmp-issue663-normalization-execution-green.yml]
+permissions:
+  contents: read
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b01aee320eb7dc16d7193082baabbb1b7a60d0a5
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Static and synthetic GREEN
+        run: |
+          set -euo pipefail
+          uv run ruff check .github/scripts/issue663_normalization_execution.py tests/tools/test_issue663_normalization_execution.py
+          uv run ruff format --check .github/scripts/issue663_normalization_execution.py tests/tools/test_issue663_normalization_execution.py
+          uv run mypy .github/scripts/issue663_normalization_execution.py
+          uv run pytest -q tests/tools/test_issue663_normalization_execution.py
+          echo REAL_DATASET_LOADED=false
+          echo MODEL_FIT_PERFORMED=false
+          echo ECONOMIC_REPLAY_PERFORMED=false

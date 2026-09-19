@@ -135,6 +135,7 @@ def test_failed_normalized_policy_save_leaves_no_partial_destination(
         save_normalized_ppo(root, strategy)
 
     assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
 
 
 def test_env_matches_canonical_replay_with_cost_capacity_and_turnover_risk() -> None:

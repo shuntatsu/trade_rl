@@ -26,6 +26,7 @@ class StatefulBarContext:
     lot_size: np.ndarray
     minimum_notional: np.ndarray
     processing_year_fraction: float
+    gap_cash_carry_delta: float
 
 
 class StatefulBarLifecycle:
@@ -59,7 +60,9 @@ class StatefulBarLifecycle:
             )
             gap_year_fraction = elapsed_year_fraction - processing_year_fraction
 
+        gap_cash_carry_delta = 0.0
         if gap_year_fraction > 0.0:
+            cash_before_gap_carry = runtime.book.cash
             runtime.total_cash_interest += runtime.book.apply_cash_interest(
                 float(dataset.resolved_array("cash_rate")[processing_index]),
                 year_fraction=gap_year_fraction,
@@ -69,6 +72,7 @@ class StatefulBarLifecycle:
                 index=processing_index,
                 year_fraction=gap_year_fraction,
             )
+            gap_cash_carry_delta = runtime.book.cash - cash_before_gap_carry
             runtime.book.refresh_drawdown()
 
         split = dataset.resolved_array("split_factor")[processing_index]
@@ -119,7 +123,31 @@ class StatefulBarLifecycle:
             lot_size=lot,
             minimum_notional=minimum,
             processing_year_fraction=processing_year_fraction,
+            gap_cash_carry_delta=gap_cash_carry_delta,
         )
+
+    def _apply_processing_cash_interest(
+        self,
+        runtime: StatefulExecutionRuntime,
+        context: StatefulBarContext,
+    ) -> float:
+        dataset = runtime.executor.dataset
+        annual_rate = float(dataset.resolved_array("cash_rate")[context.processing_index])
+        if abs(context.gap_cash_carry_delta) <= _TOLERANCE:
+            return runtime.book.apply_cash_interest(
+                annual_rate,
+                year_fraction=context.processing_year_fraction,
+            )
+
+        interest_basis = runtime.book.clone()
+        interest_basis.cash -= context.gap_cash_carry_delta
+        amount = interest_basis.apply_cash_interest(
+            annual_rate,
+            year_fraction=context.processing_year_fraction,
+        )
+        runtime.book.cash += amount
+        runtime.book.revalue(runtime.book.mark_prices)
+        return amount
 
     def finish_bar(
         self,
@@ -140,9 +168,9 @@ class StatefulBarLifecycle:
         runtime.total_dividend += runtime.book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
         )
-        runtime.total_cash_interest += runtime.book.apply_cash_interest(
-            float(dataset.resolved_array("cash_rate")[processing_index]),
-            year_fraction=context.processing_year_fraction,
+        runtime.total_cash_interest += self._apply_processing_cash_interest(
+            runtime,
+            context,
         )
         funding_amount, borrow_amount = executor._charge_carry(
             runtime.book,

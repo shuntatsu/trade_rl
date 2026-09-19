@@ -118,6 +118,61 @@ def test_next_open_entry_excludes_prior_gap_carry() -> None:
     assert result.interval_cash_interest == pytest.approx(expected_interest)
 
 
+def test_next_open_exit_excludes_post_fill_gap_carry() -> None:
+    timestamps = np.array(
+        [
+            "2026-01-02T16:00:00",
+            "2026-01-05T09:00:00",
+            "2026-01-05T10:00:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    prices = np.full((3, 1), 100.0)
+    dataset = MarketDataset(
+        dataset_id="d" * 64,
+        symbols=("A",),
+        timestamps=timestamps,
+        features=np.zeros((3, 1, 1), dtype=np.float32),
+        global_features=np.zeros((3, 1), dtype=np.float32),
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        volume=np.full((3, 1), 10_000.0),
+        funding_rate=np.zeros((3, 1)),
+        tradable=np.ones((3, 1), dtype=np.bool_),
+        feature_available=np.ones((3, 1, 1), dtype=np.bool_),
+        feature_names=("x",),
+        global_feature_names=("g",),
+        periods_per_year=1_638,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        borrow_rate=np.full((3, 1), 0.365),
+        cash_rate=np.full(3, 0.365),
+    )
+    book = BookState.from_weights(
+        weights=np.array([-0.5]),
+        capital=1_000.0,
+        prices=prices[0],
+        contract_multipliers=dataset.contract_multipliers,
+    )
+
+    result = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0),
+    ).execute_interval(book, np.array([0.0]), start_index=0, bars=1)
+
+    gap_fraction = 64.0 / (365.0 * 24.0)
+    processing_bar_fraction = 1.0 / (365.0 * 24.0)
+    expected_borrow = 500.0 * 0.365 * gap_fraction
+    gap_interest = 1_500.0 * 0.365 * gap_fraction
+    processing_interest = 1_000.0 * 0.365 * processing_bar_fraction
+    expected_interest = gap_interest + processing_interest
+    assert result.book.quantities[0] == pytest.approx(0.0)
+    assert result.interval_borrow_cost == pytest.approx(expected_borrow)
+    assert result.interval_cash_interest == pytest.approx(expected_interest)
+
+
 def test_session_gap_borrow_uses_previous_close_before_next_open() -> None:
     timestamps = np.array(
         [

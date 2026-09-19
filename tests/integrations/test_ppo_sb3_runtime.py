@@ -32,6 +32,7 @@ def _env() -> PPOTradingEnv:
 
 def _observation(symbol_index: int = 0) -> StrategyObservation:
     dataset = pooled_market()
+    global_available = dataset.resolved_array("global_feature_available")[0]
     return StrategyObservation(
         index=0,
         timestamp=dataset.timestamps[0],
@@ -40,9 +41,7 @@ def _observation(symbol_index: int = 0) -> StrategyObservation:
         feature_available=dataset.feature_available[0, symbol_index],
         feature_staleness=dataset.resolved_array("feature_staleness")[0, symbol_index],
         global_features=dataset.global_features[0],
-        global_feature_available=dataset.resolved_array(
-            "global_feature_available"
-        )[0],
+        global_feature_available=global_available,
         current_intent=PositionIntent.FLAT,
         current_weight=0.0,
     )
@@ -50,17 +49,16 @@ def _observation(symbol_index: int = 0) -> StrategyObservation:
 
 def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     stable_baselines3 = pytest.importorskip("stable_baselines3")
+    env_checker = pytest.importorskip("stable_baselines3.common.env_checker")
     torch = pytest.importorskip("torch")
-    from stable_baselines3 import PPO
-    from stable_baselines3.common.env_checker import check_env
 
     assert stable_baselines3.__version__ == "2.3.2"
     assert torch.__version__.split("+", 1)[0] == "2.4.1"
     torch.set_num_threads(1)
 
-    check_env(_env(), warn=True)
+    env_checker.check_env(_env(), warn=True)
 
-    model = PPO(
+    model = stable_baselines3.PPO(
         "MlpPolicy",
         _env(),
         n_steps=8,

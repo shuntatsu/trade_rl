@@ -10,7 +10,7 @@ import numpy as np
 
 from trade_rl.data.features.price_channels import CHANNEL_NAMES
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.directional import DIRECTIONAL_BASE_EXECUTION_COST
+from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.experiments import ResolvedRunConfig
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy

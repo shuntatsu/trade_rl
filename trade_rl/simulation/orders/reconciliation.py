@@ -9,6 +9,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.orders.admission import snap_price_to_tick
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -16,7 +17,6 @@ from trade_rl.simulation.orders.model import (
     PendingOrder,
     TimeInForce,
 )
-from trade_rl.simulation.orders.admission import snap_price_to_tick
 from trade_rl.simulation.quantities import exact_quantity, project_quantity
 
 _TOLERANCE = 1e-12

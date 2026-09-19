@@ -82,7 +82,7 @@ def _capacity_reference(
     else:
         reference_index = processing_index - 1
         if reference_index < 0:
-            return 0.0, 0.0, float(context.open_prices[symbol])
+            return 0.0, 0.0, float(context.open_prices[symbol]), None
         reference_prices = dataset.close[reference_index]
     market_notional = float(
         dataset.market_notional(reference_index, reference_prices)[symbol]

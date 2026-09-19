@@ -12,8 +12,9 @@
 4. `docs/architecture/lean-core.md`
 5. `docs/architecture/package-boundaries.md`
 6. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
-7. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
-8. 対象source、public facade、nearest tests、CIを照合する
+7. 新しいeconomic research protocol、active protocolのmaterial semantic change、decision/evidence contract変更なら `docs/architecture/research-assurance.md`
+8. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
+9. 対象source、public facade、nearest tests、CIを照合する
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
@@ -52,6 +53,8 @@ uv run python -m tools.agent_repo impact trade_rl/evaluation/runs/config.py
 uv run python -m tools.agent_repo diff --base main
 uv run python -m tools.agent_repo verify --base main
 uv run python -m tools.agent_repo eval-list
+uv run python -m tools.agent_repo assurance digest assurance.json
+uv run python -m tools.agent_repo assurance check assurance.json
 ```
 
 - `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
@@ -60,6 +63,7 @@ uv run python -m tools.agent_repo eval-list
 - `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
 - `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
+- `assurance digest` / `assurance check`: research thesis / mechanism / evidence / claim contractのcanonical digestとfail-closed状態を検証する。構造が完全でも独立reviewがなければ `UNREVIEWED` であり、tool自身が研究思想の正しさを採点・承認しない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 
@@ -120,6 +124,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | execution/accounting/fill/funding/borrow/liquidation | `architecture/lean-core.md`, simulation/risk/evaluation tests |
 | package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
+| research thesis、mechanism、evidence sufficiency、decision/claim boundary | `architecture/research-assurance.md`, Research Assurance Record、independent adversarial review |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
 | Guideがbindする正本section / Python symbol | 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json`, `--refresh` / `--refresh-code`, `guide/tools/content_contract.py --check` |
@@ -149,6 +154,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 - 現行の良い責務境界を優先し、将来使うかもしれない抽象化を追加しない。
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
 - 変更前にTest Oracleとfailure modeを決める。
+- economic researchでは、Acceptance Criteria自体の妥当性をResearch Assurance Gateで反証する。result-blind/preregistered/reproducibleであることだけを研究設計の正しさとみなさない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。
 - Greenにするためにassertionを弱めたり、skipや古いforwarderを残したりしない。
 - 移動だけのrefactorでは、可能ならAST/serialization/public facade等の独立oracleでsemantic driftを反証する。

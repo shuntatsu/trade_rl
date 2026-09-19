@@ -271,6 +271,49 @@ def test_marketable_sell_limit_uses_open_for_minimum_notional() -> None:
     )
 
 
+def test_off_tick_buy_limit_is_rejected_before_trigger_rounding() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 101.0)
+    high = np.full(shape, 101.0)
+    low = np.full(shape, 100.0)
+    close = np.full(shape, 100.0)
+    tick = np.full(shape, 0.5)
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        tick_size=tick,
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = _intent(
+        executor,
+        1.0,
+        order_type=OrderType.LIMIT,
+        limit_price=100.26,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.quantities[0] == pytest.approx(0.0)
+    assert not any(
+        event.event_type in {"filled", "partial_fill"} for event in result.order_events
+    )
+    rejected = [
+        event
+        for event in result.order_events
+        if event.event_type == "rejected"
+    ]
+    assert len(rejected) == 1
+    assert rejected[0].reason == "price_not_on_tick"
+
+
 def test_latency_waits_until_eligible_processing_bar() -> None:
     dataset = _market()
     executor = _executor(dataset, max_participation_rate=1.0)

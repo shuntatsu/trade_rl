@@ -12,7 +12,7 @@ from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import PPOTradingEnv
 
 
-def test_terminal_settlement_is_environment_owned_and_charges_exit_cost() -> None:
+def test_terminal_settlement_charges_exit_cost_without_overwriting_action() -> None:
     dataset = _market(np.full((5, 1), 100.0))
     execution_cost = replace(ExecutionCostConfig.zero(), fee_rate=0.001)
     env = PPOTradingEnv(

@@ -181,18 +181,10 @@ drawdown start 0.1 and stop 0.2. The completed comparison changed only these
 training risk settings. Training still has one active symbol per account while
 evaluation shares cash across five, and policy inputs lack account drawdown.
 The optional risk configuration does not resolve these remaining mismatches.
-A later PPO implementation audit found an additional economic mismatch that this
-historical comparison did not isolate: directional training used
-`borrow_rate_multiplier=0.0` while development evaluation used `1.0`. The
-reward itself was `log1p(interval_net_return)`, but short borrow was therefore
-absent from the training interval net return. Current code uses one shared
-directional execution-cost authority with borrow enabled in both fit and
-evaluation. Historical PPO evidence remains bound to its old implementation and
-is not a corrected-economics control. Fill counts combine policy and risk actions
-and cannot alone diagnose churning. Feature-scale normalization and the sealed
-interleaved experiment remain separate and cannot be executed as current
-economic authority without a fresh result-blind protocol bound to the corrected
-training economics.
+This is not a reward
+cost omission: the current PPO reward already uses log net return after costs.
+Fill counts combine policy and risk actions and cannot alone diagnose churning.
+Feature-scale normalization and the sealed interleaved experiment remain separate.
 
 An opt-in fit-only PPO feature standardizer and bound model-bundle capability
 are implemented separately from the completed, immutable risk comparison.

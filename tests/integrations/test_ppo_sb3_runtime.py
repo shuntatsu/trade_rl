@@ -117,3 +117,33 @@ def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
 
     assert after is before
     assert loaded.feature_normalizer == strategy.feature_normalizer
+
+
+def test_real_interleaved_fit_is_parameter_deterministic_for_same_seed() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(1)
+    dataset = pooled_market()
+
+    def fit():
+        return fit_ppo_strategy(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0, 1),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.1,
+            total_timesteps=64,
+            seed=31,
+            training_layout="interleaved",
+            rollout_steps_per_env=32,
+        )
+
+    first = fit()
+    second = fit()
+    first_state = first.policy.policy.state_dict()
+    second_state = second.policy.policy.state_dict()
+
+    assert first_state.keys() == second_state.keys()
+    for name in first_state:
+        assert torch.equal(first_state[name], second_state[name]), name

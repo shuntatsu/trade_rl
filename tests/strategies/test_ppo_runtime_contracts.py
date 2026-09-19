@@ -251,3 +251,23 @@ def test_economic_termination_keeps_finite_reward_and_terminal_observation() -> 
 
     with pytest.raises(RuntimeError, match="terminated"):
         env.step(1)
+
+
+def test_explicit_reseed_restarts_sequential_symbol_schedule() -> None:
+    env = PPOTradingEnv(
+        pooled_market(),
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+
+    first_observation, first_info = env.reset(seed=41)
+    _, second_info = env.reset()
+    restarted_observation, restarted_info = env.reset(seed=41)
+
+    assert first_info["symbol_index"] == restarted_info["symbol_index"] == 0
+    assert second_info["symbol_index"] == 1
+    np.testing.assert_array_equal(first_observation, restarted_observation)

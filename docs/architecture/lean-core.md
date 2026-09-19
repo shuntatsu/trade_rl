@@ -207,7 +207,7 @@ serialization includes the new false field and is not byte-identical to old
 mappings. Restoring an intent recomputes its identity, so changing or stripping a
 true flag without changing the ID fails. Pending partials preserve the flag.
 - 金額は既存のfloat契約を維持し、allocationとcashで同じ約定数量の射影・価格・multiplierの乗算順を使う。OrderEvent v1はfloat数量のままで、極端な非表現可能lot積のlossless ledgerとは主張しない。
-- minimum-notionalのadmission価格は注文種別に合わせる。LIMITは発注条件そのものを表す `limit_price` で判定し、processing openの上下だけで有効なlimitをreject/acceptしない。MARKET / STOP_MARKETの既存reference-price admission、projected leverageのreference-price評価、fill-time allocationのactual execution-price再確認は変更しない。
+- minimum-notionalのadmission価格はそのbarで決定可能なLIMIT実行価格に合わせる。LIMITがprocessing openですでにmarketableならopen価格を使い、まだmarketableでなくbar内touch待ちなら `limit_price` を使う。したがってfavorable gapで実際にopen約定できるorderをlimit値だけで誤rejectせず、逆にopen約定のactual notionalがminimum未満なのにlimit値だけで誤admitしない。MARKET / STOP_MARKETの既存reference-price admission、projected leverageのreference-price評価、fill-time allocationのactual execution-price再確認は変更しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
 - terminal mark-to-marketとforced closeを混同しない。

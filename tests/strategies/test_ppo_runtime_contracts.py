@@ -517,3 +517,60 @@ def test_directional_zero_overlay_keeps_dataset_participation_capacity() -> None
     assert float(first_info["fill_ratio"]) < 1.0
     assert env.book.quantities[0] == pytest.approx(replay.book.quantities[0])
     assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+
+
+@pytest.mark.parametrize(
+    ("dataset_changes", "intent", "action"),
+    [
+        (
+            {"borrow_available": np.zeros((4, 1), dtype=np.bool_)},
+            PositionIntent.SHORT,
+            0,
+        ),
+        (
+            {"buy_allowed": np.zeros((4, 1), dtype=np.bool_)},
+            PositionIntent.LONG,
+            2,
+        ),
+        (
+            {"minimum_notional": np.full((4, 1), 10_000.0)},
+            PositionIntent.LONG,
+            2,
+        ),
+    ],
+)
+def test_ppo_target_does_not_bypass_market_admission_constraints(
+    dataset_changes: dict[str, np.ndarray],
+    intent: PositionIntent,
+    action: int,
+) -> None:
+    dataset = replace(market(), **dataset_changes)
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy((intent, intent, intent)),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env.reset(seed=19)
+
+    _, _, _, _, info = env.step(action)
+    env.step(action)
+    env.step(action)
+
+    assert abs(float(info["target_weight"])) > 0.0
+    assert float(info["realized_weight"]) == pytest.approx(0.0)
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert replay.book.quantities[0] == pytest.approx(0.0)
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)

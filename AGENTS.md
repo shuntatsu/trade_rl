@@ -8,6 +8,12 @@ Trade RL の変更を行う Agent は、この入口を読んだら、詳細文�
 
 Local repository tooling (`python -m tools.agent_repo`) は preflight / context / impact / semantic diff / verification routing をsource-derivedで要約するために利用してよい。ただし、その出力はsource review、GitHub open-PR/branch overlap確認、final full CIの代替ではない。生成reportはcommitしない。
 
+## Research assurance boundary
+
+新しいeconomic research protocol、active protocolのmaterial semantic change、またはdecision/evidence contractの変更では、economic execution前に `docs/architecture/research-assurance.md` を読み、machine-readable Research Assurance Recordを作成する。構造が有効でも独立adversarial reviewがexact record digest・protocol HEAD・implementation HEADへbindして `PASS` しない限り、economic executionをauthorizeしない。
+
+Result-blindness、preregistration、reproducibility、CI Greenは必要条件だが十分条件ではない。研究命題・mechanism・evidence sufficiency・claim boundary自体を反証する。Issue #667型のruntime/economic/state semantic auditは「仕組みを正しく作ったか」を検査し、Research Assurance Gateは「正しい問いと仕組みを選んだか」を追加で検査する。どちらか一方で代替しない。
+
 
 ## Development loop
 

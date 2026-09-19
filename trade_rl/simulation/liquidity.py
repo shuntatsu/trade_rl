@@ -444,8 +444,20 @@ def allocate_symbol_capacity(
                 lot_size=lot_size if filled_lot_count is not None else 0.0,
                 lot_count=filled_lot_count,
             )
-        participation_rate = (
+        notional_participation = (
             0.0 if market_notional <= _TOLERANCE else exact_notional / market_notional
+        )
+        quantity_participation = 0.0
+        if (
+            processing_quantity_capacity is not None
+            and processing_quantity_capacity > _TOLERANCE
+        ):
+            quantity_participation = (
+                abs(filled_quantity) / processing_quantity_capacity
+            )
+        participation_rate = max(
+            notional_participation,
+            quantity_participation,
         )
         allocations.append(
             LiquidityAllocation(

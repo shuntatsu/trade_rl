@@ -29,6 +29,18 @@ class AlwaysShort:
         return PositionIntent.SHORT
 
 
+@dataclass
+class IntentSequence:
+    intents: tuple[PositionIntent, ...]
+    index: int = 0
+
+    def decide(self, observation: object) -> PositionIntent:
+        del observation
+        intent = self.intents[min(self.index, len(self.intents) - 1)]
+        self.index += 1
+        return intent
+
+
 def _rising_market() -> MarketDataset:
     close = np.asarray([[100.0], [100.0], [110.0], [120.0], [130.0], [140.0]])
     open_price = np.vstack((close[0], close[:-1]))
@@ -120,6 +132,64 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert getattr(first_observation, "index") == 0
     features = getattr(first_observation, "features")
     assert features.flags.writeable is False
+
+
+def test_reversal_keeps_short_proposal_after_hard_override() -> None:
+    close = np.asarray(
+        [[100.0], [100.0], [100.0], [100.0], [100.0], [200.0], [200.0], [200.0]]
+    )
+    open_price = np.vstack((close[0], close[:-1]))
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.5,
+            max_turnover=0.1,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        IntentSequence(
+            (
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.SHORT,
+                PositionIntent.SHORT,
+            )
+        ),
+        start_index=0,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk=risk,
+    )
+
+    assert result.decisions[5].target_weight == pytest.approx(0.5)
+    assert result.decisions[6].target_weight == pytest.approx(0.4)
 
 
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:

@@ -14,6 +14,7 @@ from gymnasium import spaces
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
@@ -423,9 +424,7 @@ class PPOTradingEnv(gym.Env):
             "symbol": self.dataset.symbols[self.active_symbol_index],
         }
 
-    def _settle_terminal_position(
-        self,
-    ) -> tuple[float, dict[str, object]]:
+    def _settle_terminal_position(self) -> tuple[float, dict[str, object]]:
         if not self.settle_terminal_position:
             return 0.0, {}
         if self.active_symbol_index < 0:
@@ -462,7 +461,9 @@ class PPOTradingEnv(gym.Env):
                 bars=1,
             )
             if execution.next_index <= self.index:
-                raise RuntimeError("terminal settlement did not advance PPO environment")
+                raise RuntimeError(
+                    "terminal settlement did not advance PPO environment"
+                )
             self.book = execution.book
             self.index = execution.next_index
             settlement_log_return += math.log1p(execution.interval_net_return)
@@ -490,6 +491,7 @@ class PPOTradingEnv(gym.Env):
             "terminal_settlement_final_weight": float(
                 self.book.weights[symbol_index]
             ),
+            "terminal_settlement_termination_reason": self.book.termination_reason,
         }
 
     def step(
@@ -528,11 +530,7 @@ class PPOTradingEnv(gym.Env):
             drawdown=self.book.max_drawdown,
         )
         target_weight = float(constrained.weights[symbol_index])
-        if (
-            constrained.was_constrained
-            and "drawdown_deleveraging" not in constrained.reasons
-            and any(reason != "max_turnover" for reason in constrained.reasons)
-        ):
+        if should_rebind_strategy_proposal(constrained):
             self.desired_quantity = _desired_quantity_from_weight(
                 self.book,
                 target_weight,
@@ -552,7 +550,6 @@ class PPOTradingEnv(gym.Env):
         self.current_intent = intent
         self.index = execution.next_index
         reward = math.log1p(execution.interval_net_return)
-        settlement_log_return = 0.0
         settlement_info: dict[str, object] = {}
         if (
             self.settle_terminal_position

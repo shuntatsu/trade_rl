@@ -169,6 +169,57 @@ def test_static_cap_and_turnover_converge_instead_of_freezing_first_slice() -> N
     )
 
 
+def test_hard_cap_and_turnover_converge_without_rebinding_proposal() -> None:
+    close = np.full((7, 1), 100.0)
+    dataset = MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=0.1,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=6,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        risk=risk,
+    )
+
+    assert [decision.proposal_weight for decision in result.decisions[:5]] == pytest.approx(
+        [1.0] * 5
+    )
+    assert [decision.target_weight for decision in result.decisions[:5]] == pytest.approx(
+        [0.1, 0.2, 0.3, 0.4, 0.5]
+    )
+    assert "max_abs_weight" in result.decisions[0].risk_reasons
+    assert "max_turnover" in result.decisions[0].risk_reasons
+
+
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:
     result = evaluation.run_single_symbol_replay(
         _rising_market(),

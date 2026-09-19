@@ -134,7 +134,7 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert features.flags.writeable is False
 
 
-def test_reversal_after_drift_preserves_short_proposal_through_hard_override() -> None:
+def test_reversal_keeps_short_proposal_after_hard_override() -> None:
     close = np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]])
     open_price = np.vstack((close[0], close[:-1]))
     dataset = MarketDataset(

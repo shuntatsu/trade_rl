@@ -106,6 +106,8 @@ PPOもrule strategyと同じ`PreTradeRisk`を通ります。PPOだけrisk上限�
 
 学習用のリスク設定は明示的に指定でき、episodeをresetしても同じ設定を使います。省略時は従来の設定を保ちます。学習と評価で保有上限や下落時の縮小条件が違うと、同じ売買意図でも約定やコストが変わります。両者を合わせる実験ではリスク設定だけを変更し、報酬・観測・学習データの並べ方は別の比較として扱います。
 
+PPOでも `drawdown_deleveraging` はそのstepのtransient risk projectionです。縮小後targetを `desired_quantity` へ書き戻さないため、同じdrawdown・価格・intentが続いても同じscaleを次stepで二重に掛けません。このproposal/risk state分離はcanonical replayと同じです。
+
 ## 5. 約定・会計を通す
 
 制約済みtargetを`MarketExecutor`へ渡し、fill、cost、funding、borrow、BookState、区間net returnを共通経路で更新します。

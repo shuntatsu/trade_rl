@@ -61,6 +61,7 @@ def test_terminal_settlement_matches_directional_close_at_end_economics() -> Non
 
     assert first_terminated is False
     assert final_terminated is True
+    assert final_info["intent"] is PositionIntent.LONG
     assert env.index == 3
     assert env.current_intent is PositionIntent.FLAT
     assert env.desired_quantity == pytest.approx(0.0)

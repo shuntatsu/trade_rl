@@ -111,6 +111,7 @@ def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
 
     root = tmp_path / "normalized-ppo"
     digest = save_normalized_ppo(root, strategy)
+    torch.set_num_threads(2)
     loaded = load_normalized_ppo(
         root,
         expected_digest=digest,
@@ -123,6 +124,7 @@ def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
     assert after is before
     assert loaded.feature_normalizer == strategy.feature_normalizer
     assert loaded.policy.device.type == "cpu"
+    assert torch.get_num_threads() == 1
 
 
 def test_real_interleaved_fit_is_parameter_deterministic_for_same_seed() -> None:

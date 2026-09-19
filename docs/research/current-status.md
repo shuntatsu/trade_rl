@@ -181,10 +181,18 @@ drawdown start 0.1 and stop 0.2. The completed comparison changed only these
 training risk settings. Training still has one active symbol per account while
 evaluation shares cash across five, and policy inputs lack account drawdown.
 The optional risk configuration does not resolve these remaining mismatches.
-This is not a reward
-cost omission: the current PPO reward already uses log net return after costs.
-Fill counts combine policy and risk actions and cannot alone diagnose churning.
-Feature-scale normalization and the sealed interleaved experiment remain separate.
+A later PPO implementation audit found an additional economic mismatch that this
+historical comparison did not isolate: directional training used
+`borrow_rate_multiplier=0.0` while development evaluation used `1.0`. The
+reward itself was `log1p(interval_net_return)`, but short borrow was therefore
+absent from the training interval net return. Current code uses one shared
+directional execution-cost authority with borrow enabled in both fit and
+evaluation. Historical PPO evidence remains bound to its old implementation and
+is not a corrected-economics control. Fill counts combine policy and risk actions
+and cannot alone diagnose churning. Feature-scale normalization and the sealed
+interleaved experiment remain separate and cannot be executed as current
+economic authority without a fresh result-blind protocol bound to the corrected
+training economics.
 
 An opt-in fit-only PPO feature standardizer and bound model-bundle capability
 are implemented separately from the completed, immutable risk comparison.
@@ -377,7 +385,7 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 現行datasetのglobal regimeは全dataset symbolから集計されるため、fit-symbol subset外の情報がtrainingへ混入しないよう初回M2のpolicy inputから除外した。Observation v2は空のglobal rosterをsemantic identityへ明示bindする。global contextは、fit-scope-safeなreference universeを事前固定できる場合にだけ別Controlled Factorとして検証する。
 
-PPO fitの既定layoutは既存互換の`sequential`である。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、execution/accounting、hard risk、network、entropy係数、総timestepsを変更しない。現時点でinterleavedがbetter performanceやprofitabilityを示した証拠はなく、development比較にはexact layout/rollout stepsを別途result-blind preregisterする必要がある。 また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
+PPO fitの既定layoutは既存互換の`sequential`である。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、hard risk、network、entropy係数を変更しない。Directional PPOではfitとdevelopment replayが同じbase execution economicsを共有し、Dataset由来のborrowを両方で課す。旧interleaved prereg/evaluatorはこのborrow修正前のimplementation authorityへbindされているため、current economicsでの実行authorityとしてはobsoleteであり、結果を見ずにfresh protocolを作り直す必要がある。なおSB3はwhole rollout単位で学習するため、同じcaller `total_timesteps`でもlayoutごとのrealized `model.num_timesteps`はわずかに異なり得る。実比較では両方をevidenceへ保存する。また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
 
 ## Causality and evaluation rules
 

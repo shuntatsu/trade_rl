@@ -240,9 +240,7 @@ def test_real_ppo_learns_trivial_causal_long_signal() -> None:
         feature_available=dataset.feature_available[0, 0],
         feature_staleness=dataset.resolved_array("feature_staleness")[0, 0],
         global_features=dataset.global_features[0],
-        global_feature_available=dataset.resolved_array(
-            "global_feature_available"
-        )[0],
+        global_feature_available=dataset.resolved_array("global_feature_available")[0],
         current_intent=PositionIntent.FLAT,
         current_weight=0.0,
     )

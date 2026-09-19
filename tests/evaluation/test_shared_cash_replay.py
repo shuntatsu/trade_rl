@@ -285,14 +285,11 @@ def test_shared_cash_fixed_drawdown_does_not_compound_risk_scale() -> None:
         risk=risk,
     )
 
+    expected_target = (0.20588235294117646,)
     assert result.book.max_drawdown == pytest.approx(0.15)
     assert result.decisions[0].target_weights == pytest.approx((0.5,))
-    assert result.decisions[1].target_weights == pytest.approx(
-        (0.20588235294117646,)
-    )
-    assert result.decisions[2].target_weights == pytest.approx(
-        result.decisions[1].target_weights
-    )
+    assert result.decisions[1].target_weights == pytest.approx(expected_target)
+    assert result.decisions[2].target_weights == pytest.approx(expected_target)
 
 
 def test_symbol_permutation_preserves_shared_portfolio_economics() -> None:

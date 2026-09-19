@@ -89,9 +89,7 @@ def _capacity_reference(
     )
     processing_volume = float(dataset.volume[reference_index, symbol])
     volume_unit = dataset.volume_units[symbol]
-    contract_multiplier = float(
-        dataset.resolved_array("contract_multipliers")[symbol]
-    )
+    contract_multiplier = float(dataset.resolved_array("contract_multipliers")[symbol])
     if volume_unit is VolumeUnit.BASE_ASSET:
         quantity_capacity = processing_volume / contract_multiplier
     elif volume_unit is VolumeUnit.CONTRACTS:

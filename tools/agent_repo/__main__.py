@@ -69,7 +69,9 @@ def _parser() -> argparse.ArgumentParser:
     eval_score.add_argument("score_json")
 
     assurance = subparsers.add_parser("assurance")
-    assurance_commands = assurance.add_subparsers(dest="assurance_command", required=True)
+    assurance_commands = assurance.add_subparsers(
+        dest="assurance_command", required=True
+    )
     for name in ("digest", "check"):
         assurance_command = assurance_commands.add_parser(name)
         assurance_command.add_argument("input")

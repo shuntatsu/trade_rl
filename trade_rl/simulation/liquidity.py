@@ -452,9 +452,7 @@ def allocate_symbol_capacity(
             processing_quantity_capacity is not None
             and processing_quantity_capacity > _TOLERANCE
         ):
-            quantity_participation = (
-                abs(filled_quantity) / processing_quantity_capacity
-            )
+            quantity_participation = abs(filled_quantity) / processing_quantity_capacity
         participation_rate = max(
             notional_participation,
             quantity_participation,

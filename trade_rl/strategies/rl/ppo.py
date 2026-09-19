@@ -14,6 +14,7 @@ from gymnasium import spaces
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
@@ -432,11 +433,7 @@ class PPOTradingEnv(gym.Env):
             drawdown=self.book.max_drawdown,
         )
         target_weight = float(constrained.weights[symbol_index])
-        if (
-            constrained.was_constrained
-            and "drawdown_deleveraging" not in constrained.reasons
-            and any(reason != "max_turnover" for reason in constrained.reasons)
-        ):
+        if should_rebind_strategy_proposal(constrained):
             self.desired_quantity = _desired_quantity_from_weight(
                 self.book,
                 target_weight,

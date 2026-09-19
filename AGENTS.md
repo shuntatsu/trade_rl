@@ -31,6 +31,16 @@ Remote branchは「作業履歴の保管庫」として増やさない。active�
 
 削除直前にはopen PR head/baseとactive workflow branchを再取得し、削除自体は計画時のexact tip SHAを `git push --force-with-lease=<ref>:<sha> --atomic` で条件付き実行する。tipが変化した、protectedになった、open PR/active workflowから参照されるようになったbranchは削除しない。削除後にもbranch一覧を再取得し、削除対象refが残っていればworkflowを失敗させる。これはAgentによる手動branch削除の許可ではない。
 
+## Change impact / review feedback
+
+PRをmerge-readyと判断する前に、その変更が同一Repositoryの関連作業と `shuntatsu/trade-strategy-workbench` のintegrationへ及ぼす影響を確認する。特に public API / CLI / config / schema / data contract、artifact・EvidenceSet・provenance identity、研究・学習・評価・execution-economicsの前提、永続化、workflow / CI、shared docs / Agent契約、依存関係、security、performance の変更は重大変更候補として扱う。
+
+レビュー中に具体的な問題またはactionableな改善提案を発見した場合、最終報告へ埋め込むだけで終わらせない。対象branchにopen PRがあるなら、その**該当PRへ直接review/commentとして返し、exact HEADへ結び付ける**。merge前に直す必要がある問題はblockingであることを明示する。対象branchにPRがない場合は、branch名とexact HEADを含めて既存Issueへ追記するか、必要ならIssueを起票する。同じbranchで安全に修正でき、ownership/conflictがない場合は修正・再検証・再レビューまで続ける。
+
+重大変更によって別の作業線・別Repositoryに移行、修正、追加検証が必要になる場合は、先に既存Issue / PRを検索して重複を避ける。既存trackingが十分ならそこへ影響分析を追記し、不足する場合だけ影響先Repositoryにfollow-up Issueを起票する。Issueには source PR / branch / commit、exact HEAD、影響内容、対象、必要作業、Acceptance Criteria、検証方法、依存・block関係を含め、source側から相互参照する。曖昧な可能性だけでIssueを量産しない。
+
+影響対応が安全なmergeの前提なら、未解決のままmerge-ready扱いしない。互換性維持や段階移行によりmerge後で安全に処理できる場合は、post-merge follow-upである理由を明記し、blocking項目と区別する。
+
 このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
 
 コード構造を変更した場合は対応するcurrent docsと `tests/architecture/` の契約を同じ変更で更新する。研究上の前提・比較対象・評価手順・研究状態を変更した場合は `docs/research/current-status.md` を更新する。

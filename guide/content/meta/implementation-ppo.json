@@ -75,9 +75,9 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "b38ffc8a701abf19ce75e250aef84b10643f4dc58f06cdede1bddae80b60a74e",
+      "source_sha256": "300b71de131e0f7def6f0b156f38fed641057356e522418fb8a6da7291178af0",
       "label_ja": "PPO環境を1ステップ進める",
-      "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定します。drawdown縮小はそのstepの一時的projectionとしてproposal stateへ再注入せず、区間net returnからrewardを計算します。infoにはtargetとrealized weight、risk理由、約定率・turnover、cost/funding/borrow/dividend/cash-interest金額、termination理由を分離して返します。",
+      "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定します。max_turnoverまたはdrawdown縮小を含む一時的projectionはproposal stateへ再注入せず、区間net returnからrewardを計算します。infoにはtargetとrealized weight、risk理由、fill/turnover、cost/funding/borrow/dividend/cash-interest金額、termination理由を分離して返します。",
       "variables": [
         {
           "name": "symbol_index",
@@ -116,7 +116,7 @@
       "kind": "function",
       "source_sha256": "1c9a159f0ef9174f430f305bffb20ab2f09e137870ed17fe825bc9ef862fe158",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOをCPU固定で学習します。vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
+      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOをCPU固定・1 threadで学習します。vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
       "variables": [
         {
           "name": "training_layout",

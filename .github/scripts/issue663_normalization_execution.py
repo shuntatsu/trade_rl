@@ -58,7 +58,9 @@ def _head(value: object) -> str:
         or len(value) != 40
         or any(char not in "0123456789abcdef" for char in value)
     ):
-        raise ValueError("implementation_head must be a lowercase hexadecimal commit SHA")
+        raise ValueError(
+            "implementation_head must be a lowercase hexadecimal commit SHA"
+        )
     return value
 
 

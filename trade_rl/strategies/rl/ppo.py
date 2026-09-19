@@ -465,7 +465,19 @@ class PPOTradingEnv(gym.Env):
             "symbol": self.dataset.symbols[symbol_index],
             "intent": intent,
             "target_weight": target_weight,
+            "realized_weight": float(self.book.weights[symbol_index]),
+            "was_constrained": constrained.was_constrained,
+            "risk_reasons": constrained.reasons,
             "interval_net_return": execution.interval_net_return,
+            "interval_cost": execution.interval_cost,
+            "interval_funding": execution.interval_funding,
+            "interval_borrow_cost": execution.interval_borrow_cost,
+            "interval_dividend": execution.interval_dividend,
+            "interval_cash_interest": execution.interval_cash_interest,
+            "requested_turnover": execution.requested_turnover,
+            "filled_turnover": execution.filled_turnover,
+            "fill_ratio": execution.fill_ratio,
+            "termination_reason": execution.termination_reason,
         }
         return observation, reward, self._terminated, False, info
 

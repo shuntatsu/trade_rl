@@ -811,7 +811,36 @@ class MarketExecutor:
             cost_by_symbol=cost_vector,
         )
 
-    def _charge_carry(self, book: BookState, *, index: int) -> tuple[float, float]:
+    def _charge_borrow(
+        self,
+        book: BookState,
+        *,
+        index: int,
+        year_fraction: float,
+    ) -> float:
+        if (
+            isinstance(year_fraction, bool)
+            or not math.isfinite(year_fraction)
+            or year_fraction < 0.0
+        ):
+            raise ValueError("borrow year_fraction must be finite and non-negative")
+        short_values = np.maximum(-book.position_values, 0.0)
+        borrow_amount = float(
+            np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
+            * year_fraction
+            * self.cost.borrow_rate_multiplier
+        )
+        if borrow_amount > 0.0:
+            book.charge_borrow(borrow_amount)
+        return borrow_amount
+
+    def _charge_carry(
+        self,
+        book: BookState,
+        *,
+        index: int,
+        year_fraction: float | None = None,
+    ) -> tuple[float, float]:
         funding_notional = self.dataset.quantity_notional(index, book.quantities)
         funding_amount = -float(
             np.dot(
@@ -820,16 +849,17 @@ class MarketExecutor:
                 * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
             )
         )
-        short_values = np.maximum(-book.position_values, 0.0)
         previous_index = max(0, index - 1)
-        year_fraction = self.dataset.elapsed_year_fraction(previous_index, index)
-        borrow_amount = float(
-            np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
-            * year_fraction
-            * self.cost.borrow_rate_multiplier
+        resolved_year_fraction = (
+            self.dataset.elapsed_year_fraction(previous_index, index)
+            if year_fraction is None
+            else year_fraction
         )
-        if borrow_amount > 0.0:
-            book.charge_borrow(borrow_amount)
+        borrow_amount = self._charge_borrow(
+            book,
+            index=index,
+            year_fraction=resolved_year_fraction,
+        )
         return funding_amount, borrow_amount
 
     @property

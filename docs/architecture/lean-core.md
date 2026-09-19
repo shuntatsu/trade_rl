@@ -203,7 +203,7 @@ mappings. Restoring an intent recomputes its identity, so changing or stripping 
 true flag without changing the ID fails. Pending partials preserve the flag.
 - 金額は既存のfloat契約を維持し、allocationとcashで同じ約定数量の射影・価格・multiplierの乗算順を使う。OrderEvent v1はfloat数量のままで、極端な非表現可能lot積のlossless ledgerとは主張しない。
 - fundingは対象時刻・符号・quantityに対して一度だけ計上する。
-- borrow、mark-to-market、liquidationを別channelで追跡する。
+- borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
 - terminal mark-to-marketとforced closeを混同しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
 

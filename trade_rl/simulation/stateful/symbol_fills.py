@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.simulation.bar_path import (
     BarPath,
     PathMode,
@@ -71,7 +72,7 @@ def _capacity_reference(
     context: StatefulBarContext,
     *,
     symbol: int,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float | None]:
     executor = runtime.executor
     dataset = executor.dataset
     processing_index = context.processing_index
@@ -86,10 +87,22 @@ def _capacity_reference(
     market_notional = float(
         dataset.market_notional(reference_index, reference_prices)[symbol]
     )
+    processing_volume = float(dataset.volume[reference_index, symbol])
+    volume_unit = dataset.volume_units[symbol]
+    contract_multiplier = float(
+        dataset.resolved_array("contract_multipliers")[symbol]
+    )
+    if volume_unit is VolumeUnit.BASE_ASSET:
+        quantity_capacity = processing_volume / contract_multiplier
+    elif volume_unit is VolumeUnit.CONTRACTS:
+        quantity_capacity = processing_volume
+    else:
+        quantity_capacity = None
     return (
-        float(dataset.volume[reference_index, symbol]),
+        processing_volume,
         market_notional,
         float(reference_prices[symbol]),
+        quantity_capacity,
     )
 
 
@@ -251,13 +264,17 @@ class StatefulSymbolFillProcessor:
 
             if not requests:
                 continue
-            capacity_volume, capacity_market_notional, capacity_price = (
-                _capacity_reference(runtime, context, symbol=symbol)
-            )
+            (
+                capacity_volume,
+                capacity_market_notional,
+                capacity_price,
+                capacity_quantity,
+            ) = _capacity_reference(runtime, context, symbol=symbol)
             allocations, capacity = allocate_symbol_capacity(
                 requests=requests,
                 processing_volume=capacity_volume,
                 processing_market_notional=capacity_market_notional,
+                processing_quantity_capacity=capacity_quantity,
                 price=capacity_price,
                 contract_multiplier=float(
                     dataset.resolved_array("contract_multipliers")[symbol]

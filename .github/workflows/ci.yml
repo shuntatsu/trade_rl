@@ -36,6 +36,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: PPO integration format diagnostic
+        run: uv run ruff format --diff tests/integrations/test_ppo_sb3_runtime.py
+
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 

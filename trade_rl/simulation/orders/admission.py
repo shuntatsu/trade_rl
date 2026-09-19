@@ -10,6 +10,7 @@ import numpy as np
 
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import OrderIntent, OrderType
+from trade_rl.simulation.orders.pricing import price_on_tick_grid
 from trade_rl.simulation.quantities import (
     accepted_fill_quantity,
     exact_quantity,
@@ -17,14 +18,6 @@ from trade_rl.simulation.quantities import (
 )
 
 _TOLERANCE = 1e-12
-
-
-def _price_on_tick_grid(price: float, tick_size: float) -> bool:
-    if tick_size == 0.0:
-        return True
-    price_exact = Fraction(str(float(price)))
-    tick_exact = Fraction(str(float(tick_size)))
-    return price_exact % tick_exact == 0
 
 
 class OrderAdmissionError(ValueError):
@@ -159,7 +152,7 @@ class OrderAdmissionPolicy:
             bound_price = intent.limit_price
         elif intent.order_type is OrderType.STOP_MARKET:
             bound_price = intent.stop_price
-        if bound_price is not None and not _price_on_tick_grid(bound_price, tick_size):
+        if bound_price is not None and not price_on_tick_grid(bound_price, tick_size):
             return self._reject("price_not_on_tick")
         if maximum_quantity is not None:
             if (

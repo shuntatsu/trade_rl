@@ -22,7 +22,8 @@ def _portfolio_risk() -> PreTradeRiskConfig:
     )
 
 
-def test_per_symbol_ppo_accounts_do_not_represent_shared_cash_gross_constraint() -> None:
+def test_per_symbol_ppo_accounts_do_not_represent_shared_cash_gross_constraint(
+) -> None:
     dataset = pooled_market()
     execution_cost = ExecutionCostConfig.zero()
     risk_config = _portfolio_risk()

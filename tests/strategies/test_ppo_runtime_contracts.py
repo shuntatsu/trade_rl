@@ -9,6 +9,7 @@ import pytest
 from tests.strategies.test_ppo_feature_normalization import _fit
 from tests.strategies.test_ppo_intent import SequenceStrategy, market
 from tests.strategies.test_ppo_interleaved_training import pooled_market
+from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
@@ -271,3 +272,45 @@ def test_explicit_reseed_restarts_sequential_symbol_schedule() -> None:
     assert first_info["symbol_index"] == restarted_info["symbol_index"] == 0
     assert second_info["symbol_index"] == 1
     np.testing.assert_array_equal(first_observation, restarted_observation)
+
+
+def test_directional_ppo_reward_charges_dataset_borrow_like_canonical_replay() -> None:
+    base = market()
+    dataset = replace(
+        base,
+        open=np.full_like(base.open, 100.0),
+        high=np.full_like(base.high, 100.0),
+        low=np.full_like(base.low, 100.0),
+        close=np.full_like(base.close, 100.0),
+        borrow_rate=np.full_like(base.close, 0.365),
+    )
+    intents = (
+        PositionIntent.SHORT,
+        PositionIntent.SHORT,
+        PositionIntent.SHORT,
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(intents),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env.reset(seed=3)
+
+    observed_rewards = [env.step(0)[1] for _ in range(3)]
+
+    assert replay.diagnostics.borrow_cost > 0.0
+    assert sum(observed_rewards) < 0.0
+    np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))

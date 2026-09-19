@@ -363,6 +363,8 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         del options
         super().reset(seed=seed)
+        if seed is not None:
+            self._active_symbol_offset = -1
         self._active_symbol_offset = (self._active_symbol_offset + 1) % len(
             self.symbol_indices
         )

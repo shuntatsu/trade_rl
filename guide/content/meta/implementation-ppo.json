@@ -29,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "4b82be6e8d53815f8546a6627550085b4a471de86aab5ef8c693005a5067adb9"
+      "sha256": "924bc8f4d870f7fe702407a2bb4488d30911cc3c4eb19d86b1bb5924e8665bfc"
     }
   ],
   "code_references": [
@@ -75,9 +75,9 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "300b71de131e0f7def6f0b156f38fed641057356e522418fb8a6da7291178af0",
+      "source_sha256": "f2fd5754eb9db5929809fbff197e9000dc30205b0995e9ec319e7e0ed368ac6e",
       "label_ja": "PPO環境を1ステップ進める",
-      "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定します。max_turnoverまたはdrawdown縮小を含む一時的projectionはproposal stateへ再注入せず、区間net returnからrewardを計算します。infoにはtargetとrealized weight、risk理由、fill/turnover、cost/funding/borrow/dividend/cash-interest金額、termination理由を分離して返します。",
+      "description_ja": "actionを売買意図へ変換し、hard riskと約定を通します。max_turnover/drawdownのtransient projectionはproposalへ再注入せず、terminal settlement有効時は最後のagent interval後にFLAT proposalを同じrisk/execution経路で処理し、そのlog wealth changeをterminal rewardへ加算します。",
       "variables": [
         {
           "name": "symbol_index",
@@ -107,16 +107,17 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py",
-        "tests/strategies/test_ppo_runtime_contracts.py"
+        "tests/strategies/test_ppo_runtime_contracts.py",
+        "tests/strategies/test_ppo_terminal_settlement.py"
       ]
     },
     {
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "1c9a159f0ef9174f430f305bffb20ab2f09e137870ed17fe825bc9ef862fe158",
+      "source_sha256": "3546c79384dd34fea6b56f8e8af0937c7c2c3bbb4f9c6f6ef696fc593dcb85f0",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOをCPU固定・1 threadで学習します。vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
+      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。terminal settlement有効時はlatencyに応じてagent decision windowを予約し、feature normalizerもagentが実際に観測するrowsだけでfitします。",
       "variables": [
         {
           "name": "training_layout",
@@ -136,7 +137,8 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py",
-        "tests/strategies/test_ppo_interleaved_training.py"
+        "tests/strategies/test_ppo_interleaved_training.py",
+        "tests/strategies/test_ppo_terminal_settlement.py"
       ]
     },
     {

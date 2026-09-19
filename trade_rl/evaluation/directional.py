@@ -20,7 +20,6 @@ from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservat
 from trade_rl.strategies.position_intent import PositionIntent
 
 
-
 class CloseAtEndStrategy:
     """Schedule actual closing orders, including configured execution latency."""
 

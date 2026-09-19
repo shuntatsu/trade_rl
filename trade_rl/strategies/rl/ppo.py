@@ -194,6 +194,23 @@ def _weight_for_desired_quantity(
     )
 
 
+def _agent_stop_index(
+    *,
+    start_index: int,
+    stop_index: int,
+    execution_cost: ExecutionCostConfig,
+    settle_terminal_position: bool,
+) -> int:
+    if not settle_terminal_position:
+        return stop_index
+    agent_stop = stop_index - execution_cost.order_latency_bars - 1
+    if agent_stop <= start_index:
+        raise ValueError(
+            "terminal settlement requires at least one agent interval before the close"
+        )
+    return agent_stop
+
+
 def _default_risk(executor: MarketExecutor) -> PreTradeRisk:
     hard_limit = min(1.0, float(executor.cost.max_leverage))
     return PreTradeRisk(
@@ -251,10 +268,13 @@ class PPOTradingEnv(gym.Env):
         execution_cost: ExecutionCostConfig | None = None,
         risk_config: PreTradeRiskConfig | None = None,
         feature_normalizer: PPOFeatureNormalizer | None = None,
+        settle_terminal_position: bool = False,
     ) -> None:
         super().__init__()
         if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
             raise ValueError("risk_config must be a PreTradeRiskConfig or None")
+        if not isinstance(settle_terminal_position, bool):
+            raise ValueError("settle_terminal_position must be boolean")
         if dataset.n_symbols <= 0:
             raise ValueError("PPOTradingEnv requires at least one symbol")
         if (
@@ -280,10 +300,17 @@ class PPOTradingEnv(gym.Env):
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
         self.risk_config = risk_config
+        self.settle_terminal_position = settle_terminal_position
+        self.agent_stop_index = _agent_stop_index(
+            start_index=start_index,
+            stop_index=stop_index,
+            execution_cost=self.execution_cost,
+            settle_terminal_position=settle_terminal_position,
+        )
         if feature_normalizer is not None:
             feature_normalizer.validate_features(self.feature_indices)
             feature_normalizer.validate_training_scope(
-                dataset, self.symbol_indices, start_index, stop_index
+                dataset, self.symbol_indices, start_index, self.agent_stop_index
             )
         self.feature_normalizer = feature_normalizer
         if risk_config is not None and (
@@ -396,6 +423,75 @@ class PPOTradingEnv(gym.Env):
             "symbol": self.dataset.symbols[self.active_symbol_index],
         }
 
+    def _settle_terminal_position(
+        self,
+    ) -> tuple[float, dict[str, object]]:
+        if not self.settle_terminal_position:
+            return 0.0, {}
+        if self.active_symbol_index < 0:
+            raise RuntimeError("PPOTradingEnv must be reset before settlement")
+        if self.index < self.agent_stop_index:
+            return 0.0, {}
+
+        symbol_index = self.active_symbol_index
+        settlement_log_return = 0.0
+        settlement_intervals = 0
+        settlement_cost = 0.0
+        settlement_funding = 0.0
+        settlement_borrow = 0.0
+        settlement_dividend = 0.0
+        settlement_cash_interest = 0.0
+        settlement_requested_turnover = 0.0
+        settlement_filled_turnover = 0.0
+        settlement_risk_reasons: list[str] = []
+
+        self.current_intent = PositionIntent.FLAT
+        self.desired_quantity = 0.0
+        while self.index < self.stop_index and self.book.termination_reason is None:
+            proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+            constrained = self.risk.constrain(
+                proposal_weights,
+                current=self.book.weights,
+                drawdown=self.book.max_drawdown,
+            )
+            settlement_risk_reasons.extend(constrained.reasons)
+            execution = self.executor.execute_interval(
+                self.book,
+                constrained.weights,
+                start_index=self.index,
+                bars=1,
+            )
+            if execution.next_index <= self.index:
+                raise RuntimeError("terminal settlement did not advance PPO environment")
+            self.book = execution.book
+            self.index = execution.next_index
+            settlement_log_return += math.log1p(execution.interval_net_return)
+            settlement_intervals += 1
+            settlement_cost += execution.interval_cost
+            settlement_funding += execution.interval_funding
+            settlement_borrow += execution.interval_borrow_cost
+            settlement_dividend += execution.interval_dividend
+            settlement_cash_interest += execution.interval_cash_interest
+            settlement_requested_turnover += execution.requested_turnover
+            settlement_filled_turnover += execution.filled_turnover
+
+        return settlement_log_return, {
+            "terminal_settlement_intervals": settlement_intervals,
+            "terminal_settlement_log_return": settlement_log_return,
+            "terminal_settlement_net_return": math.expm1(settlement_log_return),
+            "terminal_settlement_cost_amount": settlement_cost,
+            "terminal_settlement_funding_amount": settlement_funding,
+            "terminal_settlement_borrow_cost_amount": settlement_borrow,
+            "terminal_settlement_dividend_amount": settlement_dividend,
+            "terminal_settlement_cash_interest_amount": settlement_cash_interest,
+            "terminal_settlement_requested_turnover": settlement_requested_turnover,
+            "terminal_settlement_filled_turnover": settlement_filled_turnover,
+            "terminal_settlement_risk_reasons": tuple(settlement_risk_reasons),
+            "terminal_settlement_final_weight": float(
+                self.book.weights[symbol_index]
+            ),
+        }
+
     def step(
         self,
         action: object,
@@ -456,6 +552,15 @@ class PPOTradingEnv(gym.Env):
         self.current_intent = intent
         self.index = execution.next_index
         reward = math.log1p(execution.interval_net_return)
+        settlement_log_return = 0.0
+        settlement_info: dict[str, object] = {}
+        if (
+            self.settle_terminal_position
+            and self.book.termination_reason is None
+            and self.index >= self.agent_stop_index
+        ):
+            settlement_log_return, settlement_info = self._settle_terminal_position()
+            reward += settlement_log_return
         self._terminated = (
             self.index >= self.stop_index or self.book.termination_reason is not None
         )
@@ -479,6 +584,7 @@ class PPOTradingEnv(gym.Env):
             "fill_ratio": execution.fill_ratio,
             "termination_reason": execution.termination_reason,
         }
+        info.update(settlement_info)
         return observation, reward, self._terminated, False, info
 
 
@@ -498,6 +604,7 @@ def fit_ppo_strategy(
     rollout_steps_per_env: int | None = None,
     risk_config: PreTradeRiskConfig | None = None,
     normalize_features: bool = False,
+    settle_terminal_position: bool = False,
 ) -> PPOIntentStrategy:
     """Fit one teacher-free policy with an explicit multi-symbol training layout."""
 
@@ -509,7 +616,16 @@ def fit_ppo_strategy(
         raise ValueError("total_timesteps must be a positive integer")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
+    if not isinstance(settle_terminal_position, bool):
+        raise ValueError("settle_terminal_position must be boolean")
     layout = _validated_training_layout(training_layout, rollout_steps_per_env)
+    resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
+    policy_stop_index = _agent_stop_index(
+        start_index=start_index,
+        stop_index=stop_index,
+        execution_cost=resolved_execution_cost,
+        settle_terminal_position=settle_terminal_position,
+    )
 
     indices = validated_feature_indices(dataset, feature_indices)
     if not isinstance(normalize_features, bool):
@@ -520,7 +636,7 @@ def fit_ppo_strategy(
             feature_indices=indices,
             fit_symbol_indices=fit_symbol_indices,
             start_index=start_index,
-            stop_index=stop_index,
+            stop_index=policy_stop_index,
         )
         if normalize_features
         else None
@@ -538,6 +654,7 @@ def fit_ppo_strategy(
             execution_cost=execution_cost,
             risk_config=risk_config,
             feature_normalizer=normalizer,
+            settle_terminal_position=settle_terminal_position,
         )
     else:
         if execution_cost is not None and execution_cost.slippage_std > 0.0:
@@ -570,6 +687,7 @@ def fit_ppo_strategy(
                     execution_cost=execution_cost,
                     risk_config=risk_config,
                     feature_normalizer=normalizer,
+                    settle_terminal_position=settle_terminal_position,
                 )
                 for symbol_index in symbol_indices
             ]

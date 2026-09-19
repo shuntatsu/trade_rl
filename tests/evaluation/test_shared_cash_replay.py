@@ -285,9 +285,12 @@ def test_shared_cash_fixed_drawdown_does_not_compound_risk_scale() -> None:
         risk=risk,
     )
 
+    expected_proposal = (0.4117647058823529,)
     expected_target = (0.20588235294117646,)
     assert result.book.max_drawdown == pytest.approx(0.15)
     assert result.decisions[0].target_weights == pytest.approx((0.5,))
+    assert result.decisions[1].proposal_weights == pytest.approx(expected_proposal)
+    assert result.decisions[2].proposal_weights == pytest.approx(expected_proposal)
     assert result.decisions[1].target_weights == pytest.approx(expected_target)
     assert result.decisions[2].target_weights == pytest.approx(expected_target)
 

@@ -1,0 +1,33 @@
+name: tmp Issue 687 research assurance GREEN
+
+on:
+  push:
+    branches:
+      - audit/issue687-research-assurance
+    paths:
+      - .github/workflows/tmp-issue687-research-assurance-green.yml
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 71377f5055b8abd1cc3c3178801e7c3e5959bfe8
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Static and targeted tests
+        run: |
+          set -euo pipefail
+          uv run ruff check tools/agent_repo/research_assurance.py tests/agent_repo/test_research_assurance.py
+          uv run ruff format --check tools/agent_repo/research_assurance.py tests/agent_repo/test_research_assurance.py
+          uv run mypy tools/agent_repo/research_assurance.py
+          uv run pytest -q tests/agent_repo/test_research_assurance.py
+          echo ISSUE687_RESEARCH_ASSURANCE_GREEN=PASS

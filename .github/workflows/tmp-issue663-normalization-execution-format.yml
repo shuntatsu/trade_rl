@@ -1,0 +1,31 @@
+name: tmp Issue 663 normalized execution test format
+on:
+  push:
+    branches: [prepare/issue663-normalization-execution-v2]
+    paths: [.github/workflows/tmp-issue663-normalization-execution-format.yml]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: prepare/issue663-normalization-execution-v2
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Format only RED test and self-delete
+        run: |
+          set -euo pipefail
+          uv run ruff format tests/tools/test_issue663_normalization_execution.py
+          uv run ruff check tests/tools/test_issue663_normalization_execution.py
+          uv run ruff format --check tests/tools/test_issue663_normalization_execution.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/tmp-issue663-normalization-execution-format.yml
+          git add tests/tools/test_issue663_normalization_execution.py
+          git commit -m "style: format Issue 663 execution RED test"
+          git push origin HEAD:prepare/issue663-normalization-execution-v2

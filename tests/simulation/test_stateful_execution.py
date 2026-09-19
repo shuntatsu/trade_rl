@@ -671,6 +671,7 @@ def test_capacity_respects_native_volume_unit_when_fill_price_differs_from_open(
     executor = _executor(
         dataset,
         max_participation_rate=1.0,
+        max_leverage=5.0,
         trigger_volume_fractions=(1.0, 1.0, 1.0, 1.0),
     )
     intent = _intent(

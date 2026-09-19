@@ -14,8 +14,7 @@ def _copied_weight_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
     vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")
-    vector.setflags(write=False)
-    return vector
+    return np.frombuffer(vector.tobytes(), dtype=np.float64)
 
 
 @dataclass(frozen=True, slots=True)

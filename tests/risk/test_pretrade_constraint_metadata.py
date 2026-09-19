@@ -130,3 +130,5 @@ def test_risk_constrained_target_arrays_are_deeply_immutable() -> None:
         assert vector.flags.writeable is False
         with pytest.raises(ValueError, match="read-only"):
             vector[0] = 0.0
+        with pytest.raises(ValueError, match="WRITEABLE"):
+            vector.setflags(write=True)

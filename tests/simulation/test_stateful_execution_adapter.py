@@ -9,7 +9,13 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.orders.model import OrderBookState
+from trade_rl.simulation.orders.model import (
+    OrderBookState,
+    OrderIntent,
+    OrderType,
+    PendingOrder,
+    TimeInForce,
+)
 from trade_rl.simulation.targets.execution import execute_target_statefully
 
 
@@ -97,6 +103,52 @@ def test_compatibility_execution_matches_shared_stateful_target_path() -> None:
         direct.interval_net_return
     )
     assert compatibility.filled_turnover == pytest.approx(direct.filled_turnover)
+
+
+def test_stateful_target_replaces_matching_residual_from_old_policy() -> None:
+    dataset = market(volume=np.full((4, 1), 1_000.0))
+    executor = MarketExecutor(dataset, cost(participation=1.0))
+    old_intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="old-target",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=5.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    old_order = PendingOrder.from_intent(old_intent)
+
+    result = execute_target_statefully(
+        executor,
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        OrderBookState(active_orders=(old_order,), terminal_orders=()),
+        np.array([0.5]),
+        start_index=0,
+        bars=1,
+        target_identity="current-target",
+    )
+
+    assert result.book.quantities[0] == pytest.approx(5.0)
+    cancelled = [
+        event
+        for event in result.order_events
+        if event.order_id == old_order.order_id and event.event_type == "cancelled"
+    ]
+    assert len(cancelled) == 1
+    assert cancelled[0].reason == "superseded"
+    assert all(
+        event.reason != "identity_mismatch"
+        for event in result.order_events
+        if event.event_type == "rejected"
+    )
 
 
 def test_chained_compatibility_calls_keep_one_residual_order() -> None:

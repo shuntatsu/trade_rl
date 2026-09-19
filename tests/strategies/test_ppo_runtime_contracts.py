@@ -482,3 +482,38 @@ def test_ppo_step_info_exposes_realized_risk_execution_and_carry_state() -> None
     assert float(info["requested_turnover"]) > float(info["filled_turnover"])
     assert 0.0 <= float(info["fill_ratio"]) < 1.0
     assert info["termination_reason"] is None
+
+
+def test_directional_zero_overlay_keeps_dataset_participation_capacity() -> None:
+    base = market()
+    dataset = replace(
+        base,
+        max_participation_rate=np.full_like(base.close, 1e-6),
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy((PositionIntent.LONG, PositionIntent.LONG, PositionIntent.LONG)),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env.reset(seed=17)
+
+    _, _, _, _, first_info = env.step(2)
+    env.step(2)
+    env.step(2)
+
+    assert float(first_info["fill_ratio"]) < 1.0
+    assert env.book.quantities[0] == pytest.approx(replay.book.quantities[0])
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)

@@ -433,6 +433,7 @@ class PPOTradingEnv(gym.Env):
             return 0.0, {}
 
         symbol_index = self.active_symbol_index
+        settlement_start_weight = float(self.book.weights[symbol_index])
         settlement_log_return = 0.0
         settlement_intervals = 0
         settlement_cost = 0.0
@@ -478,6 +479,7 @@ class PPOTradingEnv(gym.Env):
 
         return settlement_log_return, {
             "terminal_settlement_intervals": settlement_intervals,
+            "terminal_settlement_start_weight": settlement_start_weight,
             "terminal_settlement_log_return": settlement_log_return,
             "terminal_settlement_net_return": math.expm1(settlement_log_return),
             "terminal_settlement_cost_amount": settlement_cost,

@@ -122,6 +122,53 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert features.flags.writeable is False
 
 
+def test_static_cap_and_turnover_converge_instead_of_freezing_first_slice() -> None:
+    shape = (5, 1)
+    close = np.full(shape, 100.0)
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((shape[0], 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full(shape, 1_000_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.5,
+            max_turnover=0.1,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=4,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        risk=risk,
+    )
+
+    assert [decision.target_weight for decision in result.decisions] == pytest.approx(
+        [0.1, 0.2, 0.3, 0.4]
+    )
+
+
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:
     result = evaluation.run_single_symbol_replay(
         _rising_market(),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import math
 from functools import partial
+from numbers import Integral
 from typing import Protocol, cast
 
 import gymnasium as gym
@@ -158,10 +159,10 @@ def _intent_from_action(action: object) -> PositionIntent:
     if values.size != 1:
         raise ValueError("PPO action must contain exactly one value")
     raw = values[0]
-    if isinstance(raw, np.bool_):
+    if isinstance(raw, (bool, np.bool_)) or not isinstance(raw, Integral):
         raise ValueError("PPO action must be an integer in {0, 1, 2}")
     value = int(raw)
-    if not math.isclose(float(raw), float(value)) or value not in {0, 1, 2}:
+    if value not in {0, 1, 2}:
         raise ValueError("PPO action must be an integer in {0, 1, 2}")
     return PositionIntent(value - 1)
 
@@ -305,6 +306,7 @@ class PPOTradingEnv(gym.Env):
 
         self.active_symbol_index = -1
         self._active_symbol_offset = -1
+        self._execution_seed_stream: np.random.Generator | None = None
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = (
             _default_risk(self.executor)
@@ -362,13 +364,24 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         del options
         super().reset(seed=seed)
+        if seed is not None:
+            self._active_symbol_offset = -1
         self._active_symbol_offset = (self._active_symbol_offset + 1) % len(
             self.symbol_indices
         )
         self.active_symbol_index = self.symbol_indices[self._active_symbol_offset]
-        self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
-            self.executor.reset_random_state(seed)
+            self._execution_seed_stream = np.random.default_rng(seed)
+            execution_seed = seed
+        elif self._execution_seed_stream is None:
+            execution_seed = self.execution_cost.random_seed
+            self._execution_seed_stream = np.random.default_rng(execution_seed)
+        else:
+            execution_seed = int(
+                self._execution_seed_stream.integers(0, np.iinfo(np.int64).max)
+            )
+        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor.reset_random_state(execution_seed)
         self.risk = (
             _default_risk(self.executor)
             if self.risk_config is None
@@ -449,7 +462,19 @@ class PPOTradingEnv(gym.Env):
             "symbol": self.dataset.symbols[symbol_index],
             "intent": intent,
             "target_weight": target_weight,
+            "realized_weight": float(self.book.weights[symbol_index]),
+            "was_constrained": constrained.was_constrained,
+            "risk_reasons": constrained.reasons,
             "interval_net_return": execution.interval_net_return,
+            "interval_cost_amount": execution.interval_cost,
+            "interval_funding_amount": execution.interval_funding,
+            "interval_borrow_cost_amount": execution.interval_borrow_cost,
+            "interval_dividend_amount": execution.interval_dividend,
+            "interval_cash_interest_amount": execution.interval_cash_interest,
+            "requested_turnover": execution.requested_turnover,
+            "filled_turnover": execution.filled_turnover,
+            "fill_ratio": execution.fill_ratio,
+            "termination_reason": execution.termination_reason,
         }
         return observation, reward, self._terminated, False, info
 
@@ -554,10 +579,13 @@ def fit_ppo_strategy(
     try:
         module = importlib.import_module("stable_baselines3")
         ppo_class = getattr(module, "PPO")
+        torch_module = importlib.import_module("torch")
+        set_num_threads = getattr(torch_module, "set_num_threads")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(
-            "stable-baselines3 is required; install the train-sb3 extra"
+            "stable-baselines3 and torch are required; install the train-sb3 extra"
         ) from error
+    set_num_threads(1)
 
     model = ppo_class(
         "MlpPolicy",
@@ -565,6 +593,7 @@ def fit_ppo_strategy(
         policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
         seed=seed,
         ent_coef=0.0,
+        device="cpu",
         verbose=0,
         **ppo_options,
     )

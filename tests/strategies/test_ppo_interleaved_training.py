@@ -84,6 +84,11 @@ def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=FakePPO))
     monkeypatch.setitem(
         sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
         "stable_baselines3.common",
         SimpleNamespace(),
     )
@@ -138,6 +143,7 @@ def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
     }
     assert fitted.kwargs["seed"] == 11
     assert fitted.kwargs["ent_coef"] == 0.0
+    assert fitted.kwargs["device"] == "cpu"
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)
 

@@ -156,6 +156,33 @@ def test_real_interleaved_fit_is_parameter_deterministic_for_same_seed() -> None
         assert torch.equal(first_state[name], second_state[name]), name
 
 
+def test_real_sequential_fit_is_parameter_deterministic_for_same_seed() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    dataset = pooled_market()
+
+    def fit():
+        return fit_ppo_strategy(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0, 1),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.1,
+            total_timesteps=1,
+            seed=35,
+        )
+
+    first = fit()
+    second = fit()
+    first_state = first.policy.policy.state_dict()
+    second_state = second.policy.policy.state_dict()
+
+    assert first_state.keys() == second_state.keys()
+    for name in first_state:
+        assert torch.equal(first_state[name], second_state[name]), name
+
+
 def test_real_sequential_fit_records_default_rollout_rounded_timesteps() -> None:
     pytest.importorskip("stable_baselines3")
     strategy = fit_ppo_strategy(

@@ -220,9 +220,7 @@ def test_generated_nonmarket_bound_snaps_conservatively_to_submit_tick(
 
     intent = result.new_intents[0]
     actual_price = (
-        intent.limit_price
-        if order_type is OrderType.LIMIT
-        else intent.stop_price
+        intent.limit_price if order_type is OrderType.LIMIT else intent.stop_price
     )
     assert actual_price == pytest.approx(expected_price)
 

@@ -13,7 +13,7 @@ Local repository tooling (`python -m tools.agent_repo`) は preflight / context 
 
 新規のproduction function/classは、production sourceへ追加する前に、可能な範囲でlocalの最小mock/fake/stubを使い、意図した入出力・状態変化・主要failureを実行確認する。実装後はtargeted test/smokeとfinal diff/statusをlocalで確認してからpushする。mock/smokeは重要境界の実Integration/E2Eを置き換えない。
 
-CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Core + Guideを実行する。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
+CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Core + PPO Runtime + Guideを実行する。PPO Runtimeは`train-sb3` extraの実SB3/Torchを使うintegration smokeである。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
 
 ## Git / PR boundary
 

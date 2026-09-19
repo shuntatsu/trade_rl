@@ -94,6 +94,34 @@ def test_reconciliation_does_not_double_submit_matching_active_residual() -> Non
     np.testing.assert_allclose(result.residual_quantities, [0.0])
 
 
+def test_matching_residual_with_old_policy_is_cancelled_and_replaced() -> None:
+    active = _active(5.0)
+    result = reconcile_target(
+        dataset_id="d" * 64,
+        target_identity="target-0.5",
+        execution_policy_digest="f" * 64,
+        target_weights=np.array([0.5]),
+        book=_book(),
+        order_book=OrderBookState(active_orders=(active,), terminal_orders=()),
+        reference_prices=np.array([100.0]),
+        decision_equity=1_000.0,
+        submit_index=4,
+        latency_bars=1,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        expiry_index=None,
+        limit_offset_rate=0.01,
+        maximum_gross=1.0,
+    )
+
+    assert result.cancelled_orders == (result.order_book.terminal_orders[-1],)
+    assert result.cancelled_orders[0].order_id == active.order_id
+    assert result.cancelled_orders[0].terminal_reason == "superseded"
+    assert len(result.new_intents) == 1
+    assert result.new_intents[0].requested_quantity == pytest.approx(5.0)
+    assert result.new_intents[0].execution_policy_digest == "f" * 64
+
+
 def test_changed_target_cancels_old_residual_and_submits_only_latest_delta() -> None:
     active = _active(3.0)
     result = _reconcile(

@@ -271,6 +271,139 @@ def test_marketable_sell_limit_uses_open_for_minimum_notional() -> None:
     )
 
 
+def test_newly_eligible_marketable_limit_uses_taker_costs() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 100.0)
+    dataset = _market(
+        open=open_price,
+        high=np.full(shape, 110.0),
+        low=np.full(shape, 90.0),
+        close=open_price.copy(),
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        maker_fee_rate=0.001,
+        taker_fee_rate=0.003,
+        spread_rate=0.002,
+    )
+    intent = _intent(
+        executor,
+        1.0,
+        order_type=OrderType.LIMIT,
+        limit_price=110.0,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    filled = [event for event in result.order_events if event.event_type == "filled"]
+    assert len(filled) == 1
+    assert filled[0].trigger_segment == "open"
+    assert filled[0].execution_price == pytest.approx(100.0)
+    assert result.filled_notional == pytest.approx(100.0)
+    assert result.interval_cost == pytest.approx(0.5)
+
+
+def test_newly_eligible_resting_limit_touch_uses_maker_costs() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 101.0)
+    dataset = _market(
+        open=open_price,
+        high=np.full(shape, 101.0),
+        low=np.full(shape, 99.0),
+        close=np.full(shape, 100.0),
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        maker_fee_rate=0.001,
+        taker_fee_rate=0.003,
+        spread_rate=0.002,
+    )
+    intent = _intent(
+        executor,
+        1.0,
+        order_type=OrderType.LIMIT,
+        limit_price=100.0,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    filled = [event for event in result.order_events if event.event_type == "filled"]
+    assert len(filled) == 1
+    assert filled[0].trigger_segment != "open"
+    assert filled[0].execution_price == pytest.approx(100.0)
+    assert result.filled_notional == pytest.approx(100.0)
+    assert result.interval_cost == pytest.approx(0.2)
+
+
+def test_carried_resting_limit_remains_maker_when_next_open_crosses() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 101.0)
+    open_price[2, 0] = 99.0
+    high = np.full(shape, 101.0)
+    low = np.full(shape, 101.0)
+    low[2, 0] = 99.0
+    close = np.full(shape, 101.0)
+    close[2, 0] = 100.0
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        maker_fee_rate=0.001,
+        taker_fee_rate=0.003,
+        spread_rate=0.002,
+    )
+    intent = _intent(
+        executor,
+        1.0,
+        order_type=OrderType.LIMIT,
+        limit_price=100.0,
+    )
+
+    first = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+    assert first.book.quantities[0] == pytest.approx(0.0)
+    assert first.order_book.active_orders
+
+    second = executor.execute_orders(
+        first.book,
+        first.order_book,
+        (),
+        start_index=1,
+        bars=1,
+    )
+
+    filled = [event for event in second.order_events if event.event_type == "filled"]
+    assert len(filled) == 1
+    assert filled[0].trigger_segment == "open"
+    assert filled[0].execution_price == pytest.approx(99.0)
+    assert second.filled_notional == pytest.approx(99.0)
+    assert second.interval_cost == pytest.approx(0.198)
+
+
 def test_off_tick_buy_limit_is_rejected_before_trigger_rounding() -> None:
     shape = (6, 1)
     open_price = np.full(shape, 101.0)

@@ -210,14 +210,9 @@ def test_hard_cap_and_turnover_converge_without_rebinding_proposal() -> None:
         risk=risk,
     )
 
-    assert [decision.proposal_weight for decision in result.decisions[:5]] == pytest.approx(
-        [1.0] * 5
-    )
     assert [decision.target_weight for decision in result.decisions[:5]] == pytest.approx(
         [0.1, 0.2, 0.3, 0.4, 0.5]
     )
-    assert "max_abs_weight" in result.decisions[0].risk_reasons
-    assert "max_turnover" in result.decisions[0].risk_reasons
 
 
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:

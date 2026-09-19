@@ -34,6 +34,11 @@ def _saved(tmp_path, monkeypatch):
     Policy.loaded = False
     Policy.load_device = None
     monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
     strategy = PPOIntentStrategy(
         Policy(), feature_indices=(0,), feature_normalizer=_fit()
     )

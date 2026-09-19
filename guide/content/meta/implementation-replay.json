@@ -27,14 +27,14 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "e8dd736986f9de98e10cd1be3c67257fcdcdf9d4900579c153e608d6fac96f06",
+      "source_sha256": "320344b54b6ad21a2c454e9b2be3bd89d6d2ec1e48a0e1c95532e961706278b4",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と区間収益を更新する統括処理です。",
       "variables": [
         {
           "name": "desired_quantity",
           "label_ja": "希望保有数量",
-          "description_ja": "戦略の意図から換算した、リスク制約と約定へ渡す保有数量です。"
+          "description_ja": "戦略の意図から換算したrisk適用前のproposal数量です。drawdown_deleveragingの一時的な縮小targetはこの値へ書き戻しません。"
         },
         {
           "name": "proposal_weight",

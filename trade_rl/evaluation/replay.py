@@ -351,8 +351,10 @@ def run_single_symbol_replay(
             drawdown=book.max_drawdown,
         )
         target_weight = float(constrained.weights[symbol_index])
-        if constrained.was_constrained and any(
-            reason != "max_turnover" for reason in constrained.reasons
+        if (
+            constrained.was_constrained
+            and "drawdown_deleveraging" not in constrained.reasons
+            and any(reason != "max_turnover" for reason in constrained.reasons)
         ):
             desired_quantity = _desired_quantity_from_weight(
                 book,
@@ -522,8 +524,10 @@ def run_shared_cash_replay(
             current=book.weights,
             drawdown=book.max_drawdown,
         )
-        if constrained.was_constrained and any(
-            reason != "max_turnover" for reason in constrained.reasons
+        if (
+            constrained.was_constrained
+            and "drawdown_deleveraging" not in constrained.reasons
+            and any(reason != "max_turnover" for reason in constrained.reasons)
         ):
             desired_quantities = np.asarray(
                 [

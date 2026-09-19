@@ -430,8 +430,10 @@ class PPOTradingEnv(gym.Env):
             drawdown=self.book.max_drawdown,
         )
         target_weight = float(constrained.weights[symbol_index])
-        if constrained.was_constrained and any(
-            reason != "max_turnover" for reason in constrained.reasons
+        if (
+            constrained.was_constrained
+            and "drawdown_deleveraging" not in constrained.reasons
+            and any(reason != "max_turnover" for reason in constrained.reasons)
         ):
             self.desired_quantity = _desired_quantity_from_weight(
                 self.book,

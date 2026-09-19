@@ -312,6 +312,45 @@ def test_off_tick_buy_limit_is_rejected_before_trigger_rounding() -> None:
     assert rejected[0].reason == "price_not_on_tick"
 
 
+def test_generated_bound_is_revalidated_against_eligible_tick_grid() -> None:
+    shape = (6, 1)
+    tick = np.full(shape, 0.5)
+    tick[1, 0] = 2.0
+    low = np.full(shape, 98.0)
+    dataset = _market(
+        tick_size=tick,
+        low=low,
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        order_type="limit",
+        limit_offset_rate=0.007,
+        order_latency_bars=1,
+    )
+
+    result = execute_target_statefully(
+        executor,
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        np.array([0.5]),
+        start_index=0,
+        bars=1,
+        target_identity="tick-rule-change",
+    )
+
+    assert result.book.quantities[0] == pytest.approx(0.0)
+    assert result.order_book.active_orders == ()
+    assert result.order_book.terminal_orders[-1].intent.limit_price == pytest.approx(
+        99.0
+    )
+    rejected = [
+        event for event in result.order_events if event.event_type == "rejected"
+    ]
+    assert len(rejected) == 1
+    assert rejected[0].reason == "price_not_on_tick"
+
+
 def test_latency_waits_until_eligible_processing_bar() -> None:
     dataset = _market()
     executor = _executor(dataset, max_participation_rate=1.0)

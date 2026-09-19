@@ -695,6 +695,8 @@ def test_capacity_respects_native_volume_unit_when_fill_price_differs_from_open(
     assert result.capacity_evidence[0].market_notional == pytest.approx(
         1_000.0 if volume_unit is not VolumeUnit.CONTRACTS else 2_000.0
     )
+    assert result.max_participation == pytest.approx(1.0)
+    assert result.participation_by_symbol.tolist() == pytest.approx([1.0])
 
 
 def test_quote_notional_volume_is_not_multiplied_by_price_again() -> None:

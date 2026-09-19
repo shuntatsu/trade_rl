@@ -579,6 +579,7 @@ def fit_ppo_strategy(
         policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
         seed=seed,
         ent_coef=0.0,
+        device="cpu",
         verbose=0,
         **ppo_options,
     )

@@ -161,3 +161,126 @@ def test_cli_returns_nonzero_for_invalid_context_path(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert result.stdout == ""
     assert result.stderr
+
+
+def _assurance_record() -> dict[str, object]:
+    return {
+        "schema_version": "research_assurance_v1",
+        "identity": {
+            "protocol_head": "a" * 40,
+            "implementation_head": "b" * 40,
+        },
+        "thesis": {
+            "final_decision": "whether to run one development experiment",
+            "hypothesis": "the frozen factor improves net performance",
+            "economic_mechanism": "causal state changes position choice before execution",
+            "counter_hypothesis": "the apparent effect is only exposure beta",
+            "information_gain": "the test isolates the factor from the control",
+            "cheapest_falsifier": "synthetic control-path equivalence",
+            "stop_rule": "stop after a failed frozen gate",
+            "stage": "development",
+            "metric_proxy_rationale": "net return with cost and risk is the development proxy",
+            "limitations": "development evidence is not production evidence",
+        },
+        "mechanism": {
+            "chain": [
+                "source",
+                "availability",
+                "feature_state",
+                "model_strategy",
+                "intent",
+                "order",
+                "fill",
+                "accounting",
+                "evidence",
+                "decision",
+            ],
+            "authorities": {
+                "unit": "quantity contract",
+                "time": "availability contract",
+                "state": "realized state",
+                "sign": "cash-flow convention",
+                "risk": "hard-risk owner",
+                "execution": "MarketExecutor",
+                "accounting": "BookState",
+                "evidence": "content-addressed artifact",
+            },
+            "independent_oracles": ["independent account arithmetic"],
+        },
+        "evidence": {
+            "point_in_time": True,
+            "common_accounting": True,
+            "realistic_costs": True,
+            "hard_risk": True,
+            "terminal_state": True,
+            "fit_development_unused_separated": True,
+            "multi_symbol": True,
+            "multi_period": True,
+            "controls": ["cash"],
+            "robustness": ["double_cost"],
+            "independent_reconstruction": "independent account arithmetic",
+            "no_development_rescue": True,
+            "evidence_level": "development_profitability",
+        },
+        "claims": {
+            "claim_level": "development_profitability",
+            "permitted": ["development-only profitability"],
+            "forbidden": ["production", "live"],
+            "next_authorized_action": "separate unused-data protocol",
+            "production_eligible": False,
+            "live_trading_authorized": False,
+        },
+        "review": {
+            "status": "unreviewed",
+            "reviewed_record_digest": None,
+            "protocol_head": None,
+            "implementation_head": None,
+            "reviewer": None,
+            "rationale": "awaiting independent review",
+        },
+    }
+
+
+def test_assurance_cli_binds_review_to_exact_record_and_heads(tmp_path: Path) -> None:
+    _repository(tmp_path)
+    path = tmp_path / "assurance.json"
+    record = _assurance_record()
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    digest_result = _run(tmp_path, "assurance", "digest", str(path))
+    unreviewed_result = _run(tmp_path, "assurance", "check", str(path))
+
+    assert digest_result.returncode == 0, digest_result.stderr
+    digest = json.loads(digest_result.stdout)["record_digest"]
+    assert len(digest) == 64
+    assert unreviewed_result.returncode == 0, unreviewed_result.stderr
+    assert json.loads(unreviewed_result.stdout)["status"] == "UNREVIEWED"
+
+    review = record["review"]
+    identity = record["identity"]
+    assert isinstance(review, dict)
+    assert isinstance(identity, dict)
+    review.update(
+        {
+            "status": "pass",
+            "reviewed_record_digest": digest,
+            "protocol_head": identity["protocol_head"],
+            "implementation_head": identity["implementation_head"],
+            "reviewer": "independent-reviewer",
+            "rationale": "challenged the thesis, mechanism, evidence and claims",
+        }
+    )
+    path.write_text(json.dumps(record), encoding="utf-8")
+    passed = _run(tmp_path, "assurance", "check", str(path))
+    assert passed.returncode == 0, passed.stderr
+    payload = json.loads(passed.stdout)
+    assert payload["status"] == "PASS"
+    assert payload["economic_execution_authorized"] is True
+
+    identity["implementation_head"] = "c" * 40
+    path.write_text(json.dumps(record), encoding="utf-8")
+    stale = _run(tmp_path, "assurance", "check", str(path))
+    assert stale.returncode == 0, stale.stderr
+    payload = json.loads(stale.stdout)
+    assert payload["status"] == "BLOCKED"
+    assert payload["economic_execution_authorized"] is False

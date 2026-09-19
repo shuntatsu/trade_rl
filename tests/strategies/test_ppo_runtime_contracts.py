@@ -444,3 +444,40 @@ def test_directional_zero_overlay_keeps_dataset_fee_and_spread_costs() -> None:
     assert sum(observed_rewards) < 0.0
     np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))
     assert env.book.total_cost == pytest.approx(replay.book.total_cost)
+
+
+def test_ppo_step_info_exposes_realized_risk_execution_and_carry_state() -> None:
+    base = market()
+    dataset = replace(
+        base,
+        funding_rate=np.full_like(base.close, 0.001),
+        borrow_rate=np.full_like(base.close, 0.1),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig(max_participation_rate=1e-6),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=0.2,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        ),
+    )
+    env.reset(seed=13)
+
+    _, _, _, _, info = env.step(2)
+
+    assert info["realized_weight"] == pytest.approx(env.book.weights[0])
+    assert info["was_constrained"] is True
+    assert "max_turnover" in info["risk_reasons"]
+    assert float(info["interval_cost"]) > 0.0
+    assert float(info["interval_funding"]) != 0.0
+    assert float(info["requested_turnover"]) > float(info["filled_turnover"])
+    assert 0.0 <= float(info["fill_ratio"]) < 1.0
+    assert info["termination_reason"] is None

@@ -104,7 +104,6 @@ def test_constraint_metadata_fails_closed(metadata: dict[str, float]) -> None:
         )
 
 
-
 def test_risk_constrained_target_arrays_are_deeply_immutable() -> None:
     source = np.array([0.2, -0.1])
     result = RiskConstrainedTarget(

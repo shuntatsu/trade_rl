@@ -68,3 +68,4 @@ def test_directional_ppo_training_uses_same_borrow_economics_as_evaluation(
     execution_cost = captured["execution_cost"]
     assert execution_cost.borrow_rate_multiplier == 1.0
     assert execution_cost.processing_bar_volume_capacity is False
+    assert captured["settle_terminal_position"] is True

@@ -139,6 +139,7 @@ def _capacity_quantity(
     lot_size: float,
     multiplier: float,
     position: Fraction | None = None,
+    quantity_capacity: float | None = None,
 ) -> tuple[float, int | None]:
     quantity, count = quantize_quantity(request.remaining_quantity, lot_size)
     if request.reduce_only:
@@ -151,6 +152,21 @@ def _capacity_quantity(
             bound = abs(position) // exact_quantity(lot_size)
             count = min(abs(count), bound) * (-1 if count < 0 else 1)
             quantity = project_quantity(count * exact_quantity(lot_size))
+    if quantity_capacity is not None:
+        if not math.isfinite(quantity_capacity) or quantity_capacity < 0.0:
+            raise LiquidityAllocationError(
+                "quantity_capacity must be finite and non-negative"
+            )
+        if count is None:
+            quantity = math.copysign(
+                min(abs(quantity), quantity_capacity),
+                quantity,
+            )
+        else:
+            step = exact_quantity(lot_size)
+            quantity_bound = exact_quantity(quantity_capacity) // step
+            count = min(abs(count), quantity_bound) * (-1 if count < 0 else 1)
+            quantity = project_quantity(count * step)
     if abs(quantity) * request.execution_price * multiplier <= capacity:
         return quantity, count
     if count is None:
@@ -200,6 +216,7 @@ def allocate_symbol_capacity(
     *,
     processing_volume: float,
     processing_market_notional: float | None = None,
+    processing_quantity_capacity: float | None = None,
     price: float,
     contract_multiplier: float,
     participation_limit: float,
@@ -227,6 +244,13 @@ def allocate_symbol_capacity(
     ):
         raise LiquidityAllocationError(
             "processing_market_notional must be finite and non-negative"
+        )
+    if processing_quantity_capacity is not None and (
+        not math.isfinite(processing_quantity_capacity)
+        or processing_quantity_capacity < 0.0
+    ):
+        raise LiquidityAllocationError(
+            "processing_quantity_capacity must be finite and non-negative"
         )
     if price <= 0.0:
         raise LiquidityAllocationError("price must be positive")
@@ -260,12 +284,28 @@ def allocate_symbol_capacity(
     )
     initial_capacity = market_notional * participation_limit
     remaining_capacity = initial_capacity
+    initial_quantity_capacity = (
+        None
+        if processing_quantity_capacity is None
+        else processing_quantity_capacity * participation_limit
+    )
+    remaining_quantity_capacity = initial_quantity_capacity
     allocations: list[LiquidityAllocation] = []
 
     for request in ordered:
         capacity_before = remaining_capacity
         fraction_cap = initial_capacity * request.available_volume_fraction
         accessible_capacity = min(capacity_before, fraction_cap)
+        accessible_quantity_capacity = None
+        if initial_quantity_capacity is not None:
+            assert remaining_quantity_capacity is not None
+            fraction_quantity_cap = (
+                initial_quantity_capacity * request.available_volume_fraction
+            )
+            accessible_quantity_capacity = min(
+                remaining_quantity_capacity,
+                fraction_quantity_cap,
+            )
         requested_notional = (
             abs(request.remaining_quantity)
             * request.execution_price
@@ -311,7 +351,10 @@ def allocate_symbol_capacity(
                 )
             )
             continue
-        if accessible_capacity <= _TOLERANCE:
+        if accessible_capacity <= _TOLERANCE or (
+            accessible_quantity_capacity is not None
+            and accessible_quantity_capacity <= _TOLERANCE
+        ):
             allocations.append(
                 _zero_allocation(
                     request,
@@ -324,7 +367,12 @@ def allocate_symbol_capacity(
             continue
 
         filled_quantity, filled_lot_count = _capacity_quantity(
-            request, accessible_capacity, lot_size, contract_multiplier, position
+            request,
+            accessible_capacity,
+            lot_size,
+            contract_multiplier,
+            position,
+            accessible_quantity_capacity,
         )
         if abs(filled_quantity) > abs(request.remaining_quantity):
             raise LiquidityAllocationError(
@@ -385,14 +433,29 @@ def allocate_symbol_capacity(
             )
 
         remaining_capacity = max(0.0, capacity_before - exact_notional)
+        if remaining_quantity_capacity is not None:
+            remaining_quantity_capacity = max(
+                0.0,
+                remaining_quantity_capacity - abs(filled_quantity),
+            )
         if position is not None:
             position += accepted_fill_quantity(
                 filled_quantity,
                 lot_size=lot_size if filled_lot_count is not None else 0.0,
                 lot_count=filled_lot_count,
             )
-        participation_rate = (
+        notional_participation = (
             0.0 if market_notional <= _TOLERANCE else exact_notional / market_notional
+        )
+        quantity_participation = 0.0
+        if (
+            processing_quantity_capacity is not None
+            and processing_quantity_capacity > _TOLERANCE
+        ):
+            quantity_participation = abs(filled_quantity) / processing_quantity_capacity
+        participation_rate = max(
+            notional_participation,
+            quantity_participation,
         )
         allocations.append(
             LiquidityAllocation(
@@ -414,6 +477,29 @@ def allocate_symbol_capacity(
 
     consumed = initial_capacity - remaining_capacity
     filled_total = sum(allocation.filled_notional for allocation in allocations)
+    if initial_quantity_capacity is not None:
+        assert remaining_quantity_capacity is not None
+        filled_quantity_total = sum(
+            abs(allocation.filled_quantity) for allocation in allocations
+        )
+        consumed_quantity = initial_quantity_capacity - remaining_quantity_capacity
+        quantity_tolerance = max(
+            _TOLERANCE,
+            8.0 * math.ulp(initial_quantity_capacity),
+        )
+        if not math.isclose(
+            consumed_quantity,
+            filled_quantity_total,
+            rel_tol=0.0,
+            abs_tol=quantity_tolerance,
+        ):
+            raise LiquidityAllocationError(
+                "native quantity capacity accounting is inconsistent"
+            )
+        if filled_quantity_total > initial_quantity_capacity + quantity_tolerance:
+            raise LiquidityAllocationError(
+                "native quantity capacity was over-allocated"
+            )
     capacity_tolerance = max(
         1e-9,
         8.0 * math.ulp(initial_capacity),

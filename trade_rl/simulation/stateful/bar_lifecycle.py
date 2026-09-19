@@ -132,7 +132,9 @@ class StatefulBarLifecycle:
         context: StatefulBarContext,
     ) -> float:
         dataset = runtime.executor.dataset
-        annual_rate = float(dataset.resolved_array("cash_rate")[context.processing_index])
+        annual_rate = float(
+            dataset.resolved_array("cash_rate")[context.processing_index]
+        )
         if abs(context.gap_cash_carry_delta) <= _TOLERANCE:
             return runtime.book.apply_cash_interest(
                 annual_rate,

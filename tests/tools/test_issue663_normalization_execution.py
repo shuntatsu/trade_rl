@@ -12,7 +12,9 @@ from trade_rl.artifacts import canonical_json_bytes
 
 def _load() -> ModuleType:
     path = Path(".github/scripts/issue663_normalization_execution.py")
-    spec = importlib.util.spec_from_file_location("issue663_normalization_execution", path)
+    spec = importlib.util.spec_from_file_location(
+        "issue663_normalization_execution", path
+    )
     if spec is None or spec.loader is None:
         raise AssertionError("Issue 663 execution helper spec unavailable")
     module = importlib.util.module_from_spec(spec)

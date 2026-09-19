@@ -116,7 +116,9 @@ stepの`info`では、risk後の`target_weight`と約定後の`realized_weight`�
 
 Directional PPOでは学習とdevelopment評価が同じbase execution設定を共有し、Datasetにあるborrowも両方で課します。過去のPPO実験は当時の実装へ固定された証拠であり、この修正後の学習経済へ自動的に読み替えません。
 
-## 6. terminal settlementとreward
+## 6. net returnからrewardを作る
+
+### Directional terminal settlement
 
 通常stepのrewardは約定・コスト反映後の区間returnから計算します。Directional PPOでは評価時のterminal FLATと経済endpointを合わせるため、最後のagent decision後にsettlement専用区間を予約します。agentが選んだactionをFLATへ上書きするのではなく、環境が外生的な`FLAT` proposalを同じhard riskと`MarketExecutor`へ1 barずつ流します。latency・capacity・partial fill・turnover制約も同じ状態機械で処理し、完全flatにならない残余はそのまま残します。
 

@@ -154,6 +154,67 @@ def test_policy_action_mapping_is_short_flat_long() -> None:
     )
 
 
+def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
+    close = np.asarray(
+        [
+            [100.0],
+            [100.0],
+            [100.0],
+            [100.0],
+            [100.0],
+            [200.0],
+            [200.0],
+            [200.0],
+            [200.0],
+        ]
+    )
+    open_price = np.vstack((close[0], close[:-1]))
+    dataset = MarketDataset(
+        dataset_id="7" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=8,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.5,
+            max_turnover=0.1,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        ),
+    )
+    env.reset(seed=5)
+
+    for _ in range(5):
+        env.step(2)
+    _, _, _, _, reversal = env.step(0)
+    _, _, _, _, follow_up = env.step(0)
+
+    assert reversal["target_weight"] == pytest.approx(0.5)
+    assert follow_up["target_weight"] == pytest.approx(0.4)
+
+
 def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
     dataset = market()
     intents = (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)

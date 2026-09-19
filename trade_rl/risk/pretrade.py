@@ -109,6 +109,17 @@ class RiskConstrainedTarget:
         object.__setattr__(self, "pretrade_weights", pretrade)
 
 
+def should_rebind_strategy_proposal(constrained: RiskConstrainedTarget) -> bool:
+    """Return whether a constrained strategy proposal should persist to the next bar."""
+
+    if not isinstance(constrained, RiskConstrainedTarget):
+        raise TypeError("constrained must be a RiskConstrainedTarget")
+    if not constrained.was_constrained:
+        return False
+    transient_reasons = {"drawdown_deleveraging", "max_turnover"}
+    return transient_reasons.isdisjoint(constrained.reasons)
+
+
 class PreTradeRisk:
     """Apply hard exposure, drawdown, emergency and order-safety constraints."""
 

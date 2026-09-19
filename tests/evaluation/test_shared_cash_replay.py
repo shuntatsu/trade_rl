@@ -22,6 +22,18 @@ class FixedIntent:
         return self.intent
 
 
+@dataclass
+class SequenceIntent:
+    intents: tuple[PositionIntent, ...]
+    index: int = 0
+
+    def decide(self, observation: object) -> PositionIntent:
+        del observation
+        intent = self.intents[min(self.index, len(self.intents) - 1)]
+        self.index += 1
+        return intent
+
+
 def _market(
     close: np.ndarray, *, symbols: tuple[str, ...] | None = None
 ) -> MarketDataset:
@@ -240,6 +252,63 @@ def test_turnover_only_projection_keeps_desired_quantities_for_convergence() -> 
     assert result.decisions[0].risk_reasons == ("max_turnover",)
     assert result.decisions[1].proposal_weights == pytest.approx((0.5, 0.5))
     assert result.decisions[1].target_weights == pytest.approx((0.5, 0.5))
+
+
+def test_shared_reversal_preserves_proposal_through_hard_turnover_override() -> None:
+    dataset = _market(
+        np.asarray(
+            [
+                [100.0],
+                [100.0],
+                [100.0],
+                [100.0],
+                [100.0],
+                [200.0],
+                [200.0],
+                [200.0],
+            ]
+        )
+    )
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (
+            SequenceIntent(
+                (
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.SHORT,
+                    PositionIntent.SHORT,
+                )
+            ),
+        ),
+        start_index=0,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=0.5,
+                max_turnover=0.1,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+    )
+
+    reversal = result.decisions[5]
+    follow_up = result.decisions[6]
+    assert reversal.proposal_weights == pytest.approx((-0.5,))
+    assert reversal.target_weights == pytest.approx((0.5,))
+    assert "max_turnover" in reversal.risk_reasons
+    assert "max_abs_weight" in reversal.risk_reasons
+    assert "hard_risk_turnover_override" in reversal.risk_reasons
+    assert follow_up.proposal_weights == pytest.approx((-0.5,))
+    assert follow_up.target_weights == pytest.approx((0.4,))
 
 
 def test_hard_risk_projection_rebinds_desired_quantities() -> None:

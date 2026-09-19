@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e8368a043aa85e4ec866327ac697e5502a43c4be
+          ref: 39442ba5cad02b9a72a027874711cd2e6aed2153
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -35,5 +35,5 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/red.log"
           test "$status" -ne 0
-          grep -q 'test_terminal_settlement_is_environment_owned_and_charges_exit_cost' "$RUNNER_TEMP/red.log"
+          grep -q 'test_terminal_settlement_charges_exit_cost_without_overwriting_action' "$RUNNER_TEMP/red.log"
           echo ISSUE679_TERMINAL_SETTLEMENT_RED=PASS

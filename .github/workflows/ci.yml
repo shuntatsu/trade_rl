@@ -36,9 +36,6 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Ruff import diagnostic
-        run: uv run ruff check --diff --select I trade_rl/evaluation/directional.py
-
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 

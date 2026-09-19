@@ -549,6 +549,7 @@ class PPOTradingEnv(gym.Env):
         self.book = execution.book
         self.current_intent = intent
         self.index = execution.next_index
+        realized_weight = float(self.book.weights[symbol_index])
         reward = math.log1p(execution.interval_net_return)
         settlement_info: dict[str, object] = {}
         if (
@@ -567,7 +568,7 @@ class PPOTradingEnv(gym.Env):
             "symbol": self.dataset.symbols[symbol_index],
             "intent": intent,
             "target_weight": target_weight,
-            "realized_weight": float(self.book.weights[symbol_index]),
+            "realized_weight": realized_weight,
             "was_constrained": constrained.was_constrained,
             "risk_reasons": constrained.reasons,
             "interval_net_return": execution.interval_net_return,

@@ -7,6 +7,7 @@ from trade_rl.risk.pretrade import (
     PreTradeRisk,
     PreTradeRiskConfig,
     RiskConstrainedTarget,
+    should_rebind_strategy_proposal,
 )
 
 
@@ -53,6 +54,34 @@ def test_projection_l1_measures_proposal_to_final_emergency_projection() -> None
     assert result.projection_l1 == pytest.approx(
         float(np.abs(result.proposal_weights - result.pretrade_weights).sum())
     )
+
+
+@pytest.mark.parametrize(
+    ("reasons", "was_constrained", "expected"),
+    [
+        (("max_abs_weight",), True, True),
+        (("max_gross",), True, True),
+        (("max_turnover",), True, False),
+        (("max_abs_weight", "max_turnover"), True, False),
+        (("drawdown_deleveraging",), True, False),
+        ((), False, False),
+    ],
+)
+def test_strategy_proposal_rebinding_distinguishes_persistent_and_transient_risk(
+    reasons: tuple[str, ...],
+    was_constrained: bool,
+    expected: bool,
+) -> None:
+    constrained = RiskConstrainedTarget(
+        weights=np.array([0.1]),
+        requested_turnover=0.1,
+        constrained_turnover=0.1,
+        was_constrained=was_constrained,
+        reasons=reasons,
+        risk_scale=1.0,
+    )
+
+    assert should_rebind_strategy_proposal(constrained) is expected
 
 
 @pytest.mark.parametrize(

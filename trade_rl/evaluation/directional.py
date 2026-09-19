@@ -10,21 +10,15 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import MarketOrderProfile
+from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.metrics import compound_return, evaluate_performance
 from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation import MarketExecutor
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
-
-DIRECTIONAL_BASE_EXECUTION_COST = replace(
-    ExecutionCostConfig.zero(),
-    max_leverage=1.0,
-    processing_bar_volume_capacity=False,
-    borrow_rate_multiplier=1.0,
-)
 
 
 class CloseAtEndStrategy:

@@ -154,6 +154,53 @@ def test_policy_action_mapping_is_short_flat_long() -> None:
     )
 
 
+def test_ppo_hard_cap_plus_turnover_converges_to_static_cap() -> None:
+    close = np.full((7, 1), 100.0)
+    dataset = MarketDataset(
+        dataset_id="7" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=6,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=0.1,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        ),
+    )
+    env.reset(seed=5)
+
+    targets = []
+    for _ in range(5):
+        _, _, _, _, info = env.step(2)
+        targets.append(info["target_weight"])
+
+    assert targets == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5])
+
+
 def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
     dataset = market()
     intents = (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)

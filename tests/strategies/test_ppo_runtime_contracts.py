@@ -400,3 +400,47 @@ def test_ppo_reward_matches_dividend_and_cash_interest_carry() -> None:
     assert sum(replay.returns.values) > 0.0
     np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))
     assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+
+
+def test_directional_zero_overlay_keeps_dataset_fee_and_spread_costs() -> None:
+    base = market()
+    dataset = replace(
+        base,
+        open=np.full_like(base.open, 100.0),
+        high=np.full_like(base.high, 100.0),
+        low=np.full_like(base.low, 100.0),
+        close=np.full_like(base.close, 100.0),
+        fee_rate=np.full_like(base.close, 0.001),
+        spread_rate=np.full_like(base.close, 0.002),
+    )
+    intents = (
+        PositionIntent.LONG,
+        PositionIntent.LONG,
+        PositionIntent.FLAT,
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(intents),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env.reset(seed=11)
+
+    observed_rewards = [env.step(action)[1] for action in (2, 2, 1)]
+
+    assert replay.diagnostics.total_cost > 0.0
+    assert sum(observed_rewards) < 0.0
+    np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))
+    assert env.book.total_cost == pytest.approx(replay.book.total_cost)

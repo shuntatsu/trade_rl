@@ -195,10 +195,15 @@ class OrderAdmissionPolicy:
 
         price = prices[symbol]
         multiplier = multipliers[symbol]
-        notional_price = (
-            intent.limit_price if intent.order_type is OrderType.LIMIT else price
-        )
-        assert notional_price is not None
+        notional_price = price
+        if intent.order_type is OrderType.LIMIT:
+            assert intent.limit_price is not None
+            limit_price = intent.limit_price
+            marketable_at_open = (
+                admitted_quantity > 0.0 and price <= limit_price
+            ) or (admitted_quantity < 0.0 and price >= limit_price)
+            if not marketable_at_open:
+                notional_price = limit_price
         admitted_notional = abs(admitted_quantity) * notional_price * multiplier
         if admitted_notional + _TOLERANCE < minimum_notional:
             return self._reject("below_minimum_notional")

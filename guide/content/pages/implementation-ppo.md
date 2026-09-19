@@ -106,7 +106,7 @@ PPOもrule strategyと同じ`PreTradeRisk`を通ります。PPOだけrisk上限�
 
 学習用のリスク設定は明示的に指定でき、episodeをresetしても同じ設定を使います。省略時は従来の設定を保ちます。学習と評価で保有上限や下落時の縮小条件が違うと、同じ売買意図でも約定やコストが変わります。両者を合わせる実験ではリスク設定だけを変更し、報酬・観測・学習データの並べ方は別の比較として扱います。
 
-PPOでも `drawdown_deleveraging` はそのstepのtransient risk projectionです。縮小後targetを `desired_quantity` へ書き戻さないため、同じdrawdown・価格・intentが続いても同じscaleを次stepで二重に掛けません。このproposal/risk state分離はcanonical replayと同じです。
+PPOでも `max_turnover` と `drawdown_deleveraging` はそのstepのtransient risk projectionです。`max_turnover` が静的hard capと同時に発火しても、そのstepのtargetを `desired_quantity` へ書き戻しません。これにより反転actionの元proposalを保持したまま次stepのturnover projectionを再計算できます。transient理由がない静的hard capだけはbounded proposalとして再束縛します。このproposal/risk state分離はcanonical replayと同じです。
 
 ## 5. 約定・会計を通す
 

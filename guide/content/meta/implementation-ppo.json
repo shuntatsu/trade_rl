@@ -75,7 +75,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "a6785f604cc6585d522a3953792d7f8a949b4179e354952bc66209affc169a93",
+      "source_sha256": "b38ffc8a701abf19ce75e250aef84b10643f4dc58f06cdede1bddae80b60a74e",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換し、提案ウェイトをhard riskで制約してから約定します。drawdown縮小はそのstepの一時的projectionとしてproposal stateへ再注入せず、区間net returnからrewardを計算します。infoにはtargetとrealized weight、risk理由、約定率・turnover、cost/funding/borrow/dividend/cash-interest金額、termination理由を分離して返します。",
       "variables": [

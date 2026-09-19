@@ -118,6 +118,7 @@ def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
 
     assert after is before
     assert loaded.feature_normalizer == strategy.feature_normalizer
+    assert loaded.policy.device.type == "cpu"
 
 
 def test_real_interleaved_fit_is_parameter_deterministic_for_same_seed() -> None:

@@ -154,13 +154,11 @@ class OrderAdmissionPolicy:
         for value in (tick_size, lot_size, minimum_notional, minimum_quantity):
             if not math.isfinite(value) or value < 0.0:
                 return self._reject("invalid_execution_rule")
-        bound_price = (
-            intent.limit_price
-            if intent.order_type is OrderType.LIMIT
-            else intent.stop_price
-            if intent.order_type is OrderType.STOP_MARKET
-            else None
-        )
+        bound_price = None
+        if intent.order_type is OrderType.LIMIT:
+            bound_price = intent.limit_price
+        elif intent.order_type is OrderType.STOP_MARKET:
+            bound_price = intent.stop_price
         if bound_price is not None and not _price_on_tick_grid(bound_price, tick_size):
             return self._reject("price_not_on_tick")
         if maximum_quantity is not None:

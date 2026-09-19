@@ -274,3 +274,66 @@ def test_real_raw_ppo_model_roundtrips_deterministic_intent(tmp_path: Path) -> N
 
     assert after is before
     assert loaded.device.type == "cpu"
+
+
+def _strong_downtrend_market(n_bars: int = 64) -> MarketDataset:
+    dataset = _strong_uptrend_market(n_bars)
+    open_price = np.empty_like(dataset.open)
+    close = np.empty_like(dataset.close)
+    open_price[0, 0] = 100.0
+    close[0, 0] = 100.0
+    for index in range(1, n_bars):
+        open_price[index, 0] = close[index - 1, 0]
+        close[index, 0] = open_price[index, 0] * 0.95
+    return MarketDataset(
+        dataset_id="8" * 64,
+        symbols=dataset.symbols,
+        timestamps=dataset.timestamps,
+        features=dataset.features,
+        global_features=dataset.global_features,
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=dataset.volume,
+        funding_rate=dataset.funding_rate,
+        tradable=dataset.tradable,
+        feature_available=dataset.feature_available,
+        feature_names=dataset.feature_names,
+        global_feature_names=dataset.global_feature_names,
+        periods_per_year=dataset.periods_per_year,
+    )
+
+
+def test_real_ppo_learns_trivial_causal_short_signal() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    dataset = _strong_downtrend_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+        start_index=0,
+        stop_index=dataset.n_bars - 1,
+        gross_budget=0.5,
+        total_timesteps=4096,
+        seed=61,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    observation = StrategyObservation(
+        index=0,
+        timestamp=dataset.timestamps[0],
+        symbol=dataset.symbols[0],
+        features=dataset.features[0, 0],
+        feature_available=dataset.feature_available[0, 0],
+        feature_staleness=dataset.resolved_array("feature_staleness")[0, 0],
+        global_features=dataset.global_features[0],
+        global_feature_available=dataset.resolved_array("global_feature_available")[0],
+        current_intent=PositionIntent.FLAT,
+        current_weight=0.0,
+    )
+
+    assert strategy.decide(observation) is PositionIntent.SHORT
+    for name, parameter in strategy.policy.policy.named_parameters():
+        assert torch.isfinite(parameter).all(), name

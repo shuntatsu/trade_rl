@@ -246,3 +246,28 @@ def test_real_ppo_learns_trivial_causal_long_signal() -> None:
     )
 
     assert strategy.decide(observation) is PositionIntent.LONG
+
+
+def test_real_raw_ppo_model_roundtrips_deterministic_intent(tmp_path: Path) -> None:
+    stable_baselines3 = pytest.importorskip("stable_baselines3")
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=59,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+    )
+    model_path = tmp_path / "model.zip"
+    strategy.policy.save(str(model_path))
+    loaded = stable_baselines3.PPO.load(str(model_path), device="cpu")
+
+    before = strategy.decide(_observation())
+    after = PPOIntentStrategy(loaded, feature_indices=(0,)).decide(_observation())
+
+    assert after is before
+    assert loaded.device.type == "cpu"

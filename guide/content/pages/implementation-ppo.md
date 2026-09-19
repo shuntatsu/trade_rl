@@ -46,7 +46,7 @@ interleaved（opt-in）
   ...         ─┘
 ```
 
-これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。 なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
 
 ## 学習stepの全体像
 
@@ -111,6 +111,10 @@ PPOでも `max_turnover` と `drawdown_deleveraging` はそのstepのtransient r
 ## 5. 約定・会計を通す
 
 制約済みtargetを`MarketExecutor`へ渡し、fill、cost、funding、borrow、BookState、区間net returnを共通経路で更新します。
+
+stepの`info`では、risk後の`target_weight`と約定後の`realized_weight`を分け、risk理由、fill ratio、requested/filled turnover、cost・funding・borrow・dividend・cash-interestの金額、termination理由も返します。policy判断・risk制約・partial fill・carryを同じ値として扱わないための診断情報です。
+
+Directional PPOでは学習とdevelopment評価が同じbase execution設定を共有し、Datasetにあるborrowも両方で課します。過去のPPO実験は当時の実装へ固定された証拠であり、この修正後の学習経済へ自動的に読み替えません。
 
 ## 6. net returnからrewardを作る
 

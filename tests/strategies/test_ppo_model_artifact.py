@@ -13,6 +13,7 @@ from trade_rl.strategies.rl.ppo_artifact import load_normalized_ppo, save_normal
 
 class Policy:
     loaded = False
+    load_device = None
     observation_space = SimpleNamespace(shape=(5,))
     action_space = SimpleNamespace(n=3, start=0)
 
@@ -20,8 +21,9 @@ class Policy:
         Path(path).write_bytes(b"policy bytes")
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path, *, device="auto"):
         cls.loaded = True
+        cls.load_device = device
         return cls()
 
     def predict(self, observation, *, deterministic=True):
@@ -30,7 +32,13 @@ class Policy:
 
 def _saved(tmp_path, monkeypatch):
     Policy.loaded = False
+    Policy.load_device = None
     monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
     strategy = PPOIntentStrategy(
         Policy(), feature_indices=(0,), feature_normalizer=_fit()
     )
@@ -48,6 +56,7 @@ def test_saved_model_roundtrip_requires_matching_transform_and_feed_schema(
     )
     assert loaded.feature_normalizer == strategy.feature_normalizer
     assert Policy.loaded
+    assert Policy.load_device == "cpu"
     Policy.loaded = False
     with pytest.raises(ValueError, match="feature"):
         load_normalized_ppo(root, expected_digest=digest, feature_names=("wrong",))

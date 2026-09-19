@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,9 +9,9 @@ import numpy as np
 
 from trade_rl.data.features.price_channels import CHANNEL_NAMES
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.experiments import ResolvedRunConfig
 from trade_rl.risk import PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
@@ -64,7 +63,6 @@ def fit_directional_candidate(
     ppo_risk_config: PreTradeRiskConfig | None = None,
 ) -> Callable[[], SingleSymbolStrategy]:
     """Fit once on the fixed training side, then share the frozen model."""
-    from dataclasses import replace
 
     validate_arm(arm)
     if ppo_risk_config is not None and not arm.startswith("ppo"):
@@ -127,8 +125,6 @@ def fit_directional_candidate(
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
         )
-    torch = importlib.import_module("torch")
-    torch.set_num_threads(1)
     cutoff = (
         int(np.searchsorted(dataset.timestamps, np.datetime64(config.fit_cutoff))) - 1
     )
@@ -142,9 +138,7 @@ def fit_directional_candidate(
         total_timesteps=PPO_TIMESTEPS,
         seed=int(arm[-1]),
         initial_capital=10_000.0,
-        execution_cost=replace(
-            ExecutionCostConfig.zero(), processing_bar_volume_capacity=False
-        ),
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
         training_layout="sequential",
         risk_config=ppo_risk_config,
     )

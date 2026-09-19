@@ -1,0 +1,91 @@
+{
+  "schema_version": "research_assurance_v1",
+  "identity": {
+    "protocol_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "implementation_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "thesis": {
+    "final_decision": "whether to authorize one bounded development experiment",
+    "hypothesis": "the isolated factor improves the stated development objective through the stated mechanism",
+    "economic_mechanism": "causal information changes strategy intent before canonical execution",
+    "counter_hypothesis": "the observed effect is explained by trivial exposure, accounting, execution, or data-scope artifacts",
+    "information_gain": "the experiment can distinguish the isolated factor from the frozen control",
+    "cheapest_falsifier": "synthetic invariance and independent control-path arithmetic",
+    "stop_rule": "stop the research line if the frozen decision gate fails; do not rescue on the same development evidence",
+    "stage": "development",
+    "metric_proxy_rationale": "net return with common accounting, realistic costs, hard risk, and terminal-state evidence is the development proxy",
+    "limitations": "development evidence does not establish unused-data validity, prospective performance, production eligibility, or live-trading safety"
+  },
+  "mechanism": {
+    "chain": [
+      "source",
+      "availability",
+      "feature_state",
+      "model_strategy",
+      "intent",
+      "order",
+      "fill",
+      "accounting",
+      "evidence",
+      "decision"
+    ],
+    "authorities": {
+      "unit": "canonical quantity/lot contract",
+      "time": "point-in-time availability contract",
+      "state": "realized fills and canonical account state",
+      "sign": "canonical cash-flow convention",
+      "risk": "hard-risk owner",
+      "execution": "canonical executor",
+      "accounting": "canonical financial ledger",
+      "evidence": "content-addressed immutable evidence"
+    },
+    "independent_oracles": [
+      "future-row mutation invariance",
+      "independent account arithmetic"
+    ]
+  },
+  "evidence": {
+    "point_in_time": true,
+    "common_accounting": true,
+    "realistic_costs": true,
+    "hard_risk": true,
+    "terminal_state": true,
+    "fit_development_unused_separated": true,
+    "multi_symbol": true,
+    "multi_period": true,
+    "controls": [
+      "cash",
+      "constant_long",
+      "constant_short"
+    ],
+    "robustness": [
+      "double_cost",
+      "latency"
+    ],
+    "independent_reconstruction": "recompute decision-relevant arithmetic without trusting stored decision booleans",
+    "no_development_rescue": true,
+    "evidence_level": "development_profitability"
+  },
+  "claims": {
+    "claim_level": "development_profitability",
+    "permitted": [
+      "development-only profitability under the frozen assumptions"
+    ],
+    "forbidden": [
+      "unused-data validity",
+      "production eligibility",
+      "live trading"
+    ],
+    "next_authorized_action": "separate unused-data protocol only after the frozen development gate passes",
+    "production_eligible": false,
+    "live_trading_authorized": false
+  },
+  "review": {
+    "status": "unreviewed",
+    "reviewed_record_digest": null,
+    "protocol_head": null,
+    "implementation_head": null,
+    "reviewer": null,
+    "rationale": "awaiting independent adversarial review"
+  }
+}

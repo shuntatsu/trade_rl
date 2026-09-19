@@ -175,7 +175,10 @@ dataset/runtime/source floor. With the flag enabled, actual same-side reductions
 zero targets create reduce-only orders and waive declared venue notional only;
 the explicit runtime floor still receives notional stress. Reversals and unselected
 symbols retain ordinary minima. False provides a matched ordinary-order profile.
-An equal outstanding residual is reused only if its flag and policy identity match.
+Across target reconciliation, an equal outstanding residual is reused only when
+its Dataset identity, execution-policy identity and reduce-only flag all match the
+current request. A stale-identity residual is cancelled and replaced before
+admission rather than being reused only to fail later with `identity_mismatch`.
 Exact closing deltas still project conservatively to float requests, so unusual
 non-representable inventories can retain an executable lot. No dust is written off.
 Selected non-MARKET orders and the compatibility `liquidate_at_close` shortcut fail

@@ -2,14 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pytest
-
-stable_baselines3 = pytest.importorskip("stable_baselines3")
-torch = pytest.importorskip("torch")
-
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_checker import check_env
 
 from tests.strategies.test_ppo_interleaved_training import pooled_market
 from trade_rl.strategies.interface import StrategyObservation
@@ -56,6 +49,11 @@ def _observation(symbol_index: int = 0) -> StrategyObservation:
 
 
 def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
+    stable_baselines3 = pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.env_checker import check_env
+
     assert stable_baselines3.__version__ == "2.3.2"
     assert torch.__version__.split("+", 1)[0] == "2.4.1"
     torch.set_num_threads(1)
@@ -88,6 +86,8 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
 def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
     tmp_path: Path,
 ) -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
     torch.set_num_threads(1)
     dataset = pooled_market()
 

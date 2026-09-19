@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -187,3 +188,66 @@ def test_env_matches_canonical_replay_with_cost_capacity_and_turnover_risk() -> 
     assert replay.diagnostics.total_cost > 0.0
     assert replay.book.fill_count > 0
     assert replay.book.quantities[0] > 0.0
+
+
+def test_economic_termination_keeps_finite_reward_and_terminal_observation() -> None:
+    base = market()
+    prices = np.asarray([[100.0], [100.0], [300.0], [300.0]])
+    dataset = replace(
+        base,
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+    )
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        maintenance_margin_rate=0.25,
+    )
+    intents = (
+        PositionIntent.SHORT,
+        PositionIntent.SHORT,
+        PositionIntent.SHORT,
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(intents),
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+    )
+    env.reset(seed=7)
+
+    observed_returns: list[float] = []
+    observed_rewards: list[float] = []
+    terminated = False
+    for action in (0, 0, 0):
+        observation, reward, terminated, truncated, info = env.step(action)
+        assert np.isfinite(observation).all()
+        assert np.isfinite(reward)
+        assert truncated is False
+        observed_rewards.append(reward)
+        observed_returns.append(float(info["interval_net_return"]))
+        if terminated:
+            break
+
+    assert terminated is True
+    assert env.book.termination_reason is not None
+    assert env.book.termination_reason == replay.book.termination_reason
+    np.testing.assert_allclose(observed_returns, replay.returns.values)
+    np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))
+    np.testing.assert_allclose(env.book.quantities, replay.book.quantities)
+
+    with pytest.raises(RuntimeError, match="terminated"):
+        env.step(1)

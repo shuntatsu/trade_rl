@@ -246,6 +246,9 @@ def test_real_ppo_learns_trivial_causal_long_signal() -> None:
     )
 
     assert strategy.decide(observation) is PositionIntent.LONG
+    torch = pytest.importorskip("torch")
+    for name, parameter in strategy.policy.policy.named_parameters():
+        assert torch.isfinite(parameter).all(), name
 
 
 def test_real_raw_ppo_model_roundtrips_deterministic_intent(tmp_path: Path) -> None:

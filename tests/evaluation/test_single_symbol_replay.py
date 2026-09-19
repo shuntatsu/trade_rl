@@ -183,9 +183,8 @@ def test_reversal_keeps_short_proposal_after_hard_override() -> None:
         risk=risk,
     )
 
-    assert [decision.target_weight for decision in result.decisions[:3]] == pytest.approx(
-        [0.5, 0.5, 0.4]
-    )
+    targets = [decision.target_weight for decision in result.decisions[:3]]
+    assert targets == pytest.approx([0.5, 0.5, 0.4])
 
 
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:

@@ -78,6 +78,7 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
         PositionIntent.FLAT,
         PositionIntent.LONG,
     }
+    assert model.device.type == "cpu"
     assert model.num_timesteps == 16
 
 

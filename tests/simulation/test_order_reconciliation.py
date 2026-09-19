@@ -28,11 +28,17 @@ def _book(quantity: float = 0.0) -> BookState:
     )
 
 
-def _active(quantity: float, *, target_identity: str = "old") -> PendingOrder:
+def _active(
+    quantity: float,
+    *,
+    target_identity: str = "old",
+    dataset_id: str = "d" * 64,
+    execution_policy_digest: str = "e" * 64,
+) -> PendingOrder:
     intent = OrderIntent.create(
-        dataset_id="d" * 64,
+        dataset_id=dataset_id,
         target_identity=target_identity,
-        execution_policy_digest="e" * 64,
+        execution_policy_digest=execution_policy_digest,
         symbol_index=0,
         requested_quantity=quantity,
         order_type=OrderType.MARKET,
@@ -120,6 +126,20 @@ def test_matching_residual_with_old_policy_is_cancelled_and_replaced() -> None:
     assert len(result.new_intents) == 1
     assert result.new_intents[0].requested_quantity == pytest.approx(5.0)
     assert result.new_intents[0].execution_policy_digest == "f" * 64
+
+
+def test_matching_residual_from_other_dataset_is_cancelled_and_replaced() -> None:
+    active = _active(5.0, dataset_id="c" * 64)
+    result = _reconcile(
+        target_weight=0.5,
+        order_book=OrderBookState(active_orders=(active,), terminal_orders=()),
+    )
+
+    assert result.cancelled_orders == (result.order_book.terminal_orders[-1],)
+    assert result.cancelled_orders[0].order_id == active.order_id
+    assert len(result.new_intents) == 1
+    assert result.new_intents[0].dataset_id == "d" * 64
+    assert result.new_intents[0].requested_quantity == pytest.approx(5.0)
 
 
 def test_changed_target_cancels_old_residual_and_submits_only_latest_delta() -> None:

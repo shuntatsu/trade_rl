@@ -155,6 +155,64 @@ def test_processing_bar_volume_not_preceding_bar_controls_capacity() -> None:
     assert result.capacity_evidence[0].processing_volume == pytest.approx(1.0)
 
 
+def test_valid_sell_limit_is_not_rejected_by_lower_open_notional() -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 90.0)
+    high = np.full(shape, 110.0)
+    low = np.full(shape, 90.0)
+    close = np.full(shape, 90.0)
+    minimum = np.full(shape, 100.0)
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        minimum_notional=minimum,
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="sell-limit",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=-1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=110.0,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=90.0,
+        decision_equity=1_000.0,
+    )
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=910.0,
+        mark_prices=np.array([90.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1.0]),
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.quantities[0] == pytest.approx(0.0)
+    filled = [event for event in result.order_events if event.event_type == "filled"]
+    assert len(filled) == 1
+    assert filled[0].execution_price == pytest.approx(110.0)
+    assert all(
+        event.reason != "below_minimum_notional"
+        for event in result.order_events
+        if event.event_type in {"rejected", "no_fill"}
+    )
+
+
 def test_latency_waits_until_eligible_processing_bar() -> None:
     dataset = _market()
     executor = _executor(dataset, max_participation_rate=1.0)

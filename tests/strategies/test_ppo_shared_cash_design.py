@@ -60,9 +60,7 @@ def test_per_symbol_ppo_accounts_do_not_represent_shared_cash_gross_constraint(
     )
 
     independent_total_gross = float(np.sum(independent_weights))
-    shared_first_target_gross = float(
-        np.sum(np.abs(shared.decisions[0].target_weights))
-    )
+    shared_first_target_gross = float(np.sum(np.abs(shared.decisions[0].target_weights)))
 
     assert independent_total_gross == pytest.approx(1.0)
     assert shared_first_target_gross == pytest.approx(0.5)

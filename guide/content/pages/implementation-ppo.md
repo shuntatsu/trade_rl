@@ -112,6 +112,8 @@ PPOでも `drawdown_deleveraging` はそのstepのtransient risk projectionで�
 
 制約済みtargetを`MarketExecutor`へ渡し、fill、cost、funding、borrow、BookState、区間net returnを共通経路で更新します。
 
+Directional PPOでは学習とdevelopment評価が同じbase execution設定を共有し、Datasetにあるborrowも両方で課します。過去のPPO実験は当時の実装へ固定された証拠であり、この修正後の学習経済へ自動的に読み替えません。
+
 ## 6. net returnからrewardを作る
 
 rewardは約定・コスト反映後の区間returnから計算します。

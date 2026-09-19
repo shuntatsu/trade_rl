@@ -153,7 +153,7 @@ def test_rule_validation_rounding_and_minimum_notional_are_explicit() -> None:
     assert below_minimum.reason == "below_minimum_notional"
 
 
-def test_limit_minimum_notional_uses_limit_price() -> None:
+def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,
         target_identity="sell-limit",
@@ -193,6 +193,64 @@ def test_limit_minimum_notional_uses_limit_price() -> None:
     assert decision.accepted
     assert decision.reason is None
     assert decision.admitted_notional == pytest.approx(110.0)
+
+
+@pytest.mark.parametrize(
+    ("quantity", "open_price", "limit_price", "minimum_notional", "accepted"),
+    [
+        (-1.0, 120.0, 110.0, 115.0, True),
+        (1.0, 90.0, 110.0, 100.0, False),
+    ],
+)
+def test_marketable_limit_minimum_notional_uses_processing_open(
+    quantity: float,
+    open_price: float,
+    limit_price: float,
+    minimum_notional: float,
+    accepted: bool,
+) -> None:
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity=f"marketable-limit-{quantity}",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=quantity,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=limit_price,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=open_price,
+        decision_equity=1_000.0,
+    )
+    decision = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    ).evaluate(
+        intent,
+        book=_book(quantity=1.0 if quantity < 0.0 else 0.0),
+        processing_index=1,
+        asset_active=True,
+        tradable=True,
+        buy_allowed=True,
+        sell_allowed=True,
+        borrow_available=True,
+        tick_size=0.01,
+        lot_size=0.0,
+        minimum_notional=minimum_notional,
+        reference_prices=np.array([open_price]),
+    )
+
+    assert decision.accepted is accepted
+    if accepted:
+        assert decision.reason is None
+        assert decision.admitted_notional == pytest.approx(abs(quantity) * open_price)
+    else:
+        assert decision.reason == "below_minimum_notional"
 
 
 def test_short_policy_and_pretrade_leverage_gate() -> None:

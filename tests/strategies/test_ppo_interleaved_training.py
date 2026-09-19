@@ -84,6 +84,11 @@ def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=FakePPO))
     monkeypatch.setitem(
         sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
         "stable_baselines3.common",
         SimpleNamespace(),
     )

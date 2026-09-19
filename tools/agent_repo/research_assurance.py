@@ -161,7 +161,9 @@ def _text(value: object, field: str) -> str:
 
 def _sha(value: object, field: str, length: int) -> str:
     text = _text(value, field)
-    if len(text) != length or any(character not in "0123456789abcdef" for character in text):
+    if len(text) != length or any(
+        character not in "0123456789abcdef" for character in text
+    ):
         raise ValueError(f"{field} must be a lowercase hexadecimal digest")
     return text
 
@@ -228,7 +230,9 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
     implementation_head = ""
     if isinstance(identity, dict):
         capture(lambda: _exact_fields(identity, _IDENTITY_FIELDS, "identity"))
-        protocol = capture(lambda: _sha(identity.get("protocol_head"), "identity.protocol_head", 40))
+        protocol = capture(
+            lambda: _sha(identity.get("protocol_head"), "identity.protocol_head", 40)
+        )
         implementation = capture(
             lambda: _sha(
                 identity.get("implementation_head"),
@@ -269,7 +273,9 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
         capture(lambda: _exact_fields(mechanism, _MECHANISM_FIELDS, "mechanism"))
         chain = mechanism.get("chain")
         if chain != list(_CHAIN):
-            errors.append("mechanism.chain must cover the canonical research-to-decision path")
+            errors.append(
+                "mechanism.chain must cover the canonical research-to-decision path"
+            )
         authorities = capture(
             lambda: _mapping(mechanism.get("authorities"), "mechanism.authorities")
         )
@@ -351,7 +357,9 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
                             f"evidence.{name} must be true for economic evidence"
                         )
                 if not controls:
-                    errors.append("evidence.controls must not be empty for economic evidence")
+                    errors.append(
+                        "evidence.controls must not be empty for economic evidence"
+                    )
             if _rank(raw_level) >= _rank("development_profitability"):
                 for name in ("multi_symbol", "multi_period"):
                     if evidence.get(name) is not True:
@@ -395,7 +403,9 @@ def _validate(record: Mapping[str, object]) -> tuple[list[str], str, str, str, s
         if stage == "development" and (
             claim_level == "production" or production is True or live is True
         ):
-            errors.append("development stage cannot authorize production or live trading")
+            errors.append(
+                "development stage cannot authorize production or live trading"
+            )
         if stage and claim_level:
             maximum = _STAGE_MAX_LEVEL[stage]
             if _rank(claim_level) > _rank(maximum):

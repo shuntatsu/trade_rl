@@ -19,6 +19,14 @@ from trade_rl.simulation.quantities import (
 _TOLERANCE = 1e-12
 
 
+def _price_on_tick_grid(price: float, tick_size: float) -> bool:
+    if tick_size == 0.0:
+        return True
+    price_exact = Fraction(str(float(price)))
+    tick_exact = Fraction(str(float(tick_size)))
+    return price_exact % tick_exact == 0
+
+
 class OrderAdmissionError(ValueError):
     """Raised when admission inputs are structurally invalid."""
 
@@ -146,6 +154,15 @@ class OrderAdmissionPolicy:
         for value in (tick_size, lot_size, minimum_notional, minimum_quantity):
             if not math.isfinite(value) or value < 0.0:
                 return self._reject("invalid_execution_rule")
+        bound_price = (
+            intent.limit_price
+            if intent.order_type is OrderType.LIMIT
+            else intent.stop_price
+            if intent.order_type is OrderType.STOP_MARKET
+            else None
+        )
+        if bound_price is not None and not _price_on_tick_grid(bound_price, tick_size):
+            return self._reject("price_not_on_tick")
         if maximum_quantity is not None:
             if (
                 not math.isfinite(maximum_quantity)

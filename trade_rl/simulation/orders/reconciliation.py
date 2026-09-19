@@ -169,9 +169,10 @@ def reconcile_target(
                 target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)
         active_residual = float(sum(order.remaining_quantity for order in active))
-        compatible = reduce_only_symbols is None or all(
-            order.intent.reduce_only == reduce_only
+        compatible = all(
+            order.intent.dataset_id == dataset_id
             and order.intent.execution_policy_digest == execution_policy_digest
+            and order.intent.reduce_only == reduce_only
             for order in active
         )
         if compatible and math.isclose(

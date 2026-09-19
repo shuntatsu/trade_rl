@@ -155,7 +155,19 @@ def test_policy_action_mapping_is_short_flat_long() -> None:
 
 
 def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
-    close = np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]])
+    close = np.asarray(
+        [
+            [100.0],
+            [100.0],
+            [100.0],
+            [100.0],
+            [100.0],
+            [200.0],
+            [200.0],
+            [200.0],
+            [200.0],
+        ]
+    )
     open_price = np.vstack((close[0], close[:-1]))
     dataset = MarketDataset(
         dataset_id="7" * 64,
@@ -180,7 +192,7 @@ def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
         dataset,
         feature_indices=(0,),
         start_index=0,
-        stop_index=4,
+        stop_index=8,
         gross_budget=0.5,
         initial_capital=1_000.0,
         execution_cost=ExecutionCostConfig.zero(),
@@ -194,13 +206,13 @@ def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
     )
     env.reset(seed=5)
 
-    _, _, _, _, first = env.step(2)
-    _, _, _, _, second = env.step(0)
-    _, _, _, _, third = env.step(0)
+    for _ in range(5):
+        env.step(2)
+    _, _, _, _, reversal = env.step(0)
+    _, _, _, _, follow_up = env.step(0)
 
-    assert first["target_weight"] == pytest.approx(0.5)
-    assert second["target_weight"] == pytest.approx(0.5)
-    assert third["target_weight"] == pytest.approx(0.4)
+    assert reversal["target_weight"] == pytest.approx(0.5)
+    assert follow_up["target_weight"] == pytest.approx(0.4)
 
 
 def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:

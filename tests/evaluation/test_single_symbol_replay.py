@@ -29,6 +29,18 @@ class AlwaysShort:
         return PositionIntent.SHORT
 
 
+@dataclass
+class IntentSequence:
+    intents: tuple[PositionIntent, ...]
+    index: int = 0
+
+    def decide(self, observation: object) -> PositionIntent:
+        del observation
+        intent = self.intents[min(self.index, len(self.intents) - 1)]
+        self.index += 1
+        return intent
+
+
 def _rising_market() -> MarketDataset:
     close = np.asarray([[100.0], [100.0], [110.0], [120.0], [130.0], [140.0]])
     open_price = np.vstack((close[0], close[:-1]))
@@ -122,24 +134,24 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert features.flags.writeable is False
 
 
-def test_static_cap_and_turnover_converge_instead_of_freezing_first_slice() -> None:
-    shape = (5, 1)
-    close = np.full(shape, 100.0)
+def test_reversal_after_drift_preserves_short_proposal_through_hard_override() -> None:
+    close = np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]])
+    open_price = np.vstack((close[0], close[:-1]))
     dataset = MarketDataset(
         dataset_id="c" * 64,
         symbols=("BTCUSDT",),
         timestamps=np.datetime64("2026-01-01", "ns")
-        + np.arange(shape[0]) * np.timedelta64(1, "h"),
-        features=np.zeros((shape[0], 1, 1), dtype=np.float32),
-        global_features=np.zeros((shape[0], 1), dtype=np.float32),
-        open=close.copy(),
-        high=close.copy(),
-        low=close.copy(),
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
         close=close,
-        volume=np.full(shape, 1_000_000.0),
-        funding_rate=np.zeros(shape),
-        tradable=np.ones(shape, dtype=np.bool_),
-        feature_available=np.ones((shape[0], 1, 1), dtype=np.bool_),
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -156,16 +168,23 @@ def test_static_cap_and_turnover_converge_instead_of_freezing_first_slice() -> N
 
     result = evaluation.run_single_symbol_replay(
         dataset,
-        AlwaysLong(),
+        IntentSequence(
+            (
+                PositionIntent.LONG,
+                PositionIntent.SHORT,
+                PositionIntent.SHORT,
+                PositionIntent.SHORT,
+            )
+        ),
         start_index=0,
         stop_index=4,
-        gross_budget=1.0,
+        gross_budget=0.5,
         initial_capital=1_000.0,
         risk=risk,
     )
 
-    assert [decision.target_weight for decision in result.decisions] == pytest.approx(
-        [0.1, 0.2, 0.3, 0.4]
+    assert [decision.target_weight for decision in result.decisions[:3]] == pytest.approx(
+        [0.5, 0.5, 0.4]
     )
 
 

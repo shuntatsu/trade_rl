@@ -262,6 +262,39 @@ def test_hard_risk_projection_rebinds_desired_quantities() -> None:
     assert result.decisions[1].target_weights == pytest.approx((0.25, 0.25))
 
 
+def test_shared_cash_fixed_drawdown_does_not_compound_risk_scale() -> None:
+    dataset = _market(np.asarray([[100.0], [70.0], [70.0], [70.0], [70.0]]))
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+    )
+
+    expected_proposal = (0.4117647058823529,)
+    expected_target = (0.20588235294117646,)
+    assert result.book.max_drawdown == pytest.approx(0.15)
+    assert result.decisions[0].target_weights == pytest.approx((0.5,))
+    assert result.decisions[1].proposal_weights == pytest.approx(expected_proposal)
+    assert result.decisions[2].proposal_weights == pytest.approx(expected_proposal)
+    assert result.decisions[1].target_weights == pytest.approx(expected_target)
+    assert result.decisions[2].target_weights == pytest.approx(expected_target)
+
+
 def test_symbol_permutation_preserves_shared_portfolio_economics() -> None:
     original = _two_symbol_market()
     swapped = _market(

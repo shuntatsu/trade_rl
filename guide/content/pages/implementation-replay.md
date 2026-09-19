@@ -85,6 +85,8 @@ target_weight
 
 約定器へ渡るのは、戦略が最初に希望した値ではなく**制約後の`target_weight`**です。
 
+ここでproposal stateとrisk projectionを混同しません。`drawdown_deleveraging` は現在のdrawdownからそのバーのtargetへ掛ける一時的な縮小であり、縮小後quantityを次バーの `desired_quantity` へ書き戻しません。したがってdrawdown・価格・intentが同じなら同じtargetを返し、同じ0.5倍scaleを 0.5→0.25→0.125 のように自己再適用しません。max-turnoverだけのprojectionは従来どおり元proposalへ収束し、drawdownを伴わない静的hard capの再束縛も従来契約を維持します。
+
 ## 5. 約定と会計を行う
 
 `MarketExecutor`が次の1区間を共通ルールで処理します。

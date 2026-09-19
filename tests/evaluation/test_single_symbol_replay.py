@@ -7,6 +7,7 @@ import pytest
 
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -169,3 +170,53 @@ def test_replay_rejects_invalid_symbol_index() -> None:
             stop_index=5,
             gross_budget=0.5,
         )
+
+
+def test_fixed_drawdown_does_not_compound_risk_scale_into_next_proposal() -> None:
+    close = np.asarray([[100.0], [70.0], [70.0], [70.0], [70.0]])
+    open_price = np.vstack((close[0], close[:-1]))
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
+        features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
+        global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((close.shape[0], 1), 1_000_000.0),
+        funding_rate=np.zeros((close.shape[0], 1)),
+        tradable=np.ones((close.shape[0], 1), dtype=np.bool_),
+        feature_available=np.ones((close.shape[0], 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk=risk,
+    )
+
+    assert result.book.max_drawdown == pytest.approx(0.15)
+    assert result.decisions[0].target_weight == pytest.approx(0.5)
+    assert result.decisions[1].target_weight == pytest.approx(0.20588235294117646)
+    assert result.decisions[2].target_weight == pytest.approx(
+        result.decisions[1].target_weight
+    )

@@ -488,9 +488,7 @@ class PPOTradingEnv(gym.Env):
             "terminal_settlement_requested_turnover": settlement_requested_turnover,
             "terminal_settlement_filled_turnover": settlement_filled_turnover,
             "terminal_settlement_risk_reasons": tuple(settlement_risk_reasons),
-            "terminal_settlement_final_weight": float(
-                self.book.weights[symbol_index]
-            ),
+            "terminal_settlement_final_weight": float(self.book.weights[symbol_index]),
             "terminal_settlement_termination_reason": self.book.termination_reason,
         }
 

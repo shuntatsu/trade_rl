@@ -196,9 +196,7 @@ class OrderAdmissionPolicy:
         price = prices[symbol]
         multiplier = multipliers[symbol]
         notional_price = (
-            intent.limit_price
-            if intent.order_type is OrderType.LIMIT
-            else price
+            intent.limit_price if intent.order_type is OrderType.LIMIT else price
         )
         assert notional_price is not None
         admitted_notional = abs(admitted_quantity) * notional_price * multiplier

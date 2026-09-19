@@ -349,6 +349,48 @@ def test_aligned_nonmarket_order_price_is_admitted() -> None:
     assert decision.reason is None
 
 
+def test_zero_tick_size_keeps_unconstrained_price_behavior() -> None:
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="zero-tick-limit",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=100.26,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=101.0,
+        decision_equity=1_000.0,
+    )
+
+    decision = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    ).evaluate(
+        intent,
+        book=_book(),
+        processing_index=1,
+        asset_active=True,
+        tradable=True,
+        buy_allowed=True,
+        sell_allowed=True,
+        borrow_available=True,
+        tick_size=0.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+        reference_prices=np.array([101.0]),
+    )
+
+    assert decision.accepted
+    assert decision.reason is None
+
+
 def test_short_policy_and_pretrade_leverage_gate() -> None:
     no_short_policy = OrderAdmissionPolicy(
         expected_dataset_id="d" * 64,

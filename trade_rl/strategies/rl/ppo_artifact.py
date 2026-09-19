@@ -78,7 +78,7 @@ def load_normalized_ppo(
     if sha256(policy_path.read_bytes()).hexdigest() != manifest["policy_sha256"]:
         raise ValueError("policy bytes differ from the normalized model manifest")
     module = importlib.import_module("stable_baselines3")
-    model = getattr(module, "PPO").load(str(policy_path))
+    model = getattr(module, "PPO").load(str(policy_path), device="cpu")
     if (
         tuple(model.observation_space.shape)
         != (3 * len(normalizer.feature_indices) + 2,)

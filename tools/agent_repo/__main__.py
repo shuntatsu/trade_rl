@@ -32,6 +32,7 @@ from tools.agent_repo.eval_suite import (
     score_eval,
 )
 from tools.agent_repo.git_state import read_git_state
+from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
 from tools.agent_repo.verification import plan_verification
@@ -66,6 +67,12 @@ def _parser() -> argparse.ArgumentParser:
     eval_score = subparsers.add_parser("eval-score")
     eval_score.add_argument("task_id")
     eval_score.add_argument("score_json")
+
+    assurance = subparsers.add_parser("assurance")
+    assurance_commands = assurance.add_subparsers(dest="assurance_command", required=True)
+    for name in ("digest", "check"):
+        assurance_command = assurance_commands.add_parser(name)
+        assurance_command.add_argument("input")
 
     task = subparsers.add_parser("task")
     task_commands = task.add_subparsers(dest="task_command", required=True)
@@ -234,6 +241,17 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
             scores=cast(dict[str, tuple[int, str]], _score_input(score_path)),
         )
         return asdict(result)
+    if command == "assurance":
+        decoded = _mapping(
+            _json_input(repository, args.input),
+            field_name="research assurance input",
+        )
+        assurance_command = str(args.assurance_command)
+        if assurance_command == "digest":
+            return {"record_digest": assurance_digest(decoded)}
+        if assurance_command == "check":
+            return asdict(evaluate_assurance(decoded))
+        raise ValueError(f"unsupported assurance command: {assurance_command}")
     if command == "task":
         return _dispatch_task(args, repository)
 

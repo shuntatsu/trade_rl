@@ -24,7 +24,11 @@ from trade_rl.evaluation.runs.config import (
     parse_candidate_run_config,
     resolve_candidate_run_spec,
 )
-from trade_rl.evaluation.runs.execute import CandidateRunResult, execute_candidate_run
+from trade_rl.evaluation.runs.execute import (
+    CandidateRunResult,
+    execute_candidate_run,
+    execution_cost_for_overlay,
+)
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 
 __all__ = [
@@ -37,6 +41,7 @@ __all__ = [
     "ResolvedCandidateRunSpec",
     "build_candidate_run_provenance",
     "execute_candidate_run",
+    "execution_cost_for_overlay",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
     "parse_candidate_run_config",

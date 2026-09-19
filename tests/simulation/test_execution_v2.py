@@ -130,6 +130,35 @@ def test_limit_order_fills_only_when_bar_touches_limit() -> None:
     assert result.filled_turnover == 0.0
 
 
+def test_generated_limit_is_snapped_to_submit_tick_grid() -> None:
+    shape = (5, 1)
+    dataset = market(
+        low=np.full(shape, 99.0),
+        tick_size=np.full(shape, 0.5),
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            max_participation_rate=1.0,
+            order_type="limit",
+            limit_offset_rate=0.007,
+        ),
+    )
+
+    result = executor.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([0.5]),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.filled_turnover == pytest.approx(0.495)
+    terminal = executor.compatibility_order_book.terminal_orders
+    assert len(terminal) == 1
+    assert terminal[0].intent.limit_price == pytest.approx(99.0)
+
+
 def test_episode_random_streams_can_be_paired_but_changed_between_episodes() -> None:
     dataset = market()
     config = ExecutionCostConfig(

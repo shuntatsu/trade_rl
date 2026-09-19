@@ -568,10 +568,13 @@ def fit_ppo_strategy(
     try:
         module = importlib.import_module("stable_baselines3")
         ppo_class = getattr(module, "PPO")
+        torch_module = importlib.import_module("torch")
+        set_num_threads = getattr(torch_module, "set_num_threads")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(
-            "stable-baselines3 is required; install the train-sb3 extra"
+            "stable-baselines3 and torch are required; install the train-sb3 extra"
         ) from error
+    set_num_threads(1)
 
     model = ppo_class(
         "MlpPolicy",

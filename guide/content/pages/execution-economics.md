@@ -55,6 +55,8 @@ partial fillなら、要求数量ではなくrealized fill quantityだけをposi
 
 注文の消化率と実売買金額も分けます。`fill_ratio` と `unfilled_turnover` はsubmission時のreference priceで要求量と約定量を同じ基準へ揃え、価格変動だけで「全量約定」に見えないようにします。一方、`filled_turnover` はactual fill priceで実際に売買したnotionalを使います。
 
+LIMITのcost分類も注文名だけでは決めません。そのbarで初めてeligibleになったLIMITがprocessing openですでにmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使います。openではmarketableでなくbar内touchまでrestしたLIMITはmaker扱いです。また、前バーから残っていたLIMITは次バーopenでcrossしても既にrestingしていた注文なのでmaker扱いを維持します。この区別はfee/spreadの分類だけで、fill価格・fill数量・capacityを変更しません。
+
 区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。
 
 session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gapのcash interest / borrowはnext-open fill前の保有・現金へ適用し、processing bar分だけをfill後の状態へ適用します。したがって、週末をまたいで新しく建てたpositionへ週末分のborrowを遡及させません。continuous cadenceでは従来どおり1 bar分をfill後の状態へ適用します。

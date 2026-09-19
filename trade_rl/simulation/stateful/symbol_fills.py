@@ -97,6 +97,7 @@ def _execution_cost(
     runtime: StatefulExecutionRuntime,
     order: PendingOrder,
     *,
+    trigger: TriggerDecision,
     processing_index: int,
     filled_notional: float,
     participation_rate: float,
@@ -104,7 +105,10 @@ def _execution_cost(
     executor = runtime.executor
     symbol = order.intent.symbol_index
     dataset = executor.dataset
-    maker = order.intent.order_type is OrderType.LIMIT
+    maker = order.intent.order_type is OrderType.LIMIT and not (
+        trigger.segment is TriggerSegment.OPEN
+        and order.intent.eligible_index == processing_index
+    )
     venue_fee = (
         executor.cost.maker_fee_rate
         + dataset.resolved_array("maker_fee_rate")[processing_index, symbol]
@@ -314,6 +318,7 @@ class StatefulSymbolFillProcessor:
                 cost_amount = _execution_cost(
                     runtime,
                     order,
+                    trigger=trigger,
                     processing_index=processing_index,
                     filled_notional=allocation.filled_notional,
                     participation_rate=allocation.participation_rate,

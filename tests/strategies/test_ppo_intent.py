@@ -154,8 +154,9 @@ def test_policy_action_mapping_is_short_flat_long() -> None:
     )
 
 
-def test_ppo_hard_cap_plus_turnover_converges_to_static_cap() -> None:
-    close = np.full((7, 1), 100.0)
+def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
+    close = np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]])
+    open_price = np.vstack((close[0], close[:-1]))
     dataset = MarketDataset(
         dataset_id="7" * 64,
         symbols=("BTCUSDT",),
@@ -163,9 +164,9 @@ def test_ppo_hard_cap_plus_turnover_converges_to_static_cap() -> None:
         + np.arange(close.shape[0]) * np.timedelta64(1, "h"),
         features=np.zeros((close.shape[0], 1, 1), dtype=np.float32),
         global_features=np.zeros((close.shape[0], 1), dtype=np.float32),
-        open=close.copy(),
-        high=close.copy(),
-        low=close.copy(),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
         close=close,
         volume=np.full((close.shape[0], 1), 1_000_000.0),
         funding_rate=np.zeros((close.shape[0], 1)),
@@ -179,12 +180,12 @@ def test_ppo_hard_cap_plus_turnover_converges_to_static_cap() -> None:
         dataset,
         feature_indices=(0,),
         start_index=0,
-        stop_index=6,
-        gross_budget=1.0,
+        stop_index=4,
+        gross_budget=0.5,
         initial_capital=1_000.0,
         execution_cost=ExecutionCostConfig.zero(),
         risk_config=PreTradeRiskConfig(
-            max_gross=0.5,
+            max_gross=1.0,
             max_abs_weight=0.5,
             max_turnover=0.1,
             drawdown_start=1.0,
@@ -193,12 +194,13 @@ def test_ppo_hard_cap_plus_turnover_converges_to_static_cap() -> None:
     )
     env.reset(seed=5)
 
-    targets = []
-    for _ in range(5):
-        _, _, _, _, info = env.step(2)
-        targets.append(info["target_weight"])
+    _, _, _, _, first = env.step(2)
+    _, _, _, _, second = env.step(0)
+    _, _, _, _, third = env.step(0)
 
-    assert targets == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5])
+    assert first["target_weight"] == pytest.approx(0.5)
+    assert second["target_weight"] == pytest.approx(0.5)
+    assert third["target_weight"] == pytest.approx(0.4)
 
 
 def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:

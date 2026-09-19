@@ -366,3 +366,49 @@ def test_real_ppo_learns_trivial_causal_short_signal() -> None:
     assert strategy.decide(observation) is PositionIntent.SHORT
     for name, parameter in strategy.policy.policy.named_parameters():
         assert torch.isfinite(parameter).all(), name
+
+
+def test_real_ppo_terminal_settlement_fit_uses_agent_only_normalizer_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=71,
+        normalize_features=True,
+        settle_terminal_position=True,
+    )
+
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.start_index == 0
+    assert strategy.feature_normalizer.stop_index == 2
+    assert strategy.policy.device.type == "cpu"
+
+
+def test_real_interleaved_ppo_runs_with_terminal_settlement() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=73,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+        settle_terminal_position=True,
+    )
+
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.stop_index == 2
+    assert strategy.policy.num_timesteps == 64
+    assert strategy.policy.device.type == "cpu"

@@ -476,8 +476,8 @@ def test_ppo_step_info_exposes_realized_risk_execution_and_carry_state() -> None
     assert info["realized_weight"] == pytest.approx(env.book.weights[0])
     assert info["was_constrained"] is True
     assert "max_turnover" in info["risk_reasons"]
-    assert float(info["interval_cost"]) > 0.0
-    assert float(info["interval_funding"]) != 0.0
+    assert float(info["interval_cost_amount"]) > 0.0
+    assert float(info["interval_funding_amount"]) != 0.0
     assert float(info["requested_turnover"]) > float(info["filled_turnover"])
     assert 0.0 <= float(info["fill_ratio"]) < 1.0
     assert info["termination_reason"] is None

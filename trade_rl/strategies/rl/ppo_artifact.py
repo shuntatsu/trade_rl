@@ -78,6 +78,8 @@ def load_normalized_ppo(
     if sha256(policy_path.read_bytes()).hexdigest() != manifest["policy_sha256"]:
         raise ValueError("policy bytes differ from the normalized model manifest")
     module = importlib.import_module("stable_baselines3")
+    torch_module = importlib.import_module("torch")
+    getattr(torch_module, "set_num_threads")(1)
     model = getattr(module, "PPO").load(str(policy_path), device="cpu")
     if (
         tuple(model.observation_space.shape)

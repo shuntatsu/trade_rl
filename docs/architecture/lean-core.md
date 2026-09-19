@@ -131,7 +131,7 @@ Risk / executionが担当するもの:
 
 同じentry/exit判断をstrategyとriskへ二重実装しない。
 
-strategyのlogical intentから作る `desired_quantity` はrisk適用前のproposal stateである。静的なhard cap（drawdown縮小を伴わないmax gross / max absolute weight等）は既存どおりbounded targetへ再束縛でき、max-turnoverだけのprojectionは元proposalへの収束のため再束縛しない。一方 `drawdown_deleveraging` はその時点のdrawdownから毎bar再計算するtransient projectionであり、制約後quantityを次barの `desired_quantity` へ書き戻さない。同じdrawdown・同じ価格・同じintentならdrawdown scaleはidempotentに同じtargetを返し、50%→25%→12.5%のように同じscaleを自己再適用しない。single-symbol replay、shared-cash replay、PPO training envはこのproposal/risk state分離を共有する。
+strategyのlogical intentから作る `desired_quantity` はrisk適用前のproposal stateである。静的なhard cap（drawdown縮小を伴わないmax gross / max absolute weight等）は、transient projectionが同時発火していない場合だけbounded targetへ再束縛できる。`max_turnover` が理由に含まれるtargetはhard capや `hard_risk_turnover_override` が併記されても収束途中のstepであり、次barの `desired_quantity` へ書き戻さない。これにより、価格drift後のLONG→SHORT反転でも最初のdeleveraging targetへproposalが凍結せず、元のSHORT proposalから毎barturnover stepを再計算する。`drawdown_deleveraging` もその時点のdrawdownから毎bar再計算するtransient projectionであり、制約後quantityを次barの `desired_quantity` へ書き戻さない。同じdrawdown・同じ価格・同じintentならdrawdown scaleはidempotentに同じtargetを返し、50%→25%→12.5%のように同じscaleを自己再適用しない。single-symbol replay、shared-cash replay、PPO training envはこのproposal/risk state分離を共有する。
 
 ## Execution / accounting authority
 

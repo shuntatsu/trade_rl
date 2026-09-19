@@ -287,3 +287,85 @@ def test_terminal_settlement_remains_opt_in_for_generic_env() -> None:
     assert env.current_intent is PositionIntent.LONG
     assert env.book.quantities[0] > 0.0
     assert "terminal_settlement_intervals" not in info
+
+
+def test_terminal_settlement_preserves_residual_when_close_is_not_tradable() -> None:
+    base = _flat_cost_market()
+    tradable = base.tradable.copy()
+    tradable[3, 0] = False
+    dataset = replace(base, tradable=tradable)
+    replay = run_single_symbol_replay(
+        dataset,
+        CloseAtEndStrategy(
+            SequenceStrategy((PositionIntent.LONG, PositionIntent.LONG)),
+            close_index=2,
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        settle_terminal_position=True,
+    )
+    env.reset(seed=29)
+
+    env.step(2)
+    _, _, terminated, _, info = env.step(2)
+
+    assert terminated is True
+    assert abs(float(info["terminal_settlement_final_weight"])) > 0.0
+    assert env.book.quantities[0] == pytest.approx(replay.book.quantities[0])
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+
+
+def test_terminal_settlement_matches_economic_termination_path() -> None:
+    base = _flat_cost_market()
+    prices = np.asarray([[100.0], [100.0], [100.0], [300.0]])
+    dataset = replace(
+        base,
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        CloseAtEndStrategy(
+            SequenceStrategy((PositionIntent.SHORT, PositionIntent.SHORT)),
+            close_index=2,
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        settle_terminal_position=True,
+    )
+    env.reset(seed=31)
+
+    env.step(0)
+    _, reward, terminated, _, info = env.step(0)
+
+    assert terminated is True
+    assert np.isfinite(reward)
+    assert env.book.termination_reason == replay.book.termination_reason
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+    assert info["terminal_settlement_termination_reason"] == env.book.termination_reason

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -126,8 +125,6 @@ def fit_directional_candidate(
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
         )
-    torch = importlib.import_module("torch")
-    torch.set_num_threads(1)
     cutoff = (
         int(np.searchsorted(dataset.timestamps, np.datetime64(config.fit_cutoff))) - 1
     )

@@ -70,6 +70,7 @@ def test_terminal_settlement_matches_directional_close_at_end_economics() -> Non
     assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
     assert env.book.total_cost == pytest.approx(replay.book.total_cost)
     assert final_info["terminal_settlement_intervals"] == 1
+    assert abs(float(final_info["terminal_settlement_start_weight"])) > 0.0
     assert float(final_info["terminal_settlement_cost_amount"]) > 0.0
 
     expected = np.log1p(replay.returns.values)

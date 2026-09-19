@@ -113,9 +113,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "69ffcf137620890ea7a3b8089768f2ced7fe48e320b4f02ee9cbc238781d158d",
+      "source_sha256": "f825b9506516719d39e0cae9d6f5daf59af434d393f9bdf9f5f35ac690a07846",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOを学習します。 vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
+      "description_ja": "既定のsequential学習を保持しつつ、明示時だけfit銘柄ごとのfixed-symbol環境をDummyVecEnvへ束ねるinterleaved学習layoutを構成し、同じObservation・reward・execution/risk契約でstable-baselines3のPPOをCPU固定で学習します。vector envのreset seed差をexecution乱数へ混ぜないため、interleavedでは確率的slippageをfail closedにします。",
       "variables": [
         {
           "name": "training_layout",

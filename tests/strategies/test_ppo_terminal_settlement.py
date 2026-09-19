@@ -263,3 +263,27 @@ def test_terminal_settlement_rejects_window_without_agent_interval() -> None:
             execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
             settle_terminal_position=True,
         )
+
+
+def test_terminal_settlement_remains_opt_in_for_generic_env() -> None:
+    dataset = _flat_cost_market()
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env.reset(seed=23)
+
+    info: dict[str, object] = {}
+    terminated = False
+    for action in (2, 2, 2):
+        _, _, terminated, _, info = env.step(action)
+
+    assert terminated is True
+    assert env.current_intent is PositionIntent.LONG
+    assert env.book.quantities[0] > 0.0
+    assert "terminal_settlement_intervals" not in info

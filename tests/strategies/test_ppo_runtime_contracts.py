@@ -492,7 +492,9 @@ def test_directional_zero_overlay_keeps_dataset_participation_capacity() -> None
     )
     replay = run_single_symbol_replay(
         dataset,
-        SequenceStrategy((PositionIntent.LONG, PositionIntent.LONG, PositionIntent.LONG)),
+        SequenceStrategy(
+            (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.LONG)
+        ),
         start_index=0,
         stop_index=3,
         gross_budget=0.5,

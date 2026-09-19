@@ -1,0 +1,35 @@
+name: tmp Issue 687 format assurance test
+
+on:
+  push:
+    branches:
+      - audit/issue687-research-assurance
+    paths:
+      - .github/workflows/tmp-issue687-format-assurance-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: audit/issue687-research-assurance
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Format test and remove formatter
+        run: |
+          set -euo pipefail
+          uv run ruff format tests/agent_repo/test_research_assurance.py
+          uv run ruff check tests/agent_repo/test_research_assurance.py
+          uv run ruff format --check tests/agent_repo/test_research_assurance.py
+          git rm .github/workflows/tmp-issue687-format-assurance-test.yml
+          git add tests/agent_repo/test_research_assurance.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: format research assurance tests"
+          git push origin HEAD:audit/issue687-research-assurance

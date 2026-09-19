@@ -241,6 +241,11 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
         "stable_baselines3",
         SimpleNamespace(PPO=FakePPO),
     )
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
     strategy = fit_ppo_strategy(
         market(),
         feature_indices=(0,),

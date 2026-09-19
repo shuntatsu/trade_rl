@@ -242,6 +242,29 @@ def test_turnover_only_projection_keeps_desired_quantities_for_convergence() -> 
     assert result.decisions[1].target_weights == pytest.approx((0.5, 0.5))
 
 
+def test_hard_cap_plus_turnover_converges_to_static_cap() -> None:
+    dataset = _market(np.full((7, 1), 100.0))
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=6,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=_risk(max_gross=0.5, max_turnover=0.1),
+    )
+
+    assert [item.proposal_weights[0] for item in result.decisions[:5]] == pytest.approx(
+        [1.0] * 5
+    )
+    assert [item.target_weights[0] for item in result.decisions[:5]] == pytest.approx(
+        [0.1, 0.2, 0.3, 0.4, 0.5]
+    )
+    assert "max_gross" in result.decisions[0].risk_reasons
+    assert "max_turnover" in result.decisions[0].risk_reasons
+
+
 def test_hard_risk_projection_rebinds_desired_quantities() -> None:
     dataset = _market(np.full((5, 2), [100.0, 200.0]))
     result = replay_module.run_shared_cash_replay(

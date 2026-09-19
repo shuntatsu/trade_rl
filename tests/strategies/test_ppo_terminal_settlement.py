@@ -28,6 +28,7 @@ def _flat_cost_market():
 
 
 def test_terminal_settlement_matches_directional_close_at_end_economics() -> None:
+    # RED: PPOTradingEnv does not yet expose executable terminal settlement.
     dataset = _flat_cost_market()
     replay = run_single_symbol_replay(
         dataset,

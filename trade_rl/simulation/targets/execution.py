@@ -51,6 +51,7 @@ def execute_target_statefully(
         raise ValueError("stateful execution requires positive starting equity")
 
     target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+    submit_tick_sizes, _, _ = executor.effective_rule_arrays(index=start_index)
     reconciliation = reconcile_target(
         dataset_id=executor.dataset.dataset_id,
         target_identity=target_identity,
@@ -66,6 +67,7 @@ def execute_target_statefully(
         time_in_force=time_in_force,
         expiry_index=expiry_index,
         limit_offset_rate=executor.cost.limit_offset_rate,
+        tick_sizes=submit_tick_sizes,
         maximum_gross=executor.cost.max_leverage,
         reduce_only_symbols=executor.reduce_only_symbols,
     )

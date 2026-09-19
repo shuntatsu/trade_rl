@@ -65,6 +65,7 @@ def _reconcile(
     time_in_force: TimeInForce = TimeInForce.GTC,
     expiry_index: int | None = None,
     limit_offset_rate: float = 0.01,
+    tick_size: float | None = None,
 ):
     return reconcile_target(
         dataset_id="d" * 64,
@@ -81,6 +82,7 @@ def _reconcile(
         time_in_force=time_in_force,
         expiry_index=expiry_index,
         limit_offset_rate=limit_offset_rate,
+        tick_sizes=None if tick_size is None else np.array([tick_size]),
         maximum_gross=1.0,
     )
 
@@ -193,6 +195,34 @@ def test_limit_and_stop_prices_are_directional_and_submission_bound() -> None:
     assert buy_limit.new_intents[0].stop_price is None
     assert sell_stop.new_intents[0].stop_price == pytest.approx(98.0)
     assert sell_stop.new_intents[0].limit_price is None
+
+
+@pytest.mark.parametrize(
+    ("target_weight", "order_type", "expected_price"),
+    [
+        (0.5, OrderType.LIMIT, 99.0),
+        (-0.5, OrderType.LIMIT, 101.0),
+        (0.5, OrderType.STOP_MARKET, 101.0),
+        (-0.5, OrderType.STOP_MARKET, 99.0),
+    ],
+)
+def test_generated_nonmarket_bound_snaps_conservatively_to_submit_tick(
+    target_weight: float,
+    order_type: OrderType,
+    expected_price: float,
+) -> None:
+    result = _reconcile(
+        target_weight=target_weight,
+        order_type=order_type,
+        limit_offset_rate=0.007,
+        tick_size=0.5,
+    )
+
+    intent = result.new_intents[0]
+    actual_price = (
+        intent.limit_price if order_type is OrderType.LIMIT else intent.stop_price
+    )
+    assert actual_price == pytest.approx(expected_price)
 
 
 def test_day_orders_require_explicit_expiry_and_zero_delta_submits_nothing() -> None:

@@ -19,6 +19,74 @@ from trade_rl.simulation.quantities import (
 _TOLERANCE = 1e-12
 
 
+def _projection_tolerance(price: float, projected: float) -> float:
+    return 4.0 * max(math.ulp(price), math.ulp(projected))
+
+
+def price_on_tick_grid(price: float, tick_size: float) -> bool:
+    """Return whether a float price represents a tick-grid point."""
+
+    resolved_price = float(price)
+    resolved_tick = float(tick_size)
+    if (
+        not math.isfinite(resolved_price)
+        or resolved_price <= 0.0
+        or not math.isfinite(resolved_tick)
+        or resolved_tick < 0.0
+    ):
+        return False
+    if resolved_tick == 0.0:
+        return True
+
+    price_exact = Fraction(str(resolved_price))
+    tick_exact = Fraction(str(resolved_tick))
+    if price_exact % tick_exact == 0:
+        return True
+
+    nearest_count = round(resolved_price / resolved_tick)
+    projected = nearest_count * resolved_tick
+    return abs(resolved_price - projected) <= _projection_tolerance(
+        resolved_price,
+        projected,
+    )
+
+
+def snap_price_to_tick(
+    price: float,
+    tick_size: float,
+    *,
+    round_up: bool,
+) -> float:
+    """Snap a generated order bound conservatively to a tick grid."""
+
+    resolved_price = float(price)
+    resolved_tick = float(tick_size)
+    if not math.isfinite(resolved_price) or resolved_price <= 0.0:
+        raise ValueError("price must be finite and positive")
+    if not math.isfinite(resolved_tick) or resolved_tick < 0.0:
+        raise ValueError("tick_size must be finite and non-negative")
+    if resolved_tick == 0.0:
+        return resolved_price
+
+    ratio = resolved_price / resolved_tick
+    nearest_count = round(ratio)
+    nearest = nearest_count * resolved_tick
+    if abs(resolved_price - nearest) <= _projection_tolerance(
+        resolved_price,
+        nearest,
+    ):
+        count = nearest_count
+    else:
+        count = math.ceil(ratio) if round_up else math.floor(ratio)
+
+    if count <= 0:
+        raise ValueError("positive order price has no valid tick-grid projection")
+    snapped = count * resolved_tick
+    if not math.isfinite(snapped) or snapped <= 0.0:
+        raise ValueError("tick-grid projection must remain finite and positive")
+    return float(snapped)
+
+
 class OrderAdmissionError(ValueError):
     """Raised when admission inputs are structurally invalid."""
 
@@ -146,6 +214,13 @@ class OrderAdmissionPolicy:
         for value in (tick_size, lot_size, minimum_notional, minimum_quantity):
             if not math.isfinite(value) or value < 0.0:
                 return self._reject("invalid_execution_rule")
+        bound_price = None
+        if intent.order_type is OrderType.LIMIT:
+            bound_price = intent.limit_price
+        elif intent.order_type is OrderType.STOP_MARKET:
+            bound_price = intent.stop_price
+        if bound_price is not None and not price_on_tick_grid(bound_price, tick_size):
+            return self._reject("price_not_on_tick")
         if maximum_quantity is not None:
             if (
                 not math.isfinite(maximum_quantity)

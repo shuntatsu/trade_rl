@@ -9,6 +9,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.orders.admission import snap_price_to_tick
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -47,16 +48,35 @@ def _type_prices(
     quantity: float,
     reference_price: float,
     offset_rate: float,
+    tick_size: float = 0.0,
 ) -> tuple[float | None, float | None]:
     buy = quantity > 0.0
     if order_type is OrderType.MARKET:
         return None, None
     if order_type is OrderType.LIMIT:
         factor = 1.0 - offset_rate if buy else 1.0 + offset_rate
-        return reference_price * factor, None
+        raw_price = reference_price * factor
+        try:
+            price = snap_price_to_tick(
+                raw_price,
+                tick_size,
+                round_up=not buy,
+            )
+        except ValueError as error:
+            raise OrderReconciliationError(str(error)) from error
+        return price, None
     if order_type is OrderType.STOP_MARKET:
         factor = 1.0 + offset_rate if buy else 1.0 - offset_rate
-        return None, reference_price * factor
+        raw_price = reference_price * factor
+        try:
+            price = snap_price_to_tick(
+                raw_price,
+                tick_size,
+                round_up=buy,
+            )
+        except ValueError as error:
+            raise OrderReconciliationError(str(error)) from error
+        return None, price
     raise OrderReconciliationError(f"unsupported order type: {order_type}")
 
 
@@ -76,6 +96,7 @@ def reconcile_target(
     time_in_force: TimeInForce,
     expiry_index: int | None,
     limit_offset_rate: float,
+    tick_sizes: np.ndarray | None = None,
     maximum_gross: float = 1.0,
     reduce_only_symbols: tuple[int, ...] | None = None,
 ) -> ReconciliationResult:
@@ -115,11 +136,17 @@ def reconcile_target(
     prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
     quantities = np.asarray(book.quantities, dtype=np.float64).reshape(-1)
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64).reshape(-1)
+    ticks = (
+        np.zeros_like(prices)
+        if tick_sizes is None
+        else np.asarray(tick_sizes, dtype=np.float64).reshape(-1)
+    )
     expected_shape = quantities.shape
     if (
         weights.shape != expected_shape
         or prices.shape != expected_shape
         or multipliers.shape != expected_shape
+        or ticks.shape != expected_shape
     ):
         raise OrderReconciliationError(
             "target, price, multiplier and holdings shapes must match"
@@ -131,6 +158,8 @@ def reconcile_target(
         or np.any(prices <= 0.0)
         or not np.isfinite(multipliers).all()
         or np.any(multipliers <= 0.0)
+        or not np.isfinite(ticks).all()
+        or np.any(ticks < 0.0)
     ):
         raise OrderReconciliationError("target and pricing inputs must be finite")
     gross = float(np.abs(weights).sum())
@@ -212,6 +241,7 @@ def reconcile_target(
             quantity=residual,
             reference_price=float(prices[symbol_index]),
             offset_rate=limit_offset_rate,
+            tick_size=float(ticks[symbol_index]),
         )
         intents.append(
             OrderIntent.create(

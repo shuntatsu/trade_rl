@@ -15,6 +15,52 @@ Local repository tooling (`python -m tools.agent_repo`) は preflight / context 
 
 CIは `push` でFast Push（lint/format/type）のみ、`pull_request` to `main` でfull Core + PPO Runtime + Guideを実行する。PPO Runtimeは`train-sb3` extraの実SB3/Torchを使うintegration smokeである。統合判断にはexact final PR HEADのfull CIだけを有効な証拠として使う。
 
+## Branch / verification budget
+
+Remote branch・temporary workflow・Issue/PRは**検証用の使い捨て状態ではなく、共有されたdurable state**として扱う。新しいremote stateを増やす前に、local/mockで代替できない理由を確認する。
+
+### Branch creation gate
+
+新しいremote branchを作る前に、必ずcurrent `main`、open PR、同一Issue/目的のbranch、recent commits、queued/in-progress Actionsを再取得する。同じObjectiveを持つactive branchが1本でもあれば、新規branchを作らず、そのHEADをreview/continueする。並行更新を検出した場合も「競合回避用branch」を増やさず、現在HEADを読み直して既存作業へ合流する。
+
+write Taskは原則として**durable implementation branch 1本**だけを所有する。exactly-onceな経済実行・外部side effectのように、implementation authorityと実行authorityを分離する必要がある場合だけ、sealed implementation後に**execution branchを追加で1本まで**許可する。それ以外の追加remote branchが必要なら、作成前にIssue/PRへ「既存branch・local worktree・run/artifactでは表現できない理由」を記録する。
+
+次の目的だけでremote branchを作らない。
+
+- RED / GREEN / formatter / Ruff / Mypy / py_compile
+- targeted verification / exact-head verification
+- seal / fresh reconstruction / audit / provenance recovery
+- helper verification / runner preparation / workflow rerun
+- GitHub Actionsを発火させるためだけのcommit/branch
+
+これらは既存durable branch上のexact SHA、local worktree、またはActions run/artifactで表現する。verificationは原則read-onlyであり、検証対象branchから別のverification branchを派生させない。
+
+### Local-first verification ladder
+
+検証は次の安い順序で行う。後段を前段の代替にしない。
+
+1. pure function / state machineをlocalの最小mock/fake/stubでRED/GREENする。
+2. local targeted test、Ruff/Format/Mypy、必要なreal dependency smokeを行う。
+3. 同じdurable branch/PRの既存CIを使う。
+4. GitHub permissions、Artifact API、workflow run identity、remote exactly-once claimなど**GitHub固有semantics**だけを専用Actionsで確認する。
+5. final PR HEADでfull CI / integration / E2Eを行う。
+
+formatter・lint・type checkのためにtemporary workflowやbot formatter branchを作らない。local execution surfaceが利用できない場合も、同じdurable branchへ最小patchを入れて既存CIで確認し、helper branchを増やさない。
+
+GitHub固有semanticsの検証でtemporary workflowが避けられない場合は、**同一durable branch上で1ファイルを更新して使い回す**。失敗ごとに `tmp-*-v2` / `v3` を追加しない。final candidate HEADではtemporary workflowを削除し、durable diffに残っていないことを確認する。
+
+### Exactly-once preflight
+
+one-shot training/economic execution/irreversible external side effectの前には、real executionより先にmock/fake/stubで少なくとも次をfailure-injectionする。
+
+- optional dependency欠落・version mismatch
+- source/artifact/authority identity mismatch
+- duplicate activation / duplicate result slot
+- evaluator開始直前の例外
+- evaluator開始後・publish前のcrash window
+
+必要runtime dependencyはevaluator/training境界より前にinstall/import/version検証する。execution権を消費する処理では、durable activation/claimをevaluator開始前に作り、claim後の再実行をfail-closedにする。mockはこの順序保証のoracleとして使い、実Integration/E2Eを置き換えない。
+
 ## Git / PR boundary
 
 Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。Integration invariant: tested PR head contains current `main`. merge直前にcurrent `main` のSHAを再確認し、tested PR headがそのcommitを包含していることと、その同一PR HEADに対する最新CI結果を確認する。`main` が進んだ場合、古いGreenを再利用せず、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作って再検証する。

@@ -63,6 +63,38 @@ uv run python -m tools.agent_repo eval-list
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 
+## Remote state minimization
+
+Agentはbranch/workflow/Issueを増やすこと自体を進捗にしない。remote stateはshared coordination costを持つため、**local-first / existing-branch-first**を既定とする。
+
+- 1 write Task = 原則1 durable remote branch。RED/GREEN、format、verification、seal、audit、recoveryはそのTaskのbranchを増やす理由にならない。
+- Reviewer / Verifierは既定でread-onlyとし、検証用branchを作らずexact target SHAを読む。
+- lease epochはremote branch数と1:1ではない。reassignmentではまず既存branchのHEAD・active workflow・side effectをreconcileし、安全なら同branchを次epochへ引き継ぐ。fencing上どうしても分離が必要な場合だけ新remote branchを作り、旧branchをdurable anchorへ収束させる。
+- exactly-once executionだけはimplementation branchと別のrun branchを1本持ってよい。ただしimplementation/preflight authorityがcompleteする前にrun branchを作らない。
+- substepごとにIssueを作らない。新IssueはObjective、authorization boundary、data/economic evidence boundary、または独立Acceptance Criteriaが本当に別の場合だけ作る。
+
+### Test / CI routing
+
+新しいbranchやtemporary workflowを作る前に、次を順に検討する。
+
+1. network/API/time/filesystem/optional dependencyをmock/fake/stubし、call orderingとfailure side effectをlocal TDDする。
+2. local targeted testとstatic/type/formatを実行する。
+3. 既存PR CI / existing workflowを使う。
+4. GitHub API/permission/Artifact/run identityのようなremote-only behaviorだけをActionsで検証する。
+
+GitHub-only testが必要でも、同一Task branch上のtemporary workflow 1ファイルを更新して再利用し、runごとにbranchやworkflow fileを増やさない。temporary workflowの失敗は、production bugとharness bugを区別してから修正する。final HEADではtemporary filesが0であることをdiff/statusで確認する。
+
+### Branch creation decision
+
+新branch作成は次の条件を全部満たすときだけ行う。
+
+1. 同じIssue/Objectiveのactive branch/PRが存在しない。
+2. local worktreeまたは既存branchでは安全にwriteできない。
+3. Actions run/artifact/exact SHAだけでは必要なdurable authorityを表現できない。
+4. branchの役割と終了条件が明確である。
+
+いずれかを満たさない場合は新branchを作らない。特に並行Agentが先に同目的のbranchを更新したことを検知したら、writeを停止し、そのHEADをreview対象へ切り替える。
+
 ## Agent Coordination Plane
 
 複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。

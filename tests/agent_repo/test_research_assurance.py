@@ -69,8 +69,14 @@ def _record() -> dict[str, object]:
         },
         "claims": {
             "claim_level": "development_profitability",
-            "permitted": ["development-only profitability under the frozen assumptions"],
-            "forbidden": ["unused-data validity", "production eligibility", "live trading"],
+            "permitted": [
+                "development-only profitability under the frozen assumptions"
+            ],
+            "forbidden": [
+                "unused-data validity",
+                "production eligibility",
+                "live trading",
+            ],
             "next_authorized_action": "separate unused-data protocol only if the frozen gate passes",
             "production_eligible": False,
             "live_trading_authorized": False,
@@ -183,7 +189,9 @@ def test_development_stage_cannot_authorize_production_or_live() -> None:
     assert any("development stage" in error for error in result.errors)
 
 
-def test_structurally_complete_wrong_question_stays_blocked_by_adversarial_review() -> None:
+def test_structurally_complete_wrong_question_stays_blocked_by_adversarial_review() -> (
+    None
+):
     record = _record()
     digest = assurance_digest(record)
     identity = record["identity"]

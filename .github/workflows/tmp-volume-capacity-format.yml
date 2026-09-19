@@ -1,0 +1,33 @@
+name: tmp volume capacity format probe
+
+on:
+  push:
+    branches:
+      - fix/volume-unit-capacity-quantity
+    paths:
+      - .github/workflows/tmp-volume-capacity-format.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d002a5da4cee4d6c2ecbd5f0b5f204f341b7c5cc
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Show formatter diffs
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format             tests/simulation/test_liquidity_volume_units.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/stateful/symbol_fills.py
+          git diff --             tests/simulation/test_liquidity_volume_units.py             trade_rl/simulation/liquidity.py             trade_rl/simulation/stateful/symbol_fills.py
+          test -z "$(git status --short -- tests/simulation/test_liquidity_volume_units.py trade_rl/simulation/liquidity.py trade_rl/simulation/stateful/symbol_fills.py)"

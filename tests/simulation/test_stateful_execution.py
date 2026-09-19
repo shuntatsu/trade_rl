@@ -305,7 +305,9 @@ def test_off_tick_buy_limit_is_rejected_before_trigger_rounding() -> None:
     assert not any(
         event.event_type in {"filled", "partial_fill"} for event in result.order_events
     )
-    rejected = [event for event in result.order_events if event.event_type == "rejected"]
+    rejected = [
+        event for event in result.order_events if event.event_type == "rejected"
+    ]
     assert len(rejected) == 1
     assert rejected[0].reason == "price_not_on_tick"
 

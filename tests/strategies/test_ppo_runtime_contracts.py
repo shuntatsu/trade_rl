@@ -368,7 +368,7 @@ def test_ppo_reward_matches_dividend_and_cash_interest_carry() -> None:
         low=np.full_like(base.low, 100.0),
         close=np.full_like(base.close, 100.0),
         dividend=np.full_like(base.close, 0.25),
-        cash_rate=np.full_like(base.close, 0.05),
+        cash_rate=np.full(base.n_bars, 0.05, dtype=np.float64),
     )
     intents = (
         PositionIntent.LONG,

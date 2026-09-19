@@ -135,7 +135,9 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
 
 
 def test_reversal_keeps_short_proposal_after_hard_override() -> None:
-    close = np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]])
+    close = np.asarray(
+        [[100.0], [100.0], [100.0], [100.0], [100.0], [200.0], [200.0], [200.0]]
+    )
     open_price = np.vstack((close[0], close[:-1]))
     dataset = MarketDataset(
         dataset_id="c" * 64,
@@ -171,20 +173,23 @@ def test_reversal_keeps_short_proposal_after_hard_override() -> None:
         IntentSequence(
             (
                 PositionIntent.LONG,
-                PositionIntent.SHORT,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.LONG,
                 PositionIntent.SHORT,
                 PositionIntent.SHORT,
             )
         ),
         start_index=0,
-        stop_index=4,
+        stop_index=7,
         gross_budget=0.5,
         initial_capital=1_000.0,
         risk=risk,
     )
 
-    targets = [decision.target_weight for decision in result.decisions[:3]]
-    assert targets == pytest.approx([0.5, 0.5, 0.4])
+    assert result.decisions[5].target_weight == pytest.approx(0.5)
+    assert result.decisions[6].target_weight == pytest.approx(0.4)
 
 
 def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:

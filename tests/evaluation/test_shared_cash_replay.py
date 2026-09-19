@@ -255,21 +255,37 @@ def test_turnover_only_projection_keeps_desired_quantities_for_convergence() -> 
 
 
 def test_shared_reversal_preserves_proposal_through_hard_turnover_override() -> None:
-    dataset = _market(np.asarray([[100.0], [200.0], [200.0], [200.0], [200.0]]))
+    dataset = _market(
+        np.asarray(
+            [
+                [100.0],
+                [100.0],
+                [100.0],
+                [100.0],
+                [100.0],
+                [200.0],
+                [200.0],
+                [200.0],
+            ]
+        )
+    )
     result = replay_module.run_shared_cash_replay(
         dataset,
         (
             SequenceIntent(
                 (
                     PositionIntent.LONG,
-                    PositionIntent.SHORT,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
+                    PositionIntent.LONG,
                     PositionIntent.SHORT,
                     PositionIntent.SHORT,
                 )
             ),
         ),
         start_index=0,
-        stop_index=4,
+        stop_index=7,
         gross_budget=0.5,
         initial_capital=1_000.0,
         execution_cost=ExecutionCostConfig.zero(),
@@ -284,13 +300,15 @@ def test_shared_reversal_preserves_proposal_through_hard_turnover_override() -> 
         ),
     )
 
-    assert result.decisions[1].proposal_weights == pytest.approx((-0.5,))
-    assert result.decisions[1].target_weights == pytest.approx((0.5,))
-    assert "max_turnover" in result.decisions[1].risk_reasons
-    assert "max_abs_weight" in result.decisions[1].risk_reasons
-    assert "hard_risk_turnover_override" in result.decisions[1].risk_reasons
-    assert result.decisions[2].proposal_weights == pytest.approx((-0.5,))
-    assert result.decisions[2].target_weights == pytest.approx((0.4,))
+    reversal = result.decisions[5]
+    follow_up = result.decisions[6]
+    assert reversal.proposal_weights == pytest.approx((-0.5,))
+    assert reversal.target_weights == pytest.approx((0.5,))
+    assert "max_turnover" in reversal.risk_reasons
+    assert "max_abs_weight" in reversal.risk_reasons
+    assert "hard_risk_turnover_override" in reversal.risk_reasons
+    assert follow_up.proposal_weights == pytest.approx((-0.5,))
+    assert follow_up.target_weights == pytest.approx((0.4,))
 
 
 def test_hard_risk_projection_rebinds_desired_quantities() -> None:

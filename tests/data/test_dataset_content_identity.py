@@ -61,7 +61,6 @@ def test_content_identity_round_trip_recomputes_all_arrays(tmp_path: Path) -> No
         )
 
 
-
 def test_content_identified_dataset_arrays_cannot_be_reenabled_for_write() -> None:
     market = dataset(fee_rate=0.001).with_content_identity({"source": "unit-test"})
 

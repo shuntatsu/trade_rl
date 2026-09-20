@@ -6,7 +6,7 @@ import importlib
 import math
 from functools import partial
 from numbers import Integral
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import gymnasium as gym
 import numpy as np
@@ -34,6 +34,7 @@ PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
+PPO_TRAINING_LAYOUT_SHARED_CASH = "shared_cash"
 _PPO_BATCH_SIZE = 64
 
 
@@ -82,8 +83,11 @@ def _validated_training_layout(
     if training_layout not in {
         PPO_TRAINING_LAYOUT_SEQUENTIAL,
         PPO_TRAINING_LAYOUT_INTERLEAVED,
+        PPO_TRAINING_LAYOUT_SHARED_CASH,
     }:
-        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
+        raise ValueError(
+            "training_layout must be 'sequential', 'interleaved', or 'shared_cash'"
+        )
     if (
         training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
         and rollout_steps_per_env is not None
@@ -103,11 +107,11 @@ def _validated_interleaved_rollout_steps(
         or rollout_steps_per_env <= 0
     ):
         raise ValueError(
-            "rollout_steps_per_env must be a positive integer for interleaved training"
+            "rollout_steps_per_env must be a positive integer for vectorized training"
         )
     if rollout_steps_per_env * n_envs % _PPO_BATCH_SIZE != 0:
         raise ValueError(
-            "interleaved rollout batch must be divisible by PPO batch_size=64"
+            "vectorized rollout batch must be divisible by PPO batch_size=64"
         )
     return rollout_steps_per_env
 
@@ -249,6 +253,534 @@ class PPOIntentStrategy:
         )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
+
+
+class PPOSharedCashCoordinator:
+    """Synchronous per-symbol PPO decisions over one shared portfolio book."""
+
+    def __init__(
+        self,
+        dataset: MarketDataset,
+        *,
+        feature_indices: tuple[int, ...],
+        symbol_indices: tuple[int, ...] | None = None,
+        start_index: int,
+        stop_index: int,
+        gross_budget: float,
+        initial_capital: float = 100_000.0,
+        execution_cost: ExecutionCostConfig | None = None,
+        risk_config: PreTradeRiskConfig | None = None,
+        feature_normalizer: PPOFeatureNormalizer | None = None,
+        settle_terminal_position: bool = False,
+    ) -> None:
+        if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
+            raise ValueError("risk_config must be a PreTradeRiskConfig or None")
+        if not isinstance(settle_terminal_position, bool):
+            raise ValueError("settle_terminal_position must be boolean")
+        if dataset.n_symbols <= 0:
+            raise ValueError("PPOSharedCashCoordinator requires at least one symbol")
+        if (
+            isinstance(start_index, bool)
+            or not isinstance(start_index, int)
+            or isinstance(stop_index, bool)
+            or not isinstance(stop_index, int)
+            or not 0 <= start_index < stop_index < dataset.n_bars
+        ):
+            raise ValueError(
+                "coordinator range must satisfy 0 <= start < stop < n_bars"
+            )
+        if not math.isfinite(initial_capital) or initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
+        target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
+
+        self.dataset = dataset
+        self.feature_indices = validated_feature_indices(dataset, feature_indices)
+        self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
+        self.start_index = start_index
+        self.stop_index = stop_index
+        self.gross_budget = gross_budget
+        self.initial_capital = initial_capital
+        self.execution_cost = execution_cost or ExecutionCostConfig.zero()
+        self.risk_config = risk_config
+        self.settle_terminal_position = settle_terminal_position
+        self.agent_stop_index = _agent_stop_index(
+            start_index=start_index,
+            stop_index=stop_index,
+            execution_cost=self.execution_cost,
+            settle_terminal_position=settle_terminal_position,
+        )
+        if feature_normalizer is not None:
+            feature_normalizer.validate_features(self.feature_indices)
+            feature_normalizer.validate_training_scope(
+                dataset,
+                self.symbol_indices,
+                start_index,
+                self.agent_stop_index,
+            )
+        self.feature_normalizer = feature_normalizer
+        if risk_config is not None and (
+            risk_config.max_gross > self.execution_cost.max_leverage
+            or risk_config.max_abs_weight > self.execution_cost.max_leverage
+        ):
+            raise ValueError(
+                "risk max_gross/max_abs_weight must not exceed execution max_leverage"
+            )
+
+        observation_size = 3 * len(self.feature_indices) + 2
+        self.observation_space = spaces.Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(observation_size,),
+            dtype=np.float32,
+        )
+        self.action_space = spaces.Discrete(3)
+        self._execution_seed_stream: np.random.Generator | None = None
+        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
+        self.book = self._initial_book()
+        self.current_intents = [
+            PositionIntent.FLAT for _ in range(self.dataset.n_symbols)
+        ]
+        self.desired_quantities = np.zeros(
+            self.dataset.n_symbols,
+            dtype=np.float64,
+        )
+        self.index = self.start_index
+        self._terminated = False
+
+    @property
+    def num_envs(self) -> int:
+        return len(self.symbol_indices)
+
+    def _initial_book(self) -> BookState:
+        initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
+        return BookState.zero(
+            self.dataset.n_symbols,
+            self.initial_capital,
+            initial_prices,
+            contract_multipliers=self.dataset.contract_multipliers,
+        )
+
+    def _strategy_observation(self, symbol_index: int) -> StrategyObservation:
+        return StrategyObservation(
+            index=self.index,
+            timestamp=self.dataset.timestamps[self.index],
+            symbol=self.dataset.symbols[symbol_index],
+            features=self.dataset.features[self.index, symbol_index],
+            feature_available=self.dataset.feature_available[self.index, symbol_index],
+            feature_staleness=self.dataset.resolved_array("feature_staleness")[
+                self.index, symbol_index
+            ],
+            global_features=self.dataset.global_features[self.index],
+            global_feature_available=self.dataset.resolved_array(
+                "global_feature_available"
+            )[self.index],
+            current_intent=self.current_intents[symbol_index],
+            current_weight=float(self.book.weights[symbol_index]),
+        )
+
+    def _encoded_observations(self) -> np.ndarray:
+        observations = np.stack(
+            [
+                _encode_observation(
+                    self._strategy_observation(symbol_index),
+                    self.feature_indices,
+                    self.feature_normalizer,
+                )
+                for symbol_index in self.symbol_indices
+            ]
+        ).astype(np.float32, copy=False)
+        return observations.copy()
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+    ) -> tuple[np.ndarray, tuple[dict[str, object], ...]]:
+        if seed is not None:
+            self._execution_seed_stream = np.random.default_rng(seed)
+            execution_seed = seed
+        elif self._execution_seed_stream is None:
+            execution_seed = self.execution_cost.random_seed
+            self._execution_seed_stream = np.random.default_rng(execution_seed)
+        else:
+            execution_seed = int(
+                self._execution_seed_stream.integers(0, np.iinfo(np.int64).max)
+            )
+        self.executor = MarketExecutor(self.dataset, self.execution_cost)
+        self.executor.reset_random_state(execution_seed)
+        self.risk = (
+            _default_risk(self.executor)
+            if self.risk_config is None
+            else PreTradeRisk(self.risk_config)
+        )
+        self.book = self._initial_book()
+        self.current_intents = [
+            PositionIntent.FLAT for _ in range(self.dataset.n_symbols)
+        ]
+        self.desired_quantities = np.zeros(
+            self.dataset.n_symbols,
+            dtype=np.float64,
+        )
+        self.index = self.start_index
+        self._terminated = False
+        return self._encoded_observations(), tuple(
+            {
+                "symbol_index": symbol_index,
+                "symbol": self.dataset.symbols[symbol_index],
+            }
+            for symbol_index in self.symbol_indices
+        )
+
+    def _validated_actions(self, actions: object) -> tuple[PositionIntent, ...]:
+        values = np.asarray(actions)
+        if values.ndim != 1 or values.size != self.num_envs:
+            raise ValueError(
+                "shared-cash PPO action vector must contain one action per symbol"
+            )
+        return tuple(_intent_from_action(value) for value in values)
+
+    def _settle_terminal_positions(
+        self,
+    ) -> tuple[float, dict[str, object], np.ndarray, np.ndarray]:
+        start_weights = np.asarray(
+            self.book.weights[list(self.symbol_indices)],
+            dtype=np.float64,
+        ).copy()
+        settlement_log_return = 0.0
+        settlement_intervals = 0
+        settlement_cost = 0.0
+        settlement_funding = 0.0
+        settlement_borrow = 0.0
+        settlement_dividend = 0.0
+        settlement_cash_interest = 0.0
+        settlement_requested_turnover = 0.0
+        settlement_filled_turnover = 0.0
+        settlement_risk_reasons: list[str] = []
+
+        for symbol_index in self.symbol_indices:
+            self.current_intents[symbol_index] = PositionIntent.FLAT
+            self.desired_quantities[symbol_index] = 0.0
+
+        while self.index < self.stop_index and self.book.termination_reason is None:
+            proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+            constrained = self.risk.constrain(
+                proposal_weights,
+                current=self.book.weights,
+                drawdown=self.book.max_drawdown,
+            )
+            settlement_risk_reasons.extend(constrained.reasons)
+            execution = self.executor.execute_interval(
+                self.book,
+                constrained.weights,
+                start_index=self.index,
+                bars=1,
+            )
+            if execution.next_index <= self.index:
+                raise RuntimeError(
+                    "shared-cash terminal settlement did not advance environment"
+                )
+            self.book = execution.book
+            self.index = execution.next_index
+            settlement_log_return += math.log1p(execution.interval_net_return)
+            settlement_intervals += 1
+            settlement_cost += execution.interval_cost
+            settlement_funding += execution.interval_funding
+            settlement_borrow += execution.interval_borrow_cost
+            settlement_dividend += execution.interval_dividend
+            settlement_cash_interest += execution.interval_cash_interest
+            settlement_requested_turnover += execution.requested_turnover
+            settlement_filled_turnover += execution.filled_turnover
+
+        final_weights = np.asarray(
+            self.book.weights[list(self.symbol_indices)],
+            dtype=np.float64,
+        ).copy()
+        return (
+            settlement_log_return,
+            {
+                "terminal_settlement_intervals": settlement_intervals,
+                "terminal_settlement_log_return": settlement_log_return,
+                "terminal_settlement_net_return": math.expm1(settlement_log_return),
+                "terminal_settlement_cost_amount": settlement_cost,
+                "terminal_settlement_funding_amount": settlement_funding,
+                "terminal_settlement_borrow_cost_amount": settlement_borrow,
+                "terminal_settlement_dividend_amount": settlement_dividend,
+                "terminal_settlement_cash_interest_amount": (settlement_cash_interest),
+                "terminal_settlement_requested_turnover": (
+                    settlement_requested_turnover
+                ),
+                "terminal_settlement_filled_turnover": (settlement_filled_turnover),
+                "terminal_settlement_risk_reasons": tuple(settlement_risk_reasons),
+                "terminal_settlement_termination_reason": (
+                    self.book.termination_reason
+                ),
+            },
+            start_weights,
+            final_weights,
+        )
+
+    def step(
+        self,
+        actions: object,
+    ) -> tuple[
+        np.ndarray,
+        float,
+        bool,
+        tuple[dict[str, object], ...],
+    ]:
+        if self._terminated:
+            raise RuntimeError("cannot step a terminated PPOSharedCashCoordinator")
+
+        intents = self._validated_actions(actions)
+        for slot_index, symbol_index in enumerate(self.symbol_indices):
+            intent = intents[slot_index]
+            if intent is not self.current_intents[symbol_index]:
+                proposal_weight = target_weight_for_intent(
+                    intent,
+                    gross_budget=self.gross_budget,
+                )
+                self.desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                    self.book,
+                    proposal_weight,
+                    symbol_index=symbol_index,
+                )
+
+        proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+        for symbol_index in self.symbol_indices:
+            proposal_weights[symbol_index] = _weight_for_desired_quantity(
+                self.book,
+                float(self.desired_quantities[symbol_index]),
+                symbol_index=symbol_index,
+            )
+        constrained = self.risk.constrain(
+            proposal_weights,
+            current=self.book.weights,
+            drawdown=self.book.max_drawdown,
+        )
+        if should_rebind_strategy_proposal(constrained):
+            for symbol_index in self.symbol_indices:
+                self.desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                    self.book,
+                    float(constrained.weights[symbol_index]),
+                    symbol_index=symbol_index,
+                )
+
+        execution = self.executor.execute_interval(
+            self.book,
+            constrained.weights,
+            start_index=self.index,
+            bars=1,
+        )
+        if execution.next_index <= self.index:
+            raise RuntimeError("shared-cash execution did not advance environment")
+
+        self.book = execution.book
+        self.index = execution.next_index
+        realized_weights = np.asarray(
+            self.book.weights[list(self.symbol_indices)],
+            dtype=np.float64,
+        ).copy()
+        realized_portfolio_value = float(self.book.portfolio_value)
+        realized_cash = float(self.book.cash)
+        realized_gross = float(np.abs(self.book.weights).sum())
+        for slot_index, symbol_index in enumerate(self.symbol_indices):
+            self.current_intents[symbol_index] = intents[slot_index]
+
+        reward = math.log1p(execution.interval_net_return)
+        settlement_info: dict[str, object] = {}
+        settlement_start_weights: np.ndarray | None = None
+        settlement_final_weights: np.ndarray | None = None
+        if (
+            self.settle_terminal_position
+            and self.book.termination_reason is None
+            and self.index >= self.agent_stop_index
+        ):
+            (
+                settlement_log_return,
+                settlement_info,
+                settlement_start_weights,
+                settlement_final_weights,
+            ) = self._settle_terminal_positions()
+            reward += settlement_log_return
+
+        self._terminated = (
+            self.index >= self.stop_index or self.book.termination_reason is not None
+        )
+        observations = self._encoded_observations()
+        infos: list[dict[str, object]] = []
+        for slot_index, symbol_index in enumerate(self.symbol_indices):
+            info: dict[str, object] = {
+                "symbol_index": symbol_index,
+                "symbol": self.dataset.symbols[symbol_index],
+                "intent": intents[slot_index],
+                "target_weight": float(constrained.weights[symbol_index]),
+                "realized_weight": float(realized_weights[slot_index]),
+                "portfolio_value": realized_portfolio_value,
+                "portfolio_cash": realized_cash,
+                "portfolio_gross": realized_gross,
+                "portfolio_team_reward": reward,
+                "was_constrained": constrained.was_constrained,
+                "risk_reasons": constrained.reasons,
+                "interval_net_return": execution.interval_net_return,
+                "interval_cost_amount": execution.interval_cost,
+                "interval_funding_amount": execution.interval_funding,
+                "interval_borrow_cost_amount": execution.interval_borrow_cost,
+                "interval_dividend_amount": execution.interval_dividend,
+                "interval_cash_interest_amount": execution.interval_cash_interest,
+                "requested_turnover": execution.requested_turnover,
+                "filled_turnover": execution.filled_turnover,
+                "fill_ratio": execution.fill_ratio,
+                "termination_reason": execution.termination_reason,
+            }
+            if settlement_info:
+                info.update(settlement_info)
+                assert settlement_start_weights is not None
+                assert settlement_final_weights is not None
+                info["terminal_settlement_start_weight"] = float(
+                    settlement_start_weights[slot_index]
+                )
+                info["terminal_settlement_final_weight"] = float(
+                    settlement_final_weights[slot_index]
+                )
+            infos.append(info)
+        return observations, reward, self._terminated, tuple(infos)
+
+
+def _build_shared_cash_vec_env(
+    coordinator: PPOSharedCashCoordinator,
+) -> object:
+    try:
+        vec_module = importlib.import_module(
+            "stable_baselines3.common.vec_env.base_vec_env"
+        )
+        vec_env_base = getattr(vec_module, "VecEnv")
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(
+            "stable-baselines3 is required; install the train-sb3 extra"
+        ) from error
+
+    def _init(self: Any, shared: PPOSharedCashCoordinator) -> None:
+        self.coordinator = shared
+        self.actions = None
+        vec_env_base.__init__(
+            self,
+            shared.num_envs,
+            shared.observation_space,
+            shared.action_space,
+        )
+
+    def _get_attr(
+        self: Any,
+        attr_name: str,
+        indices: object = None,
+    ) -> list[object]:
+        selected = self._get_indices(indices)
+        if attr_name == "render_mode":
+            value: object = None
+        else:
+            value = getattr(self.coordinator, attr_name)
+        return [value for _ in selected]
+
+    def _set_attr(
+        self: Any,
+        attr_name: str,
+        value: object,
+        indices: object = None,
+    ) -> None:
+        selected = self._get_indices(indices)
+        if set(selected) != set(range(self.num_envs)):
+            raise ValueError("shared-cash VecEnv mutations require all portfolio slots")
+        setattr(self.coordinator, attr_name, value)
+
+    def _env_method(
+        self: Any,
+        method_name: str,
+        *method_args: object,
+        indices: object = None,
+        **method_kwargs: object,
+    ) -> list[object]:
+        selected = self._get_indices(indices)
+        if set(selected) != set(range(self.num_envs)):
+            raise ValueError(
+                "shared-cash VecEnv mutating methods require all portfolio slots"
+            )
+        method = getattr(self.coordinator, method_name)
+        result = method(*method_args, **method_kwargs)
+        return [result for _ in selected]
+
+    def _env_is_wrapped(
+        self: Any,
+        wrapper_class: object,
+        indices: object = None,
+    ) -> list[bool]:
+        del wrapper_class
+        return [False for _ in self._get_indices(indices)]
+
+    def _get_images(self: Any) -> list[None]:
+        return [None for _ in range(self.num_envs)]
+
+    def _reset(self: Any) -> np.ndarray:
+        seed = self._seeds[0] if self._seeds else None
+        observations, reset_infos = self.coordinator.reset(seed=seed)
+        self.reset_infos = list(reset_infos)
+        self._reset_seeds()
+        self._reset_options()
+        self.actions = None
+        return observations
+
+    def _step_async(self: Any, actions: np.ndarray) -> None:
+        if self.actions is not None:
+            raise RuntimeError("shared-cash VecEnv step is already pending")
+        self.actions = np.asarray(actions).copy()
+
+    def _step_wait(
+        self: Any,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict[str, object]]]:
+        if self.actions is None:
+            raise RuntimeError("shared-cash VecEnv step_wait called without actions")
+        observations, reward, terminated, coordinator_infos = self.coordinator.step(
+            self.actions
+        )
+        self.actions = None
+        rewards = np.full(self.num_envs, reward, dtype=np.float32)
+        dones = np.full(self.num_envs, terminated, dtype=np.bool_)
+        infos = [dict(info) for info in coordinator_infos]
+        for info in infos:
+            info["TimeLimit.truncated"] = False
+
+        if terminated:
+            terminal_observations = observations.copy()
+            observations, reset_infos = self.coordinator.reset()
+            self.reset_infos = list(reset_infos)
+            for slot_index, info in enumerate(infos):
+                info["terminal_observation"] = terminal_observations[slot_index]
+        return observations, rewards, dones, infos
+
+    def _close(self: Any) -> None:
+        self.actions = None
+
+    adapter_type = type(
+        "_PPOSharedCashVecEnv",
+        (vec_env_base,),
+        {
+            "__init__": _init,
+            "close": _close,
+            "env_is_wrapped": _env_is_wrapped,
+            "env_method": _env_method,
+            "get_attr": _get_attr,
+            "get_images": _get_images,
+            "reset": _reset,
+            "set_attr": _set_attr,
+            "step_async": _step_async,
+            "step_wait": _step_wait,
+        },
+    )
+    return adapter_type(coordinator)
 
 
 class PPOTradingEnv(gym.Env):
@@ -655,29 +1187,50 @@ def fit_ppo_strategy(
             settle_terminal_position=settle_terminal_position,
         )
     else:
-        if execution_cost is not None and execution_cost.slippage_std > 0.0:
-            raise ValueError(
-                "interleaved training requires deterministic execution slippage"
-            )
         symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)
         rollout_steps = _validated_interleaved_rollout_steps(
             rollout_steps_per_env,
             n_envs=len(symbol_indices),
         )
-        try:
-            vector_module = importlib.import_module("stable_baselines3.common.vec_env")
-            dummy_vec_env = getattr(vector_module, "DummyVecEnv")
-        except (ImportError, AttributeError) as error:
-            raise RuntimeError(
-                "stable-baselines3 is required; install the train-sb3 extra"
-            ) from error
-        env = dummy_vec_env(
-            [
-                partial(
-                    PPOTradingEnv,
+        if execution_cost is not None and execution_cost.slippage_std > 0.0:
+            raise ValueError(
+                "vectorized training requires deterministic execution slippage"
+            )
+        if layout == PPO_TRAINING_LAYOUT_INTERLEAVED:
+            try:
+                vector_module = importlib.import_module(
+                    "stable_baselines3.common.vec_env"
+                )
+                dummy_vec_env = getattr(vector_module, "DummyVecEnv")
+            except (ImportError, AttributeError) as error:
+                raise RuntimeError(
+                    "stable-baselines3 is required; install the train-sb3 extra"
+                ) from error
+            env = dummy_vec_env(
+                [
+                    partial(
+                        PPOTradingEnv,
+                        dataset,
+                        feature_indices=indices,
+                        symbol_indices=(symbol_index,),
+                        start_index=start_index,
+                        stop_index=stop_index,
+                        gross_budget=gross_budget,
+                        initial_capital=initial_capital,
+                        execution_cost=execution_cost,
+                        risk_config=risk_config,
+                        feature_normalizer=normalizer,
+                        settle_terminal_position=settle_terminal_position,
+                    )
+                    for symbol_index in symbol_indices
+                ]
+            )
+        else:
+            env = _build_shared_cash_vec_env(
+                PPOSharedCashCoordinator(
                     dataset,
                     feature_indices=indices,
-                    symbol_indices=(symbol_index,),
+                    symbol_indices=symbol_indices,
                     start_index=start_index,
                     stop_index=stop_index,
                     gross_budget=gross_budget,
@@ -687,9 +1240,7 @@ def fit_ppo_strategy(
                     feature_normalizer=normalizer,
                     settle_terminal_position=settle_terminal_position,
                 )
-                for symbol_index in symbol_indices
-            ]
-        )
+            )
         ppo_options = {
             "n_steps": rollout_steps,
             "batch_size": _PPO_BATCH_SIZE,
@@ -729,7 +1280,9 @@ __all__ = [
     "PPO_OBSERVATION_SCHEMA",
     "PPO_TRAINING_LAYOUT_INTERLEAVED",
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",
+    "PPO_TRAINING_LAYOUT_SHARED_CASH",
     "PPOIntentStrategy",
+    "PPOSharedCashCoordinator",
     "PPOTradingEnv",
     "fit_ppo_strategy",
     "ppo_observation_contract_payload",

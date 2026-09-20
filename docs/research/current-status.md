@@ -363,6 +363,7 @@ Universal model/policyにsymbol ID、symbol-specific embedding、symbol-specific
 - 同じfeature schemaを使う。
 - `fit_symbol_names` で事前登録した銘柄だけをfitへ使う。
 - fit scope外の銘柄をtraining row/episodeへ混ぜない。
+- content-verified Datasetでfit scopeを全symbolより狭める場合は、selected featureの情報依存もfit scope内へ閉じる。cross-sectional rank / dispersionのようなuniverse-dependent featureはsubset fitでrejectし、reference-relative / correlation / betaはreference symbolがfit scope内にある場合だけ許す。FeatureKind provenanceを復元できないverified subset fitはfail closedとし、identity provenanceのないlegacy/synthetic経路だけをunseen-symbol isolationの証拠には使わない。
 - 同じfit cutoffを使う。
 - 同じfrozen strategy/model/policyを評価対象の各銘柄へ適用する。
 - 評価は各銘柄を独立portfolioとしてReplayする。
@@ -386,6 +387,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 - `feature_available_time <= decision_time` を守る。
 - supervised labelは `label_end_time < fit_cutoff` で完結する。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
+- fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。
 - 同calendar shockを受ける複数銘柄を完全独立標本とみなさない。
 - 同じfrozen strategyを各symbolへ独立Replayし、`UniversalStrategyComparison.by_symbol`を主要結果として扱う。

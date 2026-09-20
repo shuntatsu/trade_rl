@@ -180,3 +180,46 @@ def test_degenerate_cross_asset_statistics_are_unavailable() -> None:
         )
         assert not result.valid.any()
         np.testing.assert_array_equal(result.values, np.zeros_like(result.values))
+
+
+@pytest.mark.parametrize(
+    "kind",
+    (
+        FeatureKind.CROSS_ASSET_DISPERSION,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+    ),
+)
+def test_holdout_symbol_can_change_fit_symbol_cross_sectional_value(
+    kind: FeatureKind,
+) -> None:
+    base = np.asarray(
+        [
+            [0.01, 0.02],
+            [0.01, 0.02],
+        ],
+        dtype=np.float64,
+    )
+    changed = base.copy()
+    changed[:, 1] = -0.50
+    available = np.ones_like(base, dtype=np.bool_)
+    ages = np.zeros_like(base)
+    spec = _spec(kind, lookback=1, min_periods=1)
+    kwargs = {
+        "return_available": available,
+        "return_age_hours": ages,
+        "symbols": ("BTCUSDT", "ETHUSDT"),
+        "reference_symbol": "BTCUSDT",
+    }
+
+    original = calculate_cross_asset_feature_events(
+        spec,
+        aligned_returns=base,
+        **kwargs,
+    )
+    mutated = calculate_cross_asset_feature_events(
+        spec,
+        aligned_returns=changed,
+        **kwargs,
+    )
+
+    assert original.values[-1, 0] != mutated.values[-1, 0]

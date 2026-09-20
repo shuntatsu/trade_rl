@@ -40,6 +40,8 @@ feature_available_time <= decision_time
 
 加えて、fit cutoffより後の情報をscaler、normalization、imputation、feature selectionへ戻しません。supervised labelもfit boundaryの内側で完結させます。
 
+また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。
+
 ## 4. 同じ入力から同じDataset identityを作る
 
 標準特徴量は`portable_feature_numerics_v1`の固定したscalar/reduction semanticsで計算します。確認済みのAMD / Intel hosted runner間で微小なCPU差がDataset identityへ混ざらないようにしています。

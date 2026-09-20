@@ -19,6 +19,7 @@ from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
+    validated_training_scope,
 )
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import (
@@ -630,14 +631,18 @@ def fit_ppo_strategy(
         settle_terminal_position=settle_terminal_position,
     )
 
-    indices = validated_feature_indices(dataset, feature_indices)
+    indices, fit_symbols = validated_training_scope(
+        dataset,
+        feature_indices=feature_indices,
+        fit_symbol_indices=fit_symbol_indices,
+    )
     if not isinstance(normalize_features, bool):
         raise ValueError("normalize_features must be boolean")
     normalizer = (
         fit_ppo_feature_normalizer(
             dataset,
             feature_indices=indices,
-            fit_symbol_indices=fit_symbol_indices,
+            fit_symbol_indices=fit_symbols,
             start_index=start_index,
             stop_index=policy_stop_index,
         )
@@ -649,7 +654,7 @@ def fit_ppo_strategy(
         env: object = PPOTradingEnv(
             dataset,
             feature_indices=indices,
-            symbol_indices=fit_symbol_indices,
+            symbol_indices=fit_symbols,
             start_index=start_index,
             stop_index=stop_index,
             gross_budget=gross_budget,
@@ -664,10 +669,9 @@ def fit_ppo_strategy(
             raise ValueError(
                 "interleaved training requires deterministic execution slippage"
             )
-        symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)
         rollout_steps = _validated_interleaved_rollout_steps(
             rollout_steps_per_env,
-            n_envs=len(symbol_indices),
+            n_envs=len(fit_symbols),
         )
         try:
             vector_module = importlib.import_module("stable_baselines3.common.vec_env")
@@ -692,7 +696,7 @@ def fit_ppo_strategy(
                     feature_normalizer=normalizer,
                     settle_terminal_position=settle_terminal_position,
                 )
-                for symbol_index in symbol_indices
+                for symbol_index in fit_symbols
             ]
         )
         ppo_n_steps = rollout_steps

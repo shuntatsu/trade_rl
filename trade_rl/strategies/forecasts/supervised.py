@@ -11,6 +11,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
+    validated_training_scope,
 )
 
 
@@ -85,8 +86,11 @@ def build_causal_forecast_training_set(
 ) -> CausalForecastTrainingSet:
     """Pool exact-horizon rows without adding symbol identity to model features."""
 
-    indices = validated_feature_indices(dataset, feature_indices)
-    symbols = validated_symbol_indices(dataset, fit_symbol_indices)
+    indices, symbols = validated_training_scope(
+        dataset,
+        feature_indices=feature_indices,
+        fit_symbol_indices=fit_symbol_indices,
+    )
     if (
         isinstance(horizon_hours, bool)
         or not isinstance(horizon_hours, int)

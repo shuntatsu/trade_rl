@@ -28,7 +28,7 @@ local_values
       PPO observation vector
 ```
 
-初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。
+初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。さらにfit対象を一部銘柄へ絞る場合、選択したlocal featureもfit-scope外symbolへ依存していないかDataset build identityから確認します。cross-sectional rank/dispersionはstrict subsetではrejectし、reference-relative featureはreference symbolがfit scope内にある場合だけ許します。これはrowを除くだけでholdout symbolの情報が残る経路を閉じるためです。
 
 ## 学習時の銘柄スケジュールは2方式
 

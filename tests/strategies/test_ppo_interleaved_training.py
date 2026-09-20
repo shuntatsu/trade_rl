@@ -8,6 +8,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.rl.ppo import (
@@ -306,3 +307,40 @@ def test_interleaved_fit_accepts_implicit_full_symbol_roster(
     vector = FakeDummyVecEnv.last
     assert vector is not None
     assert [env.symbol_indices for env in vector.envs] == [(0,), (1,)]
+
+
+def _ppo_identity_market(kind: FeatureKind) -> MarketDataset:
+    dataset = pooled_market()
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec(name="signal", kind=kind),),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    return dataset.with_content_identity({"config": config.canonical_payload()})
+
+
+@pytest.mark.parametrize(
+    "layout",
+    ("sequential", "interleaved"),
+)
+def test_ppo_subset_fit_rejects_universe_dependent_feature(
+    layout: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    with pytest.raises(ValueError, match="fit.*scope|outside.*fit"):
+        fit_ppo_strategy(
+            _ppo_identity_market(FeatureKind.CROSS_ASSET_DISPERSION),
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            total_timesteps=64,
+            seed=19,
+            training_layout=layout,
+            rollout_steps_per_env=64 if layout == "interleaved" else None,
+        )
+
+    assert FakePPO.last is None

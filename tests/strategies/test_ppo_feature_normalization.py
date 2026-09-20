@@ -152,6 +152,36 @@ def test_fitter_fits_one_transform_and_returns_it_for_inference(
         assert env.feature_normalizer is strategy.feature_normalizer
 
 
+def test_training_scope_validation_binds_all_provenance_fields() -> None:
+    dataset = pooled_market()
+    normalizer = fit_ppo_feature_normalizer(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+    )
+
+    normalizer.validate_training_scope(dataset, (0, 1), 0, 3)
+
+    mismatches = (
+        (replace(dataset, dataset_id="7" * 64), (0, 1), 0, 3),
+        (dataset, (1, 0), 0, 3),
+        (dataset, (0,), 0, 3),
+        (dataset, (0, 1), 1, 3),
+        (dataset, (0, 1), 0, 2),
+        (replace(dataset, feature_names=("renamed",)), (0, 1), 0, 3),
+    )
+    for scope_dataset, symbols, start, stop in mismatches:
+        with pytest.raises(ValueError, match="training scope"):
+            normalizer.validate_training_scope(
+                scope_dataset,
+                symbols,
+                start,
+                stop,
+            )
+
+
 def test_metadata_roundtrip_and_wrong_feature_order_or_training_scope_rejected() -> (
     None
 ):

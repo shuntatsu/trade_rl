@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -35,6 +36,9 @@ class _ActionPolicy:
 
 
 class _FailingSavePolicy(_ActionPolicy):
+    observation_space = SimpleNamespace(shape=(5,))
+    action_space = SimpleNamespace(n=3, start=0)
+
     def save(self, path: str) -> None:
         Path(path).write_bytes(b"partial policy")
         raise RuntimeError("simulated policy serialization failure")

@@ -10,7 +10,7 @@ from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.rl.ppo import PPOSharedCashCoordinator
+from trade_rl.strategies.rl.ppo import PPOSharedCashCoordinator, fit_ppo_strategy
 
 
 def _risk_config() -> PreTradeRiskConfig:
@@ -191,3 +191,20 @@ def test_shared_cash_coordinator_rejects_invalid_action_vectors(
 
     with pytest.raises(ValueError, match="action"):
         coordinator.step(actions)
+
+
+def test_shared_cash_fit_rejects_stochastic_execution_slippage() -> None:
+    with pytest.raises(ValueError, match="deterministic execution slippage"):
+        fit_ppo_strategy(
+            pooled_market(),
+            feature_indices=(0,),
+            fit_symbol_indices=(0, 1),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            total_timesteps=64,
+            seed=31,
+            execution_cost=ExecutionCostConfig(slippage_std=0.01),
+            training_layout="shared_cash",
+            rollout_steps_per_env=32,
+        )

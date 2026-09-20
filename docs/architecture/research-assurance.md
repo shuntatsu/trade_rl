@@ -241,6 +241,21 @@ fit or replay, an independent result-blind reviewer must bind G0–G2 to the new
 protocol and exact implementation after synthetic integration tests pass.
 No current checkpoint-run economic output has been generated or inspected.
 
+Remote execution uses the same checkpoint commands and mechanism. Its manual
+workflow first prepares a protocol without fitting or replaying. An economic
+stage requires the exact reviewed protocol digest and a review reference;
+these inputs record the operator's assertion and do not themselves establish
+independent AI review. Before dispatch, the operator must have the result-blind
+review bound to the prepared Linux runtime, source snapshot, and checkpoint
+protocol. Archive identity, safe extraction, conflicting-file rejection,
+complete roster validation, and failure propagation are additional transport
+oracles. Successful upload or a completed workflow cannot replace the economic
+comparison, and interrupted stages remain incomplete evidence.
+The approved digest is the outer checkpoint protocol's canonical content
+digest. All economic stages must retain the reviewed code and workflow
+identity; a constant checkout SHA alone does not establish constant transport
+behavior. Terminated child processes must be reaped before evidence upload.
+
 
 ## AI adversarial review
 

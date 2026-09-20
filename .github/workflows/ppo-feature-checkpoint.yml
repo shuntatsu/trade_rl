@@ -1,0 +1,111 @@
+name: PPO Feature Checkpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: One bounded checkpoint stage
+        type: choice
+        required: true
+        options:
+          - prepare
+          - arm
+          - finalize
+      code_sha:
+        description: Full immutable commit SHA to execute
+        type: string
+        required: true
+      checkpoint_artifacts_json:
+        description: JSON array of prior artifact id, run_id, and raw ZIP sha256 records
+        type: string
+        required: false
+        default: "[]"
+      approved_protocol_digest:
+        description: Operator assertion of the exact outer protocol digest
+        type: string
+        required: false
+        default: ""
+      review_reference:
+        description: Operator-supplied review reference; not independently authenticated
+        type: string
+        required: false
+        default: ""
+      factor:
+        description: Preregistered factor for an arm stage
+        type: choice
+        required: false
+        options:
+          - baseline
+          - btc_relative
+      seed:
+        description: Preregistered seed for an arm stage
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: Checkout immutable code SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.code_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install pinned uv and Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Install frozen PPO runtime
+        run: uv sync --locked --extra train-sb3
+
+      - name: Run bounded checkpoint transport
+        id: transport
+        continue-on-error: true
+        env:
+          CHECKPOINT_STAGE: ${{ inputs.stage }}
+          CHECKPOINT_CODE_SHA: ${{ inputs.code_sha }}
+          CHECKPOINT_ARTIFACTS_JSON: ${{ inputs.checkpoint_artifacts_json }}
+          CHECKPOINT_APPROVED_PROTOCOL_DIGEST: ${{ inputs.approved_protocol_digest }}
+          CHECKPOINT_REVIEW_REFERENCE: ${{ inputs.review_reference }}
+          CHECKPOINT_FACTOR: ${{ inputs.factor }}
+          CHECKPOINT_SEED: ${{ inputs.seed }}
+          CHECKPOINT_OUTPUT: output
+          CHECKPOINT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p output
+          uv run --no-sync python -m tools.ppo_checkpoint_actions
+
+      - name: Upload checkpoint and receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-feature-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/checkpoint
+            output/receipt.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+      - name: Propagate stage failure after artifact upload
+        if: always()
+        env:
+          TRANSPORT_OUTCOME: ${{ steps.transport.outcome }}
+        run: |
+          if [[ "$TRANSPORT_OUTCOME" != "success" ]]; then
+            echo "Checkpoint stage failed; inspect the receipt before retrying."
+            exit 1
+          fi

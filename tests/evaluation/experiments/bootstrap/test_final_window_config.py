@@ -56,7 +56,7 @@ def test_v3_binds_preregistered_final_window_into_bootstrap_digest(
         ("final_evaluation_stop_exclusive", None, "missing|final_evaluation_stop"),
         (
             "final_evaluation_start",
-            "2024-12-31T23:00:00+00:00",
+            "2024-12-31T00:00:00+00:00",
             "data_stop|development",
         ),
         (

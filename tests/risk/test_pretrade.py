@@ -98,7 +98,6 @@ def test_risk_target_rejects_mismatched_pipeline_stage_shapes() -> None:
         )
 
 
-
 def test_default_for_execution_owns_training_replay_risk_semantics() -> None:
     risk = PreTradeRisk.default_for_execution(max_leverage=0.75)
 

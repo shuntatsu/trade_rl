@@ -119,7 +119,7 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "951cfd3b5d78b7f0dcc0a8e9793d3df394ded0256c7a273fa0ec74c3e8063068",
+      "source_sha256": "18b35820cf2911bf79a0bb108136901aab57c02f82912fb995e0d36ae40a8550",
       "label_ja": "PPO方策を学習する",
       "description_ja": "sequential / interleaved / shared_cashの各layoutを構成し、PPO updateとMlpPolicy constructionをsourceへ明示固定してCPU・1 threadで学習します。learning rate 3e-4、sequential n_steps 2048、batch 64、epochs 10、gamma 0.99、GAE 0.95、clip 0.2、Tanh、orthogonal init、FlattenExtractor、Adam eps 1e-5等をSB3 defaultへ暗黙委譲しません。vectorized layoutではn_stepsだけrollout_steps_per_envへ置換します。",
       "variables": [

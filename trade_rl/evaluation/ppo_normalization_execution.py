@@ -156,6 +156,74 @@ def replication_strategy_factory(
     return factory
 
 
+def _evaluate_replication_result(
+    dataset: MarketDataset,
+    factory: Callable[[], SingleSymbolStrategy],
+    *,
+    start_index: int,
+    stop_index: int,
+    spec: ReplicationArmSpec,
+) -> dict[str, Any]:
+    """Replay one fitted bundle under the sealed base/stress evidence contract."""
+
+    _require_registered_spec(spec)
+    result = evaluate_directional_arm(
+        dataset,
+        factory,
+        start_index=start_index,
+        stop_index=stop_index,
+        initial_capital=10_000.0,
+        gross_budget=0.1,
+    )
+    if spec.protocol_arm != "candidate_normalized" or not passes_screen(
+        result,
+        require_positive_years=True,
+    ):
+        return result
+
+    protocol = expected_ppo_normalization_protocol()
+    decision = protocol.get("decision")
+    if not isinstance(decision, dict):
+        raise RuntimeError("sealed normalization decision contract is malformed")
+    absolute = decision.get("absolute")
+    if not isinstance(absolute, dict):
+        raise RuntimeError("sealed normalization absolute gate is malformed")
+    stresses = absolute.get("stresses")
+    expected_stresses = [
+        {"cost_multiplier": 2.0, "latency_bars": 0},
+        {"cost_multiplier": 1.0, "latency_bars": 1},
+    ]
+    if stresses != expected_stresses:
+        raise RuntimeError("sealed normalization stress roster drifted")
+
+    result["stress"] = [
+        evaluate_directional_arm(
+            dataset,
+            factory,
+            start_index=start_index,
+            stop_index=stop_index,
+            initial_capital=10_000.0,
+            gross_budget=0.1,
+            cost_multiplier=float(stress["cost_multiplier"]),
+            latency_bars=int(stress["latency_bars"]),
+        )
+        for stress in expected_stresses
+    ]
+    result["by_symbol"] = {
+        symbol: evaluate_directional_arm(
+            dataset,
+            factory,
+            start_index=start_index,
+            stop_index=stop_index,
+            symbol_index=index,
+            initial_capital=10_000.0,
+            gross_budget=0.1,
+        )
+        for index, symbol in enumerate(dataset.symbols)
+    }
+    return result
+
+
 def _safe_attempt_id(value: str) -> str:
     if (
         not value
@@ -278,6 +346,48 @@ def _regular_json_exists(store: StudyStore, relative: Path) -> bool:
     return True
 
 
+def _read_consumed_claim(
+    store: StudyStore,
+    spec: ReplicationArmSpec,
+) -> dict[str, object] | None:
+    relative = _slot_relative(spec, "consumed.json")
+    path = store.root / relative
+    if path.is_symlink():
+        raise ValueError("replication slot claim must not be a symlink")
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise ValueError("replication slot claim must be a regular file")
+    payload = store.read_json(relative)
+    expected_keys = {
+        "schema",
+        "slot",
+        "protocol_arm",
+        "seed",
+        "normalize_features",
+        "activation_digest",
+        "implementation_digest",
+        "consumed",
+    }
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema") != _SLOT_SCHEMA
+        or payload.get("slot") != spec.slot
+        or payload.get("protocol_arm") != spec.protocol_arm
+        or payload.get("seed") != spec.seed
+        or payload.get("normalize_features") is not spec.normalize_features
+        or payload.get("consumed") is not True
+    ):
+        raise ValueError("replication slot claim is malformed or belongs to another slot")
+    activation = payload.get("activation_digest")
+    implementation = payload.get("implementation_digest")
+    if not isinstance(activation, str) or not isinstance(implementation, str):
+        raise ValueError("replication slot claim digests are malformed")
+    require_sha256(activation, field="slot claim activation_digest")
+    require_sha256(implementation, field="slot claim implementation_digest")
+    return payload
+
+
 def replication_slot_state(
     root: Path,
     spec: ReplicationArmSpec,
@@ -286,7 +396,8 @@ def replication_slot_state(
 
     _require_registered_spec(spec)
     store = StudyStore(root)
-    consumed = _regular_json_exists(store, _slot_relative(spec, "consumed.json"))
+    consumed_claim = _read_consumed_claim(store, spec)
+    consumed = consumed_claim is not None
     failed = _regular_json_exists(store, _slot_relative(spec, "failed.json"))
     result_published = _regular_json_exists(
         store,
@@ -668,13 +779,12 @@ def execute_replication_slot(
         )
         manifest = _manifest_for_bundle(store, spec)
         factory = replication_strategy_factory(loaded)
-        result = evaluate_directional_arm(
+        result = _evaluate_replication_result(
             dataset,
             factory,
             start_index=start,
             stop_index=stop,
-            initial_capital=10_000.0,
-            gross_budget=0.1,
+            spec=spec,
         )
         payload: dict[str, object] = dict(result)
         payload.update(
@@ -743,6 +853,9 @@ def verify_replication_slot(
     if not state["consumed"] or state["failed"] or not state["result_published"]:
         raise ValueError("slot does not contain complete published evidence")
     store = StudyStore(root)
+    claim = _read_consumed_claim(store, spec)
+    if claim is None:
+        raise ValueError("slot result exists without a consumed claim")
     result = store.read_json(_slot_relative(spec, "result.json"))
     digest = store.read_json(_slot_relative(spec, "result.sha256.json"))
     if canonical_json_bytes(digest) != canonical_json_bytes(
@@ -760,8 +873,10 @@ def verify_replication_slot(
         or result.get("activation_digest") != expected_activation_digest
         or result.get("implementation_digest") != implementation
         or result.get("provenance") != activation["provenance"]
+        or claim.get("activation_digest") != expected_activation_digest
+        or claim.get("implementation_digest") != implementation
     ):
-        raise ValueError("slot result identity differs from activation")
+        raise ValueError("slot result or claim identity differs from activation")
     dataset, _config, start, stop = _load_replication_context(source)
     bundle_digest = result.get("bundle_digest")
     if not isinstance(bundle_digest, str):
@@ -781,13 +896,12 @@ def verify_replication_slot(
     )
     if result.get("realized_timesteps") != realized:
         raise ValueError("reloaded PPO timestep count differs from result")
-    replay = evaluate_directional_arm(
+    replay = _evaluate_replication_result(
         dataset,
         replication_strategy_factory(loaded),
         start_index=start,
         stop_index=stop,
-        initial_capital=10_000.0,
-        gross_budget=0.1,
+        spec=spec,
     )
     recorded_replay = {
         key: value for key, value in result.items() if key not in _RESULT_METADATA

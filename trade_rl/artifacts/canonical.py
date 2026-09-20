@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -51,7 +51,7 @@ class FrozenDict(dict[_K, _V], Generic[_K, _V]):
         del args, kwargs
         self._reject()
 
-    def __ior__(self, other: object) -> Self:
+    def __ior__(self, other: dict[_K, _V]) -> Self:
         del other
         self._reject()
 
@@ -71,7 +71,7 @@ class FrozenList(list[_V], Generic[_V]):
         del key
         self._reject()
 
-    def __iadd__(self, other: Iterable[_V]) -> Self:
+    def __iadd__(self, other: list[_V]) -> Self:
         del other
         self._reject()
 

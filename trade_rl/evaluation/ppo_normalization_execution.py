@@ -48,9 +48,14 @@ SLOT_RESULT_SCHEMA = "ppo_normalization_replication_result_v1"
 
 
 class _ReplicationConfig(Protocol):
-    feature_indices: tuple[int, ...]
-    fit_symbol_indices: tuple[int, ...]
-    fit_cutoff: str
+    @property
+    def feature_indices(self) -> tuple[int, ...]: ...
+
+    @property
+    def fit_symbol_indices(self) -> tuple[int, ...]: ...
+
+    @property
+    def fit_cutoff(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,6 +484,8 @@ def _validate_activation(
     provenance = activation["provenance"]
     if not isinstance(provenance, dict):
         raise ValueError("execution activation provenance is malformed")
+    if provenance.get("implementation_digest") != implementation:
+        raise ValueError("activation implementation digest differs from provenance")
     if content_digest(activation) != expected_digest:
         raise ValueError("execution activation digest mismatch")
     if activation["economic_execution_authorized"] is not True:

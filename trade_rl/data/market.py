@@ -26,9 +26,11 @@ def _readonly_array(
     *,
     dtype: np.dtype[np.generic] | None = None,
 ) -> np.ndarray:
-    array = np.asarray(value, dtype=dtype).copy(order="C")
-    array.setflags(write=False)
-    return array
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
 
 
 def _optional_array(

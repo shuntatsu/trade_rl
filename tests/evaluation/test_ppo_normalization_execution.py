@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.artifacts import content_digest
+from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.evaluation import ppo_normalization_execution as module
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.ppo_normalization_execution import (
@@ -228,6 +228,97 @@ def _screen_row(
         }
     return row
 
+
+
+def test_candidate_base_pass_runs_registered_stress_and_symbol_diagnostics(
+    monkeypatch,
+) -> None:
+    symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+    dataset = SimpleNamespace(symbols=symbols)
+    candidate = replication_arm_specs()[5]
+    calls: list[dict[str, object]] = []
+
+    def fake_evaluate(_dataset, _factory, **kwargs):
+        calls.append(kwargs)
+        return _screen_row(0.01, year_return=0.01, with_stress=False)
+
+    monkeypatch.setattr(module, "evaluate_directional_arm", fake_evaluate)
+
+    result = module._evaluate_replication_result(
+        dataset,
+        lambda: object(),
+        start_index=0,
+        stop_index=17_544,
+        spec=candidate,
+    )
+
+    assert len(calls) == 8
+    assert [(row["cost_multiplier"], row["latency_bars"]) for row in result["stress"]] == [
+        (2.0, 0),
+        (1.0, 1),
+    ]
+    assert set(result["by_symbol"]) == set(symbols)
+    assert calls[0]["initial_capital"] == 10_000.0
+    assert calls[0]["gross_budget"] == 0.1
+
+
+def test_control_and_unqualified_candidate_do_not_open_stress_evidence(
+    monkeypatch,
+) -> None:
+    dataset = SimpleNamespace(
+        symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_evaluate(_dataset, _factory, **kwargs):
+        calls.append(kwargs)
+        return _screen_row(-0.01, year_return=-0.01, with_stress=False)
+
+    monkeypatch.setattr(module, "evaluate_directional_arm", fake_evaluate)
+
+    control = module._evaluate_replication_result(
+        dataset,
+        lambda: object(),
+        start_index=0,
+        stop_index=17_544,
+        spec=replication_arm_specs()[0],
+    )
+    candidate = module._evaluate_replication_result(
+        dataset,
+        lambda: object(),
+        start_index=0,
+        stop_index=17_544,
+        spec=replication_arm_specs()[5],
+    )
+
+    assert len(calls) == 2
+    assert "stress" not in control and "by_symbol" not in control
+    assert "stress" not in candidate and "by_symbol" not in candidate
+
+
+def test_slot_state_rejects_tampered_consumed_claim(tmp_path) -> None:
+    spec = replication_arm_specs()[0]
+    claim_replication_slot(
+        tmp_path,
+        spec,
+        activation_digest="a" * 64,
+        implementation_digest="b" * 64,
+    )
+    claim = tmp_path / "slots" / spec.slot / "consumed.json"
+    payload = {
+        "schema": "ppo_normalization_replication_slot_v1",
+        "slot": "candidate_normalized_seed4",
+        "protocol_arm": spec.protocol_arm,
+        "seed": spec.seed,
+        "normalize_features": spec.normalize_features,
+        "activation_digest": "a" * 64,
+        "implementation_digest": "b" * 64,
+        "consumed": True,
+    }
+    claim.write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(ValueError, match="claim"):
+        replication_slot_state(tmp_path, spec)
 
 def test_decision_is_recomputed_without_trusting_qualified_flags() -> None:
     control = {

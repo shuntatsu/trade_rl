@@ -34,7 +34,21 @@ PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
+_PPO_LEARNING_RATE = 3e-4
+_PPO_DEFAULT_N_STEPS = 2048
 _PPO_BATCH_SIZE = 64
+_PPO_N_EPOCHS = 10
+_PPO_GAMMA = 0.99
+_PPO_GAE_LAMBDA = 0.95
+_PPO_CLIP_RANGE = 0.2
+_PPO_CLIP_RANGE_VF: float | None = None
+_PPO_NORMALIZE_ADVANTAGE = True
+_PPO_ENT_COEF = 0.0
+_PPO_VF_COEF = 0.5
+_PPO_MAX_GRAD_NORM = 0.5
+_PPO_USE_SDE = False
+_PPO_SDE_SAMPLE_FREQ = -1
+_PPO_TARGET_KL: float | None = None
 
 
 class _PredictPolicy(Protocol):
@@ -630,7 +644,7 @@ def fit_ppo_strategy(
         if normalize_features
         else None
     )
-    ppo_options: dict[str, object] = {}
+    ppo_n_steps = _PPO_DEFAULT_N_STEPS
     if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
         env: object = PPOTradingEnv(
             dataset,
@@ -681,16 +695,17 @@ def fit_ppo_strategy(
                 for symbol_index in symbol_indices
             ]
         )
-        ppo_options = {
-            "n_steps": rollout_steps,
-            "batch_size": _PPO_BATCH_SIZE,
-        }
+        ppo_n_steps = rollout_steps
 
     try:
         module = importlib.import_module("stable_baselines3")
         ppo_class = getattr(module, "PPO")
         torch_module = importlib.import_module("torch")
         set_num_threads = getattr(torch_module, "set_num_threads")
+        activation_fn = getattr(getattr(torch_module, "nn"), "Tanh")
+        optimizer_class = getattr(getattr(torch_module, "optim"), "Adam")
+        torch_layers = importlib.import_module("stable_baselines3.common.torch_layers")
+        features_extractor_class = getattr(torch_layers, "FlattenExtractor")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(
             "stable-baselines3 and torch are required; install the train-sb3 extra"
@@ -700,12 +715,33 @@ def fit_ppo_strategy(
     model = ppo_class(
         "MlpPolicy",
         env,
-        policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
+        learning_rate=_PPO_LEARNING_RATE,
+        n_steps=ppo_n_steps,
+        batch_size=_PPO_BATCH_SIZE,
+        n_epochs=_PPO_N_EPOCHS,
+        gamma=_PPO_GAMMA,
+        gae_lambda=_PPO_GAE_LAMBDA,
+        clip_range=_PPO_CLIP_RANGE,
+        clip_range_vf=_PPO_CLIP_RANGE_VF,
+        normalize_advantage=_PPO_NORMALIZE_ADVANTAGE,
+        ent_coef=_PPO_ENT_COEF,
+        vf_coef=_PPO_VF_COEF,
+        max_grad_norm=_PPO_MAX_GRAD_NORM,
+        use_sde=_PPO_USE_SDE,
+        sde_sample_freq=_PPO_SDE_SAMPLE_FREQ,
+        target_kl=_PPO_TARGET_KL,
+        policy_kwargs={
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+            "activation_fn": activation_fn,
+            "ortho_init": True,
+            "features_extractor_class": features_extractor_class,
+            "share_features_extractor": True,
+            "optimizer_class": optimizer_class,
+            "optimizer_kwargs": {"eps": 1e-5},
+        },
         seed=seed,
-        ent_coef=0.0,
         device="cpu",
         verbose=0,
-        **ppo_options,
     )
     model.learn(total_timesteps=total_timesteps)
     return PPOIntentStrategy(

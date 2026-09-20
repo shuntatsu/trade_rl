@@ -576,3 +576,126 @@ def test_ppo_target_does_not_bypass_market_admission_constraints(
     assert env.book.quantities[0] == pytest.approx(0.0)
     assert replay.book.quantities[0] == pytest.approx(0.0)
     assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+
+
+@pytest.mark.parametrize(
+    ("symbol_index", "intents", "actions"),
+    [
+        (
+            0,
+            (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT),
+            (2, 2, 1),
+        ),
+        (
+            1,
+            (PositionIntent.SHORT, PositionIntent.SHORT, PositionIntent.FLAT),
+            (0, 0, 1),
+        ),
+    ],
+)
+def test_fixed_symbol_env_matches_replay_inside_multi_symbol_dataset(
+    symbol_index: int,
+    intents: tuple[PositionIntent, ...],
+    actions: tuple[int, ...],
+) -> None:
+    base = pooled_market()
+    dataset = replace(
+        base,
+        fee_rate=np.asarray(
+            [[0.001, 0.002], [0.001, 0.002], [0.001, 0.002], [0.001, 0.002]]
+        ),
+        spread_rate=np.asarray(
+            [[0.002, 0.003], [0.002, 0.003], [0.002, 0.003], [0.002, 0.003]]
+        ),
+        funding_rate=np.asarray(
+            [[0.001, -0.001], [0.001, -0.001], [0.001, -0.001], [0.001, -0.001]]
+        ),
+        borrow_rate=np.asarray(
+            [[0.0, 0.365], [0.0, 0.365], [0.0, 0.365], [0.0, 0.365]]
+        ),
+    )
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(intents),
+        symbol_index=symbol_index,
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(symbol_index,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+    )
+    _, reset_info = env.reset(seed=101 + symbol_index)
+    assert reset_info["symbol_index"] == symbol_index
+
+    observed_returns: list[float] = []
+    observed_rewards: list[float] = []
+    for action in actions:
+        _, reward, _, _, info = env.step(action)
+        observed_returns.append(float(info["interval_net_return"]))
+        observed_rewards.append(reward)
+
+    np.testing.assert_allclose(observed_returns, replay.returns.values)
+    np.testing.assert_allclose(observed_rewards, np.log1p(replay.returns.values))
+    np.testing.assert_allclose(env.book.quantities, replay.book.quantities)
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+    inactive = 1 - symbol_index
+    assert env.book.quantities[inactive] == pytest.approx(0.0)
+
+
+def test_sequential_symbol_rotation_resets_account_state() -> None:
+    env = PPOTradingEnv(
+        pooled_market(),
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+    _, first = env.reset(seed=113)
+    assert first["symbol_index"] == 0
+    env.step(2)
+    assert env.book.quantities[0] != 0.0
+
+    observation, second = env.reset()
+
+    assert second["symbol_index"] == 1
+    np.testing.assert_array_equal(env.book.quantities, np.zeros(2))
+    assert env.book.cash == pytest.approx(1_000.0)
+    assert env.current_intent is PositionIntent.FLAT
+    assert env.desired_quantity == pytest.approx(0.0)
+    assert observation[-2] == pytest.approx(float(PositionIntent.FLAT))
+    assert observation[-1] == pytest.approx(0.0)
+
+
+def test_policy_encoding_is_symbol_id_independent() -> None:
+    captured: list[np.ndarray] = []
+
+    class CapturePolicy:
+        def predict(
+            self,
+            observation: np.ndarray,
+            *,
+            deterministic: bool = True,
+        ) -> tuple[object, object]:
+            assert deterministic is True
+            captured.append(observation.copy())
+            return np.asarray(1, dtype=np.int64), None
+
+    strategy = PPOIntentStrategy(CapturePolicy(), feature_indices=(0,))
+    first = _observation()
+    second = replace(first, symbol="UNSEEN_SYMBOL")
+
+    assert strategy.decide(first) is PositionIntent.FLAT
+    assert strategy.decide(second) is PositionIntent.FLAT
+    np.testing.assert_array_equal(captured[0], captured[1])

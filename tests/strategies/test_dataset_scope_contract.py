@@ -137,6 +137,19 @@ def test_legacy_dataset_without_identity_preserves_subset_behavior() -> None:
     assert symbols == (0,)
 
 
+def test_verified_subset_without_feature_provenance_fails_closed() -> None:
+    dataset = _market().with_content_identity(
+        {"transformation": {"schema": "test_without_source_build_config"}}
+    )
+
+    with pytest.raises(ValueError, match="lacks feature dependency provenance"):
+        validated_training_scope(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+        )
+
+
 def test_nested_source_identity_still_enforces_feature_dependency_scope() -> None:
     source = _identity_market(FeatureKind.CROSS_ASSET_DISPERSION)
     source_payload = json.loads(source.identity_payload_json or "{}")

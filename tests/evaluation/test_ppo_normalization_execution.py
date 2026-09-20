@@ -236,7 +236,6 @@ def test_relative_improvement_does_not_claim_absolute_profitability() -> None:
     assert report["decision"] == "RELATIVE_IMPROVEMENT_ONLY"
 
 
-
 def _activation(provenance: dict[str, object]) -> dict[str, object]:
     return {
         "schema": EXECUTION_ACTIVATION_SCHEMA,
@@ -332,7 +331,11 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
         "returns": [0.001],
         "year_returns": {"2023": 0.01, "2024": 0.01},
     }
-    monkeypatch.setattr(module, "evaluate_directional_arm", lambda *_a, **_k: replay)
+    monkeypatch.setattr(
+        module,
+        "evaluate_directional_arm",
+        lambda *_a, **_k: replay,
+    )
 
     slot = replication_arm_specs()[0].slot
     published = execute_replication_slot(

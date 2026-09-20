@@ -9,9 +9,7 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
 
-PPO_NORMALIZATION_PROTOCOL_SCHEMA: Final = (
-    "ppo_normalization_corrected_replication_v1"
-)
+PPO_NORMALIZATION_PROTOCOL_SCHEMA: Final = "ppo_normalization_corrected_replication_v1"
 CONTROL_ARM: Final = "control_raw"
 CANDIDATE_ARM: Final = "candidate_normalized"
 
@@ -69,15 +67,11 @@ def expected_ppo_normalization_protocol() -> dict[str, object]:
             "corrected_borrow_runtime_merge": (
                 "786e7d3f022741c30e5712b4fd50cf48921742ed"
             ),
-            "terminal_settlement_merge": (
-                "00b890a2152a2ea41c350eed7add4fcc60a5807e"
-            ),
+            "terminal_settlement_merge": ("00b890a2152a2ea41c350eed7add4fcc60a5807e"),
             "artifact_space_validation_merge": (
                 "9113beaf84bd59f87e8d6706d2d995403f6fea16"
             ),
-            "inference_bundle_merge": (
-                "e7a44750fadcfb6af2fb74cbd4ecbe0a6df5e943"
-            ),
+            "inference_bundle_merge": ("e7a44750fadcfb6af2fb74cbd4ecbe0a6df5e943"),
             "holdout_mutation_invariance_merge": (
                 "7bcc6854b56f52d0dea076763db047dfc2d83976"
             ),

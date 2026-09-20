@@ -1007,7 +1007,8 @@ def test_review_reference_must_be_exact_same_repo_pr_comment_url() -> None:
             transport.parse_review_reference(value, repository="owner/repo")
 
 
-def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact() -> None:
+def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact(
+) -> None:
     reference = transport.ArtifactReference(90, 34, "d" * 64)
     body = _review_body()
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -1043,7 +1044,14 @@ def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact()
 
 @pytest.mark.parametrize(
     "mutation",
-    ("body_digest", "code_sha", "protocol", "artifact", "authorization", "result_blind"),
+    (
+        "body_digest",
+        "code_sha",
+        "protocol",
+        "artifact",
+        "authorization",
+        "result_blind",
+    ),
 )
 def test_review_evidence_rejects_unbound_or_non_authorizing_record(
     mutation: str,

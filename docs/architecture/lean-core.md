@@ -6,7 +6,7 @@ Trade RLの現行coreは、**causalなmarket data、1つのexecution/accounting 
 
 旧U-series、旧Causal Alpha世代、mandatoryな `teacher -> admission -> BC -> RL`、研究DB、UI、世代別runnerは現行研究経路の必須条件ではない。Git historyに残る旧architectureをcurrent treeへ戻さない。
 
-現在の研究目的は、銘柄IDに依存しない共通strategy/model/policyを複数銘柄へ適用し、point-in-time情報と同一の約定・会計条件で、コスト控除後の結果がunused dataでも維持されるかを検証することである。
+現在の研究目的は、**実運用では一度に1銘柄を独立accountとして売買する**一方、銘柄IDに依存しない共通strategy/model/policyを複数銘柄の学習・検証へ適用し、未知・未使用の銘柄や期間でも転用可能な汎用性を検証することである。複数銘柄のtraining dataを使うことは、複数銘柄を同時保有するshared-cash portfolioを意味しない。各銘柄への適用ではpoint-in-time情報と同一の約定・会計条件を使い、コスト控除後の結果がunused dataでも維持されるかを確認する。
 
 ## Core flow
 

@@ -132,6 +132,67 @@ def test_study_plan_binds_fixed_candidate_and_control_rosters() -> None:
     assert plan.digest == content_digest(plan.to_payload())
 
 
+def test_study_plan_v2_binds_preregistered_final_window() -> None:
+    plan = study_plan(
+        final_evaluation_start="2026-03-01T00:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        schema_version="controlled_study_plan_v2",
+    )
+
+    assert plan.final_evaluation_start == "2026-03-01T00:00:00.000000000"
+    assert plan.final_evaluation_stop_exclusive == "2026-04-01T00:00:00.000000000"
+    payload = plan.to_payload()
+    assert payload["schema_version"] == "controlled_study_plan_v2"
+    assert payload["final_evaluation_start"] == plan.final_evaluation_start
+    assert payload["final_evaluation_stop_exclusive"] == (
+        plan.final_evaluation_stop_exclusive
+    )
+    assert plan.digest == content_digest(payload)
+
+
+def test_study_plan_v1_forbids_final_window_fields() -> None:
+    with pytest.raises(ContractViolationError, match="v1.*final|final.*v1"):
+        study_plan(
+            final_evaluation_start="2026-03-01T00:00:00.000000000",
+            final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        )
+
+
+@pytest.mark.parametrize(
+    ("start", "stop", "match"),
+    (
+        (None, "2026-04-01T00:00:00.000000000", "requires.*final|final.*requires"),
+        ("2026-03-01T00:00:00.000000000", None, "requires.*final|final.*requires"),
+        (
+            "2026-02-28T23:00:00.000000000",
+            "2026-04-01T00:00:00.000000000",
+            "development|evaluation",
+        ),
+        (
+            "2026-03-01T00:00:00.000000000",
+            "2026-03-01T00:00:00.000000000",
+            "strictly later|stop",
+        ),
+        (
+            "2026-03-01T00:00:00",
+            "2026-04-01T00:00:00.000000000",
+            "canonical|nanosecond",
+        ),
+    ),
+)
+def test_study_plan_v2_rejects_invalid_final_window(
+    start: str | None,
+    stop: str | None,
+    match: str,
+) -> None:
+    with pytest.raises(ContractViolationError, match=match):
+        study_plan(
+            final_evaluation_start=start,
+            final_evaluation_stop_exclusive=stop,
+            schema_version="controlled_study_plan_v2",
+        )
+
+
 def test_experiment_definition_is_digest_bound_and_sequence_positive() -> None:
     definition = ExperimentDefinition(
         study_digest="a" * 64,

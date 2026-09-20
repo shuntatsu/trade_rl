@@ -983,7 +983,7 @@ def _review_body(
         "unused_data_accessed": False,
         "final_data_accessed": False,
         "source_review_reference": (
-            "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+            "https://github.com/owner/repo/pull/744#issuecomment-5752780000"
         ),
     }
     return (

@@ -126,6 +126,28 @@ class PreTradeRisk:
     def __init__(self, config: PreTradeRiskConfig | None = None) -> None:
         self.config = config or PreTradeRiskConfig()
 
+    @classmethod
+    def default_for_execution(cls, *, max_leverage: float) -> PreTradeRisk:
+        """Build the canonical default risk implied by execution leverage."""
+
+        if (
+            isinstance(max_leverage, bool)
+            or not isinstance(max_leverage, (int, float))
+            or not math.isfinite(max_leverage)
+            or max_leverage <= 0.0
+        ):
+            raise ValueError("max_leverage must be finite and positive")
+        hard_limit = min(1.0, float(max_leverage))
+        return cls(
+            PreTradeRiskConfig(
+                max_gross=hard_limit,
+                max_abs_weight=hard_limit,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        )
+
     def risk_scale(self, drawdown: float) -> float:
         if not math.isfinite(drawdown) or not 0.0 <= drawdown <= 1.0:
             raise ValueError("drawdown must be finite and within [0, 1]")

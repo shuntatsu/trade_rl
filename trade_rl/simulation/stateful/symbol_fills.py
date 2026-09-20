@@ -348,12 +348,15 @@ class StatefulSymbolFillProcessor:
                 )
                 fill_prices = context.open_prices.copy()
                 fill_prices[symbol] = execution_price
+                valuation_prices = runtime.book.mark_prices.copy()
+                valuation_prices[symbol] = execution_price
                 runtime.book.execute_fill(
                     symbol_index=symbol,
                     quantity=allocation.filled_quantity,
                     lot_size=allocation.lot_size,
                     lot_count=allocation.filled_lot_count,
                     fill_prices=fill_prices,
+                    valuation_prices=valuation_prices,
                     cost_amount=cost_amount,
                     turnover=(allocation.filled_notional / context.period_start_value),
                 )

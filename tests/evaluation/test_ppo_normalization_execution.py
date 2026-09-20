@@ -370,6 +370,19 @@ def _activation(provenance: dict[str, object]) -> dict[str, object]:
     }
 
 
+def test_execution_is_fail_closed_without_sealed_activation(tmp_path) -> None:
+    provenance = {
+        "schema_version": "test-provenance",
+        "implementation_digest": "b" * 64,
+    }
+    activation = _activation(provenance)
+
+    assert module.SEALED_EXECUTION_ACTIVATION_SHA256 is None
+    with pytest.raises(RuntimeError, match="not sealed"):
+        prepare_replication_execution(tmp_path / "execution", activation)
+    assert not (tmp_path / "execution").exists()
+
+
 def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     tmp_path,
     monkeypatch,
@@ -380,12 +393,13 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     }
     activation = _activation(provenance)
     activation_digest = content_digest(activation)
-    root = tmp_path / "execution"
-    prepare_replication_execution(
-        root,
-        activation,
-        expected_activation_digest=activation_digest,
+    monkeypatch.setattr(
+        module,
+        "SEALED_EXECUTION_ACTIVATION_SHA256",
+        activation_digest,
     )
+    root = tmp_path / "execution"
+    prepare_replication_execution(root, activation)
 
     dataset = SimpleNamespace(feature_names=("signal", "carry"))
     config = SimpleNamespace()
@@ -466,7 +480,6 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
         tmp_path / "source",
         root,
         slot,
-        expected_activation_digest=activation_digest,
     )
     assert fit_calls == [slot]
     assert published["bundle_digest"] == "d" * 64
@@ -488,7 +501,6 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
         tmp_path / "source",
         root,
         slot,
-        expected_activation_digest=activation_digest,
     )
     assert verified == published
     assert fit_calls == [slot]
@@ -504,23 +516,26 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
             tmp_path / "source",
             root,
             slot,
-            expected_activation_digest=activation_digest,
         )
 
 
-def test_execution_root_rejects_noncanonical_protocol_bytes(tmp_path) -> None:
+def test_execution_root_rejects_noncanonical_protocol_bytes(
+    tmp_path,
+    monkeypatch,
+) -> None:
     provenance = {
         "schema_version": "test-provenance",
         "implementation_digest": "b" * 64,
     }
     activation = _activation(provenance)
     activation_digest = content_digest(activation)
-    root = tmp_path / "noncanonical-protocol"
-    prepare_replication_execution(
-        root,
-        activation,
-        expected_activation_digest=activation_digest,
+    monkeypatch.setattr(
+        module,
+        "SEALED_EXECUTION_ACTIVATION_SHA256",
+        activation_digest,
     )
+    root = tmp_path / "noncanonical-protocol"
+    prepare_replication_execution(root, activation)
 
     protocol_path = root / "protocol.json"
     semantic_protocol = json.loads(protocol_path.read_bytes())
@@ -529,19 +544,14 @@ def test_execution_root_rejects_noncanonical_protocol_bytes(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    monkeypatch_provenance = module.build_candidate_run_provenance
-    try:
-        module.build_candidate_run_provenance = lambda: provenance
-        with pytest.raises(ValueError, match="canonical"):
-            module._validate_execution_root(
-                root,
-                expected_activation_digest=activation_digest,
-            )
-    finally:
-        module.build_candidate_run_provenance = monkeypatch_provenance
+    with pytest.raises(ValueError, match="canonical"):
+        module._validate_execution_root(root)
 
 
-def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
+def test_activation_rejects_result_or_unused_data_authority(
+    tmp_path,
+    monkeypatch,
+) -> None:
     provenance = {
         "schema_version": "test-provenance",
         "implementation_digest": "b" * 64,
@@ -555,23 +565,28 @@ def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
     ):
         activation = _activation(provenance)
         activation[field] = True
+        monkeypatch.setattr(
+            module,
+            "SEALED_EXECUTION_ACTIVATION_SHA256",
+            content_digest(activation),
+        )
         with pytest.raises(ValueError, match=field):
-            prepare_replication_execution(
-                tmp_path / field,
-                activation,
-                expected_activation_digest=content_digest(activation),
-            )
+            prepare_replication_execution(tmp_path / field, activation)
 
 
-def test_activation_rejects_implementation_digest_drift(tmp_path) -> None:
+def test_activation_rejects_implementation_digest_drift(
+    tmp_path,
+    monkeypatch,
+) -> None:
     provenance = {
         "schema_version": "test-provenance",
         "implementation_digest": "c" * 64,
     }
     activation = _activation(provenance)
+    monkeypatch.setattr(
+        module,
+        "SEALED_EXECUTION_ACTIVATION_SHA256",
+        content_digest(activation),
+    )
     with pytest.raises(ValueError, match="implementation digest"):
-        prepare_replication_execution(
-            tmp_path / "identity-drift",
-            activation,
-            expected_activation_digest=content_digest(activation),
-        )
+        prepare_replication_execution(tmp_path / "identity-drift", activation)

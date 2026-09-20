@@ -61,6 +61,7 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/ridge.py",
         "forecasts/lightgbm.py",
         "rl/__init__.py",
+        "rl/intent.py",
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
@@ -85,6 +86,13 @@ def test_strategy_package_preserves_public_api() -> None:
     assert set(strategies.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(strategies, name), name
+
+
+def test_ppo_uses_the_shared_three_action_intent_adapter() -> None:
+    from trade_rl.strategies import PPOIntentStrategy
+    from trade_rl.strategies.rl.intent import _ThreeActionIntentStrategy
+
+    assert issubclass(PPOIntentStrategy, _ThreeActionIntentStrategy)
 
 
 def test_supervised_module_preserves_dataset_scope_exports() -> None:

@@ -69,7 +69,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
-│   └── rl/{ppo.py,ppo_normalization.py,ppo_artifact.py}
+│   └── rl/{intent.py,ppo.py,ppo_normalization.py,ppo_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── metrics.py
@@ -186,12 +186,14 @@ from the existing absolute qualification gate.
 `strategies/rl/ppo_normalization.py` owns optional fit-only local-feature
 standardization and its immutable metadata. `ppo.py` applies one shared fitted
 transform in training and inference while keeping the raw v2 default unchanged.
+`intent.py` owns the private deterministic three-action observation/intent
+adapter used by PPO and available for future maintained RL strategies.
+
 `ppo_artifact.py` owns durable PPO inference bundles. The current bundle binds
 raw or normalized policy bytes, Observation v2, selected feature semantics and
 optional preprocessing metadata under one manifest digest; load validates that
 digest, feed feature schema and policy spaces before inference. The historical
 normalized-only bundle remains a compatibility reader/writer contract.
-
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 
 `book_depth.py` はUSD-M daily `bookDepth` の `timestamp,percentage,depth,notional` を厳密にdecodeし、maintained percentage bands、snapshot completeness、累積depth/notional、implied average price、timestamp orderingをfail-closedに検証する。top-of-book quote、bid/ask spread、market impact、slippage、`MarketDataset`、`ExecutionEconomicsProfile`、execution/accounting、P&Lのauthorityにはしない。

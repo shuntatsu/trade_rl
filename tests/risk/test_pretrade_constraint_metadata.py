@@ -102,3 +102,33 @@ def test_constraint_metadata_fails_closed(metadata: dict[str, float]) -> None:
             risk_scale=1.0,
             **metadata,
         )
+
+
+def test_risk_constrained_target_arrays_are_deeply_immutable() -> None:
+    source = np.array([0.2, -0.1])
+    result = RiskConstrainedTarget(
+        weights=source,
+        requested_turnover=0.3,
+        constrained_turnover=0.3,
+        was_constrained=False,
+        reasons=(),
+        risk_scale=1.0,
+        proposal_weights=np.array([0.25, -0.15]),
+        pretrade_weights=np.array([0.2, -0.1]),
+    )
+
+    # The frozen dataclass must not expose mutable NumPy aliases.
+    source[0] = 9.0
+    np.testing.assert_allclose(result.weights, [0.2, -0.1])
+
+    for vector in (
+        result.weights,
+        result.proposal_weights,
+        result.pretrade_weights,
+    ):
+        assert vector is not None
+        assert vector.flags.writeable is False
+        with pytest.raises(ValueError, match="read-only"):
+            vector[0] = 0.0
+        with pytest.raises(ValueError, match="WRITEABLE"):
+            vector.setflags(write=True)

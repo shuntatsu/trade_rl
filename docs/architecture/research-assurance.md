@@ -92,6 +92,16 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
 
 **Known limitations:** market-event causalityを確認しても、source publication timingやhistorical point-in-time availabilityまでは証明しない。
 
+### SOURCE-001 — availability authority is explicit
+
+**Statement:** market `event_time`、historical `source_available_time`、live/forwardの`received_time`を、provider evidenceなしに同じ時刻として扱わない。decisionへ使用可能と主張する時刻authorityをdata sourceごとに明示する。
+
+**Counterexample:** historical archive rowのmarket timestampを、そのarchiveまたはfieldが当時traderへ公開済みだった時刻として流用する。
+
+**Oracle:** provider publication evidence、raw acquisition sidecar、request/receipt clock、または同等のpoint-in-time provenanceからavailability authorityを独立に再構築する。十分な証拠がなければhistorical point-in-time source availabilityを `NOT ESTABLISHED` とする。
+
+**Known limitations:** sourceが当時取得可能だったことを確認しても、latency、queue、private account restrictions、実際のfill可能性までは証明しない。
+
 ### EXEC-001 — native capacity conservation
 
 **Statement:** BASE_ASSETやCONTRACTSのnative liquidity capacityは、reference priceからquote notionalへ変換した後のfill price差だけを理由に増えてはならない。QUOTE_NOTIONAL capacityとは別のauthorityとして保持する。

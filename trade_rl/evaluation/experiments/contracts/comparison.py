@@ -16,7 +16,6 @@ from trade_rl.evaluation.experiments.errors import ContractViolationError
 _COMPARISON_SCHEMA = "controlled_experiment_comparison_v1"
 
 
-
 @dataclass(frozen=True, slots=True)
 class ExperimentComparison:
     """Digest-bound baseline-vs-candidate factor-effect evidence."""

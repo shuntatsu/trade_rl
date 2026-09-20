@@ -125,7 +125,6 @@ def test_study_plan_owns_fixed_resolved_field_roster() -> None:
         assert "_STUDY_FIXED_CONFIG_PATHS" not in source
 
 
-
 def _top_level_function_names(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return {

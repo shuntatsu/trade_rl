@@ -27,7 +27,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "5b7a89caa808635135ba8ed0f3ad56f46e8b162b03798f6e1fbd66ce965f5f95",
+      "source_sha256": "0d4d035a6b88cdc9a396f8f57038e244f8b8f2ce7c143d04a2eb3a5377bc2b19",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と区間収益を更新する統括処理です。",
       "variables": [
@@ -62,7 +62,9 @@
           "description_ja": "リプレイが現在処理している市場データ上の時点です。"
         }
       ],
-      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
     },
     {
       "id": "replay-observation",
@@ -72,7 +74,9 @@
       "label_ja": "その時点の観測を組み立てる",
       "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図と現在ウェイトを加えてStrategyObservationを作ります。",
       "variables": [],
-      "tests": ["tests/evaluation/test_single_symbol_replay.py"]
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
     },
     {
       "id": "risk-constrain",
@@ -82,7 +86,9 @@
       "label_ja": "ハードリスクを適用",
       "description_ja": "提案ウェイトへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用し、実行可能な目標へ射影します。",
       "variables": [],
-      "tests": ["tests/risk/test_pretrade.py"]
+      "tests": [
+        "tests/risk/test_pretrade.py"
+      ]
     },
     {
       "id": "execute-interval",
@@ -92,7 +98,9 @@
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],
-      "tests": ["tests/simulation/test_execution_v2.py"]
+      "tests": [
+        "tests/simulation/test_execution_v2.py"
+      ]
     }
   ]
 }

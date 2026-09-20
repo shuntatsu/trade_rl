@@ -212,19 +212,6 @@ def _agent_stop_index(
     return agent_stop
 
 
-def _default_risk(executor: MarketExecutor) -> PreTradeRisk:
-    hard_limit = min(1.0, float(executor.cost.max_leverage))
-    return PreTradeRisk(
-        PreTradeRiskConfig(
-            max_gross=hard_limit,
-            max_abs_weight=hard_limit,
-            max_turnover=None,
-            drawdown_start=1.0,
-            drawdown_stop=1.0,
-        )
-    )
-
-
 class PPOIntentStrategy:
     """Map a deterministic three-action policy to SHORT/FLAT/LONG intent."""
 
@@ -336,7 +323,9 @@ class PPOTradingEnv(gym.Env):
         self._execution_seed_stream: np.random.Generator | None = None
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = (
-            _default_risk(self.executor)
+            PreTradeRisk.default_for_execution(
+                max_leverage=self.executor.cost.max_leverage
+            )
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )
@@ -410,7 +399,9 @@ class PPOTradingEnv(gym.Env):
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.executor.reset_random_state(execution_seed)
         self.risk = (
-            _default_risk(self.executor)
+            PreTradeRisk.default_for_execution(
+                max_leverage=self.executor.cost.max_leverage
+            )
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )

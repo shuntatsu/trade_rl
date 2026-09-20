@@ -119,6 +119,13 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 
 ## StrategyとRiskの責任分離
 
+Executionの `max_leverage` から導く既定pre-trade riskは
+`PreTradeRisk.default_for_execution` を単一のsemantic authorityとする。
+PPO trainingとcanonical replayはprivateなdefault-risk factoryを持たず、この同じ
+authorityを使う。これは閾値変更ではなく、training/replay間の将来driftを防ぐ
+ownership契約である。
+
+
 Risk / executionが担当するもの:
 
 - maximum gross exposure

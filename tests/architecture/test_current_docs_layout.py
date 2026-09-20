@@ -308,12 +308,22 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "native capacity conservation",
         "train/evaluation account semantics",
         "Economic edge: NOT ESTABLISHED",
+        "AI adversarial review",
+        "fresh reviewer context",
+        "result-blind review packet",
+        "read-only",
+        "strongest counterexample",
+        "missing evidence",
+        "claim downgrade",
+        "AI review is not an authority",
     ):
         assert required in contract
 
     agents = (DOCS / "AGENTS.md").read_text(encoding="utf-8")
     assert "architecture/research-assurance.md" in agents
     assert "G0-G2" in agents
+    assert "fresh read-only AI reviewer" in agents
+    assert "economic result values" in agents
 
     controlled_loop = (
         DOCS / "architecture" / "controlled-experiment-loop.md"

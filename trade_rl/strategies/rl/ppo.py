@@ -295,16 +295,15 @@ class PPOTradingEnv(gym.Env):
         target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
         self.dataset = dataset
-        self.feature_indices = validated_feature_indices(dataset, feature_indices)
         self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
         information_scope = (
             self.symbol_indices
             if information_symbol_indices is None
             else information_symbol_indices
         )
-        _, self.information_symbol_indices = validated_training_scope(
+        self.feature_indices, self.information_symbol_indices = validated_training_scope(
             dataset,
-            feature_indices=self.feature_indices,
+            feature_indices=feature_indices,
             fit_symbol_indices=information_scope,
         )
         if not set(self.symbol_indices).issubset(self.information_symbol_indices):

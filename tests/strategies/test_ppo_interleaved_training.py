@@ -16,6 +16,7 @@ from trade_rl.strategies.rl.ppo import (
     PPOTradingEnv,
     fit_ppo_strategy,
 )
+from trade_rl.strategies.rl.ppo_normalization import fit_ppo_feature_normalizer
 
 
 class FakeTanh:
@@ -487,6 +488,29 @@ def test_interleaved_normalized_envs_share_fit_information_scope(
         assert env.information_symbol_indices == (0, 1)
         assert env.feature_normalizer is strategy.feature_normalizer
 
+
+
+def test_direct_ppo_env_rejects_normalizer_from_broader_information_scope() -> None:
+    dataset = _ppo_identity_market(FeatureKind.LOG_RETURN)
+    normalizer = fit_ppo_feature_normalizer(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+    )
+
+    with pytest.raises(ValueError, match="training scope"):
+        PPOTradingEnv(
+            dataset,
+            feature_indices=(0,),
+            symbol_indices=(0,),
+            information_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            feature_normalizer=normalizer,
+        )
 
 def _long_pooled_market(n_bars: int = 3_001) -> MarketDataset:
     close = np.full((n_bars, 2), 100.0, dtype=np.float64)

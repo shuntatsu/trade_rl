@@ -46,7 +46,10 @@ def _receipt(**updates: object) -> dict[str, Any]:
             "status": "failed",
             "checkpoint_protocol_digest": "c" * 64,
             "approved_protocol_digest": "c" * 64,
-            "review_reference": "https://github.com/owner/repo/pull/738#review-1",
+            "review_reference": (
+                "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+            ),
+            "review_record_sha256": "e" * 64,
             "finished_at": "2026-09-21T00:00:00+00:00",
         }
     )
@@ -197,15 +200,44 @@ def test_source_root_locator_requires_one_valid_dataset_study_pair_and_keeps_ext
 
 
 def test_operator_approval_is_required_and_compares_outer_protocol_digest() -> None:
+    review = "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
     with pytest.raises(ValueError, match="approved protocol digest"):
-        transport.validate_operator_approval("arm", "", "review", "c" * 64)
+        transport.validate_operator_approval(
+            "arm",
+            "",
+            review,
+            "c" * 64,
+            repository="owner/repo",
+            review_record_sha256="e" * 64,
+        )
     with pytest.raises(ValueError, match="review reference"):
-        transport.validate_operator_approval("finalize", "c" * 64, "", "c" * 64)
+        transport.validate_operator_approval(
+            "finalize",
+            "c" * 64,
+            "",
+            "c" * 64,
+            repository="owner/repo",
+            review_record_sha256="e" * 64,
+        )
     with pytest.raises(ValueError, match="does not match"):
-        transport.validate_operator_approval("arm", "d" * 64, "review", "c" * 64)
+        transport.validate_operator_approval(
+            "arm",
+            "d" * 64,
+            review,
+            "c" * 64,
+            repository="owner/repo",
+            review_record_sha256="e" * 64,
+        )
     assert (
-        transport.validate_operator_approval("arm", "c" * 64, "review ref", "c" * 64)
-        == "review ref"
+        transport.validate_operator_approval(
+            "arm",
+            "c" * 64,
+            review,
+            "c" * 64,
+            repository="owner/repo",
+            review_record_sha256="e" * 64,
+        )
+        == review
     )
     assert transport.validate_operator_approval("prepare", "", "", None) is None
 
@@ -485,7 +517,10 @@ def test_failed_arm_publishes_failed_receipt_with_protocol_and_completed_fit(
         "CHECKPOINT_CODE_SHA": "a" * 40,
         "CHECKPOINT_ARTIFACTS_JSON": json.dumps([input_reference.to_mapping()]),
         "CHECKPOINT_APPROVED_PROTOCOL_DIGEST": digest,
-        "CHECKPOINT_REVIEW_REFERENCE": "reviewed protocol 9df2",
+        "CHECKPOINT_REVIEW_REFERENCE": (
+            "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+        ),
+        "CHECKPOINT_REVIEW_RECORD_SHA256": "e" * 64,
         "CHECKPOINT_FACTOR": "baseline",
         "CHECKPOINT_SEED": "0",
         "CHECKPOINT_GITHUB_TOKEN": "secret-token",
@@ -518,7 +553,10 @@ def test_failed_arm_publishes_failed_receipt_with_protocol_and_completed_fit(
     assert receipt["status"] == "failed"
     assert receipt["checkpoint_protocol_digest"] == digest
     assert receipt["approved_protocol_digest"] == digest
-    assert receipt["review_reference"] == "reviewed protocol 9df2"
+    assert receipt["review_reference"] == (
+        "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+    )
+    assert receipt["review_record_sha256"] == "e" * 64
     assert receipt["completed_commands"] == [
         {"index": 1, "command": "fit", "exit_status": 0}
     ]
@@ -557,7 +595,10 @@ def test_failed_arm_publishes_failed_receipt_with_protocol_and_completed_fit(
         },
         protocol_digest=digest,
         approved_protocol_digest=digest,
-        review_reference="reviewed protocol 9df2",
+        review_reference=(
+            "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+        ),
+        review_record_sha256="e" * 64,
     )
 
 
@@ -620,6 +661,12 @@ def test_transport_roundtrips_prepare_failed_arm_resume_and_finalize(
         },
     }
     protocol_digest = transport.content_digest(protocol)
+    review_reference = (
+        "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+    )
+    review_record_sha256 = ""
+    review_body = ""
+    prepare_reference_for_review: transport.ArtifactReference | None = None
     current_stage = "prepare"
     first_arm_failure_injected = False
     fit_invocations = 0
@@ -640,6 +687,14 @@ def test_transport_roundtrips_prepare_failed_arm_resume_and_finalize(
             run_and_attempt = path.rsplit(run_marker, 1)[1].split("/attempts/")
             run_key = (int(run_and_attempt[0]), int(run_and_attempt[1]))
             return producer_runs[run_key]
+        if path == "/repos/owner/repo/issues/comments/5752780311":
+            return {
+                "html_url": review_reference,
+                "issue_url": "https://api.github.com/repos/owner/repo/issues/744",
+                "body": review_body,
+            }
+        if path == "/repos/owner/repo/pulls/744":
+            return {"head": {"sha": "a" * 40, "repo": {"id": 12}}}
         raise AssertionError(f"unexpected fake GitHub API path: {path}")
 
     def fake_download_response(url: str, *, token: str, deadline: float) -> io.BytesIO:
@@ -783,7 +838,10 @@ def test_transport_roundtrips_prepare_failed_arm_resume_and_finalize(
                 "" if stage == "prepare" else protocol_digest
             ),
             "CHECKPOINT_REVIEW_REFERENCE": (
-                "" if stage == "prepare" else "reviewed synthetic protocol"
+                "" if stage == "prepare" else review_reference
+            ),
+            "CHECKPOINT_REVIEW_RECORD_SHA256": (
+                "" if stage == "prepare" else review_record_sha256
             ),
             "CHECKPOINT_FACTOR": "baseline",
             "CHECKPOINT_SEED": "0" if stage == "arm" else "",
@@ -808,6 +866,17 @@ def test_transport_roundtrips_prepare_failed_arm_resume_and_finalize(
     prepare_reference = register_output_artifact(
         prepare_output, artifact_id=801, conclusion="success"
     )
+    prepare_reference_for_review = prepare_reference
+    review_body = _review_body(
+        code_sha="a" * 40,
+        workflow_sha="b" * 40,
+        protocol_digest=protocol_digest,
+        artifact_id=prepare_reference.artifact_id,
+        run_id=prepare_reference.run_id,
+        artifact_sha256=prepare_reference.sha256,
+    )
+    review_record_sha256 = hashlib.sha256(review_body.encode("utf-8")).hexdigest()
+    assert prepare_reference_for_review == prepare_reference
 
     current_stage = "arm"
     failed_arm_output = tmp_path / "arm-failed"

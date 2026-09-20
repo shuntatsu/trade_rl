@@ -80,6 +80,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "LightGBMForecastStrategy",
         lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
     )
+
     def fake_ppo_wrapper(*args, **kwargs):
         calls["ppo_wrapper_kwargs"] = kwargs
         return ConstantIntentStrategy(PositionIntent.FLAT)

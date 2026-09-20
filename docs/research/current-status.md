@@ -386,6 +386,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 - `feature_available_time <= decision_time` を守る。
 - supervised labelは `label_end_time < fit_cutoff` で完結する。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
+- fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。
 - 同calendar shockを受ける複数銘柄を完全独立標本とみなさない。
 - 同じfrozen strategyを各symbolへ独立Replayし、`UniversalStrategyComparison.by_symbol`を主要結果として扱う。

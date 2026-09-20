@@ -32,6 +32,8 @@ def test_pr_template_contains_quality_contract() -> None:
     assert "G0-G2" in text
     assert "fresh/read-only AI reviewer" in text
     assert "result-blind" in text
+    assert "mandatory" in text
+    assert "G4" in text
 
 
 def test_merge_policy_requires_tested_head_to_include_current_main() -> None:

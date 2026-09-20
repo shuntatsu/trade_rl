@@ -136,13 +136,25 @@ def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
     assert fitted is not None
     assert isinstance(fitted.env, PPOTradingEnv)
     assert fitted.env.symbol_indices == (0, 1)
-    assert "n_steps" not in fitted.kwargs
-    assert "batch_size" not in fitted.kwargs
+    assert fitted.kwargs["n_steps"] == 2048
+    assert fitted.kwargs["batch_size"] == 64
     assert fitted.kwargs["policy_kwargs"] == {
         "net_arch": {"pi": [64, 64], "vf": [64, 64]}
     }
     assert fitted.kwargs["seed"] == 11
+    assert fitted.kwargs["learning_rate"] == pytest.approx(3e-4)
+    assert fitted.kwargs["gamma"] == pytest.approx(0.99)
+    assert fitted.kwargs["gae_lambda"] == pytest.approx(0.95)
+    assert fitted.kwargs["clip_range"] == pytest.approx(0.2)
+    assert fitted.kwargs["clip_range_vf"] is None
+    assert fitted.kwargs["normalize_advantage"] is True
+    assert fitted.kwargs["n_epochs"] == 10
     assert fitted.kwargs["ent_coef"] == 0.0
+    assert fitted.kwargs["vf_coef"] == pytest.approx(0.5)
+    assert fitted.kwargs["max_grad_norm"] == pytest.approx(0.5)
+    assert fitted.kwargs["use_sde"] is False
+    assert fitted.kwargs["sde_sample_freq"] == -1
+    assert fitted.kwargs["target_kl"] is None
     assert fitted.kwargs["device"] == "cpu"
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)

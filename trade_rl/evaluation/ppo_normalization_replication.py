@@ -15,7 +15,7 @@ PPO_NORMALIZATION_PROTOCOL_SCHEMA: Final = (
 CONTROL_ARM: Final = "control_raw"
 CANDIDATE_ARM: Final = "candidate_normalized"
 
-_MINIMUM_MAIN_SHA: Final = "7bcc6854b56f52d0dea076763db047dfc2d83976"
+_MINIMUM_MAIN_SHA: Final = "2068dbba481945092a082a79aa640edce8f951b8"
 _SOURCE_DATASET_ID: Final = (
     "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
 )
@@ -32,7 +32,7 @@ _SOFTWARE_BLOBS: Final = {
         "3eb4f744a8c8bc40ece4b1b0c508df825a65e352"
     ),
     "trade_rl/strategies/rl/ppo_artifact.py": (
-        "980aa3e06c2222aa74533316c8e1c6e2ac721b11"
+        "8684bd17f7a33e29917ab5a6906ab77bdc969db6"
     ),
     "trade_rl/evaluation/directional_contract.py": (
         "dce26c258e03e6b1658f8c6d43c15e012f5084e0"
@@ -78,7 +78,7 @@ def expected_ppo_normalization_protocol() -> dict[str, object]:
             "inference_bundle_merge": (
                 "e7a44750fadcfb6af2fb74cbd4ecbe0a6df5e943"
             ),
-            "holdout_mutation_invariance_merge": _MINIMUM_MAIN_SHA,
+            "holdout_mutation_invariance_merge": (\n                "7bcc6854b56f52d0dea076763db047dfc2d83976"\n            ),\n            "strict_artifact_runtime_types_merge": _MINIMUM_MAIN_SHA,
         },
         "source": {
             "dataset_id": _SOURCE_DATASET_ID,

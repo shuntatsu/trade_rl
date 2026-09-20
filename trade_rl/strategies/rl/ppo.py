@@ -301,7 +301,10 @@ class PPOTradingEnv(gym.Env):
             if information_symbol_indices is None
             else information_symbol_indices
         )
-        self.feature_indices, self.information_symbol_indices = validated_training_scope(
+        (
+            self.feature_indices,
+            self.information_symbol_indices,
+        ) = validated_training_scope(
             dataset,
             feature_indices=feature_indices,
             fit_symbol_indices=information_scope,

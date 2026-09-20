@@ -63,9 +63,13 @@ def test_directional_ppo_training_uses_same_borrow_economics_as_evaluation(
         pooled_market(),
         _config(),
         tmp_path,
+        initial_capital=12_345.0,
+        gross_budget=0.12,
     )
 
     execution_cost = captured["execution_cost"]
     assert execution_cost.borrow_rate_multiplier == 1.0
     assert execution_cost.processing_bar_volume_capacity is False
     assert captured["settle_terminal_position"] is True
+    assert captured["initial_capital"] == 12_345.0
+    assert captured["gross_budget"] == 0.12

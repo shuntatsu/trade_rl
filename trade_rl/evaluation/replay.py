@@ -446,13 +446,22 @@ def run_shared_cash_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
-    execution_observations: list[StatefulExecutionObservation] = []
+    execution_observation: StatefulExecutionObservation | None = None
+    execution_observation_count = 0
+
+    def retain_latest_execution_observation(
+        observation: StatefulExecutionObservation,
+    ) -> None:
+        nonlocal execution_observation, execution_observation_count
+        execution_observation = observation
+        execution_observation_count += 1
+
     executor = MarketExecutor(
         dataset,
         execution_cost or ExecutionCostConfig.zero(),
         market_order_profile=market_order_profile,
         execution_observer=(
-            execution_observations.append if capture_ledger_evidence else None
+            retain_latest_execution_observation if capture_ledger_evidence else None
         ),
     )
     risk_controller = risk or PreTradeRisk.default_for_execution(
@@ -552,11 +561,14 @@ def run_shared_cash_replay(
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
         if capture_ledger_evidence:
-            if len(execution_observations) != len(ledger_intervals) + 1:
+            if (
+                execution_observation_count != len(ledger_intervals) + 1
+                or execution_observation is None
+            ):
                 raise RuntimeError(
                     "execution observer did not emit exactly one interval"
                 )
-            stateful_evidence = execution_observations[-1]
+            stateful_evidence = execution_observation
             if stateful_evidence.next_index != execution.next_index:
                 raise RuntimeError(
                     "execution observer index differs from replay result"

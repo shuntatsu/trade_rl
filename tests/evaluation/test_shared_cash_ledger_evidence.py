@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gc
+import weakref
 from copy import deepcopy
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import numpy as np
 import pytest
@@ -13,6 +15,10 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.directional import evaluate_directional_arm
 from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.stateful.execution import (
+    StatefulExecutionObservation,
+    StatefulExecutionResult,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -146,6 +152,66 @@ def test_shared_cash_ledger_capture_is_observer_only_and_canonical() -> None:
     assert payload["final_portfolio_value"] == observed.book.portfolio_value
     assert payload["final_max_drawdown"] == observed.book.max_drawdown
     assert canonical_json_bytes(payload)
+
+
+def test_shared_cash_replay_keeps_only_the_latest_execution_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market(np.full((8, 1), 100.0))
+    references: list[weakref.ReferenceType[object]] = []
+    max_live_observations = 0
+    original_from_result = StatefulExecutionObservation.from_result
+
+    class WeakReferenceableObservation:
+        def __init__(self, observation: StatefulExecutionObservation) -> None:
+            self.observation = observation
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self.observation, name)
+
+    def track_from_result(
+        _cls: type[StatefulExecutionObservation],
+        result: StatefulExecutionResult,
+    ) -> WeakReferenceableObservation:
+        nonlocal max_live_observations
+        observation_index = len(references) + 1
+        observed = replace(
+            original_from_result(result),
+            terminal_order_reasons=(
+                (f"order-{observation_index}", f"reason-{observation_index}"),
+            ),
+        )
+        observation = WeakReferenceableObservation(observed)
+        references.append(weakref.ref(observation))
+        gc.collect()
+        max_live_observations = max(
+            max_live_observations,
+            sum(reference() is not None for reference in references),
+        )
+        return observation
+
+    monkeypatch.setattr(
+        StatefulExecutionObservation,
+        "from_result",
+        classmethod(track_from_result),
+    )
+
+    result = run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=7,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert len(references) == 7
+    assert max_live_observations <= 2
+    assert ledger.terminal_order_reasons == (("order-7", "reason-7"),)
 
 
 @pytest.mark.parametrize("reduce_only_exits", [False, True])

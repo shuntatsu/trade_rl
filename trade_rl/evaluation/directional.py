@@ -112,7 +112,9 @@ def evaluate_directional_arm(
         termination_count=len(diagnostics.termination_reasons),
     )
     years = (
-        dataset.timestamps[start_index + 1 : stop_index + 1]\n        .astype("datetime64[Y]")\n        .astype(str)
+        dataset.timestamps[start_index + 1 : stop_index + 1]
+        .astype("datetime64[Y]")
+        .astype(str)
     )
     values = np.array(replay.returns.values)
     full_length = len(values) == stop_index - start_index

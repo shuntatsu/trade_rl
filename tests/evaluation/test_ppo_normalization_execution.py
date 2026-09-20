@@ -241,7 +241,10 @@ def test_candidate_base_pass_runs_registered_stress_and_symbol_diagnostics(
 
     def fake_evaluate(_dataset, _factory, **kwargs):
         calls.append(kwargs)
-        return _screen_row(0.01, year_return=0.01, with_stress=False)
+        row = _screen_row(0.01, year_return=0.01, with_stress=False)
+        row["cost_multiplier"] = kwargs.get("cost_multiplier", 1.0)
+        row["latency_bars"] = kwargs.get("latency_bars", 0)
+        return row
 
     monkeypatch.setattr(module, "evaluate_directional_arm", fake_evaluate)
 

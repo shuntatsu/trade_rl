@@ -12,7 +12,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk import PreTradeRisk
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import (
     BookState,

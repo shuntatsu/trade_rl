@@ -107,11 +107,11 @@ def _validated_interleaved_rollout_steps(
         or rollout_steps_per_env <= 0
     ):
         raise ValueError(
-            "rollout_steps_per_env must be a positive integer for interleaved training"
+            "rollout_steps_per_env must be a positive integer for vectorized training"
         )
     if rollout_steps_per_env * n_envs % _PPO_BATCH_SIZE != 0:
         raise ValueError(
-            "interleaved rollout batch must be divisible by PPO batch_size=64"
+            "vectorized rollout batch must be divisible by PPO batch_size=64"
         )
     return rollout_steps_per_env
 

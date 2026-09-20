@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from tests.evaluation.experiments.test_lineage import _decided_first_experiment
 from tests.evaluation.experiments.test_workflow import _with_baseline
 from trade_rl.evaluation.experiments import (
@@ -26,6 +27,7 @@ from trade_rl.evaluation.final_test import (
 )
 
 _AUTHORIZED_AT = datetime(2026, 9, 13, 11, 45, tzinfo=UTC)
+_DEVELOPMENT_STOP = "2026-01-01T20:00:00.000000000"
 _FINAL_START = "2026-01-02T00:00:00.000000000"
 _FINAL_STOP = "2026-01-03T00:00:00.000000000"
 
@@ -81,7 +83,7 @@ def test_winner_study_can_issue_one_sealed_authorization_without_mutating_study(
 
     assert authorization.winner_evidence_digest == winner_digest
     assert authorization.winner_strategy == "ppo"
-    assert authorization.development_evaluation_stop_exclusive == _FINAL_START
+    assert authorization.development_evaluation_stop_exclusive == _DEVELOPMENT_STOP
     assert authorization.final_evaluation_start == _FINAL_START
     assert authorization.final_evaluation_stop_exclusive == _FINAL_STOP
     assert set(path.name for path in output.iterdir()) == {"authorization.json"}
@@ -186,7 +188,7 @@ def test_authorization_contract_rejects_overlap_or_empty_window(
             study_freeze_digest="b" * 64,
             winner_evidence_digest="c" * 64,
             winner_strategy="ppo",
-            development_evaluation_stop_exclusive="2026-01-01T20:00:00.000000000",
+            development_evaluation_stop_exclusive=_DEVELOPMENT_STOP,
             final_evaluation_start=final_start,
             final_evaluation_stop_exclusive=final_stop,
             authorized_by="final-gate",
@@ -227,7 +229,7 @@ def test_inspection_rejects_authorization_tamper(
     payload["authorization"]["final_evaluation_stop_exclusive"] = (
         "2026-01-03T20:00:00.000000000"
     )
-    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+    artifact_path.write_bytes(canonical_json_bytes(payload))
 
     with pytest.raises(ArtifactIntegrityError, match="digest"):
         inspect_final_evaluation_authorization(output, study_root=study_root)

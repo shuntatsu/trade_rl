@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.data.artifacts import (
     inspect_published_market_dataset_artifact,
@@ -138,12 +139,6 @@ def replication_strategy_factory(
     return factory
 
 
-def _require_sha256(value: str, *, field: str) -> str:
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
-        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
-    return value
-
-
 def _safe_attempt_id(value: str) -> str:
     if (
         not value
@@ -200,8 +195,8 @@ def claim_replication_slot(
     """Atomically cross the fit boundary exactly once for one slot."""
 
     _require_registered_spec(spec)
-    activation = _require_sha256(activation_digest, field="activation_digest")
-    implementation = _require_sha256(
+    activation = require_sha256(activation_digest, field="activation_digest")
+    implementation = require_sha256(
         implementation_digest,
         field="implementation_digest",
     )
@@ -448,7 +443,7 @@ def _validate_activation(
     *,
     expected_digest: str,
 ) -> dict[str, object]:
-    _require_sha256(expected_digest, field="expected_activation_digest")
+    require_sha256(expected_digest, field="expected_activation_digest")
     expected_keys = {
         "schema",
         "protocol_sha256",
@@ -470,7 +465,7 @@ def _validate_activation(
     implementation = activation["implementation_digest"]
     if not isinstance(implementation, str):
         raise ValueError("implementation_digest must be text")
-    _require_sha256(implementation, field="implementation_digest")
+    require_sha256(implementation, field="implementation_digest")
     provenance = activation["provenance"]
     if not isinstance(provenance, dict):
         raise ValueError("execution activation provenance is malformed")

@@ -80,8 +80,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         calls["comparison_dataset"] = dataset
         calls["names"] = tuple(factories)
         calls["fresh_instances"] = {
-            name: (factory(), factory())
-            for name, factory in factories.items()
+            name: (factory(), factory()) for name, factory in factories.items()
         }
         calls["kwargs"] = kwargs
         return UniversalStrategyComparison(by_symbol=())

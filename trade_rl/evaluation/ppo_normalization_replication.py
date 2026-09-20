@@ -78,7 +78,10 @@ def expected_ppo_normalization_protocol() -> dict[str, object]:
             "inference_bundle_merge": (
                 "e7a44750fadcfb6af2fb74cbd4ecbe0a6df5e943"
             ),
-            "holdout_mutation_invariance_merge": (\n                "7bcc6854b56f52d0dea076763db047dfc2d83976"\n            ),\n            "strict_artifact_runtime_types_merge": _MINIMUM_MAIN_SHA,
+            "holdout_mutation_invariance_merge": (
+                "7bcc6854b56f52d0dea076763db047dfc2d83976"
+            ),
+            "strict_artifact_runtime_types_merge": _MINIMUM_MAIN_SHA,
         },
         "source": {
             "dataset_id": _SOURCE_DATASET_ID,

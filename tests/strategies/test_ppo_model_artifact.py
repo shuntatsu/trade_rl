@@ -431,10 +431,10 @@ def _save_artifact_for_load_boundary(
         digest = save_normalized_ppo(root, strategy)
     else:
         strategy = PPOIntentStrategy(
-        Policy(),
-        feature_indices=(0,),
-        feature_names=("signal",),
-    )
+            Policy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+        )
         digest = save_ppo_inference_bundle(
             root,
             strategy,

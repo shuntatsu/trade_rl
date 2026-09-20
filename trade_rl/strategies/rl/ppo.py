@@ -34,7 +34,21 @@ PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
+_PPO_LEARNING_RATE = 3e-4
+_PPO_DEFAULT_N_STEPS = 2048
 _PPO_BATCH_SIZE = 64
+_PPO_N_EPOCHS = 10
+_PPO_GAMMA = 0.99
+_PPO_GAE_LAMBDA = 0.95
+_PPO_CLIP_RANGE = 0.2
+_PPO_CLIP_RANGE_VF: float | None = None
+_PPO_NORMALIZE_ADVANTAGE = True
+_PPO_ENT_COEF = 0.0
+_PPO_VF_COEF = 0.5
+_PPO_MAX_GRAD_NORM = 0.5
+_PPO_USE_SDE = False
+_PPO_SDE_SAMPLE_FREQ = -1
+_PPO_TARGET_KL: float | None = None
 
 
 class _PredictPolicy(Protocol):
@@ -212,19 +226,6 @@ def _agent_stop_index(
     return agent_stop
 
 
-def _default_risk(executor: MarketExecutor) -> PreTradeRisk:
-    hard_limit = min(1.0, float(executor.cost.max_leverage))
-    return PreTradeRisk(
-        PreTradeRiskConfig(
-            max_gross=hard_limit,
-            max_abs_weight=hard_limit,
-            max_turnover=None,
-            drawdown_start=1.0,
-            drawdown_stop=1.0,
-        )
-    )
-
-
 class PPOIntentStrategy:
     """Map a deterministic three-action policy to SHORT/FLAT/LONG intent."""
 
@@ -336,7 +337,7 @@ class PPOTradingEnv(gym.Env):
         self._execution_seed_stream: np.random.Generator | None = None
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = (
-            _default_risk(self.executor)
+            PreTradeRisk.default_for_execution(max_leverage=self.executor.cost.max_leverage)
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )
@@ -410,7 +411,7 @@ class PPOTradingEnv(gym.Env):
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.executor.reset_random_state(execution_seed)
         self.risk = (
-            _default_risk(self.executor)
+            PreTradeRisk.default_for_execution(max_leverage=self.executor.cost.max_leverage)
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )
@@ -639,7 +640,10 @@ def fit_ppo_strategy(
         if normalize_features
         else None
     )
-    ppo_options: dict[str, object] = {}
+    ppo_options: dict[str, object] = {
+        "n_steps": _PPO_DEFAULT_N_STEPS,
+        "batch_size": _PPO_BATCH_SIZE,
+    }
     if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
         env: object = PPOTradingEnv(
             dataset,
@@ -690,16 +694,17 @@ def fit_ppo_strategy(
                 for symbol_index in symbol_indices
             ]
         )
-        ppo_options = {
-            "n_steps": rollout_steps,
-            "batch_size": _PPO_BATCH_SIZE,
-        }
+        ppo_options["n_steps"] = rollout_steps
 
     try:
         module = importlib.import_module("stable_baselines3")
         ppo_class = getattr(module, "PPO")
         torch_module = importlib.import_module("torch")
+        torch_layers = importlib.import_module("stable_baselines3.common.torch_layers")
         set_num_threads = getattr(torch_module, "set_num_threads")
+        tanh = getattr(getattr(torch_module, "nn"), "Tanh")
+        adam = getattr(getattr(torch_module, "optim"), "Adam")
+        flatten_extractor = getattr(torch_layers, "FlattenExtractor")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(
             "stable-baselines3 and torch are required; install the train-sb3 extra"
@@ -709,9 +714,29 @@ def fit_ppo_strategy(
     model = ppo_class(
         "MlpPolicy",
         env,
-        policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
+        policy_kwargs={
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+            "activation_fn": tanh,
+            "ortho_init": True,
+            "features_extractor_class": flatten_extractor,
+            "share_features_extractor": True,
+            "optimizer_class": adam,
+            "optimizer_kwargs": {"eps": 1e-5},
+        },
+        learning_rate=_PPO_LEARNING_RATE,
+        n_epochs=_PPO_N_EPOCHS,
+        gamma=_PPO_GAMMA,
+        gae_lambda=_PPO_GAE_LAMBDA,
+        clip_range=_PPO_CLIP_RANGE,
+        clip_range_vf=_PPO_CLIP_RANGE_VF,
+        normalize_advantage=_PPO_NORMALIZE_ADVANTAGE,
         seed=seed,
-        ent_coef=0.0,
+        ent_coef=_PPO_ENT_COEF,
+        vf_coef=_PPO_VF_COEF,
+        max_grad_norm=_PPO_MAX_GRAD_NORM,
+        use_sde=_PPO_USE_SDE,
+        sde_sample_freq=_PPO_SDE_SAMPLE_FREQ,
+        target_kl=_PPO_TARGET_KL,
         device="cpu",
         verbose=0,
         **ppo_options,

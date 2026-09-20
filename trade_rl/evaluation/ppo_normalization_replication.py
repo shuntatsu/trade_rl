@@ -186,6 +186,11 @@ def expected_ppo_normalization_protocol() -> dict[str, object]:
         "boundaries": {
             "reused_development_evidence": True,
             "historical_645_663_same_economics_control": False,
+            "control_new_fit_required": True,
+            "candidate_new_fit_required": True,
+            "historical_models_reused": False,
+            "economic_execution_authorized": False,
+            "economic_result_inspected": False,
             "unused_data_accessed": False,
             "final_test_accessed": False,
             "production_eligible": False,

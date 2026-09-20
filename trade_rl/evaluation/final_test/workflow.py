@@ -44,8 +44,6 @@ def _winner_snapshot(study_root: str | Path) -> StudySnapshot:
 def _authorization_from_study(
     snapshot: StudySnapshot,
     *,
-    final_evaluation_start: str,
-    final_evaluation_stop_exclusive: str,
     authorized_by: str,
     authorized_at: datetime,
 ) -> FinalEvaluationAuthorization:
@@ -61,13 +59,6 @@ def _authorization_from_study(
     if plan_final_start is None or plan_final_stop is None:
         raise InvalidExperimentStateError(
             "final evaluation authorization requires a preregistered StudyPlan final window"
-        )
-    if (
-        final_evaluation_start != plan_final_start
-        or final_evaluation_stop_exclusive != plan_final_stop
-    ):
-        raise ContractViolationError(
-            "final evaluation window must match the preregistered StudyPlan window"
         )
     authorization = FinalEvaluationAuthorization(
         study_digest=snapshot.plan.digest,
@@ -335,8 +326,6 @@ def authorize_final_evaluation(
     output_root: str | Path,
     *,
     study_root: str | Path,
-    final_evaluation_start: str,
-    final_evaluation_stop_exclusive: str,
     authorized_by: str,
     authorized_at: datetime,
 ) -> FinalEvaluationAuthorization:
@@ -345,8 +334,6 @@ def authorize_final_evaluation(
     snapshot = _winner_snapshot(study_root)
     authorization = _authorization_from_study(
         snapshot,
-        final_evaluation_start=final_evaluation_start,
-        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
         authorized_by=authorized_by,
         authorized_at=authorized_at,
     )

@@ -151,8 +151,8 @@ test oracleはauthorization前後でStudy treeの全file bytes/digestが同一�
 3. legacy StudyPlan v1などpreregistered final windowを持たないStudyを拒否する。
 4. public authorization APIがfinal-window override引数を持たないことを固定する。
 5. final startがdevelopment Dataset内に残るStudyPlan v2を作成段階で拒否する。
-7. development overlap / empty final windowを低層contractでも拒否する.
-6. pre-freeze authorization timestampを拒否する。
+6. development overlap / empty final windowを低層contractでも拒否する。
+7. pre-freeze authorization timestampを拒否する。
 8. publication後のread-backが同じcontractを再構築する。
 9. Study bytesがauthorization前後で不変である。
 10. 二回目の同一root publicationを拒否する。

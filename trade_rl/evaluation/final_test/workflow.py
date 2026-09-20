@@ -56,6 +56,19 @@ def _authorization_from_study(
         )
     if freeze.selected_evidence_digest is None or freeze.selected_strategy is None:
         raise ArtifactIntegrityError("WINNER Study freeze lacks selected evidence")
+    plan_final_start = snapshot.plan.final_evaluation_start
+    plan_final_stop = snapshot.plan.final_evaluation_stop_exclusive
+    if plan_final_start is None or plan_final_stop is None:
+        raise InvalidExperimentStateError(
+            "final evaluation authorization requires a preregistered StudyPlan final window"
+        )
+    if (
+        final_evaluation_start != plan_final_start
+        or final_evaluation_stop_exclusive != plan_final_stop
+    ):
+        raise ContractViolationError(
+            "final evaluation window must match the preregistered StudyPlan window"
+        )
     authorization = FinalEvaluationAuthorization(
         study_digest=snapshot.plan.digest,
         study_freeze_digest=freeze.digest,
@@ -64,8 +77,8 @@ def _authorization_from_study(
         development_evaluation_stop_exclusive=(
             snapshot.plan.baseline_config.evaluation_stop_exclusive
         ),
-        final_evaluation_start=final_evaluation_start,
-        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
+        final_evaluation_start=plan_final_start,
+        final_evaluation_stop_exclusive=plan_final_stop,
         authorized_by=authorized_by,
         authorized_at=authorized_at,
     )
@@ -287,6 +300,20 @@ def _validate_study_binding(
         != snapshot.plan.baseline_config.evaluation_stop_exclusive
     ):
         raise ArtifactIntegrityError("authorization Study development window mismatch")
+    if (
+        snapshot.plan.final_evaluation_start is None
+        or snapshot.plan.final_evaluation_stop_exclusive is None
+    ):
+        raise ArtifactIntegrityError(
+            "authorization Study lacks preregistered final window"
+        )
+    if authorization.final_evaluation_start != snapshot.plan.final_evaluation_start:
+        raise ArtifactIntegrityError("authorization Study final start mismatch")
+    if (
+        authorization.final_evaluation_stop_exclusive
+        != snapshot.plan.final_evaluation_stop_exclusive
+    ):
+        raise ArtifactIntegrityError("authorization Study final stop mismatch")
     if authorization.authorized_at < freeze.frozen_at:
         raise ArtifactIntegrityError("authorization predates bound Study freeze")
 

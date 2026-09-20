@@ -873,6 +873,14 @@ class MarketExecutor:
                     "rule_stress": self.rule_stress.digest_payload(),
                 }
             )
+        if self.rule_stress.enabled:
+            return content_digest(
+                {
+                    "schema_version": "stressed_execution_policy_v1",
+                    "base_policy_digest": self.cost.execution_policy_digest,
+                    "rule_stress": self.rule_stress.digest_payload(),
+                }
+            )
         return self.cost.execution_policy_digest
 
     def execute_orders(

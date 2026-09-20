@@ -10,7 +10,6 @@ from trade_rl.strategies.position_intent import PositionIntent
 
 
 def test_terminal_exit_is_a_real_next_open_fill_and_includes_both_fees() -> None:
-
     dataset = _market(np.full((8, 1), 100.0))
     dataset = replace(dataset, taker_fee_rate=np.full((8, 1), 0.001))
     assert hasattr(directional, "evaluate_directional_arm")
@@ -53,7 +52,6 @@ def test_cash_is_not_a_profitable_candidate_and_no_period_can_be_missing() -> No
 
 
 def test_recovered_intrabar_drawdown_still_fails_twenty_percent_budget() -> None:
-
     values = np.full((8, 5), 100.0)
     values[2:] = 110.0
     dataset = _market(values)
@@ -71,7 +69,6 @@ def test_recovered_intrabar_drawdown_still_fails_twenty_percent_budget() -> None
 
 
 def test_dataset_borrow_cost_is_not_disabled_by_zero_execution_overlay() -> None:
-
     dataset = _market(np.full((8, 1), 100.0))
     dataset = replace(dataset, borrow_rate=np.full((8, 1), 0.365))
     result = directional.evaluate_directional_arm(
@@ -84,7 +81,6 @@ def test_dataset_borrow_cost_is_not_disabled_by_zero_execution_overlay() -> None
 
 
 def test_no_liquidity_for_final_exit_retains_position_and_rejects_result() -> None:
-
     dataset = _market(np.linspace(100.0, 110.0, 8).reshape(-1, 1))
     volume = dataset.volume.copy()
     volume[6:] = 0
@@ -98,6 +94,7 @@ def test_no_liquidity_for_final_exit_retains_position_and_rejects_result() -> No
     assert not result["terminal_flat"]
     assert result["terminal_quantities"][0] > 0
     assert not result["qualified"]
+
 
 def test_year_returns_use_interval_end_timestamp() -> None:
     dataset = _market(np.full((5, 1), 100.0))

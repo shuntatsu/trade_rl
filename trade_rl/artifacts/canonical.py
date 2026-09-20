@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, NoReturn, TypeAlias, TypeVar, cast
+from typing import Any, Generic, NoReturn, Self, SupportsIndex, TypeAlias, TypeVar, cast
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -51,7 +51,7 @@ class FrozenDict(dict[_K, _V], Generic[_K, _V]):
         del args, kwargs
         self._reject()
 
-    def __ior__(self, other: object) -> NoReturn:
+    def __ior__(self, other: object) -> Self:
         del other
         self._reject()
 
@@ -71,11 +71,11 @@ class FrozenList(list[_V], Generic[_V]):
         del key
         self._reject()
 
-    def __iadd__(self, other: object) -> NoReturn:
+    def __iadd__(self, other: Iterable[_V]) -> Self:
         del other
         self._reject()
 
-    def __imul__(self, value: int) -> NoReturn:
+    def __imul__(self, value: SupportsIndex) -> Self:
         del value
         self._reject()
 
@@ -90,11 +90,11 @@ class FrozenList(list[_V], Generic[_V]):
         del values
         self._reject()
 
-    def insert(self, index: int, value: _V) -> NoReturn:
+    def insert(self, index: SupportsIndex, value: _V) -> NoReturn:
         del index, value
         self._reject()
 
-    def pop(self, index: int = -1) -> NoReturn:
+    def pop(self, index: SupportsIndex = -1) -> NoReturn:
         del index
         self._reject()
 

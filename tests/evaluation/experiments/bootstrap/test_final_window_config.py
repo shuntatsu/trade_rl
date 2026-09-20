@@ -23,8 +23,8 @@ def _write(tmp_path: Path, payload: object, *, name: str = "bootstrap.json") -> 
 def _v3_payload() -> dict[str, object]:
     payload = deepcopy(_v2_payload())
     payload["schema_version"] = "canonical_m2_bootstrap_config_v3"
-    payload["final_evaluation_start"] = "2025-01-01T00:00:00+00:00"
-    payload["final_evaluation_stop_exclusive"] = "2025-04-01T00:00:00+00:00"
+    payload["final_evaluation_start"] = _FINAL_START
+    payload["final_evaluation_stop_exclusive"] = _FINAL_STOP
     return payload
 
 
@@ -35,20 +35,14 @@ def test_v3_binds_preregistered_final_window_into_bootstrap_digest(
         _write(tmp_path, _v3_payload(), name="base.json")
     )
     changed_payload = _v3_payload()
-    changed_payload["final_evaluation_stop_exclusive"] = (
-        "2025-05-01T00:00:00+00:00"
-    )
+    changed_payload["final_evaluation_stop_exclusive"] = "2025-05-01T00:00:00+00:00"
     changed = load_canonical_m2_bootstrap_config(
         _write(tmp_path, changed_payload, name="changed.json")
     )
 
     assert base.schema_version == "canonical_m2_bootstrap_config_v3"
-    assert base.to_payload()["final_evaluation_start"] == (
-        "2025-01-01T00:00:00+00:00"
-    )
-    assert base.to_payload()["final_evaluation_stop_exclusive"] == (
-        "2025-04-01T00:00:00+00:00"
-    )
+    assert base.to_payload()["final_evaluation_start"] == _FINAL_START
+    assert base.to_payload()["final_evaluation_stop_exclusive"] == _FINAL_STOP
     assert base.digest != changed.digest
 
 
@@ -64,7 +58,7 @@ def test_v3_binds_preregistered_final_window_into_bootstrap_digest(
         ),
         (
             "final_evaluation_stop_exclusive",
-            "2025-01-01T00:00:00+00:00",
+            _FINAL_START,
             "strictly later|stop",
         ),
     ),
@@ -87,8 +81,8 @@ def test_v3_rejects_invalid_final_window(
 
 def test_v2_rejects_final_window_fields_as_unknown(tmp_path: Path) -> None:
     payload = _v2_payload()
-    payload["final_evaluation_start"] = "2025-01-01T00:00:00+00:00"
-    payload["final_evaluation_stop_exclusive"] = "2025-04-01T00:00:00+00:00"
+    payload["final_evaluation_start"] = _FINAL_START
+    payload["final_evaluation_stop_exclusive"] = _FINAL_STOP
 
     with pytest.raises(ValueError, match="unknown"):
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from statistics import median
@@ -10,6 +10,7 @@ import pytest
 from tests.evaluation.experiments.test_analysis import _run
 from tests.evaluation.experiments.test_evidence import _config
 from tests.evaluation.experiments.test_workflow import _with_baseline
+from trade_rl.artifacts.canonical import to_json_value
 from trade_rl.evaluation.experiments import (
     ControlledFactor,
     ControlledVerificationStatus,
@@ -37,7 +38,8 @@ CURRENT_SCHEMA = "controlled_evidence_comparison_v2"
 def _with_ppo_execution_metrics(
     run: LoadedCandidateRun, *, seed: int
 ) -> LoadedCandidateRun:
-    summary = deepcopy(run.summary)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
     by_symbol = summary.get("by_symbol")
     assert isinstance(by_symbol, list)
     turnover_by_symbol = (
@@ -68,18 +70,20 @@ def _with_ppo_execution_metrics(
 
 def _ppo_metric(run: LoadedCandidateRun, symbol_index: int, field: str) -> float:
     by_symbol = run.summary.get("by_symbol")
-    assert isinstance(by_symbol, list)
+    assert isinstance(by_symbol, Sequence)
+    assert not isinstance(by_symbol, (str, bytes, bytearray))
     symbol_entry = by_symbol[symbol_index]
-    assert isinstance(symbol_entry, dict)
+    assert isinstance(symbol_entry, Mapping)
     strategies = symbol_entry.get("strategies")
-    assert isinstance(strategies, list)
+    assert isinstance(strategies, Sequence)
+    assert not isinstance(strategies, (str, bytes, bytearray))
     ppo = next(
         strategy
         for strategy in strategies
-        if isinstance(strategy, dict) and strategy.get("name") == "ppo"
+        if isinstance(strategy, Mapping) and strategy.get("name") == "ppo"
     )
     metrics = ppo.get("metrics")
-    assert isinstance(metrics, dict)
+    assert isinstance(metrics, Mapping)
     value = metrics.get(field)
     assert isinstance(value, (int, float)) and not isinstance(value, bool)
     return float(value)

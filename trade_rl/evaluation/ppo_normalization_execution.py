@@ -401,7 +401,9 @@ def _read_consumed_claim(
         or payload.get("normalize_features") is not spec.normalize_features
         or payload.get("consumed") is not True
     ):
-        raise ValueError("replication slot claim is malformed or belongs to another slot")
+        raise ValueError(
+            "replication slot claim is malformed or belongs to another slot"
+        )
     activation = payload.get("activation_digest")
     implementation = payload.get("implementation_digest")
     if not isinstance(activation, str) or not isinstance(implementation, str):
@@ -596,7 +598,9 @@ def recompute_replication_decision(
 def _sealed_execution_activation_digest() -> str:
     digest = SEALED_EXECUTION_ACTIVATION_SHA256
     if digest is None:
-        raise RuntimeError("PPO normalization economic execution activation is not sealed")
+        raise RuntimeError(
+            "PPO normalization economic execution activation is not sealed"
+        )
     return require_sha256(digest, field="sealed_execution_activation_sha256")
 
 

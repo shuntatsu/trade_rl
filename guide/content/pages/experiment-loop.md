@@ -81,6 +81,8 @@ side effectは開示しますが、formal targetを書き換える理由には�
 
 実験budgetを使い終え、未完了Experimentがなくなった段階でStudyをfreezeします。WINNERを選ぶ場合は、ACCEPT_CANDIDATEとして正当に到達したevidenceだけが候補です。
 
+freeze後もControlled Experiment Loop自身はunused futureへ触れません。WINNERの場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・未使用windowをone-shot authorizationへbindします。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
+
 ## FAILUREとINVALID
 
 | 状態 | 意味 |
@@ -97,7 +99,8 @@ side effectは開示しますが、formal targetを書き換える理由には�
 - candidateだけDataset / scope / economicsを変えない。
 - failureを別runで都合よく置換しない。
 - raw evidenceとprovenanceを保持する。
-- winner判断後までsealed final-testを開けない。
+- winner判断後までsealed unused-futureを開けない。
+- WINNER後もauthorization発行とfinal Dataset/P&L実行を同じ機能へまとめない。
 
 ## 実験がGreenでもproduction認可ではない
 

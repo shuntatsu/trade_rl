@@ -52,11 +52,15 @@ def test_checkpoint_workflow_always_uploads_only_checkpoint_and_receipt() -> Non
     assert "exit 1" in text[failure_step:]
 
 
-def test_checkpoint_workflow_requires_review_record_digest_and_comment_read_access(
-) -> None:
+def test_checkpoint_workflow_requires_review_record_digest_and_comment_read_access() -> (
+    None
+):
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "review_record_sha256:" in workflow
     assert "CHECKPOINT_REVIEW_RECORD_SHA256" in workflow
     assert "issues: read" in workflow
-    assert "Operator-supplied review reference; not independently authenticated" not in workflow
+    assert (
+        "Operator-supplied review reference; not independently authenticated"
+        not in workflow
+    )

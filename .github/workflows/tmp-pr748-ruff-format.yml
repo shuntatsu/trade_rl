@@ -1,0 +1,24 @@
+name: tmp PR748 Ruff format
+on:
+  push:
+    branches:
+      - automation/pr748-ruff-format
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b2f6d4c00e4587f39477e59c8e2631b88a298e6c
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff format tools/ppo_checkpoint_actions.py tests/tools/test_ppo_checkpoint_actions.py
+          git diff -- tools/ppo_checkpoint_actions.py tests/tools/test_ppo_checkpoint_actions.py

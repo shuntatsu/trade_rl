@@ -12,6 +12,7 @@ Start from:
 - `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
 - `docs/architecture/package-boundaries.md` — current package ownership and dependency direction
 - `docs/architecture/controlled-experiment-loop.md` — append-only Study/Experiment/EvidenceSet lifecycle and freeze contract
+- `docs/architecture/final-evaluation-authorization.md` — one-shot authorization boundary between frozen WINNER development evidence and sealed unused-future evaluation
 - `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
 
 Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
@@ -21,6 +22,7 @@ Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
 - M1 lean core: **complete**
 - M2 universal comparison + Controlled Experiment Loop infrastructure: **complete**
 - M2 real-data development comparison: **not run yet**
+- M3 unused-future authorization boundary: **implemented; no final data is opened by it**
 - M3 frozen final evaluation / stress / deletion: **not started**
 - Profitability claim: **none**
 - Production/live order routing: **not authorized**

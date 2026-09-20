@@ -2,7 +2,7 @@
   "id": "experiment-loop",
   "title": "一因子ずつ検証する実験ループ",
   "nav_label": "実験と証拠",
-  "summary": "基準系の固定、一因子実験、独立検証、判断、freezeまでの状態遷移を追います。",
+  "summary": "基準系の固定、一因子実験、独立検証、判断、freeze、その後の別final-authorization境界までを追います。",
   "role": "detail",
   "keywords": [
     "Study",
@@ -11,7 +11,8 @@
     "preregistration",
     "verification",
     "decision",
-    "freeze"
+    "freeze",
+    "final authorization"
   ],
   "source_sections": [
     {

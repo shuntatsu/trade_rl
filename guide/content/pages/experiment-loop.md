@@ -28,6 +28,8 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
 
+final evaluationへ進める可能性を持つ新規Studyでは、unused windowもdevelopment resultより前にbootstrap v3で事前登録し、StudyPlan v2のdigestへ固定します。historical StudyPlan v1へ後からfinal windowを追加することはしません。 また、final startはdevelopment Datasetに含まれる最後のtimestampより後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
+
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。
 
 ## 2. Baseline EvidenceSetを固定する
@@ -81,6 +83,8 @@ side effectは開示しますが、formal targetを書き換える理由には�
 
 実験budgetを使い終え、未完了Experimentがなくなった段階でStudyをfreezeします。WINNERを選ぶ場合は、ACCEPT_CANDIDATEとして正当に到達したevidenceだけが候補です。
 
+freeze後もControlled Experiment Loop自身はunused futureへ触れません。結果前にunused windowをbindしたStudyPlan v2がWINNERになった場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・その事前登録windowをone-shot authorizationへbindします。authorization時に別windowへ差し替えることはできません。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
+
 ## FAILUREとINVALID
 
 | 状態 | 意味 |
@@ -97,7 +101,9 @@ side effectは開示しますが、formal targetを書き換える理由には�
 - candidateだけDataset / scope / economicsを変えない。
 - failureを別runで都合よく置換しない。
 - raw evidenceとprovenanceを保持する。
-- winner判断後までsealed final-testを開けない。
+- final-eligibleなStudyではunused window自体をdevelopment resultより前に固定する。
+- winner判断後までsealed unused-futureを開けない。
+- WINNER後もauthorization発行とfinal Dataset/P&L実行を同じ機能へまとめない。
 
 ## 実験がGreenでもproduction認可ではない
 

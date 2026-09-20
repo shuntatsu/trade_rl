@@ -169,7 +169,10 @@ class MarketDataset:
             raise ValueError("timestamps must be one-dimensional")
         if not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must use a datetime64 dtype")
-        timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
+        timestamp_ns = _readonly_array(
+            timestamps.astype("datetime64[ns]").astype(np.int64),
+            dtype=np.dtype(np.int64),
+        )
         n_bars = timestamp_ns.shape[0]
         n_symbols = len(symbols)
         if n_bars < 3:
@@ -564,28 +567,32 @@ class MarketDataset:
             raise ValueError("cash_rate must be finite")
 
         information_is_immediate = bool(np.array_equal(available_at, event_times))
-        eligibility_invalid_prefix = np.vstack(
-            (
-                np.zeros((1, n_symbols), dtype=np.int32),
-                np.cumsum(
-                    ~(asset_active & tradable),
-                    axis=0,
-                    dtype=np.int32,
-                ),
-            )
+        eligibility_invalid_prefix = _readonly_array(
+            np.vstack(
+                (
+                    np.zeros((1, n_symbols), dtype=np.int32),
+                    np.cumsum(
+                        ~(asset_active & tradable),
+                        axis=0,
+                        dtype=np.int32,
+                    ),
+                )
+            ),
+            dtype=np.dtype(np.int32),
         )
-        feature_invalid_prefix = np.vstack(
-            (
-                np.zeros((1, n_symbols), dtype=np.int32),
-                np.cumsum(
-                    ~np.all(feature_available, axis=2),
-                    axis=0,
-                    dtype=np.int32,
-                ),
-            )
+        feature_invalid_prefix = _readonly_array(
+            np.vstack(
+                (
+                    np.zeros((1, n_symbols), dtype=np.int32),
+                    np.cumsum(
+                        ~np.all(feature_available, axis=2),
+                        axis=0,
+                        dtype=np.int32,
+                    ),
+                )
+            ),
+            dtype=np.dtype(np.int32),
         )
-        eligibility_invalid_prefix.setflags(write=False)
-        feature_invalid_prefix.setflags(write=False)
 
         identity_payload_json = self.identity_payload_json
 

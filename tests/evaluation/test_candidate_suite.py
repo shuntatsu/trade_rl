@@ -63,6 +63,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         return SimpleNamespace(
             policy=object(),
             feature_indices=(0,),
+            feature_names=("signal",),
             feature_normalizer=None,
         )
 
@@ -79,11 +80,11 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "LightGBMForecastStrategy",
         lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
     )
-    monkeypatch.setattr(
-        candidate_suite,
-        "PPOIntentStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
-    )
+    def fake_ppo_wrapper(*args, **kwargs):
+        calls["ppo_wrapper_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    monkeypatch.setattr(candidate_suite, "PPOIntentStrategy", fake_ppo_wrapper)
 
     def fake_compare(dataset, factories, **kwargs):
         calls["comparison_dataset"] = dataset
@@ -132,6 +133,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ppo_wrapper_kwargs"]["feature_names"] == ("signal",)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == StudyPlan.STRATEGY_NAMES
     for first, second in calls["fresh_instances"].values():

@@ -15,6 +15,7 @@ REQUIRED = (
     "## Failure Modes",
     "## Test Oracle",
     "## Research assurance",
+    "## AI adversarial review",
     "## Changed authorities / public surfaces",
     "## Tests / verification",
     "## Falsification",
@@ -29,6 +30,8 @@ def test_pr_template_contains_quality_contract() -> None:
     assert missing == []
     assert "docs/architecture/research-assurance.md" in text
     assert "G0-G2" in text
+    assert "fresh/read-only AI reviewer" in text
+    assert "result-blind" in text
 
 
 def test_merge_policy_requires_tested_head_to_include_current_main() -> None:

@@ -91,6 +91,7 @@ trade_rl/
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
     ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
+    ├── final_test/{__init__.py,contracts.py,workflow.py}
     └── experiments/
         ├── errors.py
         ├── codec.py
@@ -104,7 +105,7 @@ trade_rl/
         └── bootstrap/{__init__.py,config.py,binance.py,workflow.py,cli.py}
 ```
 
-`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
+`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
 
 ## Provider evidence boundary
 
@@ -270,7 +271,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
-Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。
+Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
 
 ## Dependency direction
 

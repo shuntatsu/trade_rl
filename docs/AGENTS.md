@@ -152,7 +152,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
 - 変更前にTest Oracleとfailure modeを決める。
 - 研究・経済mechanismを変更する場合は、経済結果を確認する前に `architecture/research-assurance.md` のG0-G2、falsifier、semantic invariant、Known limitationsを定義する。P&Lやwinner判定でG0-G2の不備を救済しない。
-- 上記変更では、economic result valuesを生成・閲覧する前に、可能ならWorkerと別のfresh read-only AI reviewerへresult-blind G0-G2 reviewを依頼する。AI reviewは反例・missing evidence・claim downgradeの発見用であり、machine oracleやsource-bound testを代替しない。独立review surfaceがない場合は独立性を`NOT ESTABLISHED`とし、捏造しない。
+- **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと別のfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。
 - Greenにするためにassertionを弱めたり、skipや古いforwarderを残したりしない。
 - 移動だけのrefactorでは、可能ならAST/serialization/public facade等の独立oracleでsemantic driftを反証する。

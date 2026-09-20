@@ -10,7 +10,7 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
-    compare_strategies_by_symbol,
+    compare_strategy_factories_by_symbol,
 )
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -23,9 +23,8 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
-from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.rl.ppo import fit_ppo_strategy
+from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -165,39 +164,41 @@ def run_lean_candidate_suite(
         execution_cost=execution_cost,
     )
 
-    strategies: dict[str, SingleSymbolStrategy] = {
-        "cash": ConstantIntentStrategy(PositionIntent.FLAT),
-        "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
-        "constant_short": ConstantIntentStrategy(PositionIntent.SHORT),
-        "trend": TrendIntentStrategy(
-            TrendIntentConfig(
-                signal_index=config.signal_index,
-                entry_threshold=config.rule_entry_threshold,
-                exit_threshold=config.rule_exit_threshold,
-            )
-        ),
-        "mean_reversion": MeanReversionIntentStrategy(
-            MeanReversionIntentConfig(
-                signal_index=config.signal_index,
-                entry_threshold=config.rule_entry_threshold,
-                exit_threshold=config.rule_exit_threshold,
-            )
-        ),
-        "ridge24": RidgeForecastStrategy(
+    trend_config = TrendIntentConfig(
+        signal_index=config.signal_index,
+        entry_threshold=config.rule_entry_threshold,
+        exit_threshold=config.rule_exit_threshold,
+    )
+    mean_reversion_config = MeanReversionIntentConfig(
+        signal_index=config.signal_index,
+        entry_threshold=config.rule_entry_threshold,
+        exit_threshold=config.rule_exit_threshold,
+    )
+    strategy_factories = {
+        "cash": lambda: ConstantIntentStrategy(PositionIntent.FLAT),
+        "constant_long": lambda: ConstantIntentStrategy(PositionIntent.LONG),
+        "constant_short": lambda: ConstantIntentStrategy(PositionIntent.SHORT),
+        "trend": lambda: TrendIntentStrategy(trend_config),
+        "mean_reversion": lambda: MeanReversionIntentStrategy(mean_reversion_config),
+        "ridge24": lambda: RidgeForecastStrategy(
             ridge_model,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
         ),
-        "lightgbm24": LightGBMForecastStrategy(
+        "lightgbm24": lambda: LightGBMForecastStrategy(
             lightgbm_model,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
         ),
-        "ppo": ppo_strategy,
+        "ppo": lambda: PPOIntentStrategy(
+            ppo_strategy.policy,
+            feature_indices=ppo_strategy.feature_indices,
+            feature_normalizer=ppo_strategy.feature_normalizer,
+        ),
     }
-    return compare_strategies_by_symbol(
+    return compare_strategy_factories_by_symbol(
         dataset,
-        strategies,
+        strategy_factories,
         start_index=start_index,
         stop_index=stop_index,
         gross_budget=gross_budget,

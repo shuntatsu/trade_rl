@@ -235,6 +235,8 @@ def validate_review_evidence_comment(
     ):
         raise ValueError("review evidence payload differs from the execution contract")
     source_reference = payload.get("source_review_reference")
+    if not isinstance(source_reference, str):
+        raise ValueError("review evidence source review reference is malformed")
     source_pull, source_comment = parse_review_reference(
         source_reference,
         repository=repository,
@@ -469,6 +471,8 @@ def validate_prior_receipt(
         _require_sha256(receipt_approval, field="receipt approved protocol digest")
         if receipt_approval != receipt_digest:
             raise ValueError("economic receipt approval differs from its protocol")
+        if not isinstance(receipt_review_reference, str):
+            raise ValueError("economic receipt has no review reference")
         parse_review_reference(
             receipt_review_reference,
             repository=identity["repository"],

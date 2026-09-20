@@ -54,7 +54,7 @@ shared_cash（opt-in）
                                   同じteam rewardを各slotへ
 ```
 
-これらは**未評価の実装能力**です。shared-cashはcash accountだけでなく、portfolio-level risk couplingと全slot共通team rewardを同時に持ちます。またlocal Observation v2には他symbol weightやshared cashを追加しないため、各slotから見るとportfolio stateは部分観測です。したがって「accountだけを変えた純粋な比較」とは扱いません。developmentで比較するときはlayout、`rollout_steps_per_env`、team-reward semanticsを結果を見る前に固定し、per-symbol contribution rewardやjoint observationは別factorにします。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+これらは**未評価の実装能力**です。shared-cashはcash accountだけでなく、portfolio-level risk couplingと全slot共通team rewardを同時に持ちます。またlocal Observation v2には他symbol weightやshared cashを追加しないため、各slotから見るとportfolio stateは部分観測です。したがって「accountだけを変えた純粋な比較」とは扱いません。developmentで比較するときはlayout、`rollout_steps_per_env`、team-reward semanticsを結果を見る前に固定し、per-symbol contribution rewardやjoint observationは別factorにします。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、policy seedとexecution乱数を同時に変えないため、`interleaved`と`shared_cash`のvectorized fitはどちらも`slippage_std > 0`をfail closedにします。
 
 ## 学習stepの全体像
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,6 +24,7 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
 from trade_rl.strategies.rules.mean_reversion import (
@@ -174,7 +176,7 @@ def run_lean_candidate_suite(
         entry_threshold=config.rule_entry_threshold,
         exit_threshold=config.rule_exit_threshold,
     )
-    strategy_factories = {
+    strategy_factories: dict[str, Callable[[], SingleSymbolStrategy]] = {
         "cash": lambda: ConstantIntentStrategy(PositionIntent.FLAT),
         "constant_long": lambda: ConstantIntentStrategy(PositionIntent.LONG),
         "constant_short": lambda: ConstantIntentStrategy(PositionIntent.SHORT),

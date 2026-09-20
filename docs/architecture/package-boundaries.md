@@ -81,6 +81,7 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
+    ├── ppo_feature_study.py
     ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -271,6 +272,18 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。
+
+## Private development study boundary
+
+`evaluation/ppo_feature_study.py` owns a write-once, development-only paired PPO
+feature ablation. It reuses the frozen Dataset, existing PPO fitter, shared-cash
+directional replay, and ledger evidence rather than adding a second execution or
+accounting implementation. Its private CLI and result schema bind the baseline
+feature roster against the same roster plus three BTC-relative return features,
+the fixed seeds, independent per-symbol evaluation accounts, candidate-only
+stress scenarios, and the result-blind admission rules. This module is not a
+public package facade and does not expand `trade_rl.evaluation` or authorize
+paper/live orders; a pass can only require a later prospective paper study.
 
 ## Dependency direction
 

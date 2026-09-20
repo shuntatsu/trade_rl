@@ -20,6 +20,7 @@ def test_terminal_exit_is_a_real_next_open_fill_and_includes_both_fees() -> None
         stop_index=7,
     )
     assert result["terminal_flat"]
+    assert result["gross_budget"] == 0.1
     assert result["metrics"]["total_return"] < 0
     assert result["metrics"]["n_trades"] >= 2
     assert result["metrics"]["total_cost"] > 1.9

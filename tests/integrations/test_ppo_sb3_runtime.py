@@ -450,3 +450,56 @@ def test_real_ppo_constructor_contract_is_explicit() -> None:
     assert model.policy.share_features_extractor is True
     assert isinstance(model.policy.optimizer, torch.optim.Adam)
     assert model.policy.optimizer.defaults["eps"] == pytest.approx(1e-5)
+
+def test_explicit_ppo_constructor_matches_pinned_implicit_defaults() -> None:
+    stable_baselines3 = pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    torch_layers = pytest.importorskip("stable_baselines3.common.torch_layers")
+
+    assert stable_baselines3.__version__ == "2.3.2"
+    implicit = stable_baselines3.PPO(
+        "MlpPolicy",
+        _env(),
+        policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
+        seed=97,
+        ent_coef=0.0,
+        device="cpu",
+        verbose=0,
+    )
+    explicit = stable_baselines3.PPO(
+        "MlpPolicy",
+        _env(),
+        learning_rate=3e-4,
+        n_steps=2048,
+        batch_size=64,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        clip_range_vf=None,
+        normalize_advantage=True,
+        ent_coef=0.0,
+        vf_coef=0.5,
+        max_grad_norm=0.5,
+        use_sde=False,
+        sde_sample_freq=-1,
+        target_kl=None,
+        policy_kwargs={
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+            "activation_fn": torch.nn.Tanh,
+            "ortho_init": True,
+            "features_extractor_class": torch_layers.FlattenExtractor,
+            "share_features_extractor": True,
+            "optimizer_class": torch.optim.Adam,
+            "optimizer_kwargs": {"eps": 1e-5},
+        },
+        seed=97,
+        device="cpu",
+        verbose=0,
+    )
+
+    implicit_state = implicit.policy.state_dict()
+    explicit_state = explicit.policy.state_dict()
+    assert implicit_state.keys() == explicit_state.keys()
+    for name in implicit_state:
+        assert torch.equal(implicit_state[name], explicit_state[name]), name

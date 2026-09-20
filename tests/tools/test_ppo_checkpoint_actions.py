@@ -982,7 +982,9 @@ def _review_body(
         "economic_execution_authorized": True,
         "unused_data_accessed": False,
         "final_data_accessed": False,
-        "source_review_reference": "https://github.com/owner/repo/pull/744#issuecomment-5752780311",
+        "source_review_reference": (
+            "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
+        ),
     }
     return (
         "<!-- ppo-feature-review-evidence-v1 -->\n"
@@ -1007,8 +1009,9 @@ def test_review_reference_must_be_exact_same_repo_pr_comment_url() -> None:
             transport.parse_review_reference(value, repository="owner/repo")
 
 
-def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact(
-) -> None:
+def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact() -> (
+    None
+):
     reference = transport.ArtifactReference(90, 34, "d" * 64)
     body = _review_body()
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()

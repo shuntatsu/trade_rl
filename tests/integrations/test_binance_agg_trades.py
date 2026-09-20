@@ -139,7 +139,10 @@ def test_agg_trades_parser_accepts_exact_header_or_headerless_identically() -> N
         np.testing.assert_array_equal(
             getattr(with_header, field), getattr(without_header, field)
         )
-        assert getattr(with_header, field).flags.writeable is False
+        values = getattr(with_header, field)
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)
 
     assert with_header.source_uri == source
     assert (

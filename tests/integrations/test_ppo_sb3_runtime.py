@@ -491,3 +491,34 @@ def test_real_shared_cash_ppo_is_parameter_deterministic_for_same_seed() -> None
     assert first_state.keys() == second_state.keys()
     for name in first_state:
         assert torch.equal(first_state[name], second_state[name]), name
+
+
+def test_real_ppo_algorithm_contract_is_explicit() -> None:
+    pytest.importorskip("stable_baselines3")
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=89,
+    )
+    model = strategy.policy
+
+    assert model.learning_rate == pytest.approx(3e-4)
+    assert model.n_steps == 2048
+    assert model.batch_size == 64
+    assert model.n_epochs == 10
+    assert model.gamma == pytest.approx(0.99)
+    assert model.gae_lambda == pytest.approx(0.95)
+    assert model.clip_range(1.0) == pytest.approx(0.2)
+    assert model.clip_range_vf is None
+    assert model.normalize_advantage is True
+    assert model.ent_coef == pytest.approx(0.0)
+    assert model.vf_coef == pytest.approx(0.5)
+    assert model.max_grad_norm == pytest.approx(0.5)
+    assert model.use_sde is False
+    assert model.sde_sample_freq == -1
+    assert model.target_kl is None

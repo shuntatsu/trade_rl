@@ -81,7 +81,6 @@ def test_content_identified_dataset_arrays_cannot_be_reenabled_for_write() -> No
             array.setflags(write=True)
 
 
-
 def test_market_dataset_internal_caches_are_deeply_immutable() -> None:
     market = dataset().with_content_identity({"source": "unit-test"})
 

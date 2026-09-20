@@ -151,7 +151,7 @@ def test_stateful_target_replaces_matching_residual_from_old_policy() -> None:
     )
 
 
-def test_stateful_target_replaces_matching_residual_from_nominal_policy_under_stress() -> None:
+def test_stress_replaces_matching_nominal_residual() -> None:
     n_bars = 4
     volume = np.full((n_bars, 1), 1_000.0)
     dataset = MarketDataset(

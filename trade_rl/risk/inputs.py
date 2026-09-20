@@ -41,11 +41,13 @@ class PortfolioRiskInputsProvider(Protocol):
 def _readonly_array(
     value: np.ndarray, *, shape: tuple[int, ...], field: str
 ) -> np.ndarray:
-    array = np.asarray(value, dtype=np.float64).copy(order="C")
-    if array.shape != shape or not np.isfinite(array).all():
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=np.float64))
+    if contiguous.shape != shape or not np.isfinite(contiguous).all():
         raise ValueError(f"{field} must be finite with shape {shape}")
-    array.setflags(write=False)
-    return array
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
 
 
 @dataclass(frozen=True, slots=True)

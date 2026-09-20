@@ -48,6 +48,8 @@ def _winner_study(
         tmp_path,
         monkeypatch,
         decision=ExperimentDecisionKind.ACCEPT_CANDIDATE,
+        final_evaluation_start=_FINAL_START,
+        final_evaluation_stop_exclusive=_FINAL_STOP,
     )
     freeze_study(
         root,
@@ -97,6 +99,56 @@ def test_winner_study_can_issue_one_sealed_authorization_without_mutating_study(
             final_evaluation_start=_FINAL_START,
             final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="second-attempt",
+            authorized_at=_AUTHORIZED_AT,
+        )
+
+
+def test_legacy_v1_winner_without_preregistered_final_window_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _, _, candidate, _ = _decided_first_experiment(
+        tmp_path,
+        monkeypatch,
+        decision=ExperimentDecisionKind.ACCEPT_CANDIDATE,
+    )
+    freeze_study(
+        root,
+        outcome=StudyOutcome.WINNER,
+        selected_evidence_digest=candidate.fingerprint,
+        selected_strategy="ppo",
+        rationale="Legacy Study intentionally lacks a preregistered final window.",
+        frozen_by="researcher",
+        frozen_at=datetime(2026, 9, 13, 11, 30, tzinfo=UTC),
+    )
+
+    with pytest.raises(
+        InvalidExperimentStateError,
+        match="preregistered final|final.*window|StudyPlan",
+    ):
+        authorize_final_evaluation(
+            tmp_path / "legacy-final-authorization",
+            study_root=root,
+            final_evaluation_start=_FINAL_START,
+            final_evaluation_stop_exclusive=_FINAL_STOP,
+            authorized_by="final-gate",
+            authorized_at=_AUTHORIZED_AT,
+        )
+
+
+def test_authorization_rejects_window_different_from_preregistered_study_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+
+    with pytest.raises(ContractViolationError, match="preregistered|StudyPlan|window"):
+        authorize_final_evaluation(
+            tmp_path / "wrong-window",
+            study_root=study_root,
+            final_evaluation_start="2026-01-01T21:00:00.000000000",
+            final_evaluation_stop_exclusive=_FINAL_STOP,
+            authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
 

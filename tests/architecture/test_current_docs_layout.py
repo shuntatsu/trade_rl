@@ -15,6 +15,7 @@ REQUIRED_DOC_FILES = {
     "architecture/lean-core.md",
     "architecture/package-boundaries.md",
     "architecture/controlled-experiment-loop.md",
+    "architecture/research-assurance.md",
     "research/current-status.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
@@ -31,6 +32,7 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
     DOCS / "architecture" / "controlled-experiment-loop.md",
+    DOCS / "architecture" / "research-assurance.md",
     DOCS / "research" / "current-status.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
@@ -169,6 +171,7 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/lean-core.md",
         "architecture/package-boundaries.md",
         "architecture/controlled-experiment-loop.md",
+        "architecture/research-assurance.md",
         "research/current-status.md",
     ):
         assert target in index
@@ -253,6 +256,51 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
     ):
         assert required in contract
+
+
+def test_research_assurance_is_durable_current_architecture() -> None:
+    contract = (DOCS / "architecture" / "research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "G0 Research Question Validity",
+        "G1 Mechanism Validity",
+        "G2 Implementation Conformance",
+        "G3 Evidence Validity",
+        "G4 Development Economic Evidence",
+        "G5 Unused / Deployment Eligibility",
+        "G0-G3",
+        "economic_hypothesis",
+        "falsifiers",
+        "what_this_cannot_prove",
+        "capital_model",
+        "observation_scope",
+        "action_scope",
+        "reward_scope",
+        "risk_scope",
+        "execution_scope",
+        "accounting_scope",
+        "Statement",
+        "Counterexample",
+        "Oracle",
+        "Known limitations",
+        "independent oracle",
+        "temporal non-interference",
+        "native capacity conservation",
+        "train/evaluation account semantics",
+        "Economic edge: NOT ESTABLISHED",
+    ):
+        assert required in contract
+
+    agents = (DOCS / "AGENTS.md").read_text(encoding="utf-8")
+    assert "architecture/research-assurance.md" in agents
+    assert "G0-G2" in agents
+
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    assert "research-assurance.md" in controlled_loop
+    assert "G0-G2" in controlled_loop
 
 
 def test_current_relative_markdown_links_resolve() -> None:

@@ -512,6 +512,7 @@ Canonical M2 bootstrapはresearch runそのものではなく、real development
 - allowed controlled factors / experiment budget
 - bootstrap count / seed
 - bootstrap v2では明示的なexecution economics profile
+- final-eligibleな新規Studyを作るbootstrap v3では、さらにunused `final_evaluation_start` / `final_evaluation_stop_exclusive`
 
 baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
 
@@ -649,6 +650,8 @@ Stress結果を見てから合格thresholdを変更しない。
 Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
 
 現行codeには、その別境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityのGreenをfinal evidenceとして数えない。
+
+final-eligibleな新規research lineでは、unused windowをdevelopment結果後に選ばない。`canonical_m2_bootstrap_config_v3` でfinal windowを事前登録し、その値を `controlled_study_plan_v2` のdigestへbindしたStudyだけをauthorization対象にする。historical bootstrap v1/v2 / StudyPlan v1はread/inspection互換とdevelopment evidenceを維持するが、final windowを後付けしてeligible化しない。authorization時にcallerが別windowを指定しても拒否する。
 
 ## Superseded evidenceの扱い
 

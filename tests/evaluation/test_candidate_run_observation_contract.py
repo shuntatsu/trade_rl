@@ -218,7 +218,6 @@ def test_candidate_v2_rejects_tampered_observation_contract(tmp_path: Path) -> N
         load_candidate_run_artifact(root)
 
 
-
 def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
     root = tmp_path / "immutable"
     _write_root(

@@ -7,15 +7,21 @@ import pytest
 
 from trade_rl.evaluation import ppo_normalization_execution as module
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
+from trade_rl.artifacts import content_digest
 from trade_rl.evaluation.ppo_normalization_execution import (
+    EXECUTION_ACTIVATION_SCHEMA,
+    SEALED_PROTOCOL_SHA256,
     claim_replication_slot,
+    execute_replication_slot,
     fit_replication_strategy,
+    prepare_replication_execution,
     recompute_replication_decision,
     record_consumed_failure,
     record_prefit_failure,
     replication_arm_specs,
     replication_slot_state,
     replication_strategy_factory,
+    verify_replication_slot,
 )
 
 
@@ -228,3 +234,153 @@ def test_relative_improvement_does_not_claim_absolute_profitability() -> None:
     assert report["relative_improvement"] is True
     assert report["candidate_base_pass_count"] == 0
     assert report["decision"] == "RELATIVE_IMPROVEMENT_ONLY"
+
+
+
+def _activation(provenance: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema": EXECUTION_ACTIVATION_SCHEMA,
+        "protocol_sha256": SEALED_PROTOCOL_SHA256,
+        "implementation_digest": "b" * 64,
+        "provenance": provenance,
+        "economic_execution_authorized": True,
+        "economic_result_inspected": False,
+        "unused_data_accessed": False,
+        "final_test_accessed": False,
+        "production_eligible": False,
+        "live_trading_authorized": False,
+    }
+
+
+def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    provenance = {"schema_version": "test-provenance"}
+    activation = _activation(provenance)
+    activation_digest = content_digest(activation)
+    root = tmp_path / "execution"
+    prepare_replication_execution(
+        root,
+        activation,
+        expected_activation_digest=activation_digest,
+    )
+
+    dataset = SimpleNamespace(feature_names=("signal", "carry"))
+    config = SimpleNamespace()
+    monkeypatch.setattr(
+        module,
+        "build_candidate_run_provenance",
+        lambda: provenance,
+    )
+    monkeypatch.setattr(
+        module,
+        "_load_replication_context",
+        lambda _source: (dataset, config, 10, 20),
+    )
+
+    fit_calls: list[str] = []
+    saved = SimpleNamespace(
+        policy=SimpleNamespace(num_timesteps=262_144),
+        feature_indices=(0,),
+        feature_normalizer=None,
+    )
+
+    def fake_fit(_dataset, _config, spec):
+        fit_calls.append(spec.slot)
+        return saved
+
+    monkeypatch.setattr(module, "fit_replication_strategy", fake_fit)
+
+    loaded = SimpleNamespace(
+        policy=SimpleNamespace(num_timesteps=262_144),
+        feature_indices=(0,),
+        feature_normalizer=None,
+    )
+
+    def fake_save(bundle_root, _strategy, *, feature_names):
+        assert feature_names == ("signal", "carry")
+        bundle_root.mkdir(parents=True)
+        (bundle_root / "manifest.json").write_text(
+            '{"normalizer":null,"policy_sha256":"' + "c" * 64 + '"}',
+            encoding="utf-8",
+        )
+        return "d" * 64
+
+    monkeypatch.setattr(module, "save_ppo_inference_bundle", fake_save)
+    monkeypatch.setattr(
+        module,
+        "load_ppo_inference_bundle",
+        lambda *_args, **_kwargs: loaded,
+    )
+    monkeypatch.setattr(
+        module,
+        "_manifest_for_bundle",
+        lambda _store, _spec: {
+            "normalizer": None,
+            "policy_sha256": "c" * 64,
+        },
+    )
+
+    replay = {
+        "metrics": {"total_return": 0.01},
+        "ledger_max_drawdown": 0.05,
+        "terminal_flat": True,
+        "termination_reasons": [],
+        "start_index": 10,
+        "stop_index": 20,
+        "returns": [0.001],
+        "year_returns": {"2023": 0.01, "2024": 0.01},
+    }
+    monkeypatch.setattr(module, "evaluate_directional_arm", lambda *_a, **_k: replay)
+
+    slot = replication_arm_specs()[0].slot
+    published = execute_replication_slot(
+        tmp_path / "source",
+        root,
+        slot,
+        expected_activation_digest=activation_digest,
+    )
+    assert fit_calls == [slot]
+    assert published["bundle_digest"] == "d" * 64
+    assert published["realized_timesteps"] == 262_144
+    assert replication_slot_state(root, replication_arm_specs()[0]) == {
+        "slot": slot,
+        "consumed": True,
+        "failed": False,
+        "result_published": True,
+        "prefit_failure_count": 0,
+    }
+
+    monkeypatch.setattr(
+        module,
+        "fit_replication_strategy",
+        lambda *_a, **_k: pytest.fail("verifier must not refit"),
+    )
+    verified = verify_replication_slot(
+        tmp_path / "source",
+        root,
+        slot,
+        expected_activation_digest=activation_digest,
+    )
+    assert verified == published
+    assert fit_calls == [slot]
+
+
+def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
+    provenance = {"schema_version": "test-provenance"}
+    for field in (
+        "economic_result_inspected",
+        "unused_data_accessed",
+        "final_test_accessed",
+        "production_eligible",
+        "live_trading_authorized",
+    ):
+        activation = _activation(provenance)
+        activation[field] = True
+        with pytest.raises(ValueError, match=field):
+            prepare_replication_execution(
+                tmp_path / field,
+                activation,
+                expected_activation_digest=content_digest(activation),
+            )

@@ -33,7 +33,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "c67937473251f1bcdc022383aac92bc2fc86c7ce26ed7f76ea3d17e08a4e16da"
+      "sha256": "45993b794e54e1c30b6c93ec882ee36aa8843f3d1d3ec93a4bf97644cee35834"
     }
   ],
   "code_references": [
@@ -119,7 +119,7 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "01511775178d9abd3081199baba131657672eba08b74282652b18759196d6cdb",
+      "source_sha256": "a83610e54561bd9f225d237d0d3fd23005e126c4f9020c3e480f5448f1c81fe7",
       "label_ja": "PPO方策を学習する",
       "description_ja": "既定sequential、独立accountのinterleaved、shared portfolioのshared_cashをCPU・1 threadで学習します。shared_cashはlocal Observation v2/Discrete(3)を維持したまま全symbol actionを同期収集し、一つのshared BookStateを進めてteam rewardを各slotへ返します。",
       "variables": [

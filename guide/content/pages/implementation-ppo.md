@@ -48,6 +48,8 @@ interleaved（opt-in）
 
 これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
 
+PPOの更新則もSB3 defaultへ暗黙委譲しません。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、batch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip `0.2`、value clipなし、advantage normalizationあり、entropy係数`0.0`、value係数`0.5`、gradient clip`0.5`、gSDE無効、`target_kl=None`です。interleavedでは`n_steps`だけ`rollout_steps_per_env`へ置換します。MlpPolicy側もTanh、orthogonal initialization、`FlattenExtractor`、shared feature extractor、Adam、epsilon `1e-5`をsourceへ明示しています。これは既存のSB3 2.3.2挙動を固定する再現性対策で、性能を見て値を変更したものではありません。
+
 ## 学習stepの全体像
 
 ```text

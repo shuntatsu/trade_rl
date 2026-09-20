@@ -13,6 +13,9 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
 
+_FINAL_START = "2025-01-01T00:00:00+00:00"
+_FINAL_STOP = "2025-04-01T00:00:00+00:00"
+
 
 def _write(tmp_path: Path, payload: object, *, name: str = "bootstrap.json") -> Path:
     path = tmp_path / name

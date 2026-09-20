@@ -244,7 +244,13 @@ def test_interleaved_fit_uses_one_fixed_env_per_fit_symbol(
         assert first_info["symbol"] == second_info["symbol"] == expected_symbol
     assert fitted.policy == "MlpPolicy"
     assert fitted.kwargs["policy_kwargs"] == {
-        "net_arch": {"pi": [64, 64], "vf": [64, 64]}
+        "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        "activation_fn": FakeTanh,
+        "ortho_init": True,
+        "features_extractor_class": FakeFlattenExtractor,
+        "share_features_extractor": True,
+        "optimizer_class": FakeAdam,
+        "optimizer_kwargs": {"eps": 1e-5},
     }
     assert fitted.kwargs["seed"] == 11
     assert fitted.kwargs["ent_coef"] == 0.0

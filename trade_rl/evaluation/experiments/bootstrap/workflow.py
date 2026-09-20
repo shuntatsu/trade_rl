@@ -298,9 +298,7 @@ def _validate_study_against_config(
         raise ValueError("Study bootstrap seed differs from bootstrap config")
 
     expected_final_start = _study_final_timestamp(config.final_evaluation_start)
-    expected_final_stop = _study_final_timestamp(
-        config.final_evaluation_stop_exclusive
-    )
+    expected_final_stop = _study_final_timestamp(config.final_evaluation_stop_exclusive)
     expected_plan_schema = (
         "controlled_study_plan_v2"
         if expected_final_start is not None or expected_final_stop is not None

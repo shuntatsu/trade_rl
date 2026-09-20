@@ -1,0 +1,24 @@
+name: tmp PR726 format
+on:
+  push:
+    branches:
+      - automation/pr726-format-v1
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d980e19403866d44ab9b13fff05f45061e479cfa
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff format tests/strategies/test_ppo_model_artifact.py
+          git diff -- tests/strategies/test_ppo_model_artifact.py

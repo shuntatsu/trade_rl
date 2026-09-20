@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar, cast
 
+import numpy as np
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.contracts._common import (
     contract_aware_datetime,
@@ -35,6 +37,27 @@ CONTROL_STRATEGY_NAMES = (
     "constant_long",
     "constant_short",
 )
+
+
+def _canonical_ns_timestamp(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ContractViolationError(
+            f"{field} must use canonical nanosecond timestamp formatting"
+        )
+    try:
+        instant = np.datetime64(value, "ns")
+    except (TypeError, ValueError) as error:
+        raise ContractViolationError(
+            f"{field} must use canonical nanosecond timestamp formatting"
+        ) from error
+    if np.isnat(instant):
+        raise ContractViolationError(f"{field} must not be NaT")
+    canonical = np.datetime_as_string(instant, unit="ns")
+    if canonical != value:
+        raise ContractViolationError(
+            f"{field} must use canonical nanosecond timestamp formatting"
+        )
+    return value
 
 
 class StudyOutcome(StrEnum):
@@ -79,6 +102,8 @@ class StudyPlan:
     bootstrap_seed: int
     implementation_digest: str
     runtime_environment_digest: str
+    final_evaluation_start: str | None = None
+    final_evaluation_stop_exclusive: str | None = None
     schema_version: str = "controlled_study_plan_v1"
 
     def __post_init__(self) -> None:
@@ -134,6 +159,40 @@ class StudyPlan:
             field="runtime_environment_digest",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        final_start = self.final_evaluation_start
+        final_stop = self.final_evaluation_stop_exclusive
+        if schema_version == "controlled_study_plan_v1":
+            if final_start is not None or final_stop is not None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v1 forbids final evaluation fields"
+                )
+        elif schema_version == "controlled_study_plan_v2":
+            if final_start is None or final_stop is None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v2 requires both final evaluation fields"
+                )
+            final_start = _canonical_ns_timestamp(
+                final_start,
+                field="final_evaluation_start",
+            )
+            final_stop = _canonical_ns_timestamp(
+                final_stop,
+                field="final_evaluation_stop_exclusive",
+            )
+            development_stop = np.datetime64(
+                self.baseline_config.evaluation_stop_exclusive,
+                "ns",
+            )
+            if np.datetime64(final_start, "ns") < development_stop:
+                raise ContractViolationError(
+                    "final evaluation start must not precede development evaluation stop"
+                )
+            if np.datetime64(final_stop, "ns") <= np.datetime64(final_start, "ns"):
+                raise ContractViolationError(
+                    "final evaluation stop must be strictly later than final evaluation start"
+                )
+        else:
+            raise ContractViolationError("unsupported StudyPlan schema_version")
 
         object.__setattr__(self, "research_question", research_question)
         object.__setattr__(self, "dataset_id", dataset_id)
@@ -153,6 +212,8 @@ class StudyPlan:
         object.__setattr__(
             self, "runtime_environment_digest", runtime_environment_digest
         )
+        object.__setattr__(self, "final_evaluation_start", final_start)
+        object.__setattr__(self, "final_evaluation_stop_exclusive", final_stop)
         object.__setattr__(self, "schema_version", schema_version)
 
     @property
@@ -164,7 +225,7 @@ class StudyPlan:
         return CONTROL_STRATEGY_NAMES
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "research_question": self.research_question,
             "dataset_id": self.dataset_id,
@@ -184,6 +245,12 @@ class StudyPlan:
             "candidate_strategy_names": list(CANDIDATE_STRATEGY_NAMES),
             "control_strategy_names": list(CONTROL_STRATEGY_NAMES),
         }
+        if self.schema_version == "controlled_study_plan_v2":
+            payload["final_evaluation_start"] = self.final_evaluation_start
+            payload["final_evaluation_stop_exclusive"] = (
+                self.final_evaluation_stop_exclusive
+            )
+        return payload
 
     @property
     def digest(self) -> str:

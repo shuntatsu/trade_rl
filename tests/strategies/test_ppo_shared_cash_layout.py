@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_intent import SequenceStrategy
 from tests.strategies.test_ppo_interleaved_training import pooled_market
 from trade_rl.evaluation.directional import CloseAtEndStrategy
+from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
@@ -208,3 +211,155 @@ def test_shared_cash_fit_rejects_stochastic_execution_slippage() -> None:
             training_layout="shared_cash",
             rollout_steps_per_env=32,
         )
+
+
+def test_shared_cash_coordinator_matches_realistic_carry_and_capacity() -> None:
+    base = pooled_market()
+    dataset = replace(
+        base,
+        fee_rate=np.full_like(base.close, 0.001),
+        spread_rate=np.full_like(base.close, 0.002),
+        funding_rate=np.full_like(base.close, 0.001),
+        borrow_rate=np.full_like(base.close, 0.1),
+        max_participation_rate=np.full_like(base.close, 1e-6),
+    )
+    strategies = (
+        SequenceStrategy(
+            (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)
+        ),
+        SequenceStrategy(
+            (PositionIntent.SHORT, PositionIntent.SHORT, PositionIntent.FLAT)
+        ),
+    )
+    replay = run_shared_cash_replay(
+        dataset,
+        strategies,
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        risk=PreTradeRisk(_risk_config()),
+    )
+    coordinator = PPOSharedCashCoordinator(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        risk_config=_risk_config(),
+    )
+    coordinator.reset(seed=0)
+
+    rewards: list[float] = []
+    first_infos = None
+    for actions in ((2, 0), (2, 0), (1, 1)):
+        _, reward, _, infos = coordinator.step(np.asarray(actions, dtype=np.int64))
+        rewards.append(reward)
+        if first_infos is None:
+            first_infos = infos
+
+    assert first_infos is not None
+    assert float(first_infos[0]["fill_ratio"]) < 1.0
+    assert replay.diagnostics.total_cost > 0.0
+    assert replay.diagnostics.borrow_cost > 0.0
+    np.testing.assert_allclose(rewards, np.log1p(replay.returns.values))
+    np.testing.assert_allclose(coordinator.book.quantities, replay.book.quantities)
+    assert coordinator.book.cash == pytest.approx(replay.book.cash)
+    assert coordinator.book.portfolio_value == pytest.approx(
+        replay.book.portfolio_value
+    )
+    assert coordinator.book.total_cost == pytest.approx(replay.book.total_cost)
+    assert coordinator.book.funding_pnl == pytest.approx(replay.book.funding_pnl)
+    assert coordinator.book.borrow_cost == pytest.approx(replay.book.borrow_cost)
+
+
+def test_shared_cash_terminal_settlement_reserves_latency_window() -> None:
+    dataset = pooled_market()
+    execution_cost = replace(
+        DIRECTIONAL_BASE_EXECUTION_COST,
+        order_latency_bars=1,
+    )
+    replay = run_shared_cash_replay(
+        dataset,
+        (
+            CloseAtEndStrategy(
+                SequenceStrategy((PositionIntent.LONG,)),
+                close_index=1,
+            ),
+            CloseAtEndStrategy(
+                SequenceStrategy((PositionIntent.LONG,)),
+                close_index=1,
+            ),
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk=PreTradeRisk(_risk_config()),
+    )
+    coordinator = PPOSharedCashCoordinator(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=execution_cost,
+        risk_config=_risk_config(),
+        settle_terminal_position=True,
+    )
+    coordinator.reset(seed=37)
+
+    _, reward, terminated, infos = coordinator.step(
+        np.asarray([2, 2], dtype=np.int64)
+    )
+
+    assert terminated is True
+    assert coordinator.agent_stop_index == 1
+    assert all(info["terminal_settlement_intervals"] == 2 for info in infos)
+    assert reward == pytest.approx(float(np.log1p(replay.returns.values).sum()))
+    np.testing.assert_allclose(coordinator.book.quantities, replay.book.quantities)
+    assert coordinator.book.portfolio_value == pytest.approx(
+        replay.book.portfolio_value
+    )
+
+
+def test_shared_cash_slot_order_does_not_change_portfolio_execution() -> None:
+    dataset = pooled_market()
+
+    first = PPOSharedCashCoordinator(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk_config=_risk_config(),
+    )
+    second = PPOSharedCashCoordinator(
+        dataset,
+        feature_indices=(0,),
+        symbol_indices=(1, 0),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk_config=_risk_config(),
+    )
+    first.reset(seed=41)
+    second.reset(seed=41)
+
+    _, first_reward, _, _ = first.step(np.asarray([2, 0], dtype=np.int64))
+    _, second_reward, _, _ = second.step(np.asarray([0, 2], dtype=np.int64))
+
+    assert first_reward == pytest.approx(second_reward)
+    np.testing.assert_allclose(first.book.quantities, second.book.quantities)
+    assert first.book.cash == pytest.approx(second.book.cash)
+    assert first.book.portfolio_value == pytest.approx(second.book.portfolio_value)

@@ -1262,6 +1262,12 @@ def fit_ppo_strategy(
         ppo_class = getattr(module, "PPO")
         torch_module = importlib.import_module("torch")
         set_num_threads = getattr(torch_module, "set_num_threads")
+        activation_fn = getattr(getattr(torch_module, "nn"), "Tanh")
+        optimizer_class = getattr(getattr(torch_module, "optim"), "Adam")
+        torch_layers = importlib.import_module(
+            "stable_baselines3.common.torch_layers"
+        )
+        features_extractor_class = getattr(torch_layers, "FlattenExtractor")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(
             "stable-baselines3 and torch are required; install the train-sb3 extra"
@@ -1286,7 +1292,15 @@ def fit_ppo_strategy(
         use_sde=_PPO_USE_SDE,
         sde_sample_freq=_PPO_SDE_SAMPLE_FREQ,
         target_kl=_PPO_TARGET_KL,
-        policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
+        policy_kwargs={
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+            "activation_fn": activation_fn,
+            "ortho_init": True,
+            "features_extractor_class": features_extractor_class,
+            "share_features_extractor": True,
+            "optimizer_class": optimizer_class,
+            "optimizer_kwargs": {"eps": 1e-5},
+        },
         seed=seed,
         device="cpu",
         verbose=0,

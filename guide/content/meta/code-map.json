@@ -80,7 +80,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "5b7a89caa808635135ba8ed0f3ad56f46e8b162b03798f6e1fbd66ce965f5f95",
+      "source_sha256": "0d4d035a6b88cdc9a396f8f57038e244f8b8f2ce7c143d04a2eb3a5377bc2b19",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。",
       "variables": [],

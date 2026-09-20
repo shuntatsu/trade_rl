@@ -363,6 +363,7 @@ Universal model/policyにsymbol ID、symbol-specific embedding、symbol-specific
 - 同じfeature schemaを使う。
 - `fit_symbol_names` で事前登録した銘柄だけをfitへ使う。
 - fit scope外の銘柄をtraining row/episodeへ混ぜない。
+- content-verified Datasetでfit scopeを全symbolより狭める場合は、selected featureの情報依存もfit scope内へ閉じる。cross-sectional rank / dispersionのようなuniverse-dependent featureはsubset fitでrejectし、reference-relative / correlation / betaはreference symbolがfit scope内にある場合だけ許す。FeatureKind provenanceを復元できないverified subset fitはfail closedとし、identity provenanceのないlegacy/synthetic経路だけをunseen-symbol isolationの証拠には使わない。
 - 同じfit cutoffを使う。
 - 同じfrozen strategy/model/policyを評価対象の各銘柄へ適用する。
 - 評価は各銘柄を独立portfolioとしてReplayする。

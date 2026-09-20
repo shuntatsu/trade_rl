@@ -223,6 +223,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 
 - `True` は既存互換のlegacy modeであり、processing bar全体のvolumeをcapacity poolへ使う。同一barのopen時点ではbar最終volumeは未確定なので、これはpoint-in-time liquidity forecastではない。既存canonical Dataset / Study / Runの意味を変えないためdefaultとして保持する。
 - `False` はcausal stress modeであり、processing barの直前に完全終了したbarのvolumeをcapacity poolへ使う。base-volumeをmarket notionalへ換算するときも、その前barのcloseをreference priceに使う。current processing barの最終volumeはcapacityへ使わない。
+- volume unitもcapacity authorityの一部である。QUOTE_NOTIONALは既存のquote-notional poolだけを使う。BASE_ASSETとCONTRACTSは既存reference-price quote-notional poolに加えて、raw base quantity / raw contract countから導くnative quantity poolも同じparticipation limitで拘束し、actual fill priceがreferenceより低いだけでsource volume以上のquantityを生成しない。BASE_ASSETの注文quantity換算は `raw base volume / contract_multiplier`、CONTRACTSはraw countをそのまま使う。trigger-segmentのavailable-volume fractionはquote/native両poolへ同じ割合で適用する。
 - どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的stressである。
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。

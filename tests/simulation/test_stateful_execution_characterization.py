@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from typing import Any
@@ -199,6 +200,24 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     assert corrected_gross_return == pytest.approx(0.013)
     assert corrected_fill_ratio == pytest.approx(0.8)
     assert corrected_unfilled_turnover == pytest.approx(0.1)
+    fill_events = [
+        event
+        for event in result.order_events
+        if event.event_type in {"filled", "partial_fill"}
+    ]
+    assert [event.filled_notional for event in fill_events] == pytest.approx(
+        [200.0, 100.0, 95.0]
+    )
+    assert [event.participation_rate for event in fill_events] == pytest.approx(
+        [1.0, 0.5, 0.5]
+    )
+    expected_cost = (
+        200.0 * (0.0005 + 0.0003 + 0.001 + 0.0002 * math.sqrt(1.0))
+        + 100.0 * (0.0005 + 0.0003 + 0.001 + 0.0002 * math.sqrt(0.5))
+        + 95.0 * (0.0005 + 0.0001 + 0.0005 + 0.0002 * math.sqrt(0.5))
+    )
+    assert result.interval_cost == pytest.approx(expected_cost)
+
     observed_path_gross_value = (
         result.book.portfolio_value
         + result.interval_cost
@@ -217,6 +236,31 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     normalized["interval_gross_return"] = 0.008128863822075338
     normalized["fill_ratio"] = 0.79
     normalized["unfilled_turnover"] = 0.5 - 0.395
+
+    # Native quantity participation changes the final LIMIT fill from 95/200
+    # notional participation to 1/2 native-volume participation. Restore only
+    # that intended economic delta and its accounting descendants before the
+    # frozen hash so every unrelated field remains characterized.
+    legacy_cost = 0.7117369819382167
+    normalized["interval_cost"] = legacy_cost
+    normalized["interval_net_return"] = 0.012288263018061851
+    normalized["interval_log_return"] = 0.012213375184181006
+    normalized["cost_by_symbol"] = [legacy_cost]
+    normalized["book"]["cash"] = 804.2882630180618
+    normalized["book"]["max_drawdown"] = 0.009278334976024483
+    normalized["book"]["peak_value"] = 1012.2882630180618
+    normalized["book"]["returns_history"] = [
+        0.0036000000000000476,
+        -0.0032998574949564263,
+        0.011996541840642694,
+    ]
+    normalized["book"]["total_cost"] = legacy_cost
+    partial_fill_event = next(
+        event
+        for event in normalized["order_events"]
+        if event["event_type"] == "partial_fill"
+    )
+    partial_fill_event["participation_rate"] = 95.0 / 200.0
     canonical = json.dumps(
         normalized,
         sort_keys=True,
@@ -265,7 +309,7 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     assert result.filled_notional == pytest.approx(395.0)
     assert result.fill_ratio == pytest.approx(0.8)
     assert result.unfilled_turnover == pytest.approx(0.1)
-    assert result.interval_cost == pytest.approx(0.7117369819382167)
-    assert result.interval_net_return == pytest.approx(0.012288263018061851)
+    assert result.interval_cost == pytest.approx(0.7120771644662753)
+    assert result.interval_net_return == pytest.approx(0.012287922835533704)
     assert result.book.quantities.tolist() == pytest.approx([2.0])
-    assert result.book.cash == pytest.approx(804.2882630180618)
+    assert result.book.cash == pytest.approx(804.2879228355337)

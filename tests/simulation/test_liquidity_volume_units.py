@@ -34,7 +34,9 @@ def test_explicit_processing_market_notional_preserves_quote_volume_semantics() 
     assert allocations[0].filled_notional == pytest.approx(100.0)
 
 
-def test_native_quantity_pool_binds_fill_and_participation_at_lower_fill_price() -> None:
+def test_native_quantity_pool_binds_fill_and_participation_at_lower_fill_price() -> (
+    None
+):
     request = LiquidityRequest(
         order_id="b" * 64,
         remaining_quantity=20.0,

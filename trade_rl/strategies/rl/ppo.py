@@ -126,6 +126,28 @@ def _validated_interleaved_rollout_steps(
     return rollout_steps_per_env
 
 
+def _validate_sequential_symbol_coverage(
+    total_timesteps: int,
+    *,
+    episode_steps: int,
+    n_symbols: int,
+) -> None:
+    """Require rollout-rounded sequential training to reach every fit symbol."""
+
+    if n_symbols <= 1 or episode_steps <= 0:
+        return
+    effective_timesteps = (
+        (total_timesteps + _PPO_DEFAULT_N_STEPS - 1) // _PPO_DEFAULT_N_STEPS
+    ) * _PPO_DEFAULT_N_STEPS
+    required_timesteps = episode_steps * n_symbols
+    if effective_timesteps < required_timesteps:
+        raise ValueError(
+            "sequential PPO requires at least one full episode for every fit symbol; "
+            f"rollout-rounded budget={effective_timesteps}, "
+            f"required={required_timesteps}"
+        )
+
+
 def _encode_observation(
     observation: StrategyObservation,
     feature_indices: tuple[int, ...],
@@ -655,6 +677,12 @@ def fit_ppo_strategy(
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
+    if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+        _validate_sequential_symbol_coverage(
+            total_timesteps,
+            episode_steps=policy_stop_index - start_index,
+            n_symbols=len(fit_symbols),
+        )
     if not isinstance(normalize_features, bool):
         raise ValueError("normalize_features must be boolean")
     normalizer = (

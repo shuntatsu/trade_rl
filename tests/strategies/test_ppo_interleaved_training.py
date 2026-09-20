@@ -383,3 +383,112 @@ def test_interleaved_envs_use_overall_fit_information_scope(
         (0, 1),
         (0, 1),
     ]
+
+
+def _long_pooled_market(n_bars: int = 3_001) -> MarketDataset:
+    close = np.full((n_bars, 2), 100.0, dtype=np.float64)
+    features = np.zeros((n_bars, 2, 1), dtype=np.float32)
+    return MarketDataset(
+        dataset_id="9" * 64,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=features,
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((n_bars, 2), 1_000_000.0),
+        funding_rate=np.zeros((n_bars, 2), dtype=np.float64),
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+
+
+def test_sequential_fit_rejects_budget_that_cannot_cover_one_episode_per_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    with pytest.raises(
+        ValueError,
+        match="full episode.*fit symbol|fit symbol.*full episode",
+    ):
+        fit_ppo_strategy(
+            _long_pooled_market(),
+            feature_indices=(0,),
+            fit_symbol_indices=(0, 1),
+            start_index=0,
+            stop_index=3_000,
+            gross_budget=0.1,
+            total_timesteps=4_096,
+            seed=101,
+        )
+
+    assert FakePPO.last is None
+
+
+def test_sequential_fit_uses_rollout_rounded_budget_for_symbol_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    strategy = fit_ppo_strategy(
+        _long_pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3_000,
+        gross_budget=0.1,
+        total_timesteps=4_097,
+        seed=103,
+    )
+
+    assert FakePPO.last is not None
+    assert FakePPO.last.learn_timesteps == 4_097
+    assert isinstance(strategy, PPOIntentStrategy)
+
+
+def test_single_symbol_sequential_fit_does_not_require_full_episode_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    strategy = fit_ppo_strategy(
+        _long_pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+        start_index=0,
+        stop_index=3_000,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=107,
+    )
+
+    assert FakePPO.last is not None
+    assert isinstance(strategy, PPOIntentStrategy)
+
+
+def test_sequential_coverage_counts_only_agent_steps_before_terminal_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    strategy = fit_ppo_strategy(
+        _long_pooled_market(1_026),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=1_025,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=109,
+        settle_terminal_position=True,
+    )
+
+    assert FakePPO.last is not None
+    assert isinstance(strategy, PPOIntentStrategy)

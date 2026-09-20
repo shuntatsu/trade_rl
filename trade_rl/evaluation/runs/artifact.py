@@ -18,6 +18,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.canonical import FrozenDict, freeze_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
 from trade_rl.evaluation.metrics import PerformanceMetrics
@@ -332,8 +333,11 @@ def _load_returns(
                     raise ValueError("candidate return arrays must be one-dimensional")
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
-                immutable = np.ascontiguousarray(value).copy()
-                immutable.setflags(write=False)
+                contiguous = np.ascontiguousarray(value)
+                immutable = np.frombuffer(
+                    contiguous.tobytes(order="C"),
+                    dtype=contiguous.dtype,
+                ).reshape(contiguous.shape)
                 loaded[key] = immutable
     except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as error:
         raise ValueError("malformed candidate returns archive") from error
@@ -388,11 +392,17 @@ def _load_with_evidence(
         returns_bytes,
         expected_keys=_expected_return_keys(summary),
     )
+    frozen_summary = freeze_json_value(summary)
+    frozen_provenance = freeze_json_value(provenance)
+    if not isinstance(frozen_summary, dict) or not isinstance(
+        frozen_provenance, dict
+    ):
+        raise RuntimeError("candidate JSON object freezing changed object shape")
     loaded = LoadedCandidateRun(
         root=artifact_root,
-        summary=summary,
-        returns=returns,
-        provenance=provenance,
+        summary=cast(dict[str, object], frozen_summary),
+        returns=FrozenDict[str, np.ndarray](returns),
+        provenance=cast(dict[str, object], frozen_provenance),
     )
     evidence: ArtifactFileEvidence = (
         (summary_hash, summary_size),

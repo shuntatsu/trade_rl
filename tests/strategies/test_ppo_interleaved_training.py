@@ -16,6 +16,7 @@ from trade_rl.strategies.rl.ppo import (
     PPOTradingEnv,
     fit_ppo_strategy,
 )
+from trade_rl.strategies.rl.ppo_normalization import fit_ppo_feature_normalizer
 
 
 class FakeTanh:
@@ -383,6 +384,134 @@ def test_interleaved_envs_use_overall_fit_information_scope(
         (0, 1),
         (0, 1),
     ]
+
+
+def test_direct_ppo_env_accepts_reference_feature_with_explicit_information_scope() -> (
+    None
+):
+    env = PPOTradingEnv(
+        _ppo_identity_market(FeatureKind.RELATIVE_RETURN_TO_BTC),
+        feature_indices=(0,),
+        symbol_indices=(1,),
+        information_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+    )
+
+    observation, info = env.reset(seed=29)
+
+    assert env.symbol_indices == (1,)
+    assert env.information_symbol_indices == (0, 1)
+    assert observation.shape == (5,)
+    assert info["symbol"] == "ETHUSDT"
+
+
+def test_direct_ppo_env_allows_universe_feature_with_complete_information_scope() -> (
+    None
+):
+    env = PPOTradingEnv(
+        _ppo_identity_market(FeatureKind.CROSS_ASSET_DISPERSION),
+        feature_indices=(0,),
+        symbol_indices=(1,),
+        information_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+    )
+
+    assert env.symbol_indices == (1,)
+    assert env.information_symbol_indices == (0, 1)
+
+
+def test_direct_ppo_env_rejects_active_symbol_outside_information_scope() -> None:
+    with pytest.raises(ValueError, match="contained in information_symbol_indices"):
+        PPOTradingEnv(
+            _ppo_identity_market(FeatureKind.LOG_RETURN),
+            feature_indices=(0,),
+            symbol_indices=(1,),
+            information_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+        )
+
+
+@pytest.mark.parametrize(
+    ("information_symbol_indices", "message"),
+    (
+        ((), "non-empty and unique"),
+        ((0, 0), "non-empty and unique"),
+        ((-1,), "non-negative integers"),
+        ((True,), "non-negative integers"),
+        ((2,), "outside dataset symbols"),
+    ),
+)
+def test_direct_ppo_env_validates_explicit_information_scope(
+    information_symbol_indices: tuple[int, ...],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PPOTradingEnv(
+            _ppo_identity_market(FeatureKind.LOG_RETURN),
+            feature_indices=(0,),
+            symbol_indices=(0,),
+            information_symbol_indices=information_symbol_indices,
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+        )
+
+
+def test_interleaved_normalized_envs_share_fit_information_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    strategy = fit_ppo_strategy(
+        _ppo_identity_market(FeatureKind.RELATIVE_RETURN_TO_BTC),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        total_timesteps=64,
+        seed=31,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    vector = FakeDummyVecEnv.last
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (0, 1)
+    for env in vector.envs:
+        assert env.information_symbol_indices == (0, 1)
+        assert env.feature_normalizer is strategy.feature_normalizer
+
+
+def test_direct_ppo_env_rejects_normalizer_from_broader_information_scope() -> None:
+    dataset = _ppo_identity_market(FeatureKind.LOG_RETURN)
+    normalizer = fit_ppo_feature_normalizer(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+    )
+
+    with pytest.raises(ValueError, match="training scope"):
+        PPOTradingEnv(
+            dataset,
+            feature_indices=(0,),
+            symbol_indices=(0,),
+            information_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            feature_normalizer=normalizer,
+        )
 
 
 def _long_pooled_market(n_bars: int = 3_001) -> MarketDataset:

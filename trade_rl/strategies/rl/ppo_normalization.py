@@ -117,7 +117,7 @@ class PPOFeatureNormalizer:
             dataset.dataset_id != self.source_dataset_id
             or start != self.start_index
             or stop != self.stop_index
-            or not set(symbols).issubset(self.fit_symbol_indices)
+            or tuple(symbols) != self.fit_symbol_indices
             or tuple(dataset.feature_names[i] for i in self.feature_indices)
             != self.feature_names
         ):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from trade_rl.data.market import MarketDataset
@@ -136,6 +136,63 @@ def compare_strategies_by_symbol(
     return UniversalStrategyComparison(by_symbol=by_symbol)
 
 
+def compare_strategy_factories_by_symbol(
+    dataset: MarketDataset,
+    strategy_factories: Mapping[str, Callable[[], SingleSymbolStrategy]],
+    *,
+    start_index: int,
+    stop_index: int,
+    gross_budget: float,
+    initial_capital: float = 100_000.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
+) -> UniversalStrategyComparison:
+    """Replay fresh strategy adapters per symbol while sharing frozen model state."""
+
+    if not strategy_factories:
+        raise ValueError("at least one strategy factory is required")
+    for name, factory in strategy_factories.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("strategy factory name must be non-empty")
+        if not callable(factory):
+            raise TypeError("strategy factory must be callable")
+
+    produced: dict[str, list[SingleSymbolStrategy]] = {
+        name: [] for name in strategy_factories
+    }
+    by_symbol: list[SymbolStrategyComparison] = []
+    for symbol_index, symbol in enumerate(dataset.symbols):
+        strategies: dict[str, SingleSymbolStrategy] = {}
+        for name, factory in strategy_factories.items():
+            strategy = factory()
+            if not callable(getattr(strategy, "decide", None)):
+                raise TypeError("strategy factory must return a SingleSymbolStrategy")
+            if any(strategy is previous for previous in produced[name]):
+                raise ValueError(
+                    "strategy factory must return a fresh instance for each symbol"
+                )
+            produced[name].append(strategy)
+            strategies[name] = strategy
+        by_symbol.append(
+            SymbolStrategyComparison(
+                symbol_index=symbol_index,
+                symbol=symbol,
+                comparison=compare_strategies(
+                    dataset,
+                    strategies,
+                    symbol_index=symbol_index,
+                    start_index=start_index,
+                    stop_index=stop_index,
+                    gross_budget=gross_budget,
+                    initial_capital=initial_capital,
+                    execution_cost=execution_cost,
+                    risk=risk,
+                ),
+            )
+        )
+    return UniversalStrategyComparison(by_symbol=tuple(by_symbol))
+
+
 __all__ = [
     "StrategyComparison",
     "StrategyComparisonEntry",
@@ -143,4 +200,5 @@ __all__ = [
     "UniversalStrategyComparison",
     "compare_strategies",
     "compare_strategies_by_symbol",
+    "compare_strategy_factories_by_symbol",
 ]

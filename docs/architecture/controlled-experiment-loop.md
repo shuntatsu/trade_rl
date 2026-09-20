@@ -90,7 +90,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 - `max_experiments`
 - bootstrap count/seed
 - implementation/runtime provenance digest
-- final-eligibleな `controlled_study_plan_v2` ではpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive`
+- final-eligibleな `controlled_study_plan_v2` ではpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive`。さらにfinal startはdevelopment Datasetに含まれる全timestampより厳密に後でなければならず、replay未使用でもDataset内に既にある期間をunusedとして再分類しない。
 
 `controlled_study_plan_v1` はhistorical development Studyのread/inspection互換として維持するがfinal windowを持たず、後付けでfinal authorization eligibleへ変更しない。bootstrap v1/v2からはv1 Plan、bootstrap v3からはv2 Planを作る。
 

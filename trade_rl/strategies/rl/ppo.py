@@ -694,9 +694,7 @@ def _build_shared_cash_vec_env(
     ) -> None:
         selected = self._get_indices(indices)
         if set(selected) != set(range(self.num_envs)):
-            raise ValueError(
-                "shared-cash VecEnv mutations require all portfolio slots"
-            )
+            raise ValueError("shared-cash VecEnv mutations require all portfolio slots")
         setattr(self.coordinator, attr_name, value)
 
     def _env_method(

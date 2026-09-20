@@ -648,6 +648,8 @@ Stress結果を見てから合格thresholdを変更しない。
 
 Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
 
+現行codeには、その別境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityのGreenをfinal evidenceとして数えない。
+
 ## Superseded evidenceの扱い
 
 旧zero-cost canonical Studyは削除・再解釈せず、diagnostic evidenceとして保持する。新しいreal-cost Dataset / Study / EvidenceSetは別identityであり、旧Studyをin-place mutationしていない。

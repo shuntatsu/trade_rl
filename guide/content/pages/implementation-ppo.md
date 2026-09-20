@@ -30,11 +30,13 @@ local_values
 
 初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。
 
-## 学習時の銘柄スケジュールは2方式
+## 学習時の銘柄スケジュールは3方式
 
 `fit_ppo_strategy`の既定は従来どおり`sequential`です。1つの`PPOTradingEnv`がfit対象銘柄をfull-window episodeごとにround-robinするため、既存のStudyやcandidateの意味は変わりません。
 
-`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Observation v2、reward、hard risk、約定・会計、network、entropy係数は変えません。
+`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。
+
+`shared_cash`はもう一つのopt-in layoutです。各symbol slotは従来どおりObservation v2と3値actionを使いますが、custom VecEnvが同じ時点の全actionを先に集め、portfolio proposalを一度だけriskへ通して、一つのshared cash / BookStateを一度だけexecutionします。全slotには同じportfolio log-return rewardを返します。
 
 ```text
 sequential（既定）
@@ -44,9 +46,15 @@ interleaved（opt-in）
   BTC固定env ─┐
   ETH固定env ─┼─ DummyVecEnv → 同じPPO policy update
   ...         ─┘
+
+shared_cash（opt-in）
+  BTC Observation ─┐
+  ETH Observation ─┼─ 同時action収集 → portfolio risk 1回 → shared execution 1回
+  ...             ─┘                         ↓
+                                  同じteam rewardを各slotへ
 ```
 
-これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+これらは**未評価の実装能力**です。shared-cashはcash accountだけでなく、portfolio-level risk couplingと全slot共通team rewardを同時に持ちます。またlocal Observation v2には他symbol weightやshared cashを追加しないため、各slotから見るとportfolio stateは部分観測です。したがって「accountだけを変えた純粋な比較」とは扱いません。developmentで比較するときはlayout、`rollout_steps_per_env`、team-reward semanticsを結果を見る前に固定し、per-symbol contribution rewardやjoint observationは別factorにします。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、policy seedとexecution乱数を同時に変えないため、`interleaved`と`shared_cash`のvectorized fitはどちらも`slippage_std > 0`をfail closedにします。
 
 ## 学習stepの全体像
 
@@ -151,7 +159,9 @@ reward = log1p(interval_net_return)
 - PPO actionを直接P&L/rewardへ変換しない。
 - hard riskと共通execution/accountingを必ず通す。
 - 実行時も学習時と同じencoderを使う。
+- shared-cashでは全symbol actionを同じpre-execution snapshotから集め、risk/executionをportfolioごとに1回だけ実行する。
+- shared-cashのteam rewardをper-symbol独立rewardと解釈しない。
 
 ## まだ保証していないこと
 
-Observation contractがcausalであることと、PPOが儲かることは別です。現行研究はPPO superiorityやproduction profitabilityを証明していません。
+Observation contractがcausalであることと、PPOが儲かることは別です。shared-cash capabilityもsynthetic/canonical/real-SB3 integrationを検証する実装能力であり、実データでの優位性はまだ評価していません。現行研究はPPO superiorityやproduction profitabilityを証明していません。

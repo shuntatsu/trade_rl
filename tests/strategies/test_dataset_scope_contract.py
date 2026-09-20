@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
+from trade_rl.strategies.dataset_scope import validated_training_scope
 from trade_rl.strategies.forecasts.supervised import (
     validated_feature_indices,
     validated_symbol_indices,
@@ -81,3 +86,54 @@ def test_explicit_symbol_scope_fails_closed(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         validated_symbol_indices(_market(), indices)
+
+
+def _identity_market(kind: FeatureKind) -> MarketDataset:
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(name="linear", kind=kind),
+            FeatureSpec(name="quadratic", kind=FeatureKind.LOG_RETURN),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    return _market().with_content_identity({"config": config.canonical_payload()})
+
+
+def test_full_symbol_scope_allows_universe_dependent_feature() -> None:
+    dataset = _identity_market(FeatureKind.CROSS_ASSET_DISPERSION)
+
+    indices, symbols = validated_training_scope(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+    )
+
+    assert indices == (0,)
+    assert symbols == (0, 1)
+
+
+def test_legacy_dataset_without_identity_preserves_subset_behavior() -> None:
+    indices, symbols = validated_training_scope(
+        _market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+    )
+
+    assert indices == (0,)
+    assert symbols == (0,)
+
+
+def test_nested_source_identity_still_enforces_feature_dependency_scope() -> None:
+    source = _identity_market(FeatureKind.CROSS_ASSET_DISPERSION)
+    source_payload = json.loads(source.identity_payload_json or "{}")
+    successor = replace(source, identity_payload_json=None).with_content_identity(
+        {"source_dataset": {"identity_payload": source_payload}}
+    )
+
+    with pytest.raises(ValueError, match="outside fit symbol scope"):
+        validated_training_scope(
+            successor,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+        )

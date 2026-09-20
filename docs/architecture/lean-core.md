@@ -119,7 +119,7 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 
 このshared-cash layoutはlocal Observation v2に他symbol weight、shared cash、残余gross budgetを追加しないため、各slotから見ればportfolio stateは部分観測である。したがってこれは単なるcash storage置換ではなく、parameter-sharing cooperative/team-reward training factorであり、performance改善やaccounting superiorityを意味しない。per-symbol contribution rewardやjoint observationを同じ比較へ追加してはならず、別Controlled Factorとしてpreregisterする。
 
-これらlayoutは学習sample/state couplingを変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layout、rollout steps、reward semanticsを結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。
+これらlayoutは学習sample/state couplingを変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layout、rollout steps、reward semanticsを結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。vectorized layoutではpolicy seedとexecution noiseを同じfactorへ混ぜないため、`interleaved`と`shared_cash`の両方で`slippage_std > 0`をfail closedにする。
 
 ## StrategyとRiskの責任分離
 

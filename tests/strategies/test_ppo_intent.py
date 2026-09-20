@@ -43,6 +43,18 @@ class FakePolicy:
         return np.asarray(self.action), None
 
 
+class FakeTanh:
+    pass
+
+
+class FakeAdam:
+    pass
+
+
+class FakeFlattenExtractor:
+    pass
+
+
 class FakePPO(FakePolicy):
     last: FakePPO | None = None
 
@@ -305,7 +317,16 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     monkeypatch.setitem(
         sys.modules,
         "torch",
-        SimpleNamespace(set_num_threads=lambda threads: None),
+        SimpleNamespace(
+            set_num_threads=lambda threads: None,
+            nn=SimpleNamespace(Tanh=FakeTanh),
+            optim=SimpleNamespace(Adam=FakeAdam),
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "stable_baselines3.common.torch_layers",
+        SimpleNamespace(FlattenExtractor=FakeFlattenExtractor),
     )
     strategy = fit_ppo_strategy(
         market(),
@@ -321,10 +342,30 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     assert fitted is not None
     assert fitted.policy == "MlpPolicy"
     assert fitted.kwargs["policy_kwargs"] == {
-        "net_arch": {"pi": [64, 64], "vf": [64, 64]}
+        "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        "activation_fn": FakeTanh,
+        "ortho_init": True,
+        "features_extractor_class": FakeFlattenExtractor,
+        "share_features_extractor": True,
+        "optimizer_class": FakeAdam,
+        "optimizer_kwargs": {"eps": 1e-5},
     }
+    assert fitted.kwargs["n_steps"] == 2048
+    assert fitted.kwargs["batch_size"] == 64
+    assert fitted.kwargs["learning_rate"] == pytest.approx(3e-4)
+    assert fitted.kwargs["n_epochs"] == 10
+    assert fitted.kwargs["gamma"] == pytest.approx(0.99)
+    assert fitted.kwargs["gae_lambda"] == pytest.approx(0.95)
+    assert fitted.kwargs["clip_range"] == pytest.approx(0.2)
+    assert fitted.kwargs["clip_range_vf"] is None
+    assert fitted.kwargs["normalize_advantage"] is True
     assert fitted.kwargs["seed"] == 11
     assert fitted.kwargs["ent_coef"] == 0.0
+    assert fitted.kwargs["vf_coef"] == pytest.approx(0.5)
+    assert fitted.kwargs["max_grad_norm"] == pytest.approx(0.5)
+    assert fitted.kwargs["use_sde"] is False
+    assert fitted.kwargs["sde_sample_freq"] == -1
+    assert fitted.kwargs["target_kl"] is None
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)
 

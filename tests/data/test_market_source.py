@@ -24,7 +24,24 @@ def test_raw_market_series_rejects_duplicates_and_is_read_only() -> None:
         tradable=np.array([True, False]),
     )
 
-    assert not series.close.flags.writeable
+    for values in (
+        series.timestamps,
+        series.available_at,
+        series.open,
+        series.high,
+        series.low,
+        series.close,
+        series.volume,
+        series.funding_rate,
+        series.tradable,
+        series.funding_available,
+        series.funding_event_count,
+    ):
+        assert values is not None
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)
+
     with pytest.raises(ValueError, match="strictly increasing"):
         RawMarketSeries(
             timestamps=np.array(

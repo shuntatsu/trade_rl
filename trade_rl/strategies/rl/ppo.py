@@ -17,7 +17,6 @@ from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.dataset_scope import (
-    validated_feature_indices,
     validated_symbol_indices,
     validated_training_scope,
 )
@@ -125,6 +124,28 @@ def _validated_interleaved_rollout_steps(
             "interleaved rollout batch must be divisible by PPO batch_size=64"
         )
     return rollout_steps_per_env
+
+
+def _validate_sequential_symbol_coverage(
+    total_timesteps: int,
+    *,
+    episode_steps: int,
+    n_symbols: int,
+) -> None:
+    """Require rollout-rounded sequential training to reach every fit symbol."""
+
+    if n_symbols <= 1 or episode_steps <= 0:
+        return
+    effective_timesteps = (
+        (total_timesteps + _PPO_DEFAULT_N_STEPS - 1) // _PPO_DEFAULT_N_STEPS
+    ) * _PPO_DEFAULT_N_STEPS
+    required_timesteps = episode_steps * n_symbols
+    if effective_timesteps < required_timesteps:
+        raise ValueError(
+            "sequential PPO requires at least one full episode for every fit symbol; "
+            f"rollout-rounded budget={effective_timesteps}, "
+            f"required={required_timesteps}"
+        )
 
 
 def _encode_observation(
@@ -264,6 +285,7 @@ class PPOTradingEnv(gym.Env):
         *,
         feature_indices: tuple[int, ...],
         symbol_indices: tuple[int, ...] | None = None,
+        information_symbol_indices: tuple[int, ...] | None = None,
         start_index: int,
         stop_index: int,
         gross_budget: float,
@@ -295,8 +317,24 @@ class PPOTradingEnv(gym.Env):
         target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
         self.dataset = dataset
-        self.feature_indices = validated_feature_indices(dataset, feature_indices)
         self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
+        information_scope = (
+            self.symbol_indices
+            if information_symbol_indices is None
+            else information_symbol_indices
+        )
+        (
+            self.feature_indices,
+            self.information_symbol_indices,
+        ) = validated_training_scope(
+            dataset,
+            feature_indices=feature_indices,
+            fit_symbol_indices=information_scope,
+        )
+        if not set(self.symbol_indices).issubset(self.information_symbol_indices):
+            raise ValueError(
+                "symbol_indices must be contained in information_symbol_indices"
+            )
         self.start_index = start_index
         self.stop_index = stop_index
         self.gross_budget = gross_budget
@@ -313,7 +351,10 @@ class PPOTradingEnv(gym.Env):
         if feature_normalizer is not None:
             feature_normalizer.validate_features(self.feature_indices)
             feature_normalizer.validate_training_scope(
-                dataset, self.symbol_indices, start_index, self.agent_stop_index
+                dataset,
+                self.information_symbol_indices,
+                start_index,
+                self.agent_stop_index,
             )
         self.feature_normalizer = feature_normalizer
         if risk_config is not None and (
@@ -636,6 +677,12 @@ def fit_ppo_strategy(
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
+    if layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+        _validate_sequential_symbol_coverage(
+            total_timesteps,
+            episode_steps=policy_stop_index - start_index,
+            n_symbols=len(fit_symbols),
+        )
     if not isinstance(normalize_features, bool):
         raise ValueError("normalize_features must be boolean")
     normalizer = (
@@ -655,6 +702,7 @@ def fit_ppo_strategy(
             dataset,
             feature_indices=indices,
             symbol_indices=fit_symbols,
+            information_symbol_indices=fit_symbols,
             start_index=start_index,
             stop_index=stop_index,
             gross_budget=gross_budget,
@@ -687,6 +735,7 @@ def fit_ppo_strategy(
                     dataset,
                     feature_indices=indices,
                     symbol_indices=(symbol_index,),
+                    information_symbol_indices=fit_symbols,
                     start_index=start_index,
                     stop_index=stop_index,
                     gross_budget=gross_budget,

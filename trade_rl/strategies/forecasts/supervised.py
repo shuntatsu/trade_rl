@@ -15,6 +15,19 @@ from trade_rl.strategies.dataset_scope import (
 )
 
 
+
+def _immutable_array(
+    value: np.ndarray,
+    *,
+    dtype: np.dtype[np.generic] | str,
+) -> np.ndarray:
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
+
+
 @dataclass(frozen=True, slots=True)
 class CausalForecastTrainingSet:
     """Frozen fit-prefix rows with complete forward labels and fit-only weights."""
@@ -29,13 +42,18 @@ class CausalForecastTrainingSet:
 
     def __post_init__(self) -> None:
         indices = tuple(self.feature_indices)
-        features = np.asarray(self.features, dtype=np.float64).copy()
-        labels = np.asarray(self.labels, dtype=np.float64).reshape(-1).copy()
-        label_end_times = (
-            np.asarray(self.label_end_times, dtype="datetime64[ns]").reshape(-1).copy()
+        features = _immutable_array(self.features, dtype=np.dtype(np.float64))
+        labels = _immutable_array(
+            np.asarray(self.labels).reshape(-1),
+            dtype=np.dtype(np.float64),
         )
-        sample_weights = (
-            np.asarray(self.sample_weights, dtype=np.float64).reshape(-1).copy()
+        label_end_times = _immutable_array(
+            np.asarray(self.label_end_times).reshape(-1),
+            dtype=np.dtype("datetime64[ns]"),
+        )
+        sample_weights = _immutable_array(
+            np.asarray(self.sample_weights).reshape(-1),
+            dtype=np.dtype(np.float64),
         )
         cutoff = np.datetime64(self.fit_cutoff, "ns")
         if features.ndim != 2 or features.shape[0] == 0:
@@ -60,10 +78,6 @@ class CausalForecastTrainingSet:
             or self.horizon_hours <= 0
         ):
             raise ValueError("horizon_hours must be a positive integer")
-        features.setflags(write=False)
-        labels.setflags(write=False)
-        label_end_times.setflags(write=False)
-        sample_weights.setflags(write=False)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "labels", labels)

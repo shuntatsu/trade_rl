@@ -140,7 +140,7 @@ def test_later_symbol_fill_preserves_prior_symbol_fill_mark_for_margin() -> None
     shape = (n_bars, 2)
     open_price = np.full(shape, 100.0)
     high = open_price.copy()
-    high[1, 0] = 120.0
+    high[1:, 0] = 120.0
     low = open_price.copy()
     close = open_price.copy()
     close[1:, 0] = 120.0

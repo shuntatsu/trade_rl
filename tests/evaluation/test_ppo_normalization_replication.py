@@ -53,8 +53,7 @@ def test_protocol_freezes_single_normalization_factor_on_current_economics() -> 
         "intervals": 17_544,
     }
     assert common["fit_scope"] == (
-        "source_study_baseline_config.feature_indices/"
-        "fit_symbol_indices/fit_cutoff"
+        "source_study_baseline_config.feature_indices/fit_symbol_indices/fit_cutoff"
     )
     assert common["observation"]["schema_version"] == "ppo_observation_v2"
 

@@ -264,7 +264,6 @@ def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names
         )
 
 
-
 @pytest.mark.parametrize(
     ("observation_shape", "action_n", "action_start"),
     (

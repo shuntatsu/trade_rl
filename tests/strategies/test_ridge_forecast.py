@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import trade_rl.strategies.forecasts.ridge as ridge_module
 from trade_rl.data.market import MarketDataset
@@ -110,9 +111,14 @@ def test_fitted_scaler_and_model_arrays_are_read_only() -> None:
         alpha=1.0,
     )
 
-    assert model.feature_mean.flags.writeable is False
-    assert model.feature_scale.flags.writeable is False
-    assert model.coefficients.flags.writeable is False
+    for values in (
+        model.feature_mean,
+        model.feature_scale,
+        model.coefficients,
+    ):
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)
 
 
 def observation(value: float, *, available: bool = True) -> StrategyObservation:
@@ -156,3 +162,31 @@ def test_ridge_strategy_uses_shared_forecast_controller_and_fails_closed() -> No
     assert strategy.decide(observation(0.20)) is PositionIntent.LONG
     assert strategy.decide(observation(-0.20)) is PositionIntent.SHORT
     assert strategy.decide(observation(0.20, available=False)) is PositionIntent.FLAT
+
+
+
+def test_training_set_arrays_are_deeply_immutable() -> None:
+    training = CausalForecastTrainingSet(
+        feature_indices=(0,),
+        features=np.asarray([[1.0], [2.0]], dtype=np.float64),
+        labels=np.asarray([0.1, 0.2], dtype=np.float64),
+        label_end_times=np.asarray(
+            [
+                np.datetime64("2026-01-01T01:00:00", "ns"),
+                np.datetime64("2026-01-01T02:00:00", "ns"),
+            ]
+        ),
+        sample_weights=np.asarray([1.0, 1.0], dtype=np.float64),
+        fit_cutoff=np.datetime64("2026-01-01T03:00:00", "ns"),
+        horizon_hours=1,
+    )
+
+    for values in (
+        training.features,
+        training.labels,
+        training.label_end_times,
+        training.sample_weights,
+    ):
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)

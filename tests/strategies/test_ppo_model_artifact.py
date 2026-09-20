@@ -331,7 +331,11 @@ class _FailingInferencePolicy(Policy):
 
 def test_failed_inference_bundle_save_leaves_no_partial_destination(tmp_path) -> None:
     root = tmp_path / "policy"
-    strategy = PPOIntentStrategy(\n        _FailingInferencePolicy(),\n        feature_indices=(0,),\n        feature_names=("signal",),\n    )
+    strategy = PPOIntentStrategy(
+        _FailingInferencePolicy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
 
     with pytest.raises(RuntimeError, match="serialization"):
         save_ppo_inference_bundle(

@@ -17,6 +17,18 @@ from trade_rl.strategies.rl.ppo import (
 )
 
 
+class FakeTanh:
+    pass
+
+
+class FakeAdam:
+    pass
+
+
+class FakeFlattenExtractor:
+    pass
+
+
 class FakePPO:
     last: FakePPO | None = None
 
@@ -85,7 +97,11 @@ def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         sys.modules,
         "torch",
-        SimpleNamespace(set_num_threads=lambda threads: None),
+        SimpleNamespace(
+            set_num_threads=lambda threads: None,
+            nn=SimpleNamespace(Tanh=FakeTanh),
+            optim=SimpleNamespace(Adam=FakeAdam),
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -96,6 +112,11 @@ def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
         sys.modules,
         "stable_baselines3.common.vec_env",
         SimpleNamespace(DummyVecEnv=FakeDummyVecEnv),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "stable_baselines3.common.torch_layers",
+        SimpleNamespace(FlattenExtractor=FakeFlattenExtractor),
     )
 
 
@@ -139,7 +160,13 @@ def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
     assert fitted.kwargs["n_steps"] == 2048
     assert fitted.kwargs["batch_size"] == 64
     assert fitted.kwargs["policy_kwargs"] == {
-        "net_arch": {"pi": [64, 64], "vf": [64, 64]}
+        "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        "activation_fn": FakeTanh,
+        "ortho_init": True,
+        "features_extractor_class": FakeFlattenExtractor,
+        "share_features_extractor": True,
+        "optimizer_class": FakeAdam,
+        "optimizer_kwargs": {"eps": 1e-5},
     }
     assert fitted.kwargs["seed"] == 11
     assert fitted.kwargs["learning_rate"] == pytest.approx(3e-4)

@@ -394,9 +394,7 @@ def _load_with_evidence(
     )
     frozen_summary = freeze_json_value(summary)
     frozen_provenance = freeze_json_value(provenance)
-    if not isinstance(frozen_summary, dict) or not isinstance(
-        frozen_provenance, dict
-    ):
+    if not isinstance(frozen_summary, dict) or not isinstance(frozen_provenance, dict):
         raise RuntimeError("candidate JSON object freezing changed object shape")
     loaded = LoadedCandidateRun(
         root=artifact_root,

@@ -150,3 +150,16 @@ def test_nested_source_identity_still_enforces_feature_dependency_scope() -> Non
             feature_indices=(0,),
             fit_symbol_indices=(0,),
         )
+
+
+def test_verified_subset_scope_allows_local_feature() -> None:
+    dataset = _identity_market(FeatureKind.LOG_RETURN)
+
+    indices, symbols = validated_training_scope(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+    )
+
+    assert indices == (0,)
+    assert symbols == (0,)

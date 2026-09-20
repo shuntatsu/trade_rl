@@ -43,7 +43,6 @@ class FakePolicy:
         return np.asarray(self.action), None
 
 
-
 class FakeTanh:
     pass
 

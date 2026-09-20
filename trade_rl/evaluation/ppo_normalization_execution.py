@@ -17,7 +17,7 @@ from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
 class _ReplicationConfig(Protocol):
     feature_indices: tuple[int, ...]
     fit_symbol_indices: tuple[int, ...]
-    fit_cutoff: object
+    fit_cutoff: str
 
 
 @dataclass(frozen=True, slots=True)

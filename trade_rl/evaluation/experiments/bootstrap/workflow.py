@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -254,6 +255,13 @@ def _validate_fit_scope(
         raise ValueError("fit scope has no eligible training rows") from error
 
 
+def _study_final_timestamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.astimezone(UTC).replace(tzinfo=None)
+    return np.datetime_as_string(np.datetime64(normalized, "ns"), unit="ns")
+
+
 def _validate_study_against_config(
     config: CanonicalM2BootstrapConfig,
     *,
@@ -288,6 +296,22 @@ def _validate_study_against_config(
         raise ValueError("Study bootstrap count differs from bootstrap config")
     if plan.bootstrap_seed != config.bootstrap_seed:
         raise ValueError("Study bootstrap seed differs from bootstrap config")
+
+    expected_final_start = _study_final_timestamp(config.final_evaluation_start)
+    expected_final_stop = _study_final_timestamp(
+        config.final_evaluation_stop_exclusive
+    )
+    expected_plan_schema = (
+        "controlled_study_plan_v2"
+        if expected_final_start is not None or expected_final_stop is not None
+        else "controlled_study_plan_v1"
+    )
+    if plan.schema_version != expected_plan_schema:
+        raise ValueError("Study final-window schema differs from bootstrap config")
+    if plan.final_evaluation_start != expected_final_start:
+        raise ValueError("Study final evaluation start differs from bootstrap config")
+    if plan.final_evaluation_stop_exclusive != expected_final_stop:
+        raise ValueError("Study final evaluation stop differs from bootstrap config")
 
     _validate_dataset_range(config, dataset)
     _validate_execution_economics(config, dataset)
@@ -597,6 +621,12 @@ def bootstrap_canonical_m2_study(
             max_experiments=config.max_experiments,
             n_bootstrap=config.n_bootstrap,
             bootstrap_seed=config.bootstrap_seed,
+            final_evaluation_start=_study_final_timestamp(
+                config.final_evaluation_start
+            ),
+            final_evaluation_stop_exclusive=_study_final_timestamp(
+                config.final_evaluation_stop_exclusive
+            ),
         )
         study_digest, plan_implementation, plan_runtime = (
             _validate_study_against_config(

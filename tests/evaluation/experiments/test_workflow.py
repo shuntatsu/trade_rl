@@ -11,6 +11,7 @@ from tests.evaluation.experiments.test_evidence import _config, _dataset, _fake_
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
+    ContractViolationError,
     ControlledFactor,
     ControlledVerificationStatus,
     ExperimentBudgetExceededError,
@@ -126,7 +127,7 @@ def test_create_study_rejects_final_window_inside_development_dataset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with pytest.raises(
-        Exception,
+        ContractViolationError,
         match="later than every timestamp|development Dataset",
     ):
         _created_study(

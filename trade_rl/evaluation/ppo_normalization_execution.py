@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-import math
 import json
+import math
+from collections.abc import Callable
+from dataclasses import dataclass
 from hashlib import sha256
+from pathlib import Path
+from typing import Any, Protocol
+
+import numpy as np
 
 from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.data.artifacts import (
@@ -12,26 +18,8 @@ from trade_rl.data.artifacts import (
     load_market_dataset_artifact,
 )
 from trade_rl.data.features.price_channels import with_price_channels
-from trade_rl.evaluation.directional import evaluate_directional_arm
-from trade_rl.evaluation.directional_study import development_indices
-from trade_rl.evaluation.experiments import inspect_study
-from trade_rl.evaluation.ppo_normalization_replication import (
-    expected_ppo_normalization_protocol,
-    ppo_normalization_protocol_bytes,
-)
-from trade_rl.evaluation.runs import build_candidate_run_provenance
-from trade_rl.strategies.rl.ppo_artifact import (
-    load_ppo_inference_bundle,
-    save_ppo_inference_bundle,
-)
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Protocol
-
-import numpy as np
-
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.directional import evaluate_directional_arm
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.directional_selection import passes_screen, passes_stress
 from trade_rl.evaluation.experiments.store import StudyStore
@@ -42,7 +30,9 @@ _SLOT_SCHEMA = "ppo_normalization_replication_slot_v1"
 _PREFIT_FAILURE_SCHEMA = "ppo_normalization_replication_prefit_failure_v1"
 _CONSUMED_FAILURE_SCHEMA = "ppo_normalization_replication_consumed_failure_v1"
 EXECUTION_ACTIVATION_SCHEMA = "ppo_normalization_execution_activation_v1"
-SEALED_PROTOCOL_SHA256 = "0013470ed5858eaa3b9391f97f4b18f772495d21c128832f74e1c50b090df304"
+SEALED_PROTOCOL_SHA256 = (
+    "0013470ed5858eaa3b9391f97f4b18f772495d21c128832f74e1c50b090df304"
+)
 SLOT_RESULT_SCHEMA = "ppo_normalization_replication_result_v1"
 
 

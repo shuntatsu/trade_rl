@@ -122,6 +122,7 @@ def test_year_returns_use_interval_end_timestamp() -> None:
     dataset = replace(
         dataset,
         timestamps=timestamps,
+        available_at=timestamps[:, None],
         cash_rate=cash_rate,
         identity_payload_json=None,
     ).with_content_identity()

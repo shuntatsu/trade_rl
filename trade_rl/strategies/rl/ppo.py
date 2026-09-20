@@ -585,6 +585,9 @@ class PPOSharedCashCoordinator:
             self.book.weights[list(self.symbol_indices)],
             dtype=np.float64,
         ).copy()
+        realized_portfolio_value = float(self.book.portfolio_value)
+        realized_cash = float(self.book.cash)
+        realized_gross = float(np.abs(self.book.weights).sum())
         for slot_index, symbol_index in enumerate(self.symbol_indices):
             self.current_intents[symbol_index] = intents[slot_index]
 
@@ -617,6 +620,10 @@ class PPOSharedCashCoordinator:
                 "intent": intents[slot_index],
                 "target_weight": float(constrained.weights[symbol_index]),
                 "realized_weight": float(realized_weights[slot_index]),
+                "portfolio_value": realized_portfolio_value,
+                "portfolio_cash": realized_cash,
+                "portfolio_gross": realized_gross,
+                "portfolio_team_reward": reward,
                 "was_constrained": constrained.was_constrained,
                 "risk_reasons": constrained.reasons,
                 "interval_net_return": execution.interval_net_return,

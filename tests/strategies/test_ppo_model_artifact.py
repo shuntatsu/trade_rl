@@ -264,6 +264,83 @@ def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names
         )
 
 
+@pytest.mark.parametrize("publisher", ("normalized", "inference"))
+@pytest.mark.parametrize(
+    ("observation_shape", "action_n", "action_start"),
+    (
+        ((5.0,), 3, 0),
+        ((5,), 3.0, 0),
+        ((5,), 3, False),
+    ),
+)
+def test_artifact_publish_rejects_numeric_policy_space_aliases(
+    tmp_path,
+    publisher,
+    observation_shape,
+    action_n,
+    action_start,
+) -> None:
+    policy = Policy()
+    policy.observation_space = SimpleNamespace(shape=observation_shape)
+    policy.action_space = SimpleNamespace(n=action_n, start=action_start)
+    strategy = PPOIntentStrategy(
+        policy,
+        feature_indices=(0,),
+        feature_normalizer=_fit() if publisher == "normalized" else None,
+    )
+    root = tmp_path / publisher
+
+    with pytest.raises(ValueError, match="policy spaces|PPO contract"):
+        if publisher == "normalized":
+            save_normalized_ppo(root, strategy)
+        else:
+            save_ppo_inference_bundle(
+                root,
+                strategy,
+                feature_names=("signal",),
+            )
+
+    assert not root.exists()
+
+
+def test_inference_bundle_rejects_unhashable_feed_name_as_validation_error(
+    tmp_path,
+) -> None:
+    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+    root = tmp_path / "bad-feed"
+    bad_feature_names = (["signal"],)
+
+    with pytest.raises(ValueError, match="feature_names"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=bad_feature_names,  # type: ignore[arg-type]
+        )
+
+    assert not root.exists()
+
+
+class _FailingInferencePolicy(Policy):
+    def save(self, path):
+        Path(path).write_bytes(b"partial policy")
+        raise RuntimeError("simulated inference serialization failure")
+
+
+def test_failed_inference_bundle_save_leaves_no_partial_destination(tmp_path) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(_FailingInferencePolicy(), feature_indices=(0,))
+
+    with pytest.raises(RuntimeError, match="serialization"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
 @pytest.mark.parametrize(
     ("observation_shape", "action_n", "action_start"),
     (

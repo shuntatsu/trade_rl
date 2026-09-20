@@ -58,7 +58,10 @@ PPO aggregate metricはExperiment 0001のformal decision oracleには使って�
 
 1. developmentで一因子Experimentを積む。
 2. winner / no-winner判断を事前ruleに従って固定する。
-3. その後だけsealed final-testへ進む。
-4. final-test後もexecution stress、capacity、account-specific economicsを別途確認する。
+3. WINNERの場合だけ、実装済みのfinal authorization gateでStudy freeze・winner evidence・未使用windowをone-shot artifactへbindする。
+4. authorizationとは別の将来consumerが、そのartifactを検証して初めてsealed unused-futureを開く。
+5. final evaluation後もexecution stress、capacity、account-specific economicsを別途確認する。
+
+**authorization gateが実装済みであることは、final Datasetを開いたこと・final P&Lを得たこと・production適格性を意味しません。** 現時点ではfinal economic evaluationそのものは未実行です。
 
 **「baselineを再現できる」から「実運用で継続的に儲かる」までには、まだ複数の反証ゲートが残っています。**

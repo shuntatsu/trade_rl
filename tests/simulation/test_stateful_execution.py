@@ -638,6 +638,131 @@ def test_multiple_orders_share_one_symbol_capacity_pool() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("volume_unit", "multiplier", "expected_quantity", "expected_notional"),
+    [
+        (VolumeUnit.BASE_ASSET, 1.0, 10.0, 900.0),
+        (VolumeUnit.CONTRACTS, 2.0, 10.0, 1_800.0),
+        (VolumeUnit.QUOTE_NOTIONAL, 1.0, 1_000.0 / 90.0, 1_000.0),
+    ],
+)
+def test_capacity_respects_native_volume_unit_when_fill_price_differs_from_open(
+    volume_unit: VolumeUnit,
+    multiplier: float,
+    expected_quantity: float,
+    expected_notional: float,
+) -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 100.0)
+    high = np.full(shape, 100.0)
+    low = np.full(shape, 90.0)
+    close = np.full(shape, 100.0)
+    volume = np.full(shape, 1_000.0)
+    volume[1, 0] = 10.0 if volume_unit is not VolumeUnit.QUOTE_NOTIONAL else 1_000.0
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        volume_units=(volume_unit,),
+        contract_multipliers=np.array([multiplier]),
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        max_leverage=5.0,
+        trigger_volume_fractions=(1.0, 1.0, 1.0, 1.0),
+    )
+    intent = _intent(
+        executor,
+        20.0,
+        order_type=OrderType.LIMIT,
+        limit_price=90.0,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.quantities[0] == pytest.approx(expected_quantity)
+    assert result.filled_notional == pytest.approx(expected_notional)
+    assert result.capacity_evidence[0].processing_volume == pytest.approx(volume[1, 0])
+    assert result.capacity_evidence[0].market_notional == pytest.approx(
+        1_000.0 if volume_unit is not VolumeUnit.CONTRACTS else 2_000.0
+    )
+    assert result.max_participation == pytest.approx(1.0)
+    assert result.participation_by_symbol.tolist() == pytest.approx([1.0])
+
+
+@pytest.mark.parametrize(
+    ("volume_unit", "processing_volume", "expected_quantity", "expected_notional"),
+    [
+        (VolumeUnit.BASE_ASSET, 10.0, 5.0, 450.0),
+        (VolumeUnit.QUOTE_NOTIONAL, 1_000.0, 500.0 / 90.0, 500.0),
+    ],
+)
+def test_trigger_segment_fraction_constrains_stateful_volume_capacity(
+    volume_unit: VolumeUnit,
+    processing_volume: float,
+    expected_quantity: float,
+    expected_notional: float,
+) -> None:
+    shape = (6, 1)
+    open_price = np.full(shape, 100.0)
+    high = np.full(shape, 100.0)
+    low = np.full(shape, 90.0)
+    close = np.full(shape, 100.0)
+    volume = np.full(shape, 1_000.0)
+    volume[1, 0] = processing_volume
+    dataset = _market(
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        volume_units=(volume_unit,),
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        max_leverage=5.0,
+        trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+    )
+    intent = _intent(
+        executor,
+        -20.0,
+        order_type=OrderType.STOP_MARKET,
+        stop_price=95.0,
+    )
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    filled = [
+        event
+        for event in result.order_events
+        if event.event_type in {"filled", "partial_fill"}
+    ]
+    assert len(filled) == 1
+    assert filled[0].trigger_segment == "first_extreme"
+    assert filled[0].execution_price == pytest.approx(90.0)
+    assert filled[0].available_volume_fraction == pytest.approx(0.5)
+    assert result.book.quantities[0] == pytest.approx(-expected_quantity)
+    assert result.filled_notional == pytest.approx(expected_notional)
+    assert result.max_participation == pytest.approx(0.5)
+    assert result.participation_by_symbol.tolist() == pytest.approx([0.5])
+
+
 def test_quote_notional_volume_is_not_multiplied_by_price_again() -> None:
     volume = np.full((6, 1), 1_000.0)
     volume[1, 0] = 100.0

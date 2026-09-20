@@ -328,27 +328,51 @@ available physical memory at preflight; interrupt again if availability falls
 below 1.5 GB.
 
 The checkpoint runner is implemented at
-`evaluation/ppo_feature_checkpoint.py`, but is not yet admitted for real-data
-execution. It completes the same fixed comparison
-without repeating an already completed fit after a replay interruption.
-It introduces a separate protocol identity and atomic completion boundaries
-for fits, individual seed-symbol-scenario replays, arm assembly, and comparison.
-Each retry must verify completed evidence before reusing it; missing work may
-be rerun, while corrupt completed evidence must fail closed. An interrupted
-fit is restarted, not resumed from a partial optimizer or rollout state.
-The original, r1, and r2 roots remain incomplete evidence and are not inputs to
-the checkpoint runner. A new real-data run still needs a prepared exact protocol
-and a fresh result-blind G0–G2 review bound to that protocol and source.
-The scientific factor, fit budget, five seeds, cost and latency stresses,
-development-only claim, and 20% drawdown veto remain as registered above.
+`trade_rl/evaluation/ppo_feature_checkpoint.py`. It uses a separate protocol
+identity and atomic completion boundaries for fits, individual
+seed-symbol-scenario replays, arm assembly, and comparison. A retry verifies
+completed evidence before reuse; missing work may be rerun, while tampered
+completed evidence fails closed. An interrupted fit restarts rather than
+resuming partial optimizer or rollout state. The original, r1, and r2 roots
+remain preserved as incomplete evidence and are not inputs to this runner.
 
-The checkpoint implementation has passed the full Linux repository, PPO
-runtime, distribution, clean-install, and Guide browser checks and is integrated.
-Its independent code review found no blocking integration issue. These checks
-do not authorize a new real-data run. The next execution uses the manual
-`ppo-feature-checkpoint.yml` workflow on a standard Ubuntu runner, because the
-local host did not retain the required free memory. It retrieves the frozen
-source from artifact `10331899302`, run `34803217815`, with outer SHA-256
+The exact Linux protocol was prepared on 2026-09-21 under immutable tag
+`seal/ppo-btc-relative-checkpoint-20260921-v1`. Hosted preparation run
+[35537964829](https://github.com/shuntatsu/trade_rl/actions/runs/35537964829)
+succeeded and published artifact `10612544268` (raw ZIP SHA-256
+`7f776884512bab19f32b50b13e2f47bb7bd3928ef8c2b562c469cb1d6dbbc7b3`). The
+outer protocol digest is
+`e04d0146fea39bdbb95e1b78ed5b94b2fead296f67774f1007f0496236e9b5d2`; the
+source snapshot digest is
+`7fb2b501b79dda20bc32ddf69b0e5b56d881f1d2bffce68649a7020ec085eb97`, with
+all 170 snapshot files matching Git. Fresh independent result-blind review
+passed G0, G1, and G2 with disposition
+`G0_G1_CLEAR_G2_EVIDENCE_BOUND`; its record digest is
+`2579a7214cf74a394821d80568be7864a963a9b5fa1a0e9c7197e1585591fe9b` ([review
+record](https://github.com/shuntatsu/trade_rl/pull/744#issuecomment-5752780311)).
+
+All ten fixed arms have been dispatched under that same frozen protocol: baseline
+seeds 0–4 are runs 35538782635, 35538813730, 35538815588, 35538817265, and
+35538818919; candidate seeds 0–4 are runs 35538820441, 35538822037,
+35538823806, 35538825367, and 35538826669. The unchanged 12-feature baseline
+and 15-feature candidate use five seeds and 262,144 requested steps per fit;
+their preregistered roster contains 100 replay cells. Each replay starts with
+an independent 10,000 USDT per-symbol account, and every candidate cell remains
+subject to the 20% drawdown hard veto. The shared-portfolio, stress, and
+development-only limits above remain in force.
+
+The review clears only generation of evidence under this exact protocol. No
+current-run G3 evidence-validity or G4 economic verdict is complete, and no
+current-run model, ledger, comparison, or economic result has been inspected.
+This is not held-out validation or a paper/live-profitability claim.
+
+The checkpoint implementation passed the full Linux repository, PPO runtime,
+distribution, clean-install, and Guide browser checks at the implementation
+head; its independent code review found no blocking integration issue. Hosted
+execution uses the manual `ppo-feature-checkpoint.yml` workflow on standard
+Ubuntu runners because the local host did not retain the required free memory.
+It retrieves the frozen source from artifact `10331899302`, run `34803217815`,
+with outer SHA-256
 `89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce`.
 The publisher's verification stopped at a SHA-prefix comparison. Its existing
 verification-only recovery, run `34803432434`, subsequently passed independent
@@ -357,10 +381,10 @@ Recovery artifact `10332575500` has outer SHA-256
 `2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589`;
 its downloaded bytes, bundle binding, Dataset/Study identities, and explicit
 no-P&L assertions have been checked. It does not replace the new study review.
-Preparation must publish a new Linux-bound protocol before the independent
-G0–G2 review. Each later dispatch reuses that exact source commit, workflow
-revision, and approved protocol, saves completed checkpoint evidence, and
-preserves failed attempts.
+The preparation artifact and independent review are bound to the same frozen
+source, workflow revision, Linux runtime, and outer protocol digest. Each arm
+dispatch reuses that binding, saves completed checkpoint evidence, and
+preserves failed attempts. Run dispatch alone does not establish G3 or G4.
 This transport does not import the original, r1, or r2 partial roots.
 After the strategy-owned feature schema was integrated, the checkpoint replay
 wrapper was updated to retain the loaded policy's feature names. A focused

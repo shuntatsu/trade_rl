@@ -264,9 +264,8 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
 
 
 def test_final_evaluation_authorization_is_durable_current_architecture() -> None:
-    contract = (
-        DOCS / "architecture" / "final-evaluation-authorization.md"
-    ).read_text(encoding="utf-8")
+    path = DOCS / "architecture" / "final-evaluation-authorization.md"
+    contract = path.read_text(encoding="utf-8")
     for required in (
         "trade_rl.evaluation.final_test",
         "unused-future / final evaluation",

@@ -38,7 +38,7 @@ FinalEvaluationAuthorization
 
 `canonical_m2_bootstrap_config_v3` はexecution economicsに加えてfinal windowを結果前configへbindする。bootstrapはそのwindowを `controlled_study_plan_v2` へcanonical nanosecond表現で移し、inspection時にもconfigとPlanの一致を再計算する。
 
-authorization時のcallerはwindowを選択できない。提示した `final_evaluation_start` / `final_evaluation_stop_exclusive` がStudyPlan v2と完全一致しなければ拒否し、artifactにはStudyPlanのwindowだけを保存する。
+authorization時のcallerはwindowを選択できない。public authorization APIは `final_evaluation_start` / `final_evaluation_stop_exclusive` を引数に持たず、StudyPlan v2にpreregisterされたwindowだけからartifactを構築する。
 
 historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな研究を行う場合は、結果前に新しいv3 bootstrap / v2 StudyPlanを作る。
 
@@ -149,7 +149,7 @@ test oracleはauthorization前後でStudy treeの全file bytes/digestが同一�
 1. WINNER Studyだけがauthorizationできる。
 2. NO_WINNER / unfrozenを拒否する。
 3. legacy StudyPlan v1などpreregistered final windowを持たないStudyを拒否する。
-4. caller windowがStudyPlan v2のpreregistered windowと異なる場合を拒否する。
+4. public authorization APIがfinal-window override引数を持たないことを固定する。
 5. development overlap / empty final windowを拒否する。
 6. pre-freeze authorization timestampを拒否する。
 7. publication後のread-backが同じcontractを再構築する。

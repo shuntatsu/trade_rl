@@ -187,27 +187,27 @@ def test_authorization_rejects_unfrozen_and_no_winner_studies(
         )
 
 
-def test_authorization_rejects_final_window_overlap_or_empty_window(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("final_start", "final_stop", "match"),
+    (
+        ("2026-01-01T19:00:00.000000000", _FINAL_STOP, "development"),
+        (_FINAL_START, _FINAL_START, "strictly later"),
+    ),
+)
+def test_authorization_contract_rejects_overlap_or_empty_window(
+    final_start: str,
+    final_stop: str,
+    match: str,
 ) -> None:
-    study_root, _ = _winner_study(tmp_path, monkeypatch)
-
-    with pytest.raises(ContractViolationError, match="development"):
-        authorize_final_evaluation(
-            tmp_path / "overlap",
-            study_root=study_root,
-            final_evaluation_start="2026-01-01T19:00:00.000000000",
-            final_evaluation_stop_exclusive=_FINAL_STOP,
-            authorized_by="final-gate",
-            authorized_at=_AUTHORIZED_AT,
-        )
-    with pytest.raises(ContractViolationError, match="strictly later"):
-        authorize_final_evaluation(
-            tmp_path / "empty",
-            study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_START,
+    with pytest.raises(ContractViolationError, match=match):
+        FinalEvaluationAuthorization(
+            study_digest="a" * 64,
+            study_freeze_digest="b" * 64,
+            winner_evidence_digest="c" * 64,
+            winner_strategy="ppo",
+            development_evaluation_stop_exclusive=_FINAL_START,
+            final_evaluation_start=final_start,
+            final_evaluation_stop_exclusive=final_stop,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts import (
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
@@ -334,15 +336,29 @@ def record_consumed_failure(
         )
 
 
+def _read_canonical_json(
+    store: StudyStore,
+    relative: Path,
+    *,
+    field: str,
+) -> tuple[dict[str, object], bytes]:
+    path = store.root / relative
+    try:
+        with open_regular_binary(path, field=field) as stream:
+            raw = stream.read()
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{field} is not valid JSON") from error
+    if not isinstance(payload, dict) or canonical_json_bytes(payload) != raw:
+        raise ValueError(f"{field} must be canonical JSON")
+    return payload, raw
+
+
 def _regular_json_exists(store: StudyStore, relative: Path) -> bool:
     path = store.root / relative
-    if path.is_symlink():
-        raise ValueError(f"replication evidence must not be a symlink: {relative}")
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return False
-    if not path.is_file():
-        raise ValueError(f"replication evidence must be a regular file: {relative}")
-    store.read_json(relative)
+    _read_canonical_json(store, relative, field=f"replication evidence {relative}")
     return True
 
 
@@ -358,7 +374,11 @@ def _read_consumed_claim(
         return None
     if not path.is_file():
         raise ValueError("replication slot claim must be a regular file")
-    payload = store.read_json(relative)
+    payload, _raw = _read_canonical_json(
+        store,
+        relative,
+        field="replication slot claim",
+    )
     expected_keys = {
         "schema",
         "slot",
@@ -414,7 +434,11 @@ def replication_slot_state(
             if path.is_symlink() or not path.is_file() or path.suffix != ".json":
                 raise ValueError("prefit failure evidence contains an unsafe entry")
             relative = path.relative_to(store.root)
-            payload = store.read_json(relative)
+            payload, _raw = _read_canonical_json(
+                store,
+                relative,
+                field="replication prefit failure evidence",
+            )
             if (
                 payload.get("schema") != _PREFIT_FAILURE_SCHEMA
                 or payload.get("slot") != spec.slot
@@ -654,14 +678,30 @@ def _validate_execution_root(
     expected_activation_digest: str,
 ) -> dict[str, object]:
     store = StudyStore(root)
-    protocol = store.read_json("protocol.json")
-    if canonical_json_bytes(protocol) != ppo_normalization_protocol_bytes():
+    protocol, protocol_raw = _read_canonical_json(
+        store,
+        Path("protocol.json"),
+        field="replication protocol",
+    )
+    if protocol_raw != ppo_normalization_protocol_bytes():
         raise ValueError("saved replication protocol differs from sealed bytes")
-    digest = store.read_json("protocol.digest.json")
+    digest, _digest_raw = _read_canonical_json(
+        store,
+        Path("protocol.digest.json"),
+        field="replication protocol digest",
+    )
     if digest != {"sha256": SEALED_PROTOCOL_SHA256}:
         raise ValueError("saved replication protocol digest differs")
-    activation = store.read_json("activation.json")
-    activation_digest = store.read_json("activation.digest.json")
+    activation, _activation_raw = _read_canonical_json(
+        store,
+        Path("activation.json"),
+        field="replication activation",
+    )
+    activation_digest, _activation_digest_raw = _read_canonical_json(
+        store,
+        Path("activation.digest.json"),
+        field="replication activation digest",
+    )
     if activation_digest != {"digest": expected_activation_digest}:
         raise ValueError("saved activation digest differs")
     checked = _validate_activation(
@@ -670,7 +710,11 @@ def _validate_execution_root(
     )
     if checked["provenance"] != build_candidate_run_provenance():
         raise ValueError("source/runtime changed from execution activation")
-    slots = store.read_json("slots.json")
+    slots, _slots_raw = _read_canonical_json(
+        store,
+        Path("slots.json"),
+        field="replication slot roster",
+    )
     if slots != {"slots": [spec.slot for spec in replication_arm_specs()]}:
         raise ValueError("replication slot roster changed")
     return checked
@@ -718,7 +762,11 @@ def _load_replication_context(
 def _manifest_for_bundle(
     store: StudyStore, spec: ReplicationArmSpec
 ) -> dict[str, object]:
-    manifest = store.read_json(Path("slots") / spec.slot / "bundle" / "manifest.json")
+    manifest, _manifest_raw = _read_canonical_json(
+        store,
+        Path("slots") / spec.slot / "bundle" / "manifest.json",
+        field="PPO replication bundle manifest",
+    )
     expected_normalizer = spec.normalize_features
     has_normalizer = manifest.get("normalizer") is not None
     if has_normalizer is not expected_normalizer:
@@ -856,11 +904,17 @@ def verify_replication_slot(
     claim = _read_consumed_claim(store, spec)
     if claim is None:
         raise ValueError("slot result exists without a consumed claim")
-    result = store.read_json(_slot_relative(spec, "result.json"))
-    digest = store.read_json(_slot_relative(spec, "result.sha256.json"))
-    if canonical_json_bytes(digest) != canonical_json_bytes(
-        {"sha256": sha256(canonical_json_bytes(result)).hexdigest()}
-    ):
+    result, result_raw = _read_canonical_json(
+        store,
+        _slot_relative(spec, "result.json"),
+        field="replication slot result",
+    )
+    digest, _digest_raw = _read_canonical_json(
+        store,
+        _slot_relative(spec, "result.sha256.json"),
+        field="replication slot result digest",
+    )
+    if digest != {"sha256": sha256(result_raw).hexdigest()}:
         raise ValueError("slot result digest mismatch")
     implementation = activation["implementation_digest"]
     if (

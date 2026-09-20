@@ -15,7 +15,6 @@ from trade_rl.strategies.dataset_scope import (
 )
 
 
-
 def _immutable_array(
     value: np.ndarray,
     *,

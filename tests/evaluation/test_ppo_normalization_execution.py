@@ -198,12 +198,10 @@ def _screen_row(
 
 def test_decision_is_recomputed_without_trusting_qualified_flags() -> None:
     control = {
-        seed: _screen_row(0.0, year_return=0.0, with_stress=False)
-        for seed in range(5)
+        seed: _screen_row(0.0, year_return=0.0, with_stress=False) for seed in range(5)
     }
     candidate = {
-        seed: _screen_row(0.01, year_return=0.01, with_stress=True)
-        for seed in range(5)
+        seed: _screen_row(0.01, year_return=0.01, with_stress=True) for seed in range(5)
     }
 
     report = recompute_replication_decision(control, candidate)

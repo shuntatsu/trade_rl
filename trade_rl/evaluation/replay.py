@@ -212,19 +212,6 @@ def _weight_for_desired_quantity(
     )
 
 
-def _default_replay_risk(executor: MarketExecutor) -> PreTradeRisk:
-    hard_limit = min(1.0, float(executor.cost.max_leverage))
-    return PreTradeRisk(
-        PreTradeRiskConfig(
-            max_gross=hard_limit,
-            max_abs_weight=hard_limit,
-            max_turnover=None,
-            drawdown_start=1.0,
-            drawdown_stop=1.0,
-        )
-    )
-
-
 def _validate_risk_execution_compatibility(
     risk: PreTradeRisk,
     executor: MarketExecutor,
@@ -309,7 +296,7 @@ def run_single_symbol_replay(
         contract_multipliers=dataset.contract_multipliers,
     )
     executor = MarketExecutor(dataset, execution_cost or ExecutionCostConfig.zero())
-    risk_controller = risk or _default_replay_risk(executor)
+    risk_controller = risk or PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)
     _validate_risk_execution_compatibility(risk_controller, executor)
     current_intent = PositionIntent.FLAT
     desired_quantity = 0.0
@@ -466,7 +453,7 @@ def run_shared_cash_replay(
             execution_observations.append if capture_ledger_evidence else None
         ),
     )
-    risk_controller = risk or _default_replay_risk(executor)
+    risk_controller = risk or PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)
     _validate_risk_execution_compatibility(risk_controller, executor)
     current_intents = [PositionIntent.FLAT for _ in range(dataset.n_symbols)]
     desired_quantities = np.zeros(dataset.n_symbols, dtype=np.float64)

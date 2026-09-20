@@ -128,7 +128,12 @@ def test_publish_rejects_incompatible_policy_spaces_before_creation(
 def test_unnormalized_policy_cannot_be_published_as_normalized(tmp_path):
     with pytest.raises(ValueError, match="normalizer"):
         save_normalized_ppo(
-            tmp_path / "policy", PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+            tmp_path / "policy",
+            PPOIntentStrategy(
+                Policy(),
+                feature_indices=(0,),
+                feature_names=("signal",),
+            ),
         )
     assert not (tmp_path / "policy").exists()
 
@@ -144,7 +149,11 @@ def test_raw_ppo_inference_bundle_roundtrip_binds_feed_feature_schema(
         "torch",
         SimpleNamespace(set_num_threads=lambda threads: None),
     )
-    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
     root = tmp_path / "raw-policy"
 
     digest = save_ppo_inference_bundle(
@@ -216,7 +225,11 @@ def test_ppo_inference_bundle_rejects_tampering_before_policy_load(
         "torch",
         SimpleNamespace(set_num_threads=lambda threads: None),
     )
-    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
     root = tmp_path / "policy"
     digest = save_ppo_inference_bundle(
         root,
@@ -243,7 +256,11 @@ def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names
         "torch",
         SimpleNamespace(set_num_threads=lambda threads: None),
     )
-    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
     root = tmp_path / "policy"
 
     save_ppo_inference_bundle(
@@ -309,7 +326,11 @@ def test_artifact_publish_rejects_numeric_policy_space_aliases(
 def test_inference_bundle_rejects_unhashable_feed_name_as_validation_error(
     tmp_path,
 ) -> None:
-    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
     root = tmp_path / "bad-feed"
     bad_feature_names = (["signal"],)
 
@@ -365,7 +386,11 @@ def test_inference_bundle_rejects_incompatible_policy_spaces_before_creation(
     policy = Policy()
     policy.observation_space = SimpleNamespace(shape=observation_shape)
     policy.action_space = SimpleNamespace(n=action_n, start=action_start)
-    strategy = PPOIntentStrategy(policy, feature_indices=(0,))
+    strategy = PPOIntentStrategy(
+        policy,
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
     root = tmp_path / "bad-inference"
 
     with pytest.raises(ValueError, match="policy spaces|PPO contract"):
@@ -405,7 +430,11 @@ def _save_artifact_for_load_boundary(
         )
         digest = save_normalized_ppo(root, strategy)
     else:
-        strategy = PPOIntentStrategy(Policy(), feature_indices=(0,), feature_names=("signal",))
+        strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
         digest = save_ppo_inference_bundle(
             root,
             strategy,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from trade_rl.data.contracts import FeatureKind
+from trade_rl.data.features.cross_asset import CROSS_ASSET_FEATURE_KINDS
 from trade_rl.data.identity import parse_identity_json
 from trade_rl.data.market import MarketDataset
 
@@ -15,12 +16,7 @@ _REFERENCE_CROSS_ASSET_KINDS = frozenset(
         FeatureKind.ROLLING_BETA_TO_BTC,
     }
 )
-_UNIVERSE_CROSS_ASSET_KINDS = frozenset(
-    {
-        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
-        FeatureKind.CROSS_ASSET_DISPERSION,
-    }
-)
+_UNIVERSE_CROSS_ASSET_KINDS = CROSS_ASSET_FEATURE_KINDS - _REFERENCE_CROSS_ASSET_KINDS
 
 
 def validated_feature_indices(

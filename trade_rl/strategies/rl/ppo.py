@@ -501,25 +501,17 @@ class PPOSharedCashCoordinator:
             {
                 "terminal_settlement_intervals": settlement_intervals,
                 "terminal_settlement_log_return": settlement_log_return,
-                "terminal_settlement_net_return": math.expm1(
-                    settlement_log_return
-                ),
+                "terminal_settlement_net_return": math.expm1(settlement_log_return),
                 "terminal_settlement_cost_amount": settlement_cost,
                 "terminal_settlement_funding_amount": settlement_funding,
                 "terminal_settlement_borrow_cost_amount": settlement_borrow,
                 "terminal_settlement_dividend_amount": settlement_dividend,
-                "terminal_settlement_cash_interest_amount": (
-                    settlement_cash_interest
-                ),
+                "terminal_settlement_cash_interest_amount": (settlement_cash_interest),
                 "terminal_settlement_requested_turnover": (
                     settlement_requested_turnover
                 ),
-                "terminal_settlement_filled_turnover": (
-                    settlement_filled_turnover
-                ),
-                "terminal_settlement_risk_reasons": tuple(
-                    settlement_risk_reasons
-                ),
+                "terminal_settlement_filled_turnover": (settlement_filled_turnover),
+                "terminal_settlement_risk_reasons": tuple(settlement_risk_reasons),
                 "terminal_settlement_termination_reason": (
                     self.book.termination_reason
                 ),
@@ -548,12 +540,10 @@ class PPOSharedCashCoordinator:
                     intent,
                     gross_budget=self.gross_budget,
                 )
-                self.desired_quantities[symbol_index] = (
-                    _desired_quantity_from_weight(
-                        self.book,
-                        proposal_weight,
-                        symbol_index=symbol_index,
-                    )
+                self.desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                    self.book,
+                    proposal_weight,
+                    symbol_index=symbol_index,
                 )
 
         proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
@@ -570,12 +560,10 @@ class PPOSharedCashCoordinator:
         )
         if should_rebind_strategy_proposal(constrained):
             for symbol_index in self.symbol_indices:
-                self.desired_quantities[symbol_index] = (
-                    _desired_quantity_from_weight(
-                        self.book,
-                        float(constrained.weights[symbol_index]),
-                        symbol_index=symbol_index,
-                    )
+                self.desired_quantities[symbol_index] = _desired_quantity_from_weight(
+                    self.book,
+                    float(constrained.weights[symbol_index]),
+                    symbol_index=symbol_index,
                 )
 
         execution = self.executor.execute_interval(

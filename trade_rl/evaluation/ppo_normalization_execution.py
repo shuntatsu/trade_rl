@@ -141,6 +141,7 @@ def replication_strategy_factory(
     """Create fresh mutable wrappers while sharing frozen policy/preprocessing."""
 
     feature_indices = tuple(frozen.feature_indices)
+    feature_names = frozen.feature_names
     policy = frozen.policy
     normalizer = frozen.feature_normalizer
 
@@ -148,6 +149,7 @@ def replication_strategy_factory(
         return PPOIntentStrategy(
             policy,
             feature_indices=feature_indices,
+            feature_names=feature_names,
             feature_normalizer=normalizer,
         )
 

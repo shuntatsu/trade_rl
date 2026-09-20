@@ -438,6 +438,10 @@ def test_real_shared_cash_ppo_runs_with_shared_portfolio() -> None:
     assert strategy.policy.device.type == "cpu"
     vec_env = strategy.policy.get_env()
     assert vec_env.num_envs == 2
+    with pytest.raises(ValueError, match="all portfolio slots"):
+        vec_env.set_attr("initial_capital", 1.0, indices=0)
+    with pytest.raises(ValueError, match="all portfolio slots"):
+        vec_env.env_method("reset", indices=0)
 
     initial_observations = vec_env.reset()
     observations, rewards, dones, infos = vec_env.step(

@@ -264,6 +264,7 @@ class PPOTradingEnv(gym.Env):
         *,
         feature_indices: tuple[int, ...],
         symbol_indices: tuple[int, ...] | None = None,
+        information_symbol_indices: tuple[int, ...] | None = None,
         start_index: int,
         stop_index: int,
         gross_budget: float,
@@ -295,8 +296,23 @@ class PPOTradingEnv(gym.Env):
         target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
         self.dataset = dataset
-        self.feature_indices = validated_feature_indices(dataset, feature_indices)
         self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
+        information_scope = (
+            self.symbol_indices
+            if information_symbol_indices is None
+            else validated_symbol_indices(dataset, information_symbol_indices)
+        )
+        if not set(self.symbol_indices).issubset(information_scope):
+            raise ValueError(
+                "active PPO symbols must belong to the information symbol scope"
+            )
+        self.feature_indices, self.information_symbol_indices = (
+            validated_training_scope(
+                dataset,
+                feature_indices=feature_indices,
+                fit_symbol_indices=information_scope,
+            )
+        )
         self.start_index = start_index
         self.stop_index = stop_index
         self.gross_budget = gross_budget
@@ -313,7 +329,10 @@ class PPOTradingEnv(gym.Env):
         if feature_normalizer is not None:
             feature_normalizer.validate_features(self.feature_indices)
             feature_normalizer.validate_training_scope(
-                dataset, self.symbol_indices, start_index, self.agent_stop_index
+                dataset,
+                self.information_symbol_indices,
+                start_index,
+                self.agent_stop_index,
             )
         self.feature_normalizer = feature_normalizer
         if risk_config is not None and (
@@ -655,6 +674,7 @@ def fit_ppo_strategy(
             dataset,
             feature_indices=indices,
             symbol_indices=fit_symbols,
+            information_symbol_indices=fit_symbols,
             start_index=start_index,
             stop_index=stop_index,
             gross_budget=gross_budget,
@@ -687,6 +707,7 @@ def fit_ppo_strategy(
                     dataset,
                     feature_indices=indices,
                     symbol_indices=(symbol_index,),
+                    information_symbol_indices=fit_symbols,
                     start_index=start_index,
                     stop_index=stop_index,
                     gross_budget=gross_budget,

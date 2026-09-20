@@ -27,7 +27,11 @@ _BOOK_DEPTH_HEADER = ("timestamp", "percentage", "depth", "notional")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _immutable_array(value: np.ndarray, *, dtype: np.dtype[np.generic] | str) -> np.ndarray:
+def _immutable_array(
+    value: np.ndarray,
+    *,
+    dtype: np.dtype[np.generic] | str,
+) -> np.ndarray:
     contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
     return np.frombuffer(
         contiguous.tobytes(order="C"),

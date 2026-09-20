@@ -2,7 +2,7 @@
   "id": "implementation-ppo",
   "title": "PPOは何を見て、どう学び、どう売買するか",
   "nav_label": "PPOの実装を追う",
-  "summary": "PPO Observation v2の5区分、sequential/interleaved/shared-cash学習layout、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
+  "summary": "PPO Observation v2の5区分、sequential/interleaved学習layout、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
   "role": "detail",
   "keywords": [
     "PPO",
@@ -18,11 +18,7 @@
     "training_layout",
     "sequential",
     "interleaved",
-    "DummyVecEnv",
-    "shared_cash",
-    "shared cash",
-    "team reward",
-    "PPOSharedCashCoordinator"
+    "DummyVecEnv"
   ],
   "source_sections": [
     {
@@ -33,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "d6eb2d4e07bf025fa89bb0c85db3a3d11574065593bb146c6b7580380ce49145"
+      "sha256": "482fd6f073a1eb290426f8d268a2576df70332f5133d7ab23c70f519a112e0ed"
     }
   ],
   "code_references": [
@@ -119,31 +115,30 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "18b35820cf2911bf79a0bb108136901aab57c02f82912fb995e0d36ae40a8550",
+      "source_sha256": "3546c79384dd34fea6b56f8e8af0937c7c2c3bbb4f9c6f6ef696fc593dcb85f0",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "sequential / interleaved / shared_cashの各layoutを構成し、PPO updateとMlpPolicy constructionをsourceへ明示固定してCPU・1 threadで学習します。learning rate 3e-4、sequential n_steps 2048、batch 64、epochs 10、gamma 0.99、GAE 0.95、clip 0.2、Tanh、orthogonal init、FlattenExtractor、Adam eps 1e-5等をSB3 defaultへ暗黙委譲しません。vectorized layoutではn_stepsだけrollout_steps_per_envへ置換します。",
+      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。主要なPPO constructor/policy construction値をsourceへ明示しつつ、SB3/PyTorch内部実装とdependency versionはimplementation identityの一部として残します。",
       "variables": [
         {
           "name": "training_layout",
           "label_ja": "学習時の銘柄スケジュール",
-          "description_ja": "sequential、独立accountのinterleaved、またはshared portfolio/team rewardのshared_cashを明示します。"
+          "description_ja": "既定のsequentialか、fit銘柄を同じpolicy updateへ混ぜるinterleavedかを明示します。"
         },
         {
           "name": "rollout_steps_per_env",
           "label_ja": "各固定銘柄envのrollout長",
-          "description_ja": "vectorized layoutでcallerが明示する各slotのn_stepsです。shared_cashでも一market barはfit symbol数ぶんのtransitionになります。"
+          "description_ja": "interleaved時だけcallerが明示する各envのn_stepsです。結果から自動選択しません。"
         },
         {
           "name": "env",
           "label_ja": "PPOへ渡す学習環境",
-          "description_ja": "sequentialではPPOTradingEnv、interleavedではDummyVecEnv、shared_cashでは同期actionを一つのshared portfolio executionへ束ねるcustom VecEnvです。"
+          "description_ja": "sequentialでは単一PPOTradingEnv、interleavedではfixed-symbol環境を束ねたDummyVecEnvです。"
         }
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py",
         "tests/strategies/test_ppo_interleaved_training.py",
         "tests/strategies/test_ppo_terminal_settlement.py",
-        "tests/strategies/test_ppo_shared_cash_layout.py",
         "tests/integrations/test_ppo_sb3_runtime.py"
       ]
     },

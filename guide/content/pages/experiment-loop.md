@@ -28,7 +28,7 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
 
-final evaluationへ進める可能性を持つ新規Studyでは、unused windowもdevelopment resultより前にbootstrap v3で事前登録し、StudyPlan v2のdigestへ固定します。historical StudyPlan v1へ後からfinal windowを追加することはしません。
+final evaluationへ進める可能性を持つ新規Studyでは、unused windowもdevelopment resultより前にbootstrap v3で事前登録し、StudyPlan v2のdigestへ固定します。historical StudyPlan v1へ後からfinal windowを追加することはしません。 また、final startはdevelopment Datasetに含まれる最後のtimestampより後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
 
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。
 

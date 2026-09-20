@@ -692,7 +692,11 @@ def _build_shared_cash_vec_env(
         value: object,
         indices: object = None,
     ) -> None:
-        self._get_indices(indices)
+        selected = self._get_indices(indices)
+        if set(selected) != set(range(self.num_envs)):
+            raise ValueError(
+                "shared-cash VecEnv mutations require all portfolio slots"
+            )
         setattr(self.coordinator, attr_name, value)
 
     def _env_method(
@@ -703,6 +707,10 @@ def _build_shared_cash_vec_env(
         **method_kwargs: object,
     ) -> list[object]:
         selected = self._get_indices(indices)
+        if set(selected) != set(range(self.num_envs)):
+            raise ValueError(
+                "shared-cash VecEnv mutating methods require all portfolio slots"
+            )
         method = getattr(self.coordinator, method_name)
         result = method(*method_args, **method_kwargs)
         return [result for _ in selected]

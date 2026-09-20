@@ -436,7 +436,27 @@ def test_real_shared_cash_ppo_runs_with_shared_portfolio() -> None:
     assert strategy.feature_normalizer.stop_index == 2
     assert strategy.policy.num_timesteps == 128
     assert strategy.policy.device.type == "cpu"
-    assert strategy.policy.get_env().num_envs == 2
+    vec_env = strategy.policy.get_env()
+    assert vec_env.num_envs == 2
+
+    initial_observations = vec_env.reset()
+    observations, rewards, dones, infos = vec_env.step(
+        np.asarray([2, 2], dtype=np.int64)
+    )
+    assert np.all(rewards == rewards[0])
+    assert not dones.any()
+    assert all(
+        float(info["portfolio_team_reward"]) == pytest.approx(float(rewards[0]))
+        for info in infos
+    )
+
+    observations, rewards, dones, infos = vec_env.step(
+        np.asarray([2, 2], dtype=np.int64)
+    )
+    assert np.all(rewards == rewards[0])
+    assert dones.all()
+    assert all("terminal_observation" in info for info in infos)
+    np.testing.assert_array_equal(observations, initial_observations)
 
 
 def test_real_shared_cash_ppo_is_parameter_deterministic_for_same_seed() -> None:

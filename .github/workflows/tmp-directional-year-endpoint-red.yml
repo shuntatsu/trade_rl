@@ -25,7 +25,7 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Diagnose year-return endpoint RED
+      - name: Prove year-return endpoint semantic RED
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,9 +67,11 @@ jobs:
 
           uv run pytest -q \
             tests/evaluation/test_directional.py::test_year_returns_use_interval_end_timestamp \
+            --junitxml="$RUNNER_TEMP/red.xml" \
             > "$RUNNER_TEMP/red.log" 2>&1
           pytest_status=$?
           cat "$RUNNER_TEMP/red.log"
+          cat "$RUNNER_TEMP/red.xml"
 
           if [ "$pytest_status" -ne 0 ]; then
             post_status issue667/red/pytest-nonzero success "targeted pytest returned nonzero"
@@ -78,18 +80,25 @@ jobs:
             status=1
           fi
 
-          if grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log"; then
-            post_status issue667/red/target-name success "failure references targeted test"
+          if grep -q 'name="test_year_returns_use_interval_end_timestamp"' "$RUNNER_TEMP/red.xml"; then
+            post_status issue667/red/target-name success "JUnit contains targeted test"
           else
-            post_status issue667/red/target-name failure "targeted test name missing from log"
+            post_status issue667/red/target-name failure "targeted test missing from JUnit"
             status=1
           fi
 
-          if grep -q "AssertionError" "$RUNNER_TEMP/red.log"; then
-            post_status issue667/red/assertion success "failure is an assertion"
+          if grep -q "<failure" "$RUNNER_TEMP/red.xml"; then
+            post_status issue667/red/assertion-failure success "JUnit records a test failure"
           else
-            post_status issue667/red/assertion failure "AssertionError missing from log"
+            post_status issue667/red/assertion-failure failure "JUnit has no failure element"
             status=1
+          fi
+
+          if grep -q "<error" "$RUNNER_TEMP/red.xml"; then
+            post_status issue667/red/no-test-error failure "JUnit records an error rather than assertion failure"
+            status=1
+          else
+            post_status issue667/red/no-test-error success "JUnit has no error element"
           fi
 
           if grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log"; then

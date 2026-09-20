@@ -522,3 +522,10 @@ def test_real_ppo_algorithm_contract_is_explicit() -> None:
     assert model.use_sde is False
     assert model.sde_sample_freq == -1
     assert model.target_kl is None
+    torch = pytest.importorskip("torch")
+    assert model.policy.activation_fn is torch.nn.Tanh
+    assert model.policy.ortho_init is True
+    assert model.policy.features_extractor.__class__.__name__ == "FlattenExtractor"
+    assert model.policy.share_features_extractor is True
+    assert isinstance(model.policy.optimizer, torch.optim.Adam)
+    assert model.policy.optimizer.defaults["eps"] == pytest.approx(1e-5)

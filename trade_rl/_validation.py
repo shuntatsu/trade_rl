@@ -18,7 +18,7 @@ def require_non_empty(value: str, *, field: str) -> str:
 
 
 def require_sha256(value: str, *, field: str) -> str:
-    if not _SHA256_RE.fullmatch(value):
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
         raise ValueError(f"{field} must be a lowercase SHA-256 digest")
     return value
 

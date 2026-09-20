@@ -47,6 +47,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
     DOCS / "architecture" / "controlled-experiment-loop.md",
+    DOCS / "architecture" / "research-assurance.md",
     DOCS / "research" / "current-status.md",
 )
 

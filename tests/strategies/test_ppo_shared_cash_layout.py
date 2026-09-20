@@ -104,6 +104,12 @@ def test_shared_cash_coordinator_constrains_simultaneous_portfolio_proposals() -
         dtype=np.float64,
     )
     assert np.abs(targets).sum() == pytest.approx(0.5)
+    assert all(float(info["portfolio_gross"]) == pytest.approx(0.5) for info in infos)
+    assert all(
+        float(info["portfolio_team_reward"])
+        == pytest.approx(float(infos[0]["portfolio_team_reward"]))
+        for info in infos
+    )
     assert all("max_gross" in info["risk_reasons"] for info in infos)
 
 

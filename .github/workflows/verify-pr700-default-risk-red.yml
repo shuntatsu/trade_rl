@@ -1,0 +1,32 @@
+name: Verify PR700 default-risk RED
+on:
+  push:
+    branches:
+      - verify/pr700-default-risk-red
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a293b5395fd10177fc9c1ed89b69e6704c9a53d1
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Require intended RED only
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q             tests/risk/test_pretrade.py             tests/architecture/test_experiment_semantic_authorities.py             > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/red.log"
+          test "$status" -ne 0
+          grep -Fq "test_default_for_execution_owns_training_replay_risk_semantics" "$RUNNER_TEMP/red.log"
+          grep -Fq "test_training_and_replay_share_default_execution_risk_authority" "$RUNNER_TEMP/red.log"
+          grep -Eq "2 failed, [0-9]+ passed" "$RUNNER_TEMP/red.log"

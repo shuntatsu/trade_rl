@@ -33,6 +33,7 @@ class _FakeStrategy:
     ) -> None:
         self.policy = _FakePolicy(timesteps)
         self.feature_indices = feature_indices
+        self.feature_names = tuple(("x", "relative")[i] for i in feature_indices)
         self.feature_normalizer = None
 
 
@@ -218,6 +219,26 @@ def checkpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str,
 
 def _prepare(env: dict[str, Any]) -> None:
     checkpoint.prepare_checkpoint_study(env["source"], env["root"])
+
+
+def test_replay_factory_preserves_verified_feature_names(
+    checkpoint_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = checkpoint_env
+    _prepare(env)
+    checkpoint.fit_checkpoint(env["source"], env["root"], "baseline", 0)
+    evaluate = checkpoint.evaluate_directional_arm
+
+    def verify_factory(dataset: Any, factory: Any, **kwargs: Any) -> dict[str, Any]:
+        first, second = factory(), factory()
+        assert first.feature_names == second.feature_names == ("x",)
+        assert first.feature_indices == second.feature_indices == (0,)
+        assert first is not second
+        assert first.policy is second.policy
+        return evaluate(dataset, factory, **kwargs)
+
+    monkeypatch.setattr(checkpoint, "evaluate_directional_arm", verify_factory)
+    checkpoint.replay_cell(env["source"], env["root"], "baseline", 0, "base", 0)
 
 
 def test_prepare_source_drift_keeps_staging_non_authoritative(

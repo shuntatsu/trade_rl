@@ -168,6 +168,7 @@ uv run ruff check trade_rl tests tools
 uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl
 uv run mypy tools/agent_repo tests/architecture/distribution.py
+uv run mypy tools/ppo_checkpoint_actions.py
 uv run pytest -q tests
 ```
 

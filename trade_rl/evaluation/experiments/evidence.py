@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
@@ -191,22 +191,32 @@ def _run_return_map(
     expected_symbols: tuple[str, ...],
 ) -> dict[tuple[str, str], np.ndarray]:
     symbols = run.summary.get("symbols")
-    if symbols != list(expected_symbols):
+    if (
+        not isinstance(symbols, Sequence)
+        or isinstance(symbols, (str, bytes, bytearray))
+        or tuple(symbols) != expected_symbols
+    ):
         raise ArtifactIntegrityError("EvidenceSet symbol roster mismatch")
     by_symbol = run.summary.get("by_symbol")
-    if not isinstance(by_symbol, list) or len(by_symbol) != len(expected_symbols):
+    if (
+        not isinstance(by_symbol, Sequence)
+        or isinstance(by_symbol, (str, bytes, bytearray))
+        or len(by_symbol) != len(expected_symbols)
+    ):
         raise ArtifactIntegrityError("EvidenceSet symbol results are incomplete")
 
     result: dict[tuple[str, str], np.ndarray] = {}
     for expected_symbol, entry in zip(expected_symbols, by_symbol, strict=True):
-        if not isinstance(entry, dict) or entry.get("symbol") != expected_symbol:
+        if not isinstance(entry, Mapping) or entry.get("symbol") != expected_symbol:
             raise ArtifactIntegrityError("EvidenceSet symbol result ordering mismatch")
         strategies = entry.get("strategies")
-        if not isinstance(strategies, list):
+        if not isinstance(strategies, Sequence) or isinstance(
+            strategies, (str, bytes, bytearray)
+        ):
             raise ArtifactIntegrityError("EvidenceSet strategy results are malformed")
         names: set[str] = set()
         for strategy in strategies:
-            if not isinstance(strategy, dict):
+            if not isinstance(strategy, Mapping):
                 raise ArtifactIntegrityError("EvidenceSet strategy entry is malformed")
             name = strategy.get("name")
             return_key = strategy.get("return_key")
@@ -230,7 +240,7 @@ def _run_return_map(
 
 def _run_summary_seed(run: LoadedCandidateRun) -> int:
     candidate_config = run.summary.get("candidate_config")
-    if not isinstance(candidate_config, dict):
+    if not isinstance(candidate_config, Mapping):
         raise ArtifactIntegrityError("EvidenceSet candidate_config is malformed")
     seed = candidate_config.get("ppo_seed")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
@@ -499,7 +509,10 @@ def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
         runs,
         seeds=evidence.ppo_seeds,
         symbols=tuple(
-            cast(list[str], runs[evidence.ppo_seeds[0]].summary.get("symbols"))
+            cast(
+                Sequence[str],
+                runs[evidence.ppo_seeds[0]].summary.get("symbols"),
+            )
         ),
         research_context_digest=evidence.research_context_digest,
     )

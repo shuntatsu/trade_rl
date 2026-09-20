@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -274,23 +274,27 @@ def _strategy_matrix(
     label: str,
 ) -> tuple[dict[tuple[str, str], np.ndarray], tuple[str, ...]]:
     by_symbol = run.summary.get("by_symbol")
-    if not isinstance(by_symbol, list):
+    if not isinstance(by_symbol, Sequence) or isinstance(
+        by_symbol, (str, bytes, bytearray)
+    ):
         raise ArtifactIntegrityError(f"{label} by_symbol evidence is malformed")
     matrix: dict[tuple[str, str], np.ndarray] = {}
     observed_roster: tuple[str, ...] | None = None
     if len(by_symbol) != len(expected_symbols):
         return matrix, ()
     for expected_symbol, symbol_entry in zip(expected_symbols, by_symbol, strict=True):
-        if not isinstance(symbol_entry, dict):
+        if not isinstance(symbol_entry, Mapping):
             raise ArtifactIntegrityError(f"{label} symbol evidence is malformed")
         if symbol_entry.get("symbol") != expected_symbol:
             return matrix, ()
         strategies = symbol_entry.get("strategies")
-        if not isinstance(strategies, list):
+        if not isinstance(strategies, Sequence) or isinstance(
+            strategies, (str, bytes, bytearray)
+        ):
             raise ArtifactIntegrityError(f"{label} strategy evidence is malformed")
         names: list[str] = []
         for strategy_entry in strategies:
-            if not isinstance(strategy_entry, dict):
+            if not isinstance(strategy_entry, Mapping):
                 raise ArtifactIntegrityError(f"{label} strategy entry is malformed")
             name = strategy_entry.get("name")
             return_key = strategy_entry.get("return_key")
@@ -339,7 +343,7 @@ def _evidence_violations(
                 f"{label} dataset identity differs from frozen Study plan"
             )
         dataset_artifact = run.summary.get("dataset_artifact")
-        if not isinstance(dataset_artifact, dict):
+        if not isinstance(dataset_artifact, Mapping):
             raise ArtifactIntegrityError(
                 f"{label} dataset artifact evidence is malformed"
             )
@@ -351,7 +355,11 @@ def _evidence_violations(
                 f"{label} dataset artifact differs from frozen Study plan"
             )
         symbols = run.summary.get("symbols")
-        if symbols != list(plan.symbols):
+        if (
+            not isinstance(symbols, Sequence)
+            or isinstance(symbols, (str, bytes, bytearray))
+            or tuple(symbols) != plan.symbols
+        ):
             violations.append(f"{label} symbol roster differs from frozen Study plan")
         if run.provenance.get("implementation_digest") != plan.implementation_digest:
             violations.append(

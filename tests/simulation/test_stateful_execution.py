@@ -145,7 +145,7 @@ def test_later_symbol_fill_preserves_prior_symbol_fill_mark_for_margin() -> None
     close = open_price.copy()
     close[1:, 0] = 120.0
     dataset = MarketDataset(
-        dataset_id="m" * 64,
+        dataset_id="a" * 64,
         symbols=("STOP", "MARKET"),
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(n_bars) * np.timedelta64(1, "h"),

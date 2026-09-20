@@ -60,7 +60,11 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         calls["ppo"] = int(calls["ppo"]) + 1
         calls["ppo_dataset"] = args[0]
         calls["ppo_kwargs"] = kwargs
-        return ConstantIntentStrategy(PositionIntent.FLAT)
+        return SimpleNamespace(
+            policy=object(),
+            feature_indices=(0,),
+            feature_normalizer=None,
+        )
 
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
     monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
@@ -75,14 +79,26 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "LightGBMForecastStrategy",
         lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
     )
+    monkeypatch.setattr(
+        candidate_suite,
+        "PPOIntentStrategy",
+        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
+    )
 
-    def fake_compare(dataset, strategies, **kwargs):
+    def fake_compare(dataset, factories, **kwargs):
         calls["comparison_dataset"] = dataset
-        calls["names"] = tuple(strategies)
+        calls["names"] = tuple(factories)
+        calls["fresh_instances"] = {
+            name: (factory(), factory()) for name, factory in factories.items()
+        }
         calls["kwargs"] = kwargs
         return UniversalStrategyComparison(by_symbol=())
 
-    monkeypatch.setattr(candidate_suite, "compare_strategies_by_symbol", fake_compare)
+    monkeypatch.setattr(
+        candidate_suite,
+        "compare_strategy_factories_by_symbol",
+        fake_compare,
+    )
     dataset = market()
     config = candidate_suite.LeanCandidateConfig(
         signal_index=0,
@@ -118,6 +134,8 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == StudyPlan.STRATEGY_NAMES
+    for first, second in calls["fresh_instances"].values():
+        assert first is not second
     assert calls["kwargs"] == {
         "start_index": 54,
         "stop_index": 59,

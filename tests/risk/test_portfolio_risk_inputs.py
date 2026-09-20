@@ -74,6 +74,10 @@ def test_rolling_portfolio_risk_inputs_are_causal_and_finite() -> None:
     assert np.all(first.stress_losses <= 0.0)
     assert len(first.digest) == 64
     assert len(provider.identity_digest) == 64
+    for values in (first.covariance, first.beta, first.stress_losses):
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)
 
 
 def test_rolling_portfolio_risk_inputs_reject_insufficient_history() -> None:

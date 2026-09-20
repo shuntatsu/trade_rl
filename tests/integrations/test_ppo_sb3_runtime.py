@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_interleaved_training import pooled_market
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
@@ -17,7 +19,9 @@ from trade_rl.strategies.rl.ppo import (
 )
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
+    load_ppo_inference_bundle,
     save_normalized_ppo,
+    save_ppo_inference_bundle,
 )
 
 
@@ -31,6 +35,16 @@ def _env() -> PPOTradingEnv:
         gross_budget=0.1,
         initial_capital=1_000.0,
     )
+
+
+def _content_verified_market(kind: FeatureKind) -> MarketDataset:
+    dataset = pooled_market()
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec(name="signal", kind=kind),),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    return dataset.with_content_identity({"config": config.canonical_payload()})
 
 
 def _observation(symbol_index: int = 0) -> StrategyObservation:
@@ -83,6 +97,77 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     }
     assert model.device.type == "cpu"
     assert model.num_timesteps == 16
+
+
+def test_real_sequential_normalized_fit_keeps_verified_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)
+
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(1, 0),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=19,
+        normalize_features=True,
+    )
+
+    vector = strategy.policy.get_env()
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (1, 0)
+    assert len(vector.envs) == 1
+
+    env = vector.envs[0].unwrapped
+    assert isinstance(env, PPOTradingEnv)
+    assert env.symbol_indices == (1, 0)
+    assert env.information_symbol_indices == (1, 0)
+    assert env.feature_normalizer is strategy.feature_normalizer
+
+    _first_observation, first_info = env.reset(seed=19)
+    _second_observation, second_info = env.reset()
+    assert first_info["symbol"] == "ETHUSDT"
+    assert second_info["symbol"] == "BTCUSDT"
+
+
+def test_real_sb3_interleaved_fit_preserves_verified_information_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)
+
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=21,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    vector = strategy.policy.get_env()
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (0, 1)
+    envs = vector.envs
+    assert len(envs) == 2
+    for expected_symbol, raw_env in zip(
+        ("BTCUSDT", "ETHUSDT"),
+        envs,
+        strict=True,
+    ):
+        env = raw_env.unwrapped
+        assert isinstance(env, PPOTradingEnv)
+        assert env.information_symbol_indices == (0, 1)
+        assert env.feature_normalizer is strategy.feature_normalizer
+        _observation_value, info = env.reset(seed=21)
+        assert info["symbol"] == expected_symbol
 
 
 def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
@@ -572,3 +657,131 @@ def test_explicit_ppo_constructor_matches_pinned_implicit_training_update() -> N
     assert implicit_state.keys() == explicit_state.keys()
     for name in implicit_state:
         assert torch.equal(implicit_state[name], explicit_state[name]), name
+
+
+def test_real_raw_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=29,
+    )
+
+    root = tmp_path / "raw-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.feature_normalizer is None
+    assert loaded.policy.device.type == "cpu"
+
+
+def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=37,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    root = tmp_path / "normalized-inference-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.feature_normalizer == strategy.feature_normalizer
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.policy.device.type == "cpu"
+
+
+def test_real_ppo_fit_is_invariant_to_holdout_only_mutation() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    base = _content_verified_market(FeatureKind.LOG_RETURN)
+
+    features = np.array(base.features, copy=True)
+    features[:, 1, 0] = np.asarray([10_000.0, -20_000.0, 30_000.0, -40_000.0])
+    multiplier = np.asarray([3.0, 7.0, 11.0, 17.0])
+    price_fields: dict[str, np.ndarray] = {}
+    for name in ("open", "high", "low", "close"):
+        values = np.array(getattr(base, name), copy=True)
+        values[:, 1] *= multiplier
+        price_fields[name] = values
+    funding = np.array(base.funding_rate, copy=True)
+    funding[:, 1] = np.asarray([0.5, -0.75, 1.25, -1.5])
+
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec(name="signal", kind=FeatureKind.LOG_RETURN),),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    mutated = replace(
+        base,
+        identity_payload_json=None,
+        features=features,
+        funding_rate=funding,
+        **price_fields,
+    ).with_content_identity({"config": config.canonical_payload()})
+
+    def fit(dataset: MarketDataset):
+        return fit_ppo_strategy(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.1,
+            total_timesteps=64,
+            seed=149,
+            training_layout="interleaved",
+            rollout_steps_per_env=64,
+            normalize_features=True,
+        )
+
+    original = fit(base)
+    changed = fit(mutated)
+
+    assert original.feature_normalizer is not None
+    assert changed.feature_normalizer is not None
+    assert original.feature_normalizer.mean == changed.feature_normalizer.mean
+    assert original.feature_normalizer.scale == changed.feature_normalizer.scale
+
+    original_state = original.policy.policy.state_dict()
+    changed_state = changed.policy.policy.state_dict()
+    assert original_state.keys() == changed_state.keys()
+    for name in original_state:
+        assert torch.equal(original_state[name], changed_state[name]), name

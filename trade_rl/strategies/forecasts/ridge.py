@@ -12,7 +12,10 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentConfig,
     ForecastIntentController,
 )
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import (
+    _immutable_array,
+    build_causal_forecast_training_set,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -35,10 +38,17 @@ class RidgeForecastModel:
 
     def __post_init__(self) -> None:
         indices = tuple(self.feature_indices)
-        mean = np.asarray(self.feature_mean, dtype=np.float64).reshape(-1).copy()
-        scale = np.asarray(self.feature_scale, dtype=np.float64).reshape(-1).copy()
-        coefficients = (
-            np.asarray(self.coefficients, dtype=np.float64).reshape(-1).copy()
+        mean = _immutable_array(
+            np.asarray(self.feature_mean).reshape(-1),
+            dtype=np.dtype(np.float64),
+        )
+        scale = _immutable_array(
+            np.asarray(self.feature_scale).reshape(-1),
+            dtype=np.dtype(np.float64),
+        )
+        coefficients = _immutable_array(
+            np.asarray(self.coefficients).reshape(-1),
+            dtype=np.dtype(np.float64),
         )
         expected = (len(indices),)
         if not indices or len(set(indices)) != len(indices):
@@ -76,9 +86,6 @@ class RidgeForecastModel:
             or self.n_samples <= 0
         ):
             raise ValueError("n_samples must be a positive integer")
-        mean.setflags(write=False)
-        scale.setflags(write=False)
-        coefficients.setflags(write=False)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "feature_mean", mean)
         object.__setattr__(self, "feature_scale", scale)

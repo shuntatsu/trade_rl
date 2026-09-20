@@ -185,9 +185,7 @@ def _publish_once(
                 raise InvalidExperimentStateError(
                     "authorization output root already exists"
                 ) from error
-            raise ArtifactIntegrityError(
-                "authorization publication rename failed"
-            ) from error
+            raise ArtifactIntegrityError("authorization publication rename failed") from error
         published = True
     finally:
         if staging.exists() or staging.is_symlink():
@@ -212,13 +210,9 @@ def _trusted_existing_root(output_root: str | Path) -> Path:
     try:
         resolved = absolute.resolve(strict=True)
     except OSError as error:
-        raise ArtifactIntegrityError(
-            "authorization root cannot be trusted"
-        ) from error
+        raise ArtifactIntegrityError("authorization root cannot be trusted") from error
     if resolved != absolute:
-        raise ArtifactIntegrityError(
-            "authorization root path must not traverse symlinks"
-        )
+        raise ArtifactIntegrityError("authorization root path must not traverse symlinks")
     return absolute
 
 
@@ -246,9 +240,7 @@ def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
         )
     payload = cast(dict[str, object], raw)
     if raw_bytes != canonical_json_bytes(payload):
-        raise ArtifactIntegrityError(
-            "authorization artifact must use canonical JSON bytes"
-        )
+        raise ArtifactIntegrityError("authorization artifact must use canonical JSON bytes")
     if (
         set(payload) != _ARTIFACT_KEYS
         or payload.get("schema_version") != _ARTIFACT_SCHEMA

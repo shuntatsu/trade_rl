@@ -222,12 +222,18 @@ its best possible pass result is
 
 ### Checkpoint execution review boundary
 
-The implemented staged runner uses a new protocol identity and is not yet
-admitted for real-data execution. Its
-purpose is to retain a fully completed fit and individually completed replay
-cells across process interruptions; it does not change the hypothesis or the
-economic comparison above. Legacy partial roots are not resumable inputs.
-G0/G1 must reconfirm the unchanged mechanism. G2 must additionally test strict
+The implemented staged runner uses a separate protocol identity to retain
+completed fits and individual replay cells across process interruptions; it
+does not change the hypothesis or economic comparison above. Legacy partial
+roots are never resumable inputs. Real-data fit or replay requires successful
+synthetic integration tests and a fresh independent result-blind review bound
+to the exact implementation, source, runtime, and checkpoint protocol. A
+review PASS clears only generation of evidence under that binding; it does not
+establish G3 evidence validity, a G4 economic conclusion, unused-data validity,
+or G5 deployment eligibility. Keep mutable review, run, and result status in
+`docs/research/current-status.md`.
+
+G0/G1 assess the unchanged mechanism. G2 additionally tests strict
 requested/actual training-step equality, inference save/load equivalence,
 protocol/source/runtime/feature/policy binding, failed-stage isolation,
 idempotent verified retries, and complete seed-symbol-scenario assembly.
@@ -235,11 +241,6 @@ Policy bytes must be verified before deserialization. A truncated or modified
 published stage is rejected, not silently regenerated. Partial fit state does
 not authorize optimizer or RNG continuation. The existing ledger verifier's
 event-level and symbol-index limitations remain explicit.
-
-The prior r2 review does not authorize this source. Before a fresh real-data
-fit or replay, an independent result-blind reviewer must bind G0–G2 to the new
-protocol and exact implementation after synthetic integration tests pass.
-No current checkpoint-run economic output has been generated or inspected.
 
 Remote execution uses the same checkpoint commands and mechanism. Its manual
 workflow first prepares a protocol without fitting or replaying. An economic

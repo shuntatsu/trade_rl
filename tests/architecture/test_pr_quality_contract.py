@@ -14,6 +14,7 @@ REQUIRED = (
     "## Invariants",
     "## Failure Modes",
     "## Test Oracle",
+    "## Research assurance",
     "## Changed authorities / public surfaces",
     "## Tests / verification",
     "## Falsification",
@@ -26,6 +27,8 @@ def test_pr_template_contains_quality_contract() -> None:
     text = TEMPLATE.read_text(encoding="utf-8")
     missing = [heading for heading in REQUIRED if heading not in text]
     assert missing == []
+    assert "docs/architecture/research-assurance.md" in text
+    assert "G0-G2" in text
 
 
 def test_merge_policy_requires_tested_head_to_include_current_main() -> None:

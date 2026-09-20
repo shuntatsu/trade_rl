@@ -61,6 +61,8 @@ def fit_directional_candidate(
     output: Path,
     *,
     ppo_risk_config: PreTradeRiskConfig | None = None,
+    initial_capital: float = 10_000.0,
+    gross_budget: float = 0.1,
 ) -> Callable[[], SingleSymbolStrategy]:
     """Fit once on the fixed training side, then share the frozen model."""
 
@@ -134,10 +136,10 @@ def fit_directional_candidate(
         fit_symbol_indices=config.fit_symbol_indices,
         start_index=0,
         stop_index=cutoff,
-        gross_budget=0.1,
+        gross_budget=gross_budget,
         total_timesteps=PPO_TIMESTEPS,
         seed=int(arm[-1]),
-        initial_capital=10_000.0,
+        initial_capital=initial_capital,
         execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
         training_layout="sequential",
         risk_config=ppo_risk_config,

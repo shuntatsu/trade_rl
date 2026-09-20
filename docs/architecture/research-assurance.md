@@ -80,6 +80,167 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: PPO BTC-relative feature ablation
+
+This contract applies only to the dedicated development comparison in
+`trade_rl.evaluation.ppo_feature_study`. It is not a general claim about RL,
+cross-sectional alpha, or a profitable trading policy.
+
+### G0 — question, narrow hypothesis, and falsifiers
+
+**Question:** Does adding three already available BTC-relative return features
+to the existing PPO observation improve the fixed development screens over the
+same PPO setup without those features?
+
+**Hypothesis:** For the existing five-symbol directional task, relative returns
+at 1h, 4h, and 1d may help PPO distinguish asset-specific movement from broad
+BTC movement when forming each symbol's position. This is only an incremental
+representation hypothesis. The difference is algebraically derived from
+existing returns; it does not by itself establish independent information,
+causation, or a durable source of alpha.
+
+The hypothesis is falsified for this development screen if the candidate fails
+the preregistered positive-return or paired-uplift votes, fails the aggregate
+return screen for either fixed candidate-only stress, or hits any global
+candidate hard guard. If it passes, that supports at most a prospective-paper
+question. Because the Dataset and 2023–2024 development period have already
+informed prior research, this trial
+cannot be described as confirmation, unused-data validation, or evidence of
+general profitability. It tests PPO only; it does not compare PPO with A2C,
+DQN, ensembles, or new data sources.
+
+### G1 — fixed paired mechanism
+
+The two arms use the same frozen Dataset, PPO implementation and training
+settings, five seeds (0–4), sequential layout, fit-symbol roster, pre-2023 fit
+cutoff, 262,144 requested steps per seed, risk (`max_gross=0.5`,
+`max_abs_weight=0.1`, no turnover cap, drawdown start 0.1 and stop 0.2),
+action/reward semantics, and execution/accounting owners. The baseline uses the
+existing 12-feature roster;
+the candidate adds only `1h__relative_return_to_btc_1bar`,
+`4h__relative_return_to_btc_1bar`, and `1d__relative_return_to_btc_1bar`.
+Observation width therefore changes from 38 to 47. No other training or
+execution factor is part of this ablation.
+
+Evaluation covers 17,544 hourly intervals from 2023-01-01 00:00 through
+2025-01-01 00:00. Each symbol is replayed in its own independent 10,000 USDT
+account with gross budget 0.1; these five accounts are not one shared portfolio.
+Each return is assigned to the year of its interval-start timestamp: 8,760
+intervals in 2023 and 8,784 in 2024. The final 2025-01-01 endpoint closes the
+last 2024 interval. The evaluator's interval-end year field and `qualified`
+flag are diagnostic and are not the admission oracle.
+
+For all 25 candidate base cells and all 50 candidate stress cells (five seeds,
+five symbols, base plus two stresses), ledger drawdown above 20%, any
+termination, a non-flat terminal position, or an active order remainder is a
+global hard failure. The 4-of-5 seed thresholds apply only to economic votes:
+a seed passes the absolute return vote when full and every-year returns are
+positive in the base and both stresses; a paired vote requires a strictly
+positive same-seed full-return delta. The paired full-return median and each
+paired yearly-return median must also be positive. These votes cannot waive a
+failed hard guard. All-five-seed medians use all five seeds. Candidate-only
+stresses double execution cost or add one bar of latency; the baseline is not
+rerun under stress.
+
+### G2 — required independent checks and current gate
+
+Before economic training or replay results may be generated or inspected, the
+result-blind review must assess the feature oracle and fit scope, exact
+interval-start year mapping, one-factor pairing, scenario metadata, and the
+independent ledger evidence chain. Machine checks must reject wrong replay
+schema/capital/risk/gross budget/cost/latency/policy digest, returns at or below
+-100%, understated drawdown, incomplete terminal quantity vectors, ledger
+chain/hash tampering, and any missing seed-symbol-scenario cell.
+
+The independent result-blind G0–G2 review passed on 2026-09-20 for the original
+protocol
+digest `09ec5e9e051c7867686dcac9290f6d6a32120c8db459069439386c286f8bbf44`,
+implementation digest `58f1e0e801b094df5fc5b8dfe683f8f55edcc5955dc5251e77244497f56dbb62`,
+and source snapshot `e04210707a33d812bd3e41b7907528658d17f94869d1950772d48389d3d4bce2`.
+The reviewer independently verified the implementation and source snapshot
+hashes and accepted the protocol digest as the fixed binding. Its execution was
+stopped during the fifth baseline arm's replay when the host approached its
+memory-commit limit. Four baseline arms had completed and the fifth model was
+saved, but the fifth ledger, candidate arms, and final comparison were not
+completed. The run was not finalized, no current-trial economic output was
+inspected, and its partial artifacts remain preserved under
+`output/ppo-btc-relative-feature-ablation-20260920`.
+
+The replay implementation was then changed to retain only the latest immutable
+execution observation instead of an observation for every interval. A
+regression test bounds live observations and verifies that the final ledger
+uses the last interval's distinct terminal-order reasons; existing replay
+economics and ledger tests remain unchanged. This creates a new exact-source
+binding. On 2026-09-21, replacement protocol
+`output/ppo-btc-relative-feature-ablation-20260921-r1` was prepared with protocol
+digest `a25aa21fcfb2b4c17c83f7fc465a49b1e08171704742563511a24e9933b07fb3`,
+implementation digest `f3db8d4f070f3d3bd21c73cd35462c5f87405c79774140ff3e7e4c00162313e4`,
+and source snapshot `8a994f7e3d7f6961edff9363f8c65b52e534a391970bde43d3f6f4281b27dc16`.
+Its independent result-blind review completed on 2026-09-21 with G0 PASS, G1
+PASS, and G2 PASS for this exact binding. The G2 reviewer noted that the ledger
+validator does not independently recompute P&L from persisted order/fill events
+and that the ledger schema does not bind the expected symbol index. The current
+generator supplies the selected index to single-symbol replay, keeps other
+symbols flat, and validates result-row identity; no current-generation mismatch
+was found. These limits do not amount to an event-level reconstruction of P&L.
+No economic output was read during review. The subsequent baseline seed-0 fit
+was safely interrupted before completion when available physical memory fell
+to 1.18 GB on a 15.75 GB host. Only its write-once `started.json` marker remains
+in the arm directory; no model, ledger, or result was published or inspected.
+Preserve this partial root and use a new output identity for any retry. Neither
+review nor a future development-screen pass substitutes for the repository
+quality gates.
+
+Source review found that both `expected_protocol` and `run_arm` retained the
+raw `MarketDataset` after `with_price_channels` returned a distinct immutable
+Dataset that owns copied arrays. The implementation now explicitly releases
+that unused reference before protocol construction/fit. A weak-reference test
+asserts that the loader result is collectible at fit entry; it failed before
+the lifetime fix and now passes. This change preserves Dataset values but has
+not yet been measured on a full fit. It created a new exact binding at
+`output/ppo-btc-relative-feature-ablation-20260921-r2` with protocol digest
+`e5e11eda3c3206087752e184381931eedc8d94efd6fc21679457b6cfb71633b0`,
+implementation digest `7d685cd2f83e59c149171f7c367a95332faff69f56a66542a7124a1faa5a908d`,
+and source snapshot `cb55da0e9d53a2e4af53aed0ab8f5fc25e98238ff73292681b9ec71c108f7b37`.
+The independent result-blind review for r2 completed on 2026-09-21 with G0,
+G1, and G2 PASS for this exact binding. G2 did not independently reload the
+companion Dataset/Study files, though local protocol preparation re-resolved
+their recorded identities. The ledger verifier still does not reconstruct P&L
+from fill events or bind its schema to an expected symbol index. The memory
+reduction was exercised through fitting and partial replay but is not sufficient
+to complete the study on the current host state. Baseline seed 0 fit completed
+and entered replay on 2026-09-21. Replay was safely interrupted when available
+physical memory reached 1.479 GB of 15.75 GB (90% load), below the 1.5 GB stop
+line. Preserve r2 as incomplete: it contains the fitted `model.zip`,
+`started.json`, and base ledgers for symbols 0, 1, and 2 of 5; symbols 3 and 4
+and the arm result were not published. No economic output was read. Do not
+finalize or mix this root. Any retry needs a new output root and at least 4.0 GB
+of available physical memory at preflight; interrupt again if availability
+falls below 1.5 GB. The screen remains development-only and
+its best possible pass result is
+`PROSPECTIVE_PAPER_REQUIRED`, never production or live-trading eligibility.
+
+### Checkpoint execution review boundary
+
+The implemented staged runner uses a new protocol identity and is not yet
+admitted for real-data execution. Its
+purpose is to retain a fully completed fit and individually completed replay
+cells across process interruptions; it does not change the hypothesis or the
+economic comparison above. Legacy partial roots are not resumable inputs.
+G0/G1 must reconfirm the unchanged mechanism. G2 must additionally test strict
+requested/actual training-step equality, inference save/load equivalence,
+protocol/source/runtime/feature/policy binding, failed-stage isolation,
+idempotent verified retries, and complete seed-symbol-scenario assembly.
+Policy bytes must be verified before deserialization. A truncated or modified
+published stage is rejected, not silently regenerated. Partial fit state does
+not authorize optimizer or RNG continuation. The existing ledger verifier's
+event-level and symbol-index limitations remain explicit.
+
+The prior r2 review does not authorize this source. Before a fresh real-data
+fit or replay, an independent result-blind reviewer must bind G0–G2 to the new
+protocol and exact implementation after synthetic integration tests pass.
+No current checkpoint-run economic output has been generated or inspected.
+
 
 ## AI adversarial review
 

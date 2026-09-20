@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -23,6 +27,168 @@ from trade_rl.strategies.rl.ppo_artifact import (
     save_normalized_ppo,
     save_ppo_inference_bundle,
 )
+
+
+def test_real_checkpoint_reuses_fit_and_replays_identically_after_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    import trade_rl.evaluation.directional_candidates as candidates
+    import trade_rl.evaluation.ppo_feature_checkpoint as checkpoint
+    from tests.evaluation.test_ppo_feature_study import _PROTOCOL
+    from trade_rl.artifacts import canonical_json_bytes, content_digest
+    from trade_rl.data.artifacts import publish_market_dataset_artifact
+    from trade_rl.evaluation.directional import evaluate_directional_arm
+    from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
+    from trade_rl.evaluation.experiments import ResolvedRunConfig
+    from trade_rl.evaluation.runs import build_candidate_run_provenance
+
+    dataset = pooled_market().with_content_identity()
+    source, root = tmp_path / "synthetic-source", tmp_path / "checkpoints"
+    source.mkdir()
+    artifact = publish_market_dataset_artifact(source / "dataset", dataset)
+    plan_payload = {"synthetic_checkpoint_test": True}
+    plan_raw = canonical_json_bytes(plan_payload)
+    (source / "study").mkdir()
+    (source / "study" / "plan.json").write_bytes(plan_raw)
+    plan_digest = content_digest(plan_payload)
+    protocol = deepcopy(_PROTOCOL)
+    protocol.update(
+        source_dataset_id=dataset.dataset_id,
+        source_artifact_digest=artifact.artifact_digest,
+        source_study_digest=plan_digest,
+        source_plan_sha256=hashlib.sha256(plan_raw).hexdigest(),
+        evaluation_dataset_id=dataset.dataset_id,
+        start_index=0,
+        stop_index=3,
+        interval_count=3,
+        symbols=list(dataset.symbols),
+        provenance=build_candidate_run_provenance(),
+    )
+    for factor in protocol["factors"].values():
+        factor.update(feature_names=list(dataset.feature_names), feature_indices=[0])
+    protocol["training"]["requested_timesteps"] = 2048
+    protocol["evaluation"].update(
+        start_index=0,
+        stop_index=3,
+        interval_count=3,
+        interval_year_slices={"2026": [0, 3]},
+    )
+    for scenario in protocol["evaluation"]["scenarios"].values():
+        execution = replace(
+            DIRECTIONAL_BASE_EXECUTION_COST,
+            multiplier=scenario["cost_multiplier"],
+            order_latency_bars=scenario["latency_bars"],
+        )
+        scenario["execution_policy_digest"] = execution.execution_policy_digest
+    snapshot = checkpoint.legacy._source_snapshot_bytes(protocol["provenance"])
+    protocol["source_snapshot_sha256"] = hashlib.sha256(snapshot).hexdigest()
+    config = ResolvedRunConfig(
+        signal_name="signal",
+        signal_index=0,
+        feature_names=dataset.feature_names,
+        feature_indices=(0,),
+        fit_symbol_names=dataset.symbols,
+        fit_symbol_indices=(0, 1),
+        fit_cutoff="2026-01-01T04:00:00",
+        rule_entry_threshold=0.1,
+        rule_exit_threshold=0.02,
+        forecast_entry_threshold=0.01,
+        forecast_exit_threshold=0.002,
+        ppo_total_timesteps=2048,
+        ppo_seed=0,
+        evaluation_start="2026-01-01T00:00:00",
+        evaluation_stop_exclusive="2026-01-01T04:00:00",
+        gross_budget=0.1,
+        initial_capital=10_000.0,
+        execution_overlay="zero_overlay_dataset_fields_authoritative",
+    )
+    monkeypatch.setattr(
+        checkpoint.legacy, "expected_protocol", lambda _source: deepcopy(protocol)
+    )
+    monkeypatch.setattr(
+        checkpoint, "_load_context", lambda _source, _protocol: (dataset, config)
+    )
+    monkeypatch.setattr(
+        checkpoint,
+        "inspect_study",
+        lambda _root: SimpleNamespace(
+            plan=SimpleNamespace(digest=plan_digest, dataset_id=dataset.dataset_id)
+        ),
+    )
+    monkeypatch.setattr(candidates, "PPO_TIMESTEPS", 2048)
+    monkeypatch.setattr(checkpoint, "PPO_TIMESTEPS", 2048)
+    fitted = []
+
+    def fit(*args, **kwargs):
+        factory = candidates.fit_directional_candidate(*args, **kwargs)
+        fitted.append(factory())
+        return factory
+
+    monkeypatch.setattr(checkpoint, "fit_directional_candidate", fit)
+    checkpoint.prepare_checkpoint_study(source, root)
+    fit_dir = checkpoint.fit_checkpoint(source, root, "baseline", 0)
+    assert fitted[0].policy.num_timesteps == 2048
+    fitted_bytes = {
+        p.relative_to(fit_dir): p.read_bytes()
+        for p in fit_dir.rglob("*")
+        if p.is_file()
+    }
+
+    def unexpected_refit(*_args, **_kwargs):
+        pytest.fail("a completed fit must be reused without training")
+
+    monkeypatch.setattr(checkpoint, "fit_directional_candidate", unexpected_refit)
+    assert checkpoint.fit_checkpoint(source, root, "baseline", 0) == fit_dir
+    loaded_policies = []
+    load = checkpoint.load_ppo_inference_bundle
+
+    def load_bundle(*args, **kwargs):
+        strategy = load(*args, **kwargs)
+        assert strategy.policy.get_env() is None
+        assert strategy.policy.device.type == "cpu"
+        assert strategy.policy.num_timesteps == 2048
+        loaded_policies.append(strategy.policy)
+        return strategy
+
+    monkeypatch.setattr(checkpoint, "load_ppo_inference_bundle", load_bundle)
+    for index in (0, 1):
+        expected = evaluate_directional_arm(
+            dataset,
+            lambda: PPOIntentStrategy(fitted[0].policy, feature_indices=(0,)),
+            start_index=0,
+            stop_index=3,
+            symbol_index=index,
+            capture_ledger_evidence=True,
+        )
+        direct_dir = tmp_path / f"direct-{index}"
+        direct_dir.mkdir()
+        expected = checkpoint.legacy._persist_replay_ledger(
+            direct_dir, expected, scenario_name="base", symbol_index=index
+        )
+        cell_dir = checkpoint.replay_cell(source, root, "baseline", 0, "base", index)
+        # Compare persisted return/accounting bytes against the original policy,
+        # independently of the checkpoint reader's own comparison logic.
+        actual = json.loads((cell_dir / "cell.json").read_bytes())["replay"]
+        assert actual == expected
+        ledger_name = expected["ledger_evidence_file"]
+        assert (cell_dir / ledger_name).read_bytes() == (
+            direct_dir / ledger_name
+        ).read_bytes()
+    assert len(loaded_policies) == 2
+    assert loaded_policies[0] is not loaded_policies[1]
+
+    def unexpected_evaluation(*_args, **_kwargs):
+        pytest.fail("a completed cell must be reused without replay")
+
+    monkeypatch.setattr(checkpoint, "evaluate_directional_arm", unexpected_evaluation)
+    checkpoint.replay_cell(source, root, "baseline", 0, "base", 0)
+    assert len(loaded_policies) == 2
+    assert {
+        p.relative_to(fit_dir): p.read_bytes()
+        for p in fit_dir.rglob("*")
+        if p.is_file()
+    } == fitted_bytes
 
 
 def _env() -> PPOTradingEnv:

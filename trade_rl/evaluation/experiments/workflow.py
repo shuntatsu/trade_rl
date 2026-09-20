@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
     MarketDataset,
@@ -176,6 +178,8 @@ def create_study(
     max_experiments: int,
     n_bootstrap: int,
     bootstrap_seed: int,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
     execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY,
 ) -> StudySnapshot:
     """Create one immutable Study plan without executing development evidence."""
@@ -201,6 +205,12 @@ def create_study(
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
+        plan_schema = (
+            "controlled_study_plan_v1"
+            if final_evaluation_start is None
+            and final_evaluation_stop_exclusive is None
+            else "controlled_study_plan_v2"
+        )
         plan = StudyPlan(
             research_question=research_question,
             dataset_id=dataset.dataset_id,
@@ -221,7 +231,18 @@ def create_study(
                 provenance.get("runtime_environment_digest"),
                 field="runtime_environment_digest",
             ),
+            final_evaluation_start=final_evaluation_start,
+            final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
+            schema_version=plan_schema,
         )
+        if plan.final_evaluation_start is not None:
+            final_start = np.datetime64(plan.final_evaluation_start, "ns")
+            dataset_last = np.datetime64(dataset.timestamps[-1], "ns")
+            if final_start <= dataset_last:
+                raise ContractViolationError(
+                    "final evaluation start must be later than every timestamp "
+                    "in the development Dataset"
+                )
         store.publish_json_once("plan.json", plan.to_payload())
         return _reconstruct(store).snapshot(store.root)
 

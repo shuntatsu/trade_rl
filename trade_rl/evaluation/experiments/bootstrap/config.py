@@ -25,6 +25,7 @@ from trade_rl.integrations.binance import (
 
 _SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
 _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
+_SCHEMA_VERSION_V3 = "canonical_m2_bootstrap_config_v3"
 _TOP_LEVEL_KEYS_V1 = frozenset(
     {
         "schema_version",
@@ -44,6 +45,9 @@ _TOP_LEVEL_KEYS_V1 = frozenset(
     }
 )
 _TOP_LEVEL_KEYS_V2 = frozenset((*_TOP_LEVEL_KEYS_V1, "execution_economics"))
+_TOP_LEVEL_KEYS_V3 = frozenset(
+    (*_TOP_LEVEL_KEYS_V2, "final_evaluation_start", "final_evaluation_stop_exclusive")
+)
 _BASELINE_FIELDS = (
     "signal_name",
     "feature_names",
@@ -232,18 +236,43 @@ class CanonicalM2BootstrapConfig:
     n_bootstrap: int
     bootstrap_seed: int
     execution_economics: ExecutionEconomicsProfile | None = None
+    final_evaluation_start: datetime | None = None
+    final_evaluation_stop_exclusive: datetime | None = None
     schema_version: str = _SCHEMA_VERSION_V1
 
     def __post_init__(self) -> None:
-        if self.schema_version not in {_SCHEMA_VERSION_V1, _SCHEMA_VERSION_V2}:
+        if self.schema_version not in {
+            _SCHEMA_VERSION_V1,
+            _SCHEMA_VERSION_V2,
+            _SCHEMA_VERSION_V3,
+        }:
             raise ValueError("schema_version does not match canonical M2 contract")
         if self.schema_version == _SCHEMA_VERSION_V1:
             if self.execution_economics is not None:
                 raise ValueError(
                     "v1 bootstrap config must not include execution_economics"
                 )
-        elif self.execution_economics is None:
-            raise ValueError("v2 bootstrap config requires execution_economics")
+            if (
+                self.final_evaluation_start is not None
+                or self.final_evaluation_stop_exclusive is not None
+            ):
+                raise ValueError("v1 bootstrap config forbids final evaluation fields")
+        elif self.schema_version == _SCHEMA_VERSION_V2:
+            if self.execution_economics is None:
+                raise ValueError("v2 bootstrap config requires execution_economics")
+            if (
+                self.final_evaluation_start is not None
+                or self.final_evaluation_stop_exclusive is not None
+            ):
+                raise ValueError("v2 bootstrap config forbids final evaluation fields")
+        else:
+            if self.execution_economics is None:
+                raise ValueError("v3 bootstrap config requires execution_economics")
+            if (
+                self.final_evaluation_start is None
+                or self.final_evaluation_stop_exclusive is None
+            ):
+                raise ValueError("v3 bootstrap config requires final evaluation window")
         if self.execution_economics is not None and not isinstance(
             self.execution_economics, ExecutionEconomicsProfile
         ):
@@ -287,6 +316,38 @@ class CanonicalM2BootstrapConfig:
             field="data_stop_exclusive",
             timeframes=timeframes,
         )
+
+        final_start: datetime | None = None
+        final_stop: datetime | None = None
+        if self.schema_version == _SCHEMA_VERSION_V3:
+            assert self.final_evaluation_start is not None
+            assert self.final_evaluation_stop_exclusive is not None
+            final_start = _normalize_source_datetime(
+                self.final_evaluation_start,
+                field="final_evaluation_start",
+            )
+            final_stop = _normalize_source_datetime(
+                self.final_evaluation_stop_exclusive,
+                field="final_evaluation_stop_exclusive",
+            )
+            _require_native_alignment(
+                final_start,
+                field="final_evaluation_start",
+                timeframes=timeframes,
+            )
+            _require_native_alignment(
+                final_stop,
+                field="final_evaluation_stop_exclusive",
+                timeframes=timeframes,
+            )
+            if final_start < data_stop:
+                raise ValueError(
+                    "final_evaluation_start must not precede data_stop_exclusive"
+                )
+            if final_stop <= final_start:
+                raise ValueError(
+                    "final_evaluation_stop_exclusive must be strictly later than start"
+                )
 
         if not set(self.baseline.fit_symbol_names).issubset(symbols):
             raise ValueError("fit_symbol_names must be a subset of symbols")
@@ -335,6 +396,8 @@ class CanonicalM2BootstrapConfig:
         object.__setattr__(self, "max_experiments", max_experiments)
         object.__setattr__(self, "n_bootstrap", n_bootstrap)
         object.__setattr__(self, "bootstrap_seed", bootstrap_seed)
+        object.__setattr__(self, "final_evaluation_start", final_start)
+        object.__setattr__(self, "final_evaluation_stop_exclusive", final_stop)
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -355,6 +418,15 @@ class CanonicalM2BootstrapConfig:
         }
         if self.execution_economics is not None:
             payload["execution_economics"] = self.execution_economics.to_payload()
+        if self.schema_version == _SCHEMA_VERSION_V3:
+            assert self.final_evaluation_start is not None
+            assert self.final_evaluation_stop_exclusive is not None
+            payload["final_evaluation_start"] = self.final_evaluation_start.astimezone(
+                UTC
+            ).isoformat()
+            payload["final_evaluation_stop_exclusive"] = (
+                self.final_evaluation_stop_exclusive.astimezone(UTC).isoformat()
+            )
         return payload
 
     @property
@@ -367,11 +439,29 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
     if schema_version == _SCHEMA_VERSION_V1:
         _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V1, field="bootstrap config")
         execution_economics = None
+        final_evaluation_start = None
+        final_evaluation_stop_exclusive = None
     elif schema_version == _SCHEMA_VERSION_V2:
         _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V2, field="bootstrap config")
         execution_economics = ExecutionEconomicsProfile.from_payload(
             raw.get("execution_economics"),
             field="execution_economics",
+        )
+        final_evaluation_start = None
+        final_evaluation_stop_exclusive = None
+    elif schema_version == _SCHEMA_VERSION_V3:
+        _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V3, field="bootstrap config")
+        execution_economics = ExecutionEconomicsProfile.from_payload(
+            raw.get("execution_economics"),
+            field="execution_economics",
+        )
+        final_evaluation_start = _parse_source_datetime(
+            raw.get("final_evaluation_start"),
+            field="final_evaluation_start",
+        )
+        final_evaluation_stop_exclusive = _parse_source_datetime(
+            raw.get("final_evaluation_stop_exclusive"),
+            field="final_evaluation_stop_exclusive",
         )
     else:
         raise ValueError("schema_version does not match canonical M2 contract")
@@ -442,6 +532,8 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
         ),
         bootstrap_seed=_int_value(raw.get("bootstrap_seed"), field="bootstrap_seed"),
         execution_economics=execution_economics,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
         schema_version=schema_version,
     )
 

@@ -13,8 +13,9 @@
 5. `docs/architecture/package-boundaries.md`
 6. 研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを変更する作業なら `docs/architecture/research-assurance.md` を読み、G0-G2をresult-blindに定義・反証する
 7. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
-8. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
-9. 対象source、public facade、nearest tests、CIを照合する
+8. final/unused-data authorization、WINNER binding、one-shot publicationに関わる作業なら `docs/architecture/final-evaluation-authorization.md`
+9. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
+10. 対象source、public facade、nearest tests、CIを照合する
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
@@ -121,6 +122,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | execution/accounting/fill/funding/borrow/liquidation | `architecture/lean-core.md`, simulation/risk/evaluation tests |
 | package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
+| final/unused-data authorization、WINNER binding、one-shot publication | `architecture/final-evaluation-authorization.md`, `tests/evaluation/final_test/`, boundary tests |
 | economic hypothesis、causal story、capital/observation/action/reward/risk/execution/accounting semantics | `architecture/research-assurance.md`, G0-G2 counterexample / independent-oracle tests |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |

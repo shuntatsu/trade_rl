@@ -11,6 +11,7 @@ from tests.evaluation.experiments.test_evidence import _config, _dataset, _fake_
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
+    ContractViolationError,
     ControlledFactor,
     ControlledVerificationStatus,
     ExperimentBudgetExceededError,
@@ -32,6 +33,8 @@ def _created_study(
     monkeypatch: pytest.MonkeyPatch,
     *,
     max_experiments: int = 3,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
 ):
     from trade_rl.evaluation.experiments import evidence as evidence_module
 
@@ -50,6 +53,8 @@ def _created_study(
         max_experiments=max_experiments,
         n_bootstrap=32,
         bootstrap_seed=17,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
     )
     return root, dataset_root, snapshot
 
@@ -59,11 +64,15 @@ def _with_baseline(
     monkeypatch: pytest.MonkeyPatch,
     *,
     max_experiments: int = 3,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
 ):
     root, dataset_root, _ = _created_study(
         tmp_path,
         monkeypatch,
         max_experiments=max_experiments,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
     )
     snapshot = run_baseline(root, dataset_root=dataset_root)
     assert snapshot.baseline is not None
@@ -111,6 +120,43 @@ def test_create_study_pre_resolves_and_publishes_only_plan(
     plan_payload = json.loads((root / "plan.json").read_text(encoding="utf-8"))
     assert plan_payload["dataset_id"] == dataset.dataset_id
     assert plan_payload["ppo_seeds"] == [2, 5]
+
+
+def test_create_study_rejects_final_window_inside_development_dataset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(
+        ContractViolationError,
+        match="later than every timestamp|development Dataset",
+    ):
+        _created_study(
+            tmp_path,
+            monkeypatch,
+            final_evaluation_start="2026-01-01T20:00:00.000000000",
+            final_evaluation_stop_exclusive="2026-01-02T20:00:00.000000000",
+        )
+
+
+def test_create_study_preregisters_final_window_in_plan_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final_start = "2026-01-02T00:00:00.000000000"
+    final_stop = "2026-01-03T00:00:00.000000000"
+    root, _, snapshot = _created_study(
+        tmp_path,
+        monkeypatch,
+        final_evaluation_start=final_start,
+        final_evaluation_stop_exclusive=final_stop,
+    )
+
+    assert snapshot.plan.schema_version == "controlled_study_plan_v2"
+    assert snapshot.plan.final_evaluation_start == final_start
+    assert snapshot.plan.final_evaluation_stop_exclusive == final_stop
+    payload = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+    assert payload["final_evaluation_start"] == final_start
+    assert payload["final_evaluation_stop_exclusive"] == final_stop
 
 
 def test_baseline_is_published_once_with_separate_analysis(

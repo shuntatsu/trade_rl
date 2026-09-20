@@ -26,8 +26,15 @@ def _decided_first_experiment(
     monkeypatch: pytest.MonkeyPatch,
     *,
     decision: ExperimentDecisionKind,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
 ):
-    root, dataset_root, snapshot = _with_baseline(tmp_path, monkeypatch)
+    root, dataset_root, snapshot = _with_baseline(
+        tmp_path,
+        monkeypatch,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
+    )
     assert snapshot.baseline is not None
     define_experiment(
         root,

@@ -23,15 +23,9 @@ def test_protocol_freezes_single_normalization_factor_on_current_economics() -> 
         "7bcc6854b56f52d0dea076763db047dfc2d83976"
     )
     assert protocol["source"] == {
-        "dataset_id": (
-            "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518"
-        ),
-        "dataset_artifact_digest": (
-            "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7"
-        ),
-        "study_digest": (
-            "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820"
-        ),
+        "dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",
+        "dataset_artifact_digest": "af481dd978db7d84cd3aa8ff4f5a35d8608ac44c755dd74f61e934105c02b6b7",
+        "study_digest": "bfa2fcb307773f5384d7dcb884444164d6d3b575373d8f7dc1c810a61bf4c820",
     }
 
     common = protocol["common"]

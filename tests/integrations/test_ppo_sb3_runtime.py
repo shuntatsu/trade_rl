@@ -728,7 +728,6 @@ def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
     assert loaded.policy.device.type == "cpu"
 
 
-
 def test_real_ppo_fit_is_invariant_to_holdout_only_mutation() -> None:
     pytest.importorskip("stable_baselines3")
     torch = pytest.importorskip("torch")

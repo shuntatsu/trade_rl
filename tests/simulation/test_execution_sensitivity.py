@@ -98,6 +98,35 @@ def test_enabled_rule_stress_changes_execution_policy_identity() -> None:
     assert stressed.execution_policy_digest != nominal.execution_policy_digest
 
 
+def test_rule_stress_identity_is_semantic_and_deterministic() -> None:
+    dataset = _market()
+    cost = ExecutionCostConfig.zero()
+    first = MarketExecutor(
+        dataset,
+        cost,
+        rule_stress=ExecutionRuleStress(
+            name="tick_2x",
+            tick_size_factor=2.0,
+        ),
+    )
+    second = MarketExecutor(
+        dataset,
+        cost,
+        rule_stress=ExecutionRuleStress(
+            name="tick_2x",
+            tick_size_factor=2.0,
+        ),
+    )
+    nominal_label_only = MarketExecutor(
+        dataset,
+        cost,
+        rule_stress=ExecutionRuleStress(name="nominal-labelled"),
+    )
+
+    assert first.execution_policy_digest == second.execution_policy_digest
+    assert nominal_label_only.execution_policy_digest == cost.execution_policy_digest
+
+
 def test_execution_rule_stress_rejects_zero_source_rule() -> None:
     dataset = _market(lot_size=np.zeros((4, 1)))
 

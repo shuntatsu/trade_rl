@@ -9,6 +9,7 @@ from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, TypeAlias, cast
 
 JsonScalar: TypeAlias = None | bool | int | float | str
@@ -66,6 +67,23 @@ def to_json_value(value: object) -> JsonValue:
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")
 
 
+def freeze_json_value(value: object) -> object:
+    """Canonicalize one JSON-compatible value into deep read-only containers."""
+
+    normalized = to_json_value(value)
+
+    def freeze_item(item: JsonValue) -> object:
+        if isinstance(item, dict):
+            return MappingProxyType(
+                {key: freeze_item(child) for key, child in item.items()}
+            )
+        if isinstance(item, list):
+            return tuple(freeze_item(child) for child in item)
+        return item
+
+    return freeze_item(normalized)
+
+
 def canonical_json_bytes(value: object) -> bytes:
     """Encode a supported value as stable UTF-8 canonical JSON bytes."""
 
@@ -80,4 +98,10 @@ def canonical_json_bytes(value: object) -> bytes:
     return text.encode("utf-8")
 
 
-__all__ = ["JsonScalar", "JsonValue", "canonical_json_bytes", "to_json_value"]
+__all__ = [
+    "JsonScalar",
+    "JsonValue",
+    "canonical_json_bytes",
+    "freeze_json_value",
+    "to_json_value",
+]

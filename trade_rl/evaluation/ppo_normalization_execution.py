@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,9 +22,20 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.directional import evaluate_directional_arm
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.directional_selection import passes_screen, passes_stress
+from trade_rl.evaluation.directional_study import development_indices
+from trade_rl.evaluation.experiments import ResolvedRunConfig, inspect_study
 from trade_rl.evaluation.experiments.store import StudyStore
+from trade_rl.evaluation.ppo_normalization_replication import (
+    expected_ppo_normalization_protocol,
+    ppo_normalization_protocol_bytes,
+)
+from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
+from trade_rl.strategies.rl.ppo_artifact import (
+    load_ppo_inference_bundle,
+    save_ppo_inference_bundle,
+)
 
 _SLOT_SCHEMA = "ppo_normalization_replication_slot_v1"
 _PREFIT_FAILURE_SCHEMA = "ppo_normalization_replication_prefit_failure_v1"
@@ -546,7 +556,9 @@ def _validate_execution_root(
     return checked
 
 
-def _load_replication_context(source: Path) -> tuple[MarketDataset, object, int, int]:
+def _load_replication_context(
+    source: Path,
+) -> tuple[MarketDataset, ResolvedRunConfig, int, int]:
     protocol = expected_ppo_normalization_protocol()
     source_contract = protocol["source"]
     if not isinstance(source_contract, dict):

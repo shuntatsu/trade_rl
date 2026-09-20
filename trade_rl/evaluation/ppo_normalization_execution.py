@@ -46,6 +46,9 @@ EXECUTION_ACTIVATION_SCHEMA = "ppo_normalization_execution_activation_v1"
 SEALED_PROTOCOL_SHA256 = (
     "0013470ed5858eaa3b9391f97f4b18f772495d21c128832f74e1c50b090df304"
 )
+# This implementation remains incapable of opening economic slots by itself.
+# A separate result-blind activation change must bind one exact reviewed digest.
+SEALED_EXECUTION_ACTIVATION_SHA256: str | None = None
 SLOT_RESULT_SCHEMA = "ppo_normalization_replication_result_v1"
 
 
@@ -590,12 +593,17 @@ def recompute_replication_decision(
     }
 
 
+def _sealed_execution_activation_digest() -> str:
+    digest = SEALED_EXECUTION_ACTIVATION_SHA256
+    if digest is None:
+        raise RuntimeError("PPO normalization economic execution activation is not sealed")
+    return require_sha256(digest, field="sealed_execution_activation_sha256")
+
+
 def _validate_activation(
     activation: dict[str, object],
-    *,
-    expected_digest: str,
 ) -> dict[str, object]:
-    require_sha256(expected_digest, field="expected_activation_digest")
+    expected_digest = _sealed_execution_activation_digest()
     expected_keys = {
         "schema",
         "protocol_sha256",
@@ -642,12 +650,11 @@ def _validate_activation(
 def prepare_replication_execution(
     root: Path,
     activation: dict[str, object],
-    *,
-    expected_activation_digest: str,
 ) -> None:
-    """Persist a separately authorized one-shot activation without running economics."""
+    """Persist an independently sealed one-shot activation without running economics."""
 
-    _validate_activation(activation, expected_digest=expected_activation_digest)
+    expected_activation_digest = _sealed_execution_activation_digest()
+    _validate_activation(activation)
     if root.exists() or root.is_symlink():
         raise FileExistsError(f"replication execution root already exists: {root}")
     root.mkdir(parents=True)
@@ -674,9 +681,8 @@ def prepare_replication_execution(
 
 def _validate_execution_root(
     root: Path,
-    *,
-    expected_activation_digest: str,
 ) -> dict[str, object]:
+    expected_activation_digest = _sealed_execution_activation_digest()
     store = StudyStore(root)
     protocol, protocol_raw = _read_canonical_json(
         store,
@@ -704,10 +710,7 @@ def _validate_execution_root(
     )
     if activation_digest != {"digest": expected_activation_digest}:
         raise ValueError("saved activation digest differs")
-    checked = _validate_activation(
-        activation,
-        expected_digest=expected_activation_digest,
-    )
+    checked = _validate_activation(activation)
     if checked["provenance"] != build_candidate_run_provenance():
         raise ValueError("source/runtime changed from execution activation")
     slots, _slots_raw = _read_canonical_json(
@@ -784,15 +787,11 @@ def execute_replication_slot(
     source: Path,
     root: Path,
     slot: str,
-    *,
-    expected_activation_digest: str,
 ) -> dict[str, object]:
-    """Consume one slot, fit once, persist a bundle, then replay the saved bundle."""
+    """Consume one slot only under the separately sealed execution activation."""
 
-    activation = _validate_execution_root(
-        root,
-        expected_activation_digest=expected_activation_digest,
-    )
+    expected_activation_digest = _sealed_execution_activation_digest()
+    activation = _validate_execution_root(root)
     specs = {spec.slot: spec for spec in replication_arm_specs()}
     if slot not in specs:
         raise ValueError("slot is outside the sealed replication roster")
@@ -884,15 +883,11 @@ def verify_replication_slot(
     source: Path,
     root: Path,
     slot: str,
-    *,
-    expected_activation_digest: str,
 ) -> dict[str, object]:
     """Reload and replay one published bundle without fitting a model."""
 
-    activation = _validate_execution_root(
-        root,
-        expected_activation_digest=expected_activation_digest,
-    )
+    expected_activation_digest = _sealed_execution_activation_digest()
+    activation = _validate_execution_root(root)
     specs = {spec.slot: spec for spec in replication_arm_specs()}
     if slot not in specs:
         raise ValueError("slot is outside the sealed replication roster")
@@ -968,6 +963,7 @@ def verify_replication_slot(
 __all__ = [
     "EXECUTION_ACTIVATION_SCHEMA",
     "ReplicationArmSpec",
+    "SEALED_EXECUTION_ACTIVATION_SHA256",
     "SEALED_PROTOCOL_SHA256",
     "SLOT_RESULT_SCHEMA",
     "claim_replication_slot",

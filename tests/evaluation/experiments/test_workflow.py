@@ -32,6 +32,8 @@ def _created_study(
     monkeypatch: pytest.MonkeyPatch,
     *,
     max_experiments: int = 3,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
 ):
     from trade_rl.evaluation.experiments import evidence as evidence_module
 
@@ -50,6 +52,8 @@ def _created_study(
         max_experiments=max_experiments,
         n_bootstrap=32,
         bootstrap_seed=17,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
     )
     return root, dataset_root, snapshot
 
@@ -64,6 +68,8 @@ def _with_baseline(
         tmp_path,
         monkeypatch,
         max_experiments=max_experiments,
+        final_evaluation_start=final_evaluation_start,
+        final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
     )
     snapshot = run_baseline(root, dataset_root=dataset_root)
     assert snapshot.baseline is not None

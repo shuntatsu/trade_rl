@@ -81,6 +81,8 @@ trade_rl/
     ├── directional_selection.py
     ├── directional_study.py
     ├── ppo_risk_study.py
+    ├── ppo_feature_study.py
+    ├── ppo_feature_checkpoint.py
     ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -275,6 +277,44 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
+
+## Private development study boundary
+
+`evaluation/ppo_feature_study.py` owns a write-once, development-only paired PPO
+feature ablation. It reuses the frozen Dataset, existing PPO fitter, shared-cash
+directional replay, and ledger evidence rather than adding a second execution or
+accounting implementation. Its private CLI and result schema bind the baseline
+feature roster against the same roster plus three BTC-relative return features,
+the fixed seeds, independent per-symbol evaluation accounts, candidate-only
+stress scenarios, and the result-blind admission rules. This module is not a
+public package facade and does not expand `trade_rl.evaluation` or authorize
+paper/live orders; a pass can only require a later prospective paper study.
+
+`evaluation/ppo_feature_checkpoint.py` separates that fixed development study
+into completed fits, individual replay cells, arm assembly, and comparison.
+It owns a distinct checkpoint protocol and publication lifecycle, while reusing
+`ppo_feature_study` for economic validation and comparison. It uses the existing
+PPO inference bundle and verified-file primitives; it does not implement a
+second model serializer. A completed fit or cell is reusable only after its
+protocol, source, runtime, feature schema, and artifact digests are verified.
+Interrupted work is not a completed checkpoint. Legacy partial study roots
+cannot be imported into this runner. The evaluation public facade is unchanged.
+
+Its private CLI provides `prepare`, `fit`, `replay-cell`, `assemble-arm`, and
+`finalize`, each with `--source` and `--output`. `prepare` requires a fresh root
+and writes `checkpoint-protocol.json`, which embeds the unchanged economic
+`core_protocol` and the checkpoint execution contract. `fit` and `assemble-arm`
+select `--factor` and `--seed`; `replay-cell` also selects `--scenario` and
+`--symbol-index`. Subsequent commands validate existing completed stages and
+return without recomputation. Fits live under `fits/`, cells under `cells/`,
+legacy-compatible assembled results under `arms/`, and the final decision under
+`comparison/`. Failed staging under `attempts/` is retained and never counted
+as completed evidence.
+
+A fit also retains the legacy fitter's hash-bound `model.zip` as a diagnostic
+export. Replay authority is the inference `bundle/policy.zip`; the assembled
+arm's `model.zip` is a verified copy of that inference policy. The diagnostic
+export is not loaded for replay or treated as a second candidate.
 
 ## Dependency direction
 

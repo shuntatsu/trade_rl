@@ -18,7 +18,9 @@ from trade_rl.strategies.rl.ppo import (
 )
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
+    load_ppo_inference_bundle,
     save_normalized_ppo,
+    save_ppo_inference_bundle,
 )
 
 
@@ -654,3 +656,72 @@ def test_explicit_ppo_constructor_matches_pinned_implicit_training_update() -> N
     assert implicit_state.keys() == explicit_state.keys()
     for name in implicit_state:
         assert torch.equal(implicit_state[name], explicit_state[name]), name
+
+
+def test_real_raw_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=29,
+    )
+
+    root = tmp_path / "raw-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.feature_normalizer is None
+    assert loaded.policy.device.type == "cpu"
+
+
+def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=37,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    root = tmp_path / "normalized-inference-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.feature_normalizer == strategy.feature_normalizer
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.policy.device.type == "cpu"

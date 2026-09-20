@@ -8,7 +8,12 @@ import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
-from trade_rl.strategies.rl.ppo_artifact import load_normalized_ppo, save_normalized_ppo
+from trade_rl.strategies.rl.ppo_artifact import (
+    load_normalized_ppo,
+    load_ppo_inference_bundle,
+    save_normalized_ppo,
+    save_ppo_inference_bundle,
+)
 
 
 class Policy:
@@ -124,3 +129,166 @@ def test_unnormalized_policy_cannot_be_published_as_normalized(tmp_path):
             tmp_path / "policy", PPOIntentStrategy(Policy(), feature_indices=(0,))
         )
     assert not (tmp_path / "policy").exists()
+
+
+def test_raw_ppo_inference_bundle_roundtrip_binds_feed_feature_schema(
+    tmp_path, monkeypatch
+) -> None:
+    Policy.loaded = False
+    Policy.load_device = None
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+    root = tmp_path / "raw-policy"
+
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal", "unused"),
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=("signal", "unused"),
+    )
+
+    assert loaded.feature_indices == (0,)
+    assert loaded.feature_normalizer is None
+    assert Policy.loaded
+    assert Policy.load_device == "cpu"
+
+    Policy.loaded = False
+    with pytest.raises(ValueError, match="feature"):
+        load_ppo_inference_bundle(
+            root,
+            expected_digest=digest,
+            feature_names=("wrong", "unused"),
+        )
+    assert not Policy.loaded
+
+
+def test_normalized_ppo_inference_bundle_roundtrip_preserves_transform(
+    tmp_path, monkeypatch
+) -> None:
+    Policy.loaded = False
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    normalizer = _fit()
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_normalizer=normalizer,
+    )
+    root = tmp_path / "normalized-policy"
+
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=("signal",),
+    )
+
+    assert loaded.feature_normalizer == normalizer
+    assert loaded.feature_indices == strategy.feature_indices
+
+
+def test_ppo_inference_bundle_rejects_tampering_before_policy_load(
+    tmp_path, monkeypatch
+) -> None:
+    Policy.loaded = False
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+    root = tmp_path / "policy"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+
+    (root / "policy.zip").write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="policy"):
+        load_ppo_inference_bundle(
+            root,
+            expected_digest=digest,
+            feature_names=("signal",),
+        )
+    assert not Policy.loaded
+
+
+def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+    root = tmp_path / "policy"
+
+    save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+
+    with pytest.raises(FileExistsError):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+    with pytest.raises(ValueError, match="feature"):
+        save_ppo_inference_bundle(
+            tmp_path / "bad-policy",
+            strategy,
+            feature_names=(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("observation_shape", "action_n", "action_start"),
+    (
+        ((4,), 3, 0),
+        ((5,), 2, 0),
+        ((5,), 3, 1),
+    ),
+)
+def test_inference_bundle_rejects_incompatible_policy_spaces_before_creation(
+    tmp_path,
+    observation_shape,
+    action_n,
+    action_start,
+) -> None:
+    policy = Policy()
+    policy.observation_space = SimpleNamespace(shape=observation_shape)
+    policy.action_space = SimpleNamespace(n=action_n, start=action_start)
+    strategy = PPOIntentStrategy(policy, feature_indices=(0,))
+    root = tmp_path / "bad-inference"
+
+    with pytest.raises(ValueError, match="policy spaces|PPO contract"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()

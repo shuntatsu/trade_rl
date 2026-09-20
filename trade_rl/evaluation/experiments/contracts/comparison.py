@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import cast
 
-from trade_rl.artifacts.canonical import to_json_value
+from trade_rl.artifacts.canonical import freeze_json_value, to_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.contracts._common import (
     contract_sha256,
@@ -16,24 +15,6 @@ from trade_rl.evaluation.experiments.errors import ContractViolationError
 
 _COMPARISON_SCHEMA = "controlled_experiment_comparison_v1"
 
-
-def _freeze_json(value: object) -> object:
-    normalized = to_json_value(value)
-    if isinstance(normalized, dict):
-        return MappingProxyType(
-            {key: _freeze_json(item) for key, item in normalized.items()}
-        )
-    if isinstance(normalized, list):
-        return tuple(_freeze_json(item) for item in normalized)
-    return normalized
-
-
-def _thaw_json(value: object) -> object:
-    if isinstance(value, MappingProxyType):
-        return {key: _thaw_json(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw_json(item) for item in value]
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +47,8 @@ class ExperimentComparison:
         schema_version = contract_text(self.schema_version, field="schema_version")
         if schema_version != _COMPARISON_SCHEMA:
             raise ContractViolationError("unsupported ExperimentComparison schema")
-        frozen = _freeze_json(self.factor_effect)
-        payload = _thaw_json(frozen)
+        frozen = freeze_json_value(self.factor_effect)
+        payload = to_json_value(frozen)
         if not isinstance(payload, dict):
             raise ContractViolationError("factor_effect must be a JSON object")
         analysis_digest = payload.get("analysis_digest")
@@ -91,7 +72,7 @@ class ExperimentComparison:
             "baseline_analysis_digest": self.baseline_analysis_digest,
             "candidate_analysis_digest": self.candidate_analysis_digest,
             "factor_effect_digest": self.factor_effect_digest,
-            "factor_effect": cast(dict[str, object], _thaw_json(self.factor_effect)),
+            "factor_effect": cast(dict[str, object], to_json_value(self.factor_effect)),
         }
 
     @property

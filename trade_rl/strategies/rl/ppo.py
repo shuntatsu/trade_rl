@@ -1264,9 +1264,7 @@ def fit_ppo_strategy(
         set_num_threads = getattr(torch_module, "set_num_threads")
         activation_fn = getattr(getattr(torch_module, "nn"), "Tanh")
         optimizer_class = getattr(getattr(torch_module, "optim"), "Adam")
-        torch_layers = importlib.import_module(
-            "stable_baselines3.common.torch_layers"
-        )
+        torch_layers = importlib.import_module("stable_baselines3.common.torch_layers")
         features_extractor_class = getattr(torch_layers, "FlattenExtractor")
     except (ImportError, AttributeError) as error:
         raise RuntimeError(

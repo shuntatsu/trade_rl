@@ -35,7 +35,7 @@
   "code_references": [
     {
       "id": "encode-observation",
-      "symbol": "trade_rl.strategies.rl.ppo._encode_observation",
+      "symbol": "trade_rl.strategies.rl.intent._encode_observation",
       "kind": "function",
       "source_sha256": "f7166159d8798d804f6a78e05d86e6e61317ac07fdaca05d9976fd97eac93b80",
       "label_ja": "PPO観測 v2を符号化",
@@ -144,9 +144,9 @@
     },
     {
       "id": "ppo-decide",
-      "symbol": "trade_rl.strategies.rl.ppo.PPOIntentStrategy.decide",
+      "symbol": "trade_rl.strategies.rl.intent._ThreeActionIntentStrategy.decide",
       "kind": "method",
-      "source_sha256": "717aced234a9635b0f939c73daa4e3371553810282d7087d6b83e4eb928fb07c",
+      "source_sha256": "b072b6bd9c39f1732841b5f7aca48380c5d94d43347b7bcd13542124a8ba48dc",
       "label_ja": "学習済みPPOで売買意図を決める",
       "description_ja": "実行時も同じencoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
       "variables": [

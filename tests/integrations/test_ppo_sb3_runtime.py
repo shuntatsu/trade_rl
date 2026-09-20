@@ -504,3 +504,71 @@ def test_explicit_ppo_constructor_matches_pinned_implicit_defaults() -> None:
     assert implicit_state.keys() == explicit_state.keys()
     for name in implicit_state:
         assert torch.equal(implicit_state[name], explicit_state[name]), name
+
+
+def test_explicit_ppo_constructor_matches_pinned_implicit_training_update() -> None:
+    stable_baselines3 = pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    torch_layers = pytest.importorskip("stable_baselines3.common.torch_layers")
+    torch.set_num_threads(1)
+
+    def train_implicit() -> dict[str, object]:
+        model = stable_baselines3.PPO(
+            "MlpPolicy",
+            _env(),
+            policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]}},
+            seed=101,
+            ent_coef=0.0,
+            device="cpu",
+            verbose=0,
+        )
+        model.learn(total_timesteps=2048)
+        return {
+            name: tensor.detach().cpu().clone()
+            for name, tensor in model.policy.state_dict().items()
+        }
+
+    def train_explicit() -> dict[str, object]:
+        model = stable_baselines3.PPO(
+            "MlpPolicy",
+            _env(),
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=64,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            clip_range_vf=None,
+            normalize_advantage=True,
+            ent_coef=0.0,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            use_sde=False,
+            sde_sample_freq=-1,
+            target_kl=None,
+            policy_kwargs={
+                "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+                "activation_fn": torch.nn.Tanh,
+                "ortho_init": True,
+                "features_extractor_class": torch_layers.FlattenExtractor,
+                "share_features_extractor": True,
+                "optimizer_class": torch.optim.Adam,
+                "optimizer_kwargs": {"eps": 1e-5},
+            },
+            seed=101,
+            device="cpu",
+            verbose=0,
+        )
+        model.learn(total_timesteps=2048)
+        return {
+            name: tensor.detach().cpu().clone()
+            for name, tensor in model.policy.state_dict().items()
+        }
+
+    implicit_state = train_implicit()
+    explicit_state = train_explicit()
+
+    assert implicit_state.keys() == explicit_state.keys()
+    for name in implicit_state:
+        assert torch.equal(implicit_state[name], explicit_state[name]), name

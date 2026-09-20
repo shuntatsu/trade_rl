@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
+from trade_rl.data.features.cross_asset import CROSS_ASSET_FEATURE_KINDS
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import validated_training_scope
 from trade_rl.strategies.forecasts.supervised import (
@@ -98,6 +99,18 @@ def _identity_market(kind: FeatureKind) -> MarketDataset:
         cross_asset_reference_symbol="BTCUSDT",
     )
     return _market().with_content_identity({"config": config.canonical_payload()})
+
+
+def test_cross_asset_dependency_roster_is_fully_classified() -> None:
+    reference_dependent = {
+        FeatureKind.RELATIVE_RETURN_TO_BTC,
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+    }
+    universe_dependent = CROSS_ASSET_FEATURE_KINDS - reference_dependent
+
+    assert reference_dependent | universe_dependent == CROSS_ASSET_FEATURE_KINDS
+    assert reference_dependent.isdisjoint(universe_dependent)
 
 
 def test_full_symbol_scope_allows_universe_dependent_feature() -> None:

@@ -323,7 +323,9 @@ class PPOTradingEnv(gym.Env):
         self._execution_seed_stream: np.random.Generator | None = None
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = (
-            PreTradeRisk.default_for_execution(max_leverage=self.executor.cost.max_leverage)
+            PreTradeRisk.default_for_execution(
+                max_leverage=self.executor.cost.max_leverage
+            )
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )
@@ -397,7 +399,9 @@ class PPOTradingEnv(gym.Env):
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.executor.reset_random_state(execution_seed)
         self.risk = (
-            PreTradeRisk.default_for_execution(max_leverage=self.executor.cost.max_leverage)
+            PreTradeRisk.default_for_execution(
+                max_leverage=self.executor.cost.max_leverage
+            )
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )

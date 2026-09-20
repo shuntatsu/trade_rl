@@ -18,8 +18,6 @@ from trade_rl.strategies.rl.ppo import (
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS = ROOT / "trade_rl" / "evaluation" / "experiments"
-PPO = ROOT / "trade_rl" / "strategies" / "rl" / "ppo.py"
-REPLAY = ROOT / "trade_rl" / "evaluation" / "replay.py"
 
 
 def _spec() -> ResolvedCandidateRunSpec:
@@ -148,7 +146,10 @@ def _default_execution_risk_calls(path: Path) -> int:
 
 
 def test_training_and_replay_share_default_execution_risk_authority() -> None:
-    assert "_default_risk" not in _top_level_function_names(PPO)
-    assert "_default_replay_risk" not in _top_level_function_names(REPLAY)
-    assert _default_execution_risk_calls(PPO) >= 1
-    assert _default_execution_risk_calls(REPLAY) >= 1
+    ppo = ROOT / "trade_rl" / "strategies" / "rl" / "ppo.py"
+    replay = ROOT / "trade_rl" / "evaluation" / "replay.py"
+
+    assert "_default_risk" not in _top_level_function_names(ppo)
+    assert "_default_replay_risk" not in _top_level_function_names(replay)
+    assert _default_execution_risk_calls(ppo) >= 1
+    assert _default_execution_risk_calls(replay) >= 1

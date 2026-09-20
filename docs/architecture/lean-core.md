@@ -6,7 +6,7 @@ Trade RLの現行coreは、**causalなmarket data、1つのexecution/accounting 
 
 旧U-series、旧Causal Alpha世代、mandatoryな `teacher -> admission -> BC -> RL`、研究DB、UI、世代別runnerは現行研究経路の必須条件ではない。Git historyに残る旧architectureをcurrent treeへ戻さない。
 
-現在の研究目的は、銘柄IDに依存しない共通strategy/model/policyを複数銘柄へ適用し、point-in-time情報と同一の約定・会計条件で、コスト控除後の結果がunused dataでも維持されるかを検証することである。
+現在の研究目的は、**実運用では一度に1銘柄を独立accountとして売買する**一方、銘柄IDに依存しない共通strategy/model/policyを複数銘柄の学習・検証へ適用し、未知・未使用の銘柄や期間でも転用可能な汎用性を検証することである。複数銘柄のtraining dataを使うことは、複数銘柄を同時保有するshared-cash portfolioを意味しない。各銘柄への適用ではpoint-in-time情報と同一の約定・会計条件を使い、コスト控除後の結果がunused dataでも維持されるかを確認する。
 
 ## Core flow
 
@@ -115,13 +115,16 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
-`shared_cash` はさらに別のopt-in layoutである。fit symbolごとのObservation v2と `Discrete(3)` actionは維持するが、custom VecEnvが同一時点の全symbol actionを `step_async` で集め、`step_wait` で一つのproposal vectorを一度だけ `PreTradeRisk` と `MarketExecutor` へ通し、一つのshared `BookState` / cash accountを進める。全slotには同じportfolio log-return team rewardを返し、episode resetとterminal settlementも全slot同期で一度だけ行う。`model.num_timesteps` はmarket bar数ではなくsymbol-slot transition数を数える。
-
-このshared-cash layoutはlocal Observation v2に他symbol weight、shared cash、残余gross budgetを追加しないため、各slotから見ればportfolio stateは部分観測である。したがってこれは単なるcash storage置換ではなく、parameter-sharing cooperative/team-reward training factorであり、performance改善やaccounting superiorityを意味しない。per-symbol contribution rewardやjoint observationを同じ比較へ追加してはならず、別Controlled Factorとしてpreregisterする。
-
-これらlayoutは学習sample/state couplingを変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layout、rollout steps、reward semanticsを結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。vectorized layoutではpolicy seedとexecution noiseを同じfactorへ混ぜないため、`interleaved`と`shared_cash`の両方で`slippage_std > 0`をfail closedにする。
+このlayoutは学習sampleの並び方を変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layoutとrollout stepsを別Controlled Factorとして結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。
 
 ## StrategyとRiskの責任分離
+
+Executionの `max_leverage` から導く既定pre-trade riskは
+`PreTradeRisk.default_for_execution` を単一のsemantic authorityとする。
+PPO trainingとcanonical replayはprivateなdefault-risk factoryを持たず、この同じ
+authorityを使う。これは閾値変更ではなく、training/replay間の将来driftを防ぐ
+ownership契約である。
+
 
 Risk / executionが担当するもの:
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from statistics import median
 from typing import cast
@@ -33,7 +33,7 @@ class _Cell:
     symbol: str
     strategy: str
     returns: ReturnSeries
-    metrics: dict[str, object]
+    metrics: Mapping[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,14 +112,20 @@ def _run_matrix(
 ) -> tuple[tuple[str, ...], dict[tuple[str, str], _Cell]]:
     symbols_raw = run.summary.get("symbols")
     by_symbol = run.summary.get("by_symbol")
-    if not isinstance(symbols_raw, list) or any(
-        not isinstance(symbol, str) or not symbol for symbol in symbols_raw
+    if (
+        not isinstance(symbols_raw, Sequence)
+        or isinstance(symbols_raw, (str, bytes, bytearray))
+        or any(not isinstance(symbol, str) or not symbol for symbol in symbols_raw)
     ):
         raise ArtifactIntegrityError("candidate symbol roster is malformed")
     symbols = tuple(cast(str, symbol) for symbol in symbols_raw)
     if not symbols or len(set(symbols)) != len(symbols):
         raise ArtifactIntegrityError("candidate symbol roster must be unique")
-    if not isinstance(by_symbol, list) or len(by_symbol) != len(symbols):
+    if (
+        not isinstance(by_symbol, Sequence)
+        or isinstance(by_symbol, (str, bytes, bytearray))
+        or len(by_symbol) != len(symbols)
+    ):
         raise ArtifactIntegrityError("candidate symbol × strategy matrix is incomplete")
 
     matrix: dict[tuple[str, str], _Cell] = {}
@@ -127,29 +133,31 @@ def _run_matrix(
     for symbol_index, (expected_symbol, symbol_entry) in enumerate(
         zip(symbols, by_symbol, strict=True)
     ):
-        if not isinstance(symbol_entry, dict):
+        if not isinstance(symbol_entry, Mapping):
             raise ArtifactIntegrityError("candidate symbol evidence is malformed")
         if symbol_entry.get("symbol") != expected_symbol:
             raise ArtifactIntegrityError("candidate symbol matrix ordering mismatch")
         if symbol_entry.get("symbol_index") not in (None, symbol_index):
             raise ArtifactIntegrityError("candidate symbol index mismatch")
         strategies = symbol_entry.get("strategies")
-        if not isinstance(strategies, list) or len(strategies) != len(
-            StudyPlan.STRATEGY_NAMES
+        if (
+            not isinstance(strategies, Sequence)
+            or isinstance(strategies, (str, bytes, bytearray))
+            or len(strategies) != len(StudyPlan.STRATEGY_NAMES)
         ):
             raise ArtifactIntegrityError(
                 "candidate symbol × strategy matrix is incomplete"
             )
         names: list[str] = []
         for strategy in strategies:
-            if not isinstance(strategy, dict):
+            if not isinstance(strategy, Mapping):
                 raise ArtifactIntegrityError("candidate strategy evidence is malformed")
             name = strategy.get("name")
             return_key = strategy.get("return_key")
             metrics_raw = strategy.get("metrics")
             if not isinstance(name, str) or not isinstance(return_key, str):
                 raise ArtifactIntegrityError("candidate strategy evidence is malformed")
-            if not isinstance(metrics_raw, dict) or any(
+            if not isinstance(metrics_raw, Mapping) or any(
                 not isinstance(key, str) for key in metrics_raw
             ):
                 raise ArtifactIntegrityError("candidate strategy metrics are malformed")
@@ -165,7 +173,7 @@ def _run_matrix(
                 raise ArtifactIntegrityError(
                     "candidate symbol × strategy cell is duplicated"
                 )
-            metrics = cast(dict[str, object], metrics_raw)
+            metrics = cast(Mapping[str, object], metrics_raw)
             matrix[key] = _Cell(
                 symbol=expected_symbol,
                 strategy=name,

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.canonical import to_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.runs.artifact import (
     inspect_candidate_run_artifact,
@@ -201,7 +202,10 @@ def test_candidate_v2_requires_and_loads_exact_observation_contract(
     loaded = load_candidate_run_artifact(root)
     identity = inspect_candidate_run_artifact(root)
 
-    assert loaded.summary["ppo_observation"] == ppo_observation_contract_payload()
+    assert (
+        to_json_value(loaded.summary["ppo_observation"])
+        == ppo_observation_contract_payload()
+    )
     assert identity.result_schema_version == "lean_candidate_result_v2"
 
 
@@ -216,3 +220,42 @@ def test_candidate_v2_rejects_tampered_observation_contract(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="PPO observation contract"):
         load_candidate_run_artifact(root)
+
+
+def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
+    root = tmp_path / "immutable"
+    _write_root(
+        root,
+        _summary(
+            schema="lean_candidate_result_v2",
+            observation=ppo_observation_contract_payload(),
+        ),
+    )
+
+    loaded = load_candidate_run_artifact(root)
+    key = "symbol_0_strategy_0"
+
+    with pytest.raises(TypeError):
+        loaded.summary["dataset_id"] = "c" * 64
+
+    symbols = loaded.summary["symbols"]
+    assert symbols[0] == "BTCUSDT"  # type: ignore[index]
+    with pytest.raises((AttributeError, TypeError)):
+        symbols.append("ETHUSDT")  # type: ignore[attr-defined]
+
+    implementation = loaded.provenance["implementation"]
+    assert (
+        implementation["schema_version"] == "candidate_run_implementation_v1"  # type: ignore[index]
+    )
+    with pytest.raises(TypeError):
+        implementation["files"] = ["tampered.py"]  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        loaded.returns[key] = np.asarray([1.0], dtype=np.float64)
+
+    values = loaded.returns[key]
+    assert values.flags.writeable is False
+    with pytest.raises(ValueError):
+        values.setflags(write=True)
+    with pytest.raises(ValueError):
+        values[0] = 1.0

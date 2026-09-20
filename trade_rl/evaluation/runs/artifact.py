@@ -12,12 +12,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from types import MappingProxyType
 from typing import cast
 
 import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.canonical import freeze_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
 from trade_rl.evaluation.metrics import PerformanceMetrics
@@ -52,9 +54,29 @@ class LoadedCandidateRun:
     """Validated semantic content of one published candidate-run artifact."""
 
     root: Path
-    summary: dict[str, object]
-    returns: dict[str, np.ndarray]
-    provenance: dict[str, object]
+    summary: Mapping[str, object]
+    returns: Mapping[str, np.ndarray]
+    provenance: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        frozen_summary = freeze_json_value(self.summary)
+        frozen_provenance = freeze_json_value(self.provenance)
+        if not isinstance(frozen_summary, Mapping) or not isinstance(
+            frozen_provenance, Mapping
+        ):
+            raise TypeError("candidate summary/provenance must be JSON objects")
+
+        immutable_returns: dict[str, np.ndarray] = {}
+        for key, value in self.returns.items():
+            contiguous = np.ascontiguousarray(value)
+            immutable_returns[key] = np.frombuffer(
+                contiguous.tobytes(order="C"),
+                dtype=contiguous.dtype,
+            ).reshape(contiguous.shape)
+
+        object.__setattr__(self, "summary", frozen_summary)
+        object.__setattr__(self, "returns", MappingProxyType(immutable_returns))
+        object.__setattr__(self, "provenance", frozen_provenance)
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,16 +354,14 @@ def _load_returns(
                     raise ValueError("candidate return arrays must be one-dimensional")
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
-                immutable = np.ascontiguousarray(value).copy()
-                immutable.setflags(write=False)
-                loaded[key] = immutable
+                loaded[key] = np.ascontiguousarray(value).copy()
     except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
 
 
 def _semantic_returns_payload(
-    returns: dict[str, np.ndarray],
+    returns: Mapping[str, np.ndarray],
 ) -> list[dict[str, object]]:
     payload: list[dict[str, object]] = []
     for key in sorted(returns):

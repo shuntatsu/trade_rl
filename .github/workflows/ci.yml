@@ -39,6 +39,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Shared-cash PPO format diagnostic
+        run: uv run ruff format --diff trade_rl/strategies/rl/ppo.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -6,6 +6,16 @@
 
 このsubsystemはdevelopment専用であり、sealed unused-future / final authorizationを開かない。Studyを `WINNER` または `NO_WINNER` にfreezeした後のfinal評価は別subsystemの責務である。
 
+## Research assurance prerequisite
+
+このstate machineは、研究問題やmechanismそのものを正しいと仮定してよい理由を単独では提供しない。新しい経済仮説、data availability semantics、capital model、observation/action/reward contract、risk、execution/accounting semanticsを変更するStudyでは、economic resultを確認する前に [research assurance contract](research-assurance.md) の **G0-G2** をresult-blindに定義・反証する。
+
+- G0でobjective、economic hypothesis、causal story、falsifier、what this cannot proveを明示する。
+- G1でtraining/evaluationを含むMechanism Contractを固定し、account/observation/action/reward/risk/execution/clockの意味不一致を隠さない。
+- G2でsemantic invariant、Counterexample、independent oracle、Known limitationsを用意する。
+
+`verify_experiment` はcontrolled factor、Study-fixed field、identity/provenance等のG3 evidence validityを厳密に検証するが、G0-G2の代替ではない。G0-G2がFAILまたはNOT ESTABLISHEDのmechanismを、development P&Lが良いことだけで有効化しない。既存のimmutable Study artifactは遡及変更せず、新しいassurance requirementがStudy-fixed semanticsへ影響する場合は新しいStudy/lineageで扱う。
+
 ## Responsibility boundary
 
 ```text

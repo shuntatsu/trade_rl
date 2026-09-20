@@ -41,3 +41,21 @@ def test_file_digest_and_size_use_one_open_snapshot(
 
     assert digest == hashlib.sha256(snapshot).hexdigest()
     assert size == len(snapshot)
+
+
+@pytest.mark.parametrize("bad_digest", (None, 123, True, b"0" * 64))
+def test_verified_private_copy_rejects_non_string_digest_as_validation_error(
+    tmp_path: Path,
+    bad_digest: object,
+) -> None:
+    path = tmp_path / "artifact.bin"
+    path.write_bytes(b"artifact")
+
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        with verified_file.verified_private_copy(
+            path,
+            expected_digest=bad_digest,  # type: ignore[arg-type]
+            field="test artifact",
+            filename="artifact.bin",
+        ):
+            pytest.fail("invalid digest must fail before yielding a private copy")

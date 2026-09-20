@@ -385,7 +385,8 @@ def test_interleaved_envs_use_overall_fit_information_scope(
     ]
 
 
-def test_direct_ppo_env_accepts_reference_feature_with_explicit_information_scope() -> None:
+def test_direct_ppo_env_accepts_reference_feature_with_explicit_information_scope(
+) -> None:
     env = PPOTradingEnv(
         _ppo_identity_market(FeatureKind.RELATIVE_RETURN_TO_BTC),
         feature_indices=(0,),
@@ -404,7 +405,8 @@ def test_direct_ppo_env_accepts_reference_feature_with_explicit_information_scop
     assert info["symbol"] == "ETHUSDT"
 
 
-def test_direct_ppo_env_allows_universe_feature_with_complete_information_scope() -> None:
+def test_direct_ppo_env_allows_universe_feature_with_complete_information_scope(
+) -> None:
     env = PPOTradingEnv(
         _ppo_identity_market(FeatureKind.CROSS_ASSET_DISPERSION),
         feature_indices=(0,),

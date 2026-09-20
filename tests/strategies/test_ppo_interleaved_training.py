@@ -375,7 +375,10 @@ def test_sequential_fit_rejects_budget_that_cannot_cover_one_episode_per_symbol(
 ) -> None:
     install_fake_sb3(monkeypatch)
 
-    with pytest.raises(ValueError, match="full episode.*fit symbol|fit symbol.*full episode"):
+    with pytest.raises(
+        ValueError,
+        match="full episode.*fit symbol|fit symbol.*full episode",
+    ):
         fit_ppo_strategy(
             _long_pooled_market(),
             feature_indices=(0,),

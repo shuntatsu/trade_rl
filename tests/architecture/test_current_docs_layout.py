@@ -284,6 +284,7 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         "controlled_study_plan_v2",
         "authorization時のcallerはwindowを選択できない",
         "legacy Study",
+        "development Dataset",
         "AI reviewだけでauthorization artifactやmachine bindingを代替しない",
     ):
         assert required in contract

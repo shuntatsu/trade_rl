@@ -121,7 +121,7 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 
 これらlayoutは学習sample/state couplingを変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layout、rollout steps、reward semanticsを結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。vectorized layoutではpolicy seedとexecution noiseを同じfactorへ混ぜないため、`interleaved`と`shared_cash`の両方で`slippage_std > 0`をfail closedにする。
 
-PPOのoptimizer/update contractもSB3の暗黙defaultへ委譲しない。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、minibatch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip range `0.2`、value clipなし、advantage normalizationあり、entropy coefficient `0.0`、value coefficient `0.5`、gradient clip `0.5`、gSDE無効、`target_kl=None`をsourceへ明示する。vectorized layoutだけ`n_steps`を事前固定した`rollout_steps_per_env`へ置換し、その他の更新則は同一に保つ。これはSB3 2.3.2で既に有効だった値のsource-level freezeであり、性能結果を見たhyperparameter変更ではない。
+PPOのoptimizer/update contractもSB3の暗黙defaultへ委譲しない。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、minibatch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip range `0.2`、value clipなし、advantage normalizationあり、entropy coefficient `0.0`、value coefficient `0.5`、gradient clip `0.5`、gSDE無効、`target_kl=None`をsourceへ明示する。vectorized layoutだけ`n_steps`を事前固定した`rollout_steps_per_env`へ置換し、その他の更新則は同一に保つ。これはSB3 2.3.2で既に有効だった値のsource-level freezeであり、性能結果を見たhyperparameter変更ではない。MlpPolicy側も`Tanh` activation、orthogonal initialization、`FlattenExtractor`、policy/valueで共有するfeature extractor、Adam optimizer、Adam epsilon `1e-5`を明示し、policy constructionをSB3 defaultへ残さない。
 
 ## StrategyとRiskの責任分離
 

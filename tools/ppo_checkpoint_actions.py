@@ -126,12 +126,11 @@ def parse_review_reference(
         raise ValueError("review reference must be a GitHub pull-request comment URL")
     match = _REVIEW_REFERENCE_RE.fullmatch(review_reference)
     if match is None:
-        raise ValueError("review reference must be an exact GitHub PR issue-comment URL")
+        raise ValueError(
+            "review reference must be an exact GitHub PR issue-comment URL"
+        )
     expected_owner, expected_repo = _repo_path(repository).split("/", 1)
-    if (
-        match.group("owner") != expected_owner
-        or match.group("repo") != expected_repo
-    ):
+    if match.group("owner") != expected_owner or match.group("repo") != expected_repo:
         raise ValueError("review reference belongs to another repository")
     return int(match.group("pull")), int(match.group("comment"))
 

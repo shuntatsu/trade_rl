@@ -1192,11 +1192,11 @@ def fit_ppo_strategy(
             rollout_steps_per_env,
             n_envs=len(symbol_indices),
         )
+        if execution_cost is not None and execution_cost.slippage_std > 0.0:
+            raise ValueError(
+                "vectorized training requires deterministic execution slippage"
+            )
         if layout == PPO_TRAINING_LAYOUT_INTERLEAVED:
-            if execution_cost is not None and execution_cost.slippage_std > 0.0:
-                raise ValueError(
-                    "interleaved training requires deterministic execution slippage"
-                )
             try:
                 vector_module = importlib.import_module(
                     "stable_baselines3.common.vec_env"

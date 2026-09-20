@@ -308,18 +308,33 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "native capacity conservation",
         "train/evaluation account semantics",
         "Economic edge: NOT ESTABLISHED",
+        "AI adversarial review",
+        "fresh reviewer context",
+        "result-blind review packet",
+        "read-only",
+        "strongest counterexample",
+        "missing evidence",
+        "claim downgrade",
+        "AI review is not an authority",
+        "AI semantic review is mandatory",
+        "AI owns G0/G1 semantic review",
+        "G4 authorization is blocked",
     ):
         assert required in contract
 
     agents = (DOCS / "AGENTS.md").read_text(encoding="utf-8")
     assert "architecture/research-assurance.md" in agents
     assert "G0-G2" in agents
+    assert "fresh read-only AI reviewer" in agents
+    assert "economic result values" in agents
+    assert "AI semantic review is mandatory" in agents
 
     controlled_loop = (
         DOCS / "architecture" / "controlled-experiment-loop.md"
     ).read_text(encoding="utf-8")
     assert "research-assurance.md" in controlled_loop
     assert "G0-G2" in controlled_loop
+    assert "G4 authorization is blocked" in controlled_loop
 
 
 def test_current_relative_markdown_links_resolve() -> None:

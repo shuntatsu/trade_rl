@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from trade_rl.artifacts import content_digest
 from trade_rl.evaluation import ppo_normalization_execution as module
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
-from trade_rl.artifacts import content_digest
 from trade_rl.evaluation.ppo_normalization_execution import (
     EXECUTION_ACTIVATION_SCHEMA,
     SEALED_PROTOCOL_SHA256,

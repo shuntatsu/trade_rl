@@ -46,7 +46,11 @@ def _as_1d_copy(
     array_value = np.asarray(value)
     if array_value.ndim != 1:
         raise ValueError(f"{name} must have one-dimensional shape")
-    return np.asarray(value, dtype=dtype).copy()
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,16 +150,6 @@ class BinanceAggTradesSeries:
             if np.any(timestamps[1:] < timestamps[:-1]):
                 raise ValueError("timestamps must be nondecreasing")
 
-        for values in (
-            aggregate_ids,
-            prices,
-            quantities,
-            first_ids,
-            last_ids,
-            timestamps,
-            buyer_is_maker,
-        ):
-            values.setflags(write=False)
         object.__setattr__(self, "aggregate_trade_ids", aggregate_ids)
         object.__setattr__(self, "prices", prices)
         object.__setattr__(self, "quantities", quantities)

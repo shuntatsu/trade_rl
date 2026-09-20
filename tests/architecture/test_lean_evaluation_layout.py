@@ -35,6 +35,7 @@ EXPECTED_PUBLIC_API = (
     "compare_paired_returns",
     "compare_strategies",
     "compare_strategies_by_symbol",
+    "compare_strategy_factories_by_symbol",
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_performance",

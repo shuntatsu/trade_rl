@@ -9,10 +9,21 @@ from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,
+    compare_strategy_factories_by_symbol,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+
+
+class StatefulFirstLongStrategy:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def decide(self, observation) -> PositionIntent:
+        del observation
+        self.calls += 1
+        return PositionIntent.LONG if self.calls == 1 else PositionIntent.FLAT
 
 
 def market() -> MarketDataset:
@@ -143,3 +154,36 @@ def test_comparison_rejects_empty_or_invalid_strategy_names() -> None:
             stop_index=3,
             gross_budget=1.0,
         )
+
+
+def test_factory_comparison_creates_fresh_strategy_for_each_symbol() -> None:
+    created: list[StatefulFirstLongStrategy] = []
+
+    def factory() -> StatefulFirstLongStrategy:
+        strategy = StatefulFirstLongStrategy()
+        created.append(strategy)
+        return strategy
+
+    comparison = compare_strategy_factories_by_symbol(
+        two_symbol_market(),
+        {"stateful": factory},
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+
+    assert len(created) == 2
+    assert created[0] is not created[1]
+    assert tuple(
+        item.comparison.entries[0].replay.decisions[0].intent
+        for item in comparison.by_symbol
+    ) == (PositionIntent.LONG, PositionIntent.LONG)
+
+
+def test_factory_comparison_is_exposed_from_evaluation_public_api() -> None:
+    assert (
+        evaluation.compare_strategy_factories_by_symbol
+        is compare_strategy_factories_by_symbol
+    )

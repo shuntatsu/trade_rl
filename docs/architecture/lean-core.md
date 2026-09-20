@@ -117,6 +117,10 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 
 このlayoutは学習sampleの並び方を変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layoutとrollout stepsを別Controlled Factorとして結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。
 
+PPOの**明示constructor / policy construction surface**はSB3 defaultへ暗黙委譲しない。current sourceはlearning rate `3e-4`、sequential `n_steps=2048`、minibatch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip range `0.2`、value clipなし、advantage normalizationあり、entropy coefficient `0.0`、value coefficient `0.5`、gradient clip `0.5`、gSDE無効、`target_kl=None`を明示する。MlpPolicy側も既存のsmall `net_arch`に加えてTanh activation、orthogonal initialization、`FlattenExtractor`、shared feature extractor、Adam optimizer、Adam epsilon `1e-5`を明示する。interleavedでは`n_steps`だけresult-blindに指定された`rollout_steps_per_env`へ置換する。
+
+これは**列挙したconstructor/policy defaultへの暗黙依存を除く契約**であり、Stable-Baselines3内部の完全な学習アルゴリズムをrepository sourceへ複製・freezeしたという意味ではない。rollout buffer、loss/advantage計算、optimizer実装その他のlibrary内部semanticsは、pinned Stable-Baselines3 / PyTorch versionとruntime provenanceが引き続きimplementation authorityの一部である。dependency versionやその内部semanticsが変わった場合は「同じPPO contract」と推定せず、新implementation identityとしてsource review・real integration・必要なresearch preregistrationをやり直す。これらの明示値は既存pinned runtimeで既に有効だった値の固定であり、economic resultを見たhyperparameter tuningではない。
+
 ## StrategyとRiskの責任分離
 
 Executionの `max_leverage` から導く既定pre-trade riskは

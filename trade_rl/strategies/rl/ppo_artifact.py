@@ -96,7 +96,6 @@ def load_normalized_ppo(
     )
 
 
-
 def _validated_feed_feature_names(
     feature_names: tuple[str, ...],
     feature_indices: tuple[int, ...],
@@ -158,7 +157,9 @@ def save_ppo_inference_bundle(
                 "normalizer feature schema differs from the inference feed schema"
             )
     if root.exists():
-        raise FileExistsError(f"PPO inference bundle destination already exists: {root}")
+        raise FileExistsError(
+            f"PPO inference bundle destination already exists: {root}"
+        )
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))

@@ -1,0 +1,28 @@
+name: Temporary PPO normalization execution RED
+
+on:
+  push:
+    branches:
+      - research/issue735-ppo-normalization-impl
+
+permissions:
+  contents: read
+
+env:
+  RED_HEAD: faae7e35c5be5e96cc79dfdf1935271f32c3e26c
+
+jobs:
+  semantic-red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RED_HEAD }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Targeted semantic RED
+        run: uv run pytest -q tests/evaluation/test_ppo_normalization_execution.py

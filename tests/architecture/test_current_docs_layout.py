@@ -15,6 +15,7 @@ REQUIRED_DOC_FILES = {
     "architecture/lean-core.md",
     "architecture/package-boundaries.md",
     "architecture/controlled-experiment-loop.md",
+    "architecture/final-evaluation-authorization.md",
     "architecture/research-assurance.md",
     "research/current-status.md",
 }
@@ -32,6 +33,7 @@ CURRENT_MARKDOWN = (
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
     DOCS / "architecture" / "controlled-experiment-loop.md",
+    DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
     DOCS / "research" / "current-status.md",
     ROOT / "LICENSES" / "LICENSING.md",
@@ -172,6 +174,7 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "architecture/lean-core.md",
         "architecture/package-boundaries.md",
         "architecture/controlled-experiment-loop.md",
+        "architecture/final-evaluation-authorization.md",
         "architecture/research-assurance.md",
         "research/current-status.md",
     ):
@@ -217,6 +220,7 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "artifacts / data / integrations / risk / simulation / strategies / evaluation",
         "_validation -> standard library only",
         "evaluation/experiments/",
+        "evaluation/final_test/",
         "private module path",
     ):
         assert required in package_boundaries
@@ -257,6 +261,44 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
     ):
         assert required in contract
+
+
+def test_final_evaluation_authorization_is_durable_current_architecture() -> None:
+    contract = (
+        DOCS / "architecture" / "final-evaluation-authorization.md"
+    ).read_text(encoding="utf-8")
+    for required in (
+        "trade_rl.evaluation.final_test",
+        "unused-future / final evaluation",
+        "StudyOutcome.WINNER",
+        "NO_WINNER",
+        "one-shot",
+        "canonical JSON bytes",
+        "sibling claim",
+        "accepted lineage",
+        "final Dataset",
+        "Production/live authorization",
+        "non-canonical byte rewrite",
+        "symlink ancestor",
+        "AI reviewだけでauthorization artifactやmachine bindingを代替しない",
+    ):
+        assert required in contract
+
+    agents = (DOCS / "AGENTS.md").read_text(encoding="utf-8")
+    assert "architecture/final-evaluation-authorization.md" in agents
+    assert "final/unused-data authorization" in agents
+
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    assert "final-evaluation-authorization.md" in controlled_loop
+    assert "one-shot" in controlled_loop
+
+    research = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    assert "trade_rl.evaluation.final_test" in research
+    assert "final economic evaluation自体は未実行" in research
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -377,4 +419,5 @@ def test_removed_monolithic_doc_is_not_referenced() -> None:
 def test_root_readme_uses_current_docs_entry_point() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "docs/README.md" in readme
+    assert "docs/architecture/final-evaluation-authorization.md" in readme
     assert "docs/trade_rl_lean_redesign_20260908.md" not in readme

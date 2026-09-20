@@ -6,7 +6,7 @@ import importlib
 import math
 from functools import partial
 from numbers import Integral
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import gymnasium as gym
 import numpy as np
@@ -34,6 +34,7 @@ PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
 PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
+PPO_TRAINING_LAYOUT_SHARED_CASH = "shared_cash"
 _PPO_BATCH_SIZE = 64
 
 
@@ -82,8 +83,11 @@ def _validated_training_layout(
     if training_layout not in {
         PPO_TRAINING_LAYOUT_SEQUENTIAL,
         PPO_TRAINING_LAYOUT_INTERLEAVED,
+        PPO_TRAINING_LAYOUT_SHARED_CASH,
     }:
-        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
+        raise ValueError(
+            "training_layout must be 'sequential', 'interleaved', or 'shared_cash'"
+        )
     if (
         training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
         and rollout_steps_per_env is not None
@@ -640,6 +644,132 @@ class PPOSharedCashCoordinator:
         return observations, reward, self._terminated, tuple(infos)
 
 
+def _build_shared_cash_vec_env(
+    coordinator: PPOSharedCashCoordinator,
+) -> object:
+    try:
+        vec_module = importlib.import_module(
+            "stable_baselines3.common.vec_env.base_vec_env"
+        )
+        vec_env_base = getattr(vec_module, "VecEnv")
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(
+            "stable-baselines3 is required; install the train-sb3 extra"
+        ) from error
+
+    def _init(self: Any, shared: PPOSharedCashCoordinator) -> None:
+        self.coordinator = shared
+        self.actions = None
+        vec_env_base.__init__(
+            self,
+            shared.num_envs,
+            shared.observation_space,
+            shared.action_space,
+        )
+
+    def _get_attr(
+        self: Any,
+        attr_name: str,
+        indices: object = None,
+    ) -> list[object]:
+        selected = self._get_indices(indices)
+        if attr_name == "render_mode":
+            value: object = None
+        else:
+            value = getattr(self.coordinator, attr_name)
+        return [value for _ in selected]
+
+    def _set_attr(
+        self: Any,
+        attr_name: str,
+        value: object,
+        indices: object = None,
+    ) -> None:
+        self._get_indices(indices)
+        setattr(self.coordinator, attr_name, value)
+
+    def _env_method(
+        self: Any,
+        method_name: str,
+        *method_args: object,
+        indices: object = None,
+        **method_kwargs: object,
+    ) -> list[object]:
+        selected = self._get_indices(indices)
+        method = getattr(self.coordinator, method_name)
+        result = method(*method_args, **method_kwargs)
+        return [result for _ in selected]
+
+    def _env_is_wrapped(
+        self: Any,
+        wrapper_class: object,
+        indices: object = None,
+    ) -> list[bool]:
+        del wrapper_class
+        return [False for _ in self._get_indices(indices)]
+
+    def _get_images(self: Any) -> list[None]:
+        return [None for _ in range(self.num_envs)]
+
+    def _reset(self: Any) -> np.ndarray:
+        seed = self._seeds[0] if self._seeds else None
+        observations, reset_infos = self.coordinator.reset(seed=seed)
+        self.reset_infos = list(reset_infos)
+        self._reset_seeds()
+        self._reset_options()
+        self.actions = None
+        return observations
+
+    def _step_async(self: Any, actions: np.ndarray) -> None:
+        if self.actions is not None:
+            raise RuntimeError("shared-cash VecEnv step is already pending")
+        self.actions = np.asarray(actions).copy()
+
+    def _step_wait(
+        self: Any,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict[str, object]]]:
+        if self.actions is None:
+            raise RuntimeError("shared-cash VecEnv step_wait called without actions")
+        observations, reward, terminated, coordinator_infos = (
+            self.coordinator.step(self.actions)
+        )
+        self.actions = None
+        rewards = np.full(self.num_envs, reward, dtype=np.float32)
+        dones = np.full(self.num_envs, terminated, dtype=np.bool_)
+        infos = [dict(info) for info in coordinator_infos]
+        for info in infos:
+            info["TimeLimit.truncated"] = False
+
+        if terminated:
+            terminal_observations = observations.copy()
+            observations, reset_infos = self.coordinator.reset()
+            self.reset_infos = list(reset_infos)
+            for slot_index, info in enumerate(infos):
+                info["terminal_observation"] = terminal_observations[slot_index]
+        return observations, rewards, dones, infos
+
+    def _close(self: Any) -> None:
+        self.actions = None
+
+    adapter_type = type(
+        "_PPOSharedCashVecEnv",
+        (vec_env_base,),
+        {
+            "__init__": _init,
+            "close": _close,
+            "env_is_wrapped": _env_is_wrapped,
+            "env_method": _env_method,
+            "get_attr": _get_attr,
+            "get_images": _get_images,
+            "reset": _reset,
+            "set_attr": _set_attr,
+            "step_async": _step_async,
+            "step_wait": _step_wait,
+        },
+    )
+    return adapter_type(coordinator)
+
+
 class PPOTradingEnv(gym.Env):
     """Per-symbol episodes sharing one policy and one observation schema."""
 
@@ -1044,29 +1174,50 @@ def fit_ppo_strategy(
             settle_terminal_position=settle_terminal_position,
         )
     else:
-        if execution_cost is not None and execution_cost.slippage_std > 0.0:
-            raise ValueError(
-                "interleaved training requires deterministic execution slippage"
-            )
         symbol_indices = validated_symbol_indices(dataset, fit_symbol_indices)
         rollout_steps = _validated_interleaved_rollout_steps(
             rollout_steps_per_env,
             n_envs=len(symbol_indices),
         )
-        try:
-            vector_module = importlib.import_module("stable_baselines3.common.vec_env")
-            dummy_vec_env = getattr(vector_module, "DummyVecEnv")
-        except (ImportError, AttributeError) as error:
-            raise RuntimeError(
-                "stable-baselines3 is required; install the train-sb3 extra"
-            ) from error
-        env = dummy_vec_env(
-            [
-                partial(
-                    PPOTradingEnv,
+        if layout == PPO_TRAINING_LAYOUT_INTERLEAVED:
+            if execution_cost is not None and execution_cost.slippage_std > 0.0:
+                raise ValueError(
+                    "interleaved training requires deterministic execution slippage"
+                )
+            try:
+                vector_module = importlib.import_module(
+                    "stable_baselines3.common.vec_env"
+                )
+                dummy_vec_env = getattr(vector_module, "DummyVecEnv")
+            except (ImportError, AttributeError) as error:
+                raise RuntimeError(
+                    "stable-baselines3 is required; install the train-sb3 extra"
+                ) from error
+            env = dummy_vec_env(
+                [
+                    partial(
+                        PPOTradingEnv,
+                        dataset,
+                        feature_indices=indices,
+                        symbol_indices=(symbol_index,),
+                        start_index=start_index,
+                        stop_index=stop_index,
+                        gross_budget=gross_budget,
+                        initial_capital=initial_capital,
+                        execution_cost=execution_cost,
+                        risk_config=risk_config,
+                        feature_normalizer=normalizer,
+                        settle_terminal_position=settle_terminal_position,
+                    )
+                    for symbol_index in symbol_indices
+                ]
+            )
+        else:
+            env = _build_shared_cash_vec_env(
+                PPOSharedCashCoordinator(
                     dataset,
                     feature_indices=indices,
-                    symbol_indices=(symbol_index,),
+                    symbol_indices=symbol_indices,
                     start_index=start_index,
                     stop_index=stop_index,
                     gross_budget=gross_budget,
@@ -1076,9 +1227,7 @@ def fit_ppo_strategy(
                     feature_normalizer=normalizer,
                     settle_terminal_position=settle_terminal_position,
                 )
-                for symbol_index in symbol_indices
-            ]
-        )
+            )
         ppo_options = {
             "n_steps": rollout_steps,
             "batch_size": _PPO_BATCH_SIZE,
@@ -1118,6 +1267,7 @@ __all__ = [
     "PPO_OBSERVATION_SCHEMA",
     "PPO_TRAINING_LAYOUT_INTERLEAVED",
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",
+    "PPO_TRAINING_LAYOUT_SHARED_CASH",
     "PPOIntentStrategy",
     "PPOSharedCashCoordinator",
     "PPOTradingEnv",

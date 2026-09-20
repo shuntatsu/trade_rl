@@ -344,3 +344,42 @@ def test_ppo_subset_fit_rejects_universe_dependent_feature(
         )
 
     assert FakePPO.last is None
+
+
+def test_direct_ppo_env_rejects_universe_dependent_subset() -> None:
+    with pytest.raises(ValueError, match="fit.*scope|outside.*fit"):
+        PPOTradingEnv(
+            _ppo_identity_market(FeatureKind.CROSS_ASSET_DISPERSION),
+            feature_indices=(0,),
+            symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+        )
+
+
+def test_interleaved_envs_use_overall_fit_information_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+
+    fit_ppo_strategy(
+        _ppo_identity_market(FeatureKind.RELATIVE_RETURN_TO_BTC),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        total_timesteps=64,
+        seed=23,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+    )
+
+    vector = FakeDummyVecEnv.last
+    assert vector is not None
+    assert [env.symbol_indices for env in vector.envs] == [(0,), (1,)]
+    assert [env.information_symbol_indices for env in vector.envs] == [
+        (0, 1),
+        (0, 1),
+    ]

@@ -451,6 +451,7 @@ def test_real_ppo_constructor_contract_is_explicit() -> None:
     assert isinstance(model.policy.optimizer, torch.optim.Adam)
     assert model.policy.optimizer.defaults["eps"] == pytest.approx(1e-5)
 
+
 def test_explicit_ppo_constructor_matches_pinned_implicit_defaults() -> None:
     stable_baselines3 = pytest.importorskip("stable_baselines3")
     torch = pytest.importorskip("torch")

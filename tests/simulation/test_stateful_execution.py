@@ -731,14 +731,13 @@ def test_trigger_segment_fraction_constrains_stateful_volume_capacity(
         dataset,
         max_participation_rate=1.0,
         max_leverage=5.0,
-        path_mode="optimistic",
         trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
     )
     intent = _intent(
         executor,
-        20.0,
-        order_type=OrderType.LIMIT,
-        limit_price=90.0,
+        -20.0,
+        order_type=OrderType.STOP_MARKET,
+        stop_price=95.0,
     )
 
     result = executor.execute_orders(
@@ -756,8 +755,9 @@ def test_trigger_segment_fraction_constrains_stateful_volume_capacity(
     ]
     assert len(filled) == 1
     assert filled[0].trigger_segment == "first_extreme"
+    assert filled[0].execution_price == pytest.approx(90.0)
     assert filled[0].available_volume_fraction == pytest.approx(0.5)
-    assert result.book.quantities[0] == pytest.approx(expected_quantity)
+    assert result.book.quantities[0] == pytest.approx(-expected_quantity)
     assert result.filled_notional == pytest.approx(expected_notional)
     assert result.max_participation == pytest.approx(0.5)
     assert result.participation_by_symbol.tolist() == pytest.approx([0.5])

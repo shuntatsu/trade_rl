@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
@@ -157,3 +158,78 @@ def test_explicit_fit_scope_rejects_a_symbol_with_no_eligible_rows() -> None:
             fit_cutoff=np.datetime64("2026-01-01T04:00:00", "ns"),
             horizon_hours=2,
         )
+
+
+def _with_feature_provenance(
+    dataset: MarketDataset,
+    *,
+    first_kind: FeatureKind,
+    reference_symbol: str = "BTCUSDT",
+) -> MarketDataset:
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(name=dataset.feature_names[0], kind=first_kind),
+            FeatureSpec(
+                name=dataset.feature_names[1],
+                kind=FeatureKind.LOG_RETURN,
+            ),
+        ),
+        cross_asset_reference_symbol=reference_symbol,
+    )
+    return dataset.with_content_identity({"config": config.canonical_payload()})
+
+
+@pytest.mark.parametrize(
+    "kind",
+    (
+        FeatureKind.CROSS_ASSET_DISPERSION,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+    ),
+)
+def test_subset_fit_rejects_universe_dependent_cross_asset_feature(
+    kind: FeatureKind,
+) -> None:
+    dataset = _with_feature_provenance(pooled_market(), first_kind=kind)
+
+    with pytest.raises(ValueError, match="fit.*scope|outside.*fit"):
+        build_causal_forecast_training_set(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+            horizon_hours=2,
+        )
+
+
+def test_subset_fit_rejects_reference_feature_when_reference_is_holdout() -> None:
+    dataset = _with_feature_provenance(
+        pooled_market(),
+        first_kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+    )
+
+    with pytest.raises(ValueError, match="reference.*fit|fit.*reference"):
+        build_causal_forecast_training_set(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(1,),
+            fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+            horizon_hours=2,
+        )
+
+
+def test_subset_fit_allows_reference_feature_when_reference_is_in_fit_scope() -> None:
+    dataset = _with_feature_provenance(
+        pooled_market(),
+        first_kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+    )
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    assert training.n_samples == 6

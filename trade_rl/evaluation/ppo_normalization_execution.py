@@ -518,12 +518,13 @@ def _read_verified_record(
         or payload.get("implementation_digest") != result.get("implementation_digest")
         or payload.get("result_sha256") != sha256(result_raw).hexdigest()
         or payload.get("bundle_digest") != result.get("bundle_digest")
-        or payload.get("bundle_policy_sha256")
-        != result.get("bundle_policy_sha256")
+        or payload.get("bundle_policy_sha256") != result.get("bundle_policy_sha256")
         or payload.get("no_refit") is not True
         or payload.get("replay_verified") is not True
     ):
-        raise ValueError("replication verification record differs from published result")
+        raise ValueError(
+            "replication verification record differs from published result"
+        )
     return payload
 
 
@@ -1065,11 +1066,7 @@ def publish_replication_decision(root: Path) -> dict[str, object]:
 
     for spec in replication_arm_specs():
         state = replication_slot_state(root, spec)
-        if (
-            not state["consumed"]
-            or state["failed"]
-            or not state["result_published"]
-        ):
+        if not state["consumed"] or state["failed"] or not state["result_published"]:
             raise ValueError(f"replication slot is incomplete: {spec.slot}")
         result, result_raw = _read_canonical_json(
             store,

@@ -16,6 +16,7 @@ from trade_rl.evaluation.ppo_normalization_execution import (
     execute_replication_slot,
     fit_replication_strategy,
     prepare_replication_execution,
+    publish_replication_decision,
     recompute_replication_decision,
     record_consumed_failure,
     record_prefit_failure,
@@ -510,6 +511,14 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     )
     assert verified == published
     assert fit_calls == [slot]
+    verification_path = root / "slots" / slot / "verified.json"
+    verification = json.loads(verification_path.read_bytes())
+    assert verification["no_refit"] is True
+    assert verification["replay_verified"] is True
+    verification_raw = verification_path.read_bytes()
+    assert json.loads(
+        (root / "slots" / slot / "verified.sha256.json").read_bytes()
+    ) == {"sha256": module.sha256(verification_raw).hexdigest()}
 
     result_path = root / "slots" / slot / "result.json"
     semantic_result = json.loads(result_path.read_bytes())
@@ -523,6 +532,153 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
             root,
             slot,
         )
+
+
+def _publish_synthetic_result(
+    root,
+    spec,
+    *,
+    activation_digest: str,
+    provenance: dict[str, object],
+    verified: bool,
+) -> None:
+    claim_replication_slot(
+        root,
+        spec,
+        activation_digest=activation_digest,
+        implementation_digest="b" * 64,
+    )
+    economic = _screen_row(
+        0.0 if spec.protocol_arm == "control_raw" else 0.01,
+        year_return=0.0 if spec.protocol_arm == "control_raw" else 0.01,
+        with_stress=False,
+    )
+    payload = {
+        **economic,
+        "schema": module.SLOT_RESULT_SCHEMA,
+        "slot": spec.slot,
+        "protocol_arm": spec.protocol_arm,
+        "seed": spec.seed,
+        "normalize_features": spec.normalize_features,
+        "protocol_sha256": SEALED_PROTOCOL_SHA256,
+        "activation_digest": activation_digest,
+        "implementation_digest": "b" * 64,
+        "bundle_digest": "d" * 64,
+        "bundle_policy_sha256": "c" * 64,
+        "realized_timesteps": 262_144,
+        "provenance": provenance,
+    }
+    store = module.StudyStore(root)
+    result_raw = canonical_json_bytes(payload)
+    store.publish_json_once(module._slot_relative(spec, "result.json"), payload)
+    store.publish_json_once(
+        module._slot_relative(spec, "result.sha256.json"),
+        {"sha256": module.sha256(result_raw).hexdigest()},
+    )
+    if not verified:
+        return
+    verification = {
+        "schema": module.SLOT_VERIFICATION_SCHEMA,
+        "slot": spec.slot,
+        "protocol_arm": spec.protocol_arm,
+        "seed": spec.seed,
+        "normalize_features": spec.normalize_features,
+        "protocol_sha256": SEALED_PROTOCOL_SHA256,
+        "activation_digest": activation_digest,
+        "implementation_digest": "b" * 64,
+        "result_sha256": module.sha256(result_raw).hexdigest(),
+        "bundle_digest": "d" * 64,
+        "bundle_policy_sha256": "c" * 64,
+        "no_refit": True,
+        "replay_verified": True,
+    }
+    verification_raw = canonical_json_bytes(verification)
+    store.publish_json_once(module._slot_relative(spec, "verified.json"), verification)
+    store.publish_json_once(
+        module._slot_relative(spec, "verified.sha256.json"),
+        {"sha256": module.sha256(verification_raw).hexdigest()},
+    )
+
+
+def test_comparison_requires_all_ten_durable_verifications(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    provenance = {
+        "schema_version": "test-provenance",
+        "implementation_digest": "b" * 64,
+    }
+    activation = _activation(provenance)
+    activation_digest = content_digest(activation)
+    monkeypatch.setattr(
+        module,
+        "SEALED_EXECUTION_ACTIVATION_SHA256",
+        activation_digest,
+    )
+    monkeypatch.setattr(
+        module,
+        "build_candidate_run_provenance",
+        lambda: provenance,
+    )
+    root = tmp_path / "verified-comparison"
+    prepare_replication_execution(root, activation)
+
+    specs = replication_arm_specs()
+    for spec in specs[:-1]:
+        _publish_synthetic_result(
+            root,
+            spec,
+            activation_digest=activation_digest,
+            provenance=provenance,
+            verified=True,
+        )
+    _publish_synthetic_result(
+        root,
+        specs[-1],
+        activation_digest=activation_digest,
+        provenance=provenance,
+        verified=False,
+    )
+
+    with pytest.raises(ValueError, match="not independently verified"):
+        publish_replication_decision(root)
+    assert not (root / "comparison.json").exists()
+
+    store = module.StudyStore(root)
+    last = specs[-1]
+    result_path = root / "slots" / last.slot / "result.json"
+    result_raw = result_path.read_bytes()
+    result = json.loads(result_raw)
+    verification = {
+        "schema": module.SLOT_VERIFICATION_SCHEMA,
+        "slot": last.slot,
+        "protocol_arm": last.protocol_arm,
+        "seed": last.seed,
+        "normalize_features": last.normalize_features,
+        "protocol_sha256": SEALED_PROTOCOL_SHA256,
+        "activation_digest": activation_digest,
+        "implementation_digest": "b" * 64,
+        "result_sha256": module.sha256(result_raw).hexdigest(),
+        "bundle_digest": result["bundle_digest"],
+        "bundle_policy_sha256": result["bundle_policy_sha256"],
+        "no_refit": True,
+        "replay_verified": True,
+    }
+    verification_raw = canonical_json_bytes(verification)
+    store.publish_json_once(module._slot_relative(last, "verified.json"), verification)
+    store.publish_json_once(
+        module._slot_relative(last, "verified.sha256.json"),
+        {"sha256": module.sha256(verification_raw).hexdigest()},
+    )
+
+    report = publish_replication_decision(root)
+    assert report["all_slots_independently_verified"] is True
+    assert report["verified_slots"] == [spec.slot for spec in specs]
+    assert report["decision"] == "RELATIVE_IMPROVEMENT_ONLY"
+    assert (root / "comparison.json").exists()
+
+    with pytest.raises(Exception, match="already exists"):
+        publish_replication_decision(root)
 
 
 def test_execution_root_rejects_noncanonical_protocol_bytes(

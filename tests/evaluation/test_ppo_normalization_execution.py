@@ -7,9 +7,9 @@ import numpy as np
 from trade_rl.evaluation import ppo_normalization_execution as module
 from trade_rl.evaluation.directional_contract import DIRECTIONAL_BASE_EXECUTION_COST
 from trade_rl.evaluation.ppo_normalization_execution import (
+    fit_replication_strategy,
     replication_arm_specs,
     replication_strategy_factory,
-    fit_replication_strategy,
 )
 
 

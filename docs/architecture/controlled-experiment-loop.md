@@ -13,6 +13,7 @@
 - G0でobjective、economic hypothesis、causal story、falsifier、what this cannot proveを明示する。
 - G1でtraining/evaluationを含むMechanism Contractを固定し、account/observation/action/reward/risk/execution/clockの意味不一致を隠さない。
 - G2でsemantic invariant、Counterexample、independent oracle、Known limitationsを用意する。
+- **AI semantic review is mandatory**。G0-G2 packetをeconomic result valuesから隔離し、fresh/read-only AI adversarial reviewerへ渡してpremise、mechanism mismatch、missing oracle、claim downgradeを反証させる。新規・変更mechanismについてAI reviewが未実施、result-blindでない、またはG0/G1に未解決の`FAIL` / 必要な`NOT ESTABLISHED`がある間は **G4 authorization is blocked**。`create_study`等のresult-blind preparationは行えても、`run_baseline` / `run_experiment`等のeconomic result生成へ進まない。AIの肯定だけでmachine evidenceを代替しない。
 
 `verify_experiment` はcontrolled factor、Study-fixed field、identity/provenance等のG3 evidence validityを厳密に検証するが、G0-G2の代替ではない。G0-G2がFAILまたはNOT ESTABLISHEDのmechanismを、development P&Lが良いことだけで有効化しない。既存のimmutable Study artifactは遡及変更せず、新しいassurance requirementがStudy-fixed semanticsへ影響する場合は新しいStudy/lineageで扱う。
 

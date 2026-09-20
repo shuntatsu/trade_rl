@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from inspect import signature
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,8 +75,6 @@ def test_winner_study_can_issue_one_sealed_authorization_without_mutating_study(
     authorization = authorize_final_evaluation(
         output,
         study_root=study_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -96,8 +95,6 @@ def test_winner_study_can_issue_one_sealed_authorization_without_mutating_study(
         authorize_final_evaluation(
             output,
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="second-attempt",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -129,28 +126,16 @@ def test_legacy_v1_winner_without_preregistered_final_window_is_rejected(
         authorize_final_evaluation(
             tmp_path / "legacy-final-authorization",
             study_root=root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
 
 
-def test_authorization_rejects_window_different_from_preregistered_study_plan(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    study_root, _ = _winner_study(tmp_path, monkeypatch)
+def test_authorization_api_has_no_final_window_override() -> None:
+    parameters = signature(authorize_final_evaluation).parameters
 
-    with pytest.raises(ContractViolationError, match="preregistered|StudyPlan|window"):
-        authorize_final_evaluation(
-            tmp_path / "wrong-window",
-            study_root=study_root,
-            final_evaluation_start="2026-01-01T21:00:00.000000000",
-            final_evaluation_stop_exclusive=_FINAL_STOP,
-            authorized_by="final-gate",
-            authorized_at=_AUTHORIZED_AT,
-        )
+    assert "final_evaluation_start" not in parameters
+    assert "final_evaluation_stop_exclusive" not in parameters
 
 
 def test_authorization_rejects_unfrozen_and_no_winner_studies(
@@ -163,8 +148,6 @@ def test_authorization_rejects_unfrozen_and_no_winner_studies(
         authorize_final_evaluation(
             tmp_path / "unfrozen-authorization",
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -180,8 +163,6 @@ def test_authorization_rejects_unfrozen_and_no_winner_studies(
         authorize_final_evaluation(
             tmp_path / "no-winner-authorization",
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -223,8 +204,6 @@ def test_authorization_rejects_timestamp_before_study_freeze(
         authorize_final_evaluation(
             tmp_path / "early-authorization",
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=datetime(2026, 9, 13, 11, 29, tzinfo=UTC),
         )
@@ -239,8 +218,6 @@ def test_inspection_rejects_authorization_tamper(
     authorize_final_evaluation(
         output,
         study_root=study_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -265,8 +242,6 @@ def test_inspection_rejects_noncanonical_json_rewrite(
     authorize_final_evaluation(
         output,
         study_root=study_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -292,8 +267,6 @@ def test_inspection_rejects_symlinked_parent_path(
     authorize_final_evaluation(
         output,
         study_root=study_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -334,8 +307,6 @@ def test_publication_race_is_reported_as_one_shot_conflict(
         authorize_final_evaluation(
             output,
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -352,8 +323,6 @@ def test_inspection_rejects_malformed_json(
     authorize_final_evaluation(
         output,
         study_root=study_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -377,8 +346,6 @@ def test_inspection_rejects_different_bound_study(
     authorize_final_evaluation(
         output,
         study_root=first_root,
-        final_evaluation_start=_FINAL_START,
-        final_evaluation_stop_exclusive=_FINAL_STOP,
         authorized_by="final-gate",
         authorized_at=_AUTHORIZED_AT,
     )
@@ -404,8 +371,6 @@ def test_authorization_rejects_symlink_output_root(
         authorize_final_evaluation(
             symlink,
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -422,8 +387,6 @@ def test_authorization_rejects_output_inside_frozen_study(
         authorize_final_evaluation(
             study_root / "final-authorization",
             study_root=study_root,
-            final_evaluation_start=_FINAL_START,
-            final_evaluation_stop_exclusive=_FINAL_STOP,
             authorized_by="final-gate",
             authorized_at=_AUTHORIZED_AT,
         )
@@ -445,8 +408,6 @@ def test_concurrent_authorization_publication_has_single_winner(
             return authorize_final_evaluation(
                 output,
                 study_root=study_root,
-                final_evaluation_start=_FINAL_START,
-                final_evaluation_stop_exclusive=_FINAL_STOP,
                 authorized_by=actor,
                 authorized_at=_AUTHORIZED_AT,
             )

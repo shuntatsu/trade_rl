@@ -49,6 +49,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
     DOCS / "architecture" / "controlled-experiment-loop.md",
+    DOCS / "architecture" / "final-evaluation-authorization.md",
     DOCS / "architecture" / "research-assurance.md",
     DOCS / "research" / "current-status.md",
 )
@@ -279,6 +280,10 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         "Production/live authorization",
         "non-canonical byte rewrite",
         "symlink ancestor",
+        "canonical_m2_bootstrap_config_v3",
+        "controlled_study_plan_v2",
+        "authorization時のcallerはwindowを選択できない",
+        "legacy Study",
         "AI reviewだけでauthorization artifactやmachine bindingを代替しない",
     ):
         assert required in contract
@@ -292,12 +297,18 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     ).read_text(encoding="utf-8")
     assert "final-evaluation-authorization.md" in controlled_loop
     assert "one-shot" in controlled_loop
+    assert "canonical_m2_bootstrap_config_v3" in controlled_loop
+    assert "controlled_study_plan_v2" in controlled_loop
+    assert "legacy v1 Plan" in controlled_loop
 
     research = (DOCS / "research" / "current-status.md").read_text(
         encoding="utf-8"
     )
     assert "trade_rl.evaluation.final_test" in research
     assert "final economic evaluation自体は未実行" in research
+    assert "canonical_m2_bootstrap_config_v3" in research
+    assert "controlled_study_plan_v2" in research
+    assert "final windowを後付けしてeligible化しない" in research
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:

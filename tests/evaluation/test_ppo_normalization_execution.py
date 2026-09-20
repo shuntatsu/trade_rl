@@ -152,6 +152,7 @@ def test_replication_strategy_factory_preserves_normalized_feature_schema() -> N
     assert first.feature_names == second.feature_names == ("norm_2", "norm_4")
     assert first.feature_normalizer is second.feature_normalizer is normalizer
 
+
 def test_slot_boundary_distinguishes_prefit_from_consumed_failure(tmp_path) -> None:
     spec = replication_arm_specs()[0]
 
@@ -230,7 +231,6 @@ def _screen_row(
     return row
 
 
-
 def test_candidate_base_pass_runs_registered_stress_and_symbol_diagnostics(
     monkeypatch,
 ) -> None:
@@ -254,7 +254,9 @@ def test_candidate_base_pass_runs_registered_stress_and_symbol_diagnostics(
     )
 
     assert len(calls) == 8
-    assert [(row["cost_multiplier"], row["latency_bars"]) for row in result["stress"]] == [
+    assert [
+        (row["cost_multiplier"], row["latency_bars"]) for row in result["stress"]
+    ] == [
         (2.0, 0),
         (1.0, 1),
     ]
@@ -320,6 +322,7 @@ def test_slot_state_rejects_tampered_consumed_claim(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="claim"):
         replication_slot_state(tmp_path, spec)
+
 
 def test_decision_is_recomputed_without_trusting_qualified_flags() -> None:
     control = {

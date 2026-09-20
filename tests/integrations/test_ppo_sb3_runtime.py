@@ -412,3 +412,58 @@ def test_real_interleaved_ppo_runs_with_terminal_settlement() -> None:
     assert strategy.feature_normalizer.stop_index == 2
     assert strategy.policy.num_timesteps == 64
     assert strategy.policy.device.type == "cpu"
+
+
+def test_real_shared_cash_ppo_runs_with_shared_portfolio() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=65,
+        seed=79,
+        training_layout="shared_cash",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+        settle_terminal_position=True,
+    )
+
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.stop_index == 2
+    assert strategy.policy.num_timesteps == 128
+    assert strategy.policy.device.type == "cpu"
+    assert strategy.policy.get_env().num_envs == 2
+
+
+def test_real_shared_cash_ppo_is_parameter_deterministic_for_same_seed() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    dataset = pooled_market()
+
+    def fit():
+        return fit_ppo_strategy(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0, 1),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.1,
+            total_timesteps=64,
+            seed=83,
+            training_layout="shared_cash",
+            rollout_steps_per_env=32,
+            settle_terminal_position=True,
+        )
+
+    first = fit()
+    second = fit()
+    first_state = first.policy.policy.state_dict()
+    second_state = second.policy.policy.state_dict()
+
+    assert first_state.keys() == second_state.keys()
+    for name in first_state:
+        assert torch.equal(first_state[name], second_state[name]), name

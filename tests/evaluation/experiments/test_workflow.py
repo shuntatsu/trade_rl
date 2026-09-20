@@ -142,8 +142,8 @@ def test_create_study_preregisters_final_window_in_plan_digest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    final_start = "2026-01-01T20:00:00.000000000"
-    final_stop = "2026-01-02T20:00:00.000000000"
+    final_start = "2026-01-02T00:00:00.000000000"
+    final_stop = "2026-01-03T00:00:00.000000000"
     root, _, snapshot = _created_study(
         tmp_path,
         monkeypatch,

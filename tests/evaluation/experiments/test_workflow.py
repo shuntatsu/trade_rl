@@ -121,6 +121,31 @@ def test_create_study_pre_resolves_and_publishes_only_plan(
     assert plan_payload["ppo_seeds"] == [2, 5]
 
 
+def test_create_study_preregisters_final_window_in_plan_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _, snapshot = _created_study(
+        tmp_path,
+        monkeypatch,
+        final_evaluation_start="2026-01-01T20:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-01-02T20:00:00.000000000",
+    )
+
+    assert snapshot.plan.schema_version == "controlled_study_plan_v2"
+    assert snapshot.plan.final_evaluation_start == (
+        "2026-01-01T20:00:00.000000000"
+    )
+    assert snapshot.plan.final_evaluation_stop_exclusive == (
+        "2026-01-02T20:00:00.000000000"
+    )
+    payload = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+    assert payload["final_evaluation_start"] == snapshot.plan.final_evaluation_start
+    assert payload["final_evaluation_stop_exclusive"] == (
+        snapshot.plan.final_evaluation_stop_exclusive
+    )
+
+
 def test_baseline_is_published_once_with_separate_analysis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

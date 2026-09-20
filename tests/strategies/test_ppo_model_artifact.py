@@ -19,6 +19,7 @@ from trade_rl.strategies.rl.ppo_artifact import (
 class Policy:
     loaded = False
     load_device = None
+    load_path = None
     observation_space = SimpleNamespace(shape=(5,))
     action_space = SimpleNamespace(n=3, start=0)
 
@@ -29,6 +30,7 @@ class Policy:
     def load(cls, path, *, device="auto"):
         cls.loaded = True
         cls.load_device = device
+        cls.load_path = Path(path)
         return cls()
 
     def predict(self, observation, *, deterministic=True):
@@ -264,6 +266,83 @@ def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names
         )
 
 
+@pytest.mark.parametrize("publisher", ("normalized", "inference"))
+@pytest.mark.parametrize(
+    ("observation_shape", "action_n", "action_start"),
+    (
+        ((5.0,), 3, 0),
+        ((5,), 3.0, 0),
+        ((5,), 3, False),
+    ),
+)
+def test_artifact_publish_rejects_numeric_policy_space_aliases(
+    tmp_path,
+    publisher,
+    observation_shape,
+    action_n,
+    action_start,
+) -> None:
+    policy = Policy()
+    policy.observation_space = SimpleNamespace(shape=observation_shape)
+    policy.action_space = SimpleNamespace(n=action_n, start=action_start)
+    strategy = PPOIntentStrategy(
+        policy,
+        feature_indices=(0,),
+        feature_normalizer=_fit() if publisher == "normalized" else None,
+    )
+    root = tmp_path / publisher
+
+    with pytest.raises(ValueError, match="policy spaces|PPO contract"):
+        if publisher == "normalized":
+            save_normalized_ppo(root, strategy)
+        else:
+            save_ppo_inference_bundle(
+                root,
+                strategy,
+                feature_names=("signal",),
+            )
+
+    assert not root.exists()
+
+
+def test_inference_bundle_rejects_unhashable_feed_name_as_validation_error(
+    tmp_path,
+) -> None:
+    strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+    root = tmp_path / "bad-feed"
+    bad_feature_names = (["signal"],)
+
+    with pytest.raises(ValueError, match="feature_names"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=bad_feature_names,  # type: ignore[arg-type]
+        )
+
+    assert not root.exists()
+
+
+class _FailingInferencePolicy(Policy):
+    def save(self, path):
+        Path(path).write_bytes(b"partial policy")
+        raise RuntimeError("simulated inference serialization failure")
+
+
+def test_failed_inference_bundle_save_leaves_no_partial_destination(tmp_path) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(_FailingInferencePolicy(), feature_indices=(0,))
+
+    with pytest.raises(RuntimeError, match="serialization"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
 @pytest.mark.parametrize(
     ("observation_shape", "action_n", "action_start"),
     (
@@ -292,3 +371,100 @@ def test_inference_bundle_rejects_incompatible_policy_spaces_before_creation(
         )
 
     assert not root.exists()
+
+
+def _install_policy_loader(monkeypatch) -> None:
+    Policy.loaded = False
+    Policy.load_device = None
+    Policy.load_path = None
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+
+
+def _save_artifact_for_load_boundary(
+    tmp_path,
+    monkeypatch,
+    artifact_kind,
+):
+    _install_policy_loader(monkeypatch)
+    root = tmp_path / artifact_kind
+    if artifact_kind == "normalized":
+        strategy = PPOIntentStrategy(
+            Policy(),
+            feature_indices=(0,),
+            feature_normalizer=_fit(),
+        )
+        digest = save_normalized_ppo(root, strategy)
+    else:
+        strategy = PPOIntentStrategy(Policy(), feature_indices=(0,))
+        digest = save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+    return root, digest
+
+
+def _load_artifact_for_boundary(root, digest, artifact_kind):
+    if artifact_kind == "normalized":
+        return load_normalized_ppo(
+            root,
+            expected_digest=digest,
+            feature_names=("signal",),
+        )
+    return load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=("signal",),
+    )
+
+
+@pytest.mark.parametrize("artifact_kind", ("normalized", "inference"))
+@pytest.mark.parametrize("member_name", ("manifest.json", "policy.zip"))
+def test_ppo_artifact_load_rejects_symlink_members_before_policy_deserialization(
+    tmp_path,
+    monkeypatch,
+    artifact_kind,
+    member_name,
+) -> None:
+    root, digest = _save_artifact_for_load_boundary(
+        tmp_path,
+        monkeypatch,
+        artifact_kind,
+    )
+    member = root / member_name
+    external = tmp_path / f"external-{artifact_kind}-{member_name}"
+    external.write_bytes(member.read_bytes())
+    member.unlink()
+    member.symlink_to(external)
+    Policy.loaded = False
+    Policy.load_path = None
+
+    with pytest.raises(ValueError, match="symlink|regular file"):
+        _load_artifact_for_boundary(root, digest, artifact_kind)
+
+    assert Policy.loaded is False
+    assert Policy.load_path is None
+
+
+@pytest.mark.parametrize("artifact_kind", ("normalized", "inference"))
+def test_ppo_artifact_load_deserializes_only_verified_private_policy_copy(
+    tmp_path,
+    monkeypatch,
+    artifact_kind,
+) -> None:
+    root, digest = _save_artifact_for_load_boundary(
+        tmp_path,
+        monkeypatch,
+        artifact_kind,
+    )
+
+    _load_artifact_for_boundary(root, digest, artifact_kind)
+
+    assert Policy.load_path is not None
+    assert Policy.load_path != root / "policy.zip"
+    assert not Policy.load_path.exists()

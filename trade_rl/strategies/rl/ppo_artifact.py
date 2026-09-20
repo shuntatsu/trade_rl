@@ -6,12 +6,17 @@ import importlib
 import json
 import shutil
 import tempfile
-from hashlib import sha256
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts.verified_file import (
+    file_digest,
+    open_regular_binary,
+    verified_private_copy,
+)
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     ppo_observation_contract_payload,
@@ -20,6 +25,19 @@ from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
 _SCHEMA = "ppo_normalized_model_v1"
 _INFERENCE_SCHEMA = "ppo_inference_bundle_v1"
+
+
+def _read_regular_bytes(path: Path, *, field: str) -> bytes:
+    with open_regular_binary(path, field=field) as stream:
+        return stream.read()
+
+
+def _matches_integer(value: object, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, Integral)
+        and int(value) == expected
+    )
 
 
 def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
@@ -33,9 +51,13 @@ def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
     except (AttributeError, TypeError) as error:
         raise ValueError("policy spaces differ from the PPO contract") from error
     if (
-        observation_shape != (3 * feature_count + 2,)
-        or action_count != 3
-        or action_start != 0
+        len(observation_shape) != 1
+        or not _matches_integer(
+            observation_shape[0],
+            3 * feature_count + 2,
+        )
+        or not _matches_integer(action_count, 3)
+        or not _matches_integer(action_start, 0)
     ):
         raise ValueError("policy spaces differ from the PPO contract")
 
@@ -63,7 +85,10 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
             "schema": _SCHEMA,
             "observation": ppo_observation_contract_payload(),
             "normalizer": normalizer.to_payload(),
-            "policy_sha256": sha256(policy_path.read_bytes()).hexdigest(),
+            "policy_sha256": file_digest(
+                policy_path,
+                field="normalized PPO policy",
+            ),
         }
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
@@ -80,7 +105,10 @@ def load_normalized_ppo(
 ) -> PPOIntentStrategy:
     """Verify the pinned bundle and feed schema before deserializing a policy."""
     require_sha256(expected_digest, field="expected_digest")
-    raw = (root / "manifest.json").read_bytes()
+    raw = _read_regular_bytes(
+        root / "manifest.json",
+        field="normalized PPO manifest",
+    )
     manifest = json.loads(raw)
     if (
         not isinstance(manifest, dict)
@@ -99,12 +127,16 @@ def load_normalized_ppo(
     ):
         raise ValueError("feed feature schema differs from fitted normalization")
     policy_path = root / "policy.zip"
-    if sha256(policy_path.read_bytes()).hexdigest() != manifest["policy_sha256"]:
-        raise ValueError("policy bytes differ from the normalized model manifest")
-    model = _load_ppo_policy(
+    with verified_private_copy(
         policy_path,
-        feature_count=len(normalizer.feature_indices),
-    )
+        expected_digest=manifest["policy_sha256"],
+        field="normalized PPO policy",
+        filename="policy.zip",
+    ) as verified_policy:
+        model = _load_ppo_policy(
+            verified_policy,
+            feature_count=len(normalizer.feature_indices),
+        )
     return PPOIntentStrategy(
         model,
         feature_indices=normalizer.feature_indices,
@@ -119,8 +151,8 @@ def _validated_feed_feature_names(
     names = tuple(feature_names)
     if (
         not names
-        or len(set(names)) != len(names)
         or any(not isinstance(name, str) or not name for name in names)
+        or len(set(names)) != len(names)
     ):
         raise ValueError("feature_names must be non-empty unique strings")
     indices = tuple(feature_indices)
@@ -185,7 +217,10 @@ def save_ppo_inference_bundle(
             "feature_indices": list(indices),
             "feature_names": list(selected_names),
             "normalizer": None if normalizer is None else normalizer.to_payload(),
-            "policy_sha256": sha256(policy_path.read_bytes()).hexdigest(),
+            "policy_sha256": file_digest(
+                policy_path,
+                field="PPO inference policy",
+            ),
         }
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
@@ -206,7 +241,10 @@ def load_ppo_inference_bundle(
     """Verify a PPO inference bundle and current feed schema before policy load."""
 
     require_sha256(expected_digest, field="expected_digest")
-    raw = (root / "manifest.json").read_bytes()
+    raw = _read_regular_bytes(
+        root / "manifest.json",
+        field="PPO inference manifest",
+    )
     manifest = json.loads(raw)
     expected_keys = {
         "schema",
@@ -263,9 +301,13 @@ def load_ppo_inference_bundle(
             )
 
     policy_path = root / "policy.zip"
-    if sha256(policy_path.read_bytes()).hexdigest() != manifest["policy_sha256"]:
-        raise ValueError("policy bytes differ from the PPO inference manifest")
-    model = _load_ppo_policy(policy_path, feature_count=len(indices))
+    with verified_private_copy(
+        policy_path,
+        expected_digest=manifest["policy_sha256"],
+        field="PPO inference policy",
+        filename="policy.zip",
+    ) as verified_policy:
+        model = _load_ppo_policy(verified_policy, feature_count=len(indices))
     return PPOIntentStrategy(
         model,
         feature_indices=indices,

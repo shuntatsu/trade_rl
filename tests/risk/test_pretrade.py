@@ -98,7 +98,6 @@ def test_risk_target_rejects_mismatched_pipeline_stage_shapes() -> None:
         )
 
 
-
 def test_default_for_execution_owns_training_replay_risk_semantics() -> None:
     risk = PreTradeRisk.default_for_execution(max_leverage=0.75)
 
@@ -116,6 +115,4 @@ def test_default_for_execution_owns_training_replay_risk_semantics() -> None:
 
     for invalid in (0.0, -1.0, float("inf"), float("nan"), True):
         with pytest.raises(ValueError):
-            PreTradeRisk.default_for_execution(
-                max_leverage=invalid  # type: ignore[arg-type]
-            )
+            PreTradeRisk.default_for_execution(max_leverage=invalid)  # type: ignore[arg-type]

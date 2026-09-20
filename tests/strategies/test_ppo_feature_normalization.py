@@ -3,9 +3,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import FeatureKind
 from tests.strategies.test_ppo_interleaved_training import (
     FakeDummyVecEnv,
     FakePPO,
+    _ppo_identity_market,
     install_fake_sb3,
     pooled_market,
 )
@@ -221,3 +223,14 @@ def test_metadata_count_rows_must_be_json_arrays() -> None:
     payload["usable_counts"] = [{3: "wrong container"}]
     with pytest.raises(ValueError, match="array"):
         PPOFeatureNormalizer.from_payload(payload)
+
+
+def test_normalizer_rejects_universe_dependency_outside_fit_scope() -> None:
+    with pytest.raises(ValueError, match="outside fit symbol scope"):
+        fit_ppo_feature_normalizer(
+            _ppo_identity_market(FeatureKind.CROSS_ASSET_DISPERSION),
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+        )

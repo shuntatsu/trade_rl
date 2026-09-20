@@ -59,3 +59,36 @@ def test_content_identity_round_trip_recomputes_all_arrays(tmp_path: Path) -> No
             dataset_id="f" * 64,
             fee_rate=np.full((restored.n_bars, restored.n_symbols), 0.002),
         )
+
+
+def test_content_identified_dataset_arrays_cannot_be_reenabled_for_write() -> None:
+    market = dataset(fee_rate=0.001).with_content_identity({"source": "unit-test"})
+
+    arrays = (
+        market.timestamps,
+        market.features,
+        market.global_features,
+        market.close,
+        market.tradable,
+        market.feature_available,
+        market.fee_rate,
+        market.information_available,
+        market.contract_multipliers,
+    )
+    for array in arrays:
+        assert array.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            array.setflags(write=True)
+
+
+def test_market_dataset_internal_caches_are_deeply_immutable() -> None:
+    market = dataset().with_content_identity({"source": "unit-test"})
+
+    for array in (
+        market._timestamp_ns,
+        market._eligibility_invalid_prefix,
+        market._feature_invalid_prefix,
+    ):
+        assert array.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            array.setflags(write=True)

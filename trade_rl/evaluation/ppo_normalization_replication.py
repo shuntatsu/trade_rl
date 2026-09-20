@@ -109,8 +109,7 @@ def expected_ppo_normalization_protocol() -> dict[str, object]:
                 "intervals": 17_544,
             },
             "fit_scope": (
-                "source_study_baseline_config.feature_indices/"
-                "fit_symbol_indices/fit_cutoff"
+                "source_study_baseline_config.feature_indices/fit_symbol_indices/fit_cutoff"
             ),
             "observation": ppo_observation_contract_payload(),
         },

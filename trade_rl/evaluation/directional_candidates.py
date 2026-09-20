@@ -141,6 +141,7 @@ def fit_directional_candidate(
         execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
         training_layout="sequential",
         risk_config=ppo_risk_config,
+        settle_terminal_position=True,
     )
     getattr(ppo.policy, "save")(str(output / "model.zip"))
     return lambda: PPOIntentStrategy(ppo.policy, feature_indices=config.feature_indices)

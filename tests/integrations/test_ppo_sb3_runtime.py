@@ -412,3 +412,41 @@ def test_real_interleaved_ppo_runs_with_terminal_settlement() -> None:
     assert strategy.feature_normalizer.stop_index == 2
     assert strategy.policy.num_timesteps == 64
     assert strategy.policy.device.type == "cpu"
+
+
+def test_real_ppo_algorithm_contract_matches_frozen_values() -> None:
+    pytest.importorskip("stable_baselines3")
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=89,
+    )
+    model = strategy.policy
+
+    assert model.learning_rate == pytest.approx(3e-4)
+    assert model.n_steps == 2048
+    assert model.batch_size == 64
+    assert model.n_epochs == 10
+    assert model.gamma == pytest.approx(0.99)
+    assert model.gae_lambda == pytest.approx(0.95)
+    assert model.clip_range(1.0) == pytest.approx(0.2)
+    assert model.clip_range_vf is None
+    assert model.normalize_advantage is True
+    assert model.ent_coef == pytest.approx(0.0)
+    assert model.vf_coef == pytest.approx(0.5)
+    assert model.max_grad_norm == pytest.approx(0.5)
+    assert model.use_sde is False
+    assert model.sde_sample_freq == -1
+    assert model.target_kl is None
+    torch = pytest.importorskip("torch")
+    assert model.policy.activation_fn is torch.nn.Tanh
+    assert model.policy.ortho_init is True
+    assert model.policy.features_extractor.__class__.__name__ == "FlattenExtractor"
+    assert model.policy.share_features_extractor is True
+    assert isinstance(model.policy.optimizer, torch.optim.Adam)
+    assert model.policy.optimizer.defaults["eps"] == pytest.approx(1e-5)

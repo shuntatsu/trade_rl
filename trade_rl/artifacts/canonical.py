@@ -9,108 +9,11 @@ from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, NoReturn, Self, SupportsIndex, TypeAlias, TypeVar, cast
+from types import MappingProxyType
+from typing import Any, TypeAlias, cast
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
-
-_K = TypeVar("_K")
-_V = TypeVar("_V")
-
-
-class FrozenDict(dict[_K, _V], Generic[_K, _V]):
-    """Read-compatible dict whose contents cannot change after construction."""
-
-    @staticmethod
-    def _reject() -> NoReturn:
-        raise TypeError("frozen mapping does not support mutation")
-
-    def __setitem__(self, key: _K, value: _V) -> NoReturn:
-        del key, value
-        self._reject()
-
-    def __delitem__(self, key: _K) -> NoReturn:
-        del key
-        self._reject()
-
-    def clear(self) -> NoReturn:
-        self._reject()
-
-    def pop(self, *args: Any, **kwargs: Any) -> NoReturn:
-        del args, kwargs
-        self._reject()
-
-    def popitem(self) -> NoReturn:
-        self._reject()
-
-    def setdefault(self, *args: Any, **kwargs: Any) -> NoReturn:
-        del args, kwargs
-        self._reject()
-
-    def update(self, *args: Any, **kwargs: Any) -> NoReturn:
-        del args, kwargs
-        self._reject()
-
-    def __ior__(self, other: dict[_K, _V]) -> Self:
-        del other
-        self._reject()
-
-
-class FrozenList(list[_V], Generic[_V]):
-    """Read-compatible list whose contents cannot change after construction."""
-
-    @staticmethod
-    def _reject() -> NoReturn:
-        raise TypeError("frozen sequence does not support mutation")
-
-    def __setitem__(self, key: Any, value: Any) -> NoReturn:
-        del key, value
-        self._reject()
-
-    def __delitem__(self, key: Any) -> NoReturn:
-        del key
-        self._reject()
-
-    def __iadd__(self, other: list[_V]) -> Self:
-        del other
-        self._reject()
-
-    def __imul__(self, value: SupportsIndex) -> Self:
-        del value
-        self._reject()
-
-    def append(self, value: _V) -> NoReturn:
-        del value
-        self._reject()
-
-    def clear(self) -> NoReturn:
-        self._reject()
-
-    def extend(self, values: Any) -> NoReturn:
-        del values
-        self._reject()
-
-    def insert(self, index: SupportsIndex, value: _V) -> NoReturn:
-        del index, value
-        self._reject()
-
-    def pop(self, index: SupportsIndex = -1) -> NoReturn:
-        del index
-        self._reject()
-
-    def remove(self, value: _V) -> NoReturn:
-        del value
-        self._reject()
-
-    def reverse(self) -> NoReturn:
-        self._reject()
-
-    def sort(self, *args: Any, **kwargs: Any) -> NoReturn:
-        del args, kwargs
-        self._reject()
-
-
-FrozenJsonValue: TypeAlias = JsonScalar | FrozenList[object] | FrozenDict[str, object]
 
 
 def _datetime_value(value: datetime) -> str:
@@ -164,19 +67,21 @@ def to_json_value(value: object) -> JsonValue:
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")
 
 
-def freeze_json_value(value: object) -> FrozenJsonValue:
+def freeze_json_value(value: object) -> object:
     """Canonicalize one JSON-compatible value into deep read-only containers."""
 
     normalized = to_json_value(value)
 
-    def freeze(item: JsonValue) -> FrozenJsonValue:
+    def freeze_item(item: JsonValue) -> object:
         if isinstance(item, dict):
-            return FrozenDict({key: freeze(child) for key, child in item.items()})
+            return MappingProxyType(
+                {key: freeze_item(child) for key, child in item.items()}
+            )
         if isinstance(item, list):
-            return FrozenList(freeze(child) for child in item)
+            return tuple(freeze_item(child) for child in item)
         return item
 
-    return freeze(normalized)
+    return freeze_item(normalized)
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -194,9 +99,6 @@ def canonical_json_bytes(value: object) -> bytes:
 
 
 __all__ = [
-    "FrozenDict",
-    "FrozenJsonValue",
-    "FrozenList",
     "JsonScalar",
     "JsonValue",
     "canonical_json_bytes",

@@ -187,6 +187,7 @@ def test_default_fit_preserves_single_env_and_default_rollout_kwargs(
     assert fitted.kwargs["device"] == "cpu"
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)
+    assert strategy.feature_names == ("signal",)
 
 
 def test_default_fit_preserves_stochastic_execution_support(

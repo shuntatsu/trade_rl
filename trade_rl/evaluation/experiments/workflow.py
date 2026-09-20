@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
     MarketDataset,
@@ -233,6 +235,14 @@ def create_study(
             final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
             schema_version=plan_schema,
         )
+        if plan.final_evaluation_start is not None:
+            final_start = np.datetime64(plan.final_evaluation_start, "ns")
+            dataset_last = np.datetime64(dataset.timestamps[-1], "ns")
+            if final_start <= dataset_last:
+                raise ContractViolationError(
+                    "final evaluation start must be later than every timestamp "
+                    "in the development Dataset"
+                )
         store.publish_json_once("plan.json", plan.to_payload())
         return _reconstruct(store).snapshot(store.root)
 

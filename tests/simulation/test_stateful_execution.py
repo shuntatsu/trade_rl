@@ -135,6 +135,100 @@ def test_partial_limit_fill_carries_to_next_processing_bar() -> None:
     assert second.book.quantities[0] == pytest.approx(3.0)
 
 
+def test_later_symbol_fill_preserves_prior_symbol_fill_mark_for_margin() -> None:
+    n_bars = 4
+    shape = (n_bars, 2)
+    open_price = np.full(shape, 100.0)
+    high = open_price.copy()
+    high[1:, 0] = 120.0
+    low = open_price.copy()
+    close = open_price.copy()
+    close[1:, 0] = 120.0
+    dataset = MarketDataset(
+        dataset_id="a" * 64,
+        symbols=("STOP", "MARKET"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 2, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=np.full(shape, 1_000_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            max_participation_rate=1.0,
+            max_leverage=3.0,
+            maintenance_margin_rate=0.56,
+            path_mode="conservative",
+            processing_bar_volume_capacity=True,
+            partial_fill_carry=True,
+            trigger_volume_fractions=(1.0, 1.0, 1.0, 1.0),
+        ),
+    )
+    stop = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="stop-entry",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=10.0,
+        order_type=OrderType.STOP_MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=110.0,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    market = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="market-entry",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=1,
+        requested_quantity=5.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+
+    result = executor.execute_orders(
+        BookState.zero(
+            2,
+            1_000.0,
+            dataset.close[0],
+            dataset.resolved_array("contract_multipliers"),
+        ),
+        OrderBookState.empty(),
+        (stop, market),
+        start_index=0,
+        bars=1,
+    )
+
+    np.testing.assert_allclose(result.book.quantities, [10.0, 5.0])
+    np.testing.assert_allclose(result.book.mark_prices, [120.0, 100.0])
+    assert result.book.cash == pytest.approx(-700.0)
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+    assert result.termination_reason is None
+
+
 def test_processing_bar_volume_not_preceding_bar_controls_capacity() -> None:
     volume = np.full((6, 1), 1_000.0)
     volume[0, 0] = 100.0

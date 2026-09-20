@@ -82,6 +82,8 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
 
 ## Initial semantic invariant catalog
 
+**catalog membership does not mean PASS.** ここにInvariantが定義されていること自体は、全production pathでその保証が成立した証拠ではない。具体的な変更・研究ごとにscopeを特定し、current sourceへbindされたCounterexample / Oracle evidenceを示して初めて `PASS` とする。該当pathに十分なcurrent oracleがない場合は `NOT ESTABLISHED` とし、別componentのregression testを横流しして保証済みと扱わない。
+
 ### CAUSAL-001 — temporal non-interference
 
 **Statement:** 時刻 `t` までの利用可能情報が同一なら、`t` より後のmarket data、labels、depth、funding、他symbolのfuture pathを変更しても、`t` までのfeature、observation、action、submitted orderは変化してはならない。

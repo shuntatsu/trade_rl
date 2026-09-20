@@ -25,7 +25,9 @@ def _validate_policy_spaces(
     normalizer: PPOFeatureNormalizer,
 ) -> None:
     try:
-        observation_shape = tuple(getattr(getattr(policy, "observation_space"), "shape"))
+        observation_shape = tuple(
+            getattr(getattr(policy, "observation_space"), "shape")
+        )
         action_space = getattr(policy, "action_space")
         action_count = getattr(action_space, "n")
         action_start = getattr(action_space, "start")

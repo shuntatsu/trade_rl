@@ -80,6 +80,46 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+
+## AI adversarial review
+
+研究仮説、data availability、capital/observation/action/reward/risk/execution/accounting semanticsを新設・変更する場合、G4のeconomic resultを生成・閲覧する前に、**fresh reviewer context** のAIへG0-G2のadversarial reviewを依頼する。可能なsurfaceでは実装Workerと別のAI reviewer/sessionを使い、reviewerは対象branchへwriteしない **read-only** roleとする。独立したreviewer surfaceを利用できない場合、その独立性を捏造せず明示する。
+
+AIへ渡す **result-blind review packet** は、少なくとも次に限定する。
+
+- Research Question ContractとMechanism Contract。
+- exact target revisionと、関連するcurrent source / tests / authoritative docs。
+- data source、timestamp、availability、artifact/provenanceの非経済的な証拠。
+- 既知のfailure mode、semantic invariant、Counterexample、machine Test Oracle。
+- known limitationsと、既に未確認と分かっている項目。
+
+development/final P&L、return、Sharpe、winner/loser、candidate ranking、economic comparisonの数値や、それらを暗示するresult labelをreview packetへ入れない。AI reviewerが既に経済結果を知っている場合は、result-blind reviewとして扱わず、別のfresh reviewerを使うか `NOT ESTABLISHED` とする。
+
+AI reviewerは、少なくとも次を攻撃する。
+
+1. objectiveと最終運用目的のずれ、proxy / Goodhart経路。
+2. economic_hypothesis / causal_storyに必要な主体・制約・反対仮説の欠落。
+3. falsifierが結果後に逃げられる形になっていないか。
+4. training / evaluation / deploymentのcapital、observation、action、reward、risk、execution、accounting、clock不一致。
+5. event time、source availability、receipt timeの混同。
+6. aggregate metricでsymbol/period/direction/cost concentrationを隠す経路。
+7. productionとtestが同じ誤解を共有するself-confirming oracle。
+8. unused data、controlled factor、implementation identityを結果後に読み替える経路。
+9. 「実装できた」「CIがGreen」「利益が出た」を、本来証明していない主張へ昇格する経路。
+
+review outputはscoreや総合点ではなく、少なくとも次を含める。
+
+- G0 / G1 / G2ごとの `PASS` / `FAIL` / `NOT ESTABLISHED` / `NOT APPLICABLE` と根拠。
+- **strongest counterexample** — 現在の主張を最も小さく壊せる反例。
+- **missing evidence** — PASSに不足している独立証拠。
+- **claim downgrade** — 現状の証拠で許される、より弱い主張。
+- 追加すべきmachine oracle / falsification test。
+- `what_this_cannot_prove` と残存risk。
+
+**AI review is not an authority.** AIの文章、confidence、賛成意見だけでG2をPASSにしない。G2のPASSはcurrent sourceへbindされたmachine test、独立oracle、保存則、integration evidence等を必要とする。AIが問題を発見した場合は修正・反証・再reviewを行うが、AIが問題を発見しなかったことを「正しさの証明」と呼ばない。
+
+AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitしない。durableに残す必要があるのは、発見されたsemantic invariant、Counterexample、必要なoracle、PR上の短いreview outcomeである。review targetのHEADやResearch/Mechanism Contractが変わったら古いAI reviewを再利用せず、変更後のresult-blind packetで再reviewする。
+
 ## Initial semantic invariant catalog
 
 **catalog membership does not mean PASS.** ここにInvariantが定義されていること自体は、全production pathでその保証が成立した証拠ではない。具体的な変更・研究ごとにscopeを特定し、current sourceへbindされたCounterexample / Oracle evidenceを示して初めて `PASS` とする。該当pathに十分なcurrent oracleがない場合は `NOT ESTABLISHED` とし、別componentのregression testを横流しして保証済みと扱わない。

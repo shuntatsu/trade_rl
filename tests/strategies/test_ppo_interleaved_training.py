@@ -489,7 +489,6 @@ def test_interleaved_normalized_envs_share_fit_information_scope(
         assert env.feature_normalizer is strategy.feature_normalizer
 
 
-
 def test_direct_ppo_env_rejects_normalizer_from_broader_information_scope() -> None:
     dataset = _ppo_identity_market(FeatureKind.LOG_RETURN)
     normalizer = fit_ppo_feature_normalizer(
@@ -511,6 +510,7 @@ def test_direct_ppo_env_rejects_normalizer_from_broader_information_scope() -> N
             gross_budget=0.5,
             feature_normalizer=normalizer,
         )
+
 
 def _long_pooled_market(n_bars: int = 3_001) -> MarketDataset:
     close = np.full((n_bars, 2), 100.0, dtype=np.float64)

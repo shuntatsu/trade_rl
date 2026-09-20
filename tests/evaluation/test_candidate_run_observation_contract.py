@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.canonical import to_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.runs.artifact import (
     inspect_candidate_run_artifact,
@@ -201,7 +202,7 @@ def test_candidate_v2_requires_and_loads_exact_observation_contract(
     loaded = load_candidate_run_artifact(root)
     identity = inspect_candidate_run_artifact(root)
 
-    assert loaded.summary["ppo_observation"] == ppo_observation_contract_payload()
+    assert to_json_value(loaded.summary["ppo_observation"]) == ppo_observation_contract_payload()
     assert identity.result_schema_version == "lean_candidate_result_v2"
 
 

@@ -21,6 +21,7 @@ from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,
+    compare_strategy_factories_by_symbol,
 )
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.gates import resolve_gate
@@ -87,6 +88,7 @@ __all__ = [
     "compare_paired_returns",
     "compare_strategies",
     "compare_strategies_by_symbol",
+    "compare_strategy_factories_by_symbol",
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_performance",

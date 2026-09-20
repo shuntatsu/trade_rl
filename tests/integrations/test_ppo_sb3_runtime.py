@@ -413,6 +413,7 @@ def test_real_interleaved_ppo_runs_with_terminal_settlement() -> None:
     assert strategy.policy.num_timesteps == 64
     assert strategy.policy.device.type == "cpu"
 
+
 def test_real_ppo_constructor_contract_is_explicit() -> None:
     pytest.importorskip("stable_baselines3")
     torch = pytest.importorskip("torch")

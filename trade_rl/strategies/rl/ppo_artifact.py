@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
@@ -125,7 +126,7 @@ def _load_ppo_policy(
     policy_path: Path,
     *,
     feature_count: int,
-) -> object:
+) -> Any:
     module = importlib.import_module("stable_baselines3")
     torch_module = importlib.import_module("torch")
     getattr(torch_module, "set_num_threads")(1)

@@ -18,7 +18,9 @@ from trade_rl.strategies.rl.ppo import (
 )
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
+    load_ppo_inference_bundle,
     save_normalized_ppo,
+    save_ppo_inference_bundle,
 )
 
 
@@ -94,6 +96,40 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     }
     assert model.device.type == "cpu"
     assert model.num_timesteps == 16
+
+
+def test_real_sequential_normalized_fit_keeps_verified_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)
+
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(1, 0),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=19,
+        normalize_features=True,
+    )
+
+    vector = strategy.policy.get_env()
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (1, 0)
+    assert len(vector.envs) == 1
+
+    env = vector.envs[0].unwrapped
+    assert isinstance(env, PPOTradingEnv)
+    assert env.symbol_indices == (1, 0)
+    assert env.information_symbol_indices == (1, 0)
+    assert env.feature_normalizer is strategy.feature_normalizer
+
+    _first_observation, first_info = env.reset(seed=19)
+    _second_observation, second_info = env.reset()
+    assert first_info["symbol"] == "ETHUSDT"
+    assert second_info["symbol"] == "BTCUSDT"
 
 
 def test_real_sb3_interleaved_fit_preserves_verified_information_scope() -> None:
@@ -620,3 +656,72 @@ def test_explicit_ppo_constructor_matches_pinned_implicit_training_update() -> N
     assert implicit_state.keys() == explicit_state.keys()
     for name in implicit_state:
         assert torch.equal(implicit_state[name], explicit_state[name]), name
+
+
+def test_real_raw_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=29,
+    )
+
+    root = tmp_path / "raw-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.feature_normalizer is None
+    assert loaded.policy.device.type == "cpu"
+
+
+def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=37,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    root = tmp_path / "normalized-inference-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.feature_normalizer == strategy.feature_normalizer
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.policy.device.type == "cpu"

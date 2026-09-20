@@ -94,11 +94,16 @@ the returned strategy share that fitted transform. Missing inputs stay zero,
 and masks/staleness/intent/weight keep their v2 semantics. The default remains
 the raw v2 encoder and persisted default observation payload.
 
-Normalized models require their preprocessing state. `save_normalized_ppo` binds
-policy bytes and transform metadata in a write-once bundle. `load_normalized_ppo`
-requires the expected manifest digest and the feed's full ordered feature names,
-checks both before policy deserialization, and validates policy spaces. Changing
-evaluation statistics or loading a model without its transform is not supported.
+Persisted PPO inference must bind feature semantics as well as model bytes. The
+current `ppo_inference_bundle_v1` is write-once and supports both raw and
+normalized PPO: it binds policy bytes, Observation v2, selected feature
+indices/names and the optional fitted normalizer under one manifest digest.
+`load_ppo_inference_bundle` requires that digest and the current feed's ordered
+feature names, rejects selected-feature semantic drift before policy
+deserialization, verifies policy bytes and SB3 spaces, and restores inference on
+CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
+`load_normalized_ppo`; historical standalone research `model.zip` evidence is
+not silently promoted to an inference-safe bundle.
 
 PPO environment/fitter callers can explicitly provide an immutable
 `PreTradeRiskConfig` via `risk_config`. The same configuration applies when the

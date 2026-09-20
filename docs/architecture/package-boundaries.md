@@ -184,8 +184,11 @@ from the existing absolute qualification gate.
 `strategies/rl/ppo_normalization.py` owns optional fit-only local-feature
 standardization and its immutable metadata. `ppo.py` applies one shared fitted
 transform in training and inference while keeping the raw v2 default unchanged.
-`ppo_artifact.py` binds normalized policy bytes and preprocessing metadata under
-one manifest digest; load validates that digest and the feed feature schema.
+`ppo_artifact.py` owns durable PPO inference bundles. The current bundle binds
+raw or normalized policy bytes, Observation v2, selected feature semantics and
+optional preprocessing metadata under one manifest digest; load validates that
+digest, feed feature schema and policy spaces before inference. The historical
+normalized-only bundle remains a compatibility reader/writer contract.
 
 `integrations/binance/book_depth.py` と `integrations/binance/agg_trades.py` は、Binance Visionのprovider-specific historical evidenceを所有し、`MarketDataset` assemblyやexecution/P&L semanticsから分離する。
 

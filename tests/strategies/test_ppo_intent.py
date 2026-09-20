@@ -418,3 +418,21 @@ def test_ppo_fixed_drawdown_does_not_compound_risk_scale() -> None:
     assert first["target_weight"] == pytest.approx(0.5)
     assert second["target_weight"] == pytest.approx(0.20588235294117646)
     assert third["target_weight"] == pytest.approx(second["target_weight"])
+
+
+def test_ppo_strategy_feature_contract_is_read_only() -> None:
+    strategy = PPOIntentStrategy(
+        FakePolicy(1),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
+
+    with pytest.raises(AttributeError):
+        strategy.feature_indices = (1,)  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        strategy.feature_names = ("other",)  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        strategy.feature_normalizer = None  # type: ignore[misc]
+
+    assert strategy.feature_indices == (0,)
+    assert strategy.feature_names == ("signal",)

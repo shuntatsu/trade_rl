@@ -316,6 +316,22 @@ export. Replay authority is the inference `bundle/policy.zip`; the assembled
 arm's `model.zip` is a verified copy of that inference policy. The diagnostic
 export is not loaded for replay or treated as a second candidate.
 
+The manual `.github/workflows/ppo-feature-checkpoint.yml` workflow transports
+this study between GitHub-hosted runners. Repository tooling at
+`tools/ppo_checkpoint_actions.py` verifies the source and checkpoint artifact
+identities and archive bytes, stages files without conflicting overwrites,
+and invokes the existing checkpoint commands. It owns remote transport and
+process limits, not training, accounting, comparison, or research admission.
+Published checkpoint roots retain their original protocol; changing hosts does
+not permit a source or runtime mismatch. Completed evidence is reused only
+through the checkpoint runner's validators.
+Fresh replay strategy wrappers preserve the verified policy's fitted feature
+names as well as its indices and normalizer, matching the strategy-owned
+schema contract used by inference bundle publication.
+Transport receipts also bind the actual checkout and workflow revision. A
+failed producer job may supply a completed checkpoint, but its failure status
+must remain visible; a success conclusion is not an evidence-integrity oracle.
+
 ## Dependency direction
 
 `tests/architecture/test_lean_dependency_boundaries.py` が実行可能な正本であり、少なくとも次を禁止する。

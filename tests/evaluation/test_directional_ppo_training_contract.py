@@ -45,7 +45,12 @@ def test_directional_ppo_training_uses_same_borrow_economics_as_evaluation(
     def fake_fit_ppo_strategy(*args, **kwargs):
         del args
         captured.update(kwargs)
-        return SimpleNamespace(policy=_Policy())
+        return SimpleNamespace(
+            policy=_Policy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            feature_normalizer=None,
+        )
 
     monkeypatch.setattr(
         directional_candidates,

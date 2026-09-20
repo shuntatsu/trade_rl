@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -725,3 +726,62 @@ def test_real_normalized_ppo_roundtrips_schema_bound_inference_bundle(
     assert loaded.feature_normalizer == strategy.feature_normalizer
     assert loaded.decide(_observation()) is strategy.decide(_observation())
     assert loaded.policy.device.type == "cpu"
+
+
+def test_real_ppo_fit_is_invariant_to_holdout_only_mutation() -> None:
+    pytest.importorskip("stable_baselines3")
+    torch = pytest.importorskip("torch")
+    base = _content_verified_market(FeatureKind.LOG_RETURN)
+
+    features = np.array(base.features, copy=True)
+    features[:, 1, 0] = np.asarray([10_000.0, -20_000.0, 30_000.0, -40_000.0])
+    multiplier = np.asarray([3.0, 7.0, 11.0, 17.0])
+    price_fields: dict[str, np.ndarray] = {}
+    for name in ("open", "high", "low", "close"):
+        values = np.array(getattr(base, name), copy=True)
+        values[:, 1] *= multiplier
+        price_fields[name] = values
+    funding = np.array(base.funding_rate, copy=True)
+    funding[:, 1] = np.asarray([0.5, -0.75, 1.25, -1.5])
+
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec(name="signal", kind=FeatureKind.LOG_RETURN),),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    mutated = replace(
+        base,
+        identity_payload_json=None,
+        features=features,
+        funding_rate=funding,
+        **price_fields,
+    ).with_content_identity({"config": config.canonical_payload()})
+
+    def fit(dataset: MarketDataset):
+        return fit_ppo_strategy(
+            dataset,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.1,
+            total_timesteps=64,
+            seed=149,
+            training_layout="interleaved",
+            rollout_steps_per_env=64,
+            normalize_features=True,
+        )
+
+    original = fit(base)
+    changed = fit(mutated)
+
+    assert original.feature_normalizer is not None
+    assert changed.feature_normalizer is not None
+    assert original.feature_normalizer.mean == changed.feature_normalizer.mean
+    assert original.feature_normalizer.scale == changed.feature_normalizer.scale
+
+    original_state = original.policy.policy.state_dict()
+    changed_state = changed.policy.policy.state_dict()
+    assert original_state.keys() == changed_state.keys()
+    for name in original_state:
+        assert torch.equal(original_state[name], changed_state[name]), name

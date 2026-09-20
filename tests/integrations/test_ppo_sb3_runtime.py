@@ -18,7 +18,9 @@ from trade_rl.strategies.rl.ppo import (
 )
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
+    load_ppo_inference_bundle,
     save_normalized_ppo,
+    save_ppo_inference_bundle,
 )
 
 
@@ -173,6 +175,39 @@ def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(
     assert loaded.feature_normalizer == strategy.feature_normalizer
     assert loaded.policy.device.type == "cpu"
     assert torch.get_num_threads() == 1
+
+
+def test_real_raw_ppo_roundtrips_schema_bound_inference_bundle(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = pooled_market()
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=29,
+    )
+
+    root = tmp_path / "raw-ppo"
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=dataset.feature_names,
+    )
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=dataset.feature_names,
+    )
+
+    assert loaded.decide(_observation()) is strategy.decide(_observation())
+    assert loaded.feature_normalizer is None
+    assert loaded.policy.device.type == "cpu"
 
 
 def test_real_interleaved_fit_is_parameter_deterministic_for_same_seed() -> None:

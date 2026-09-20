@@ -20,6 +20,28 @@ Developmentとunused/final evaluationの間にhard gateを置く。
 - authorizationはStudy外の別rootへone-shotでpublishする。
 - read-back時にStudyPlan、StudyFreeze、winner evidence、winner strategy、window、authorization digest、canonical artifact bytesを再検証する。
 
+## Preregistration chain
+
+final-eligibleな新規research lineは、unused windowをdevelopment結果の後に選ばない。authority chainを次の順序で固定する。
+
+```text
+CanonicalM2BootstrapConfig v3
+  final_evaluation_start / final_evaluation_stop_exclusive
+        ↓ bootstrap config digest
+StudyPlan v2
+  canonical nanosecond final window
+        ↓ StudyPlan digest
+StudyFreeze(WINNER)
+        ↓ freeze digest + accepted winner lineage
+FinalEvaluationAuthorization
+```
+
+`canonical_m2_bootstrap_config_v3` はexecution economicsに加えてfinal windowを結果前configへbindする。bootstrapはそのwindowを `controlled_study_plan_v2` へcanonical nanosecond表現で移し、inspection時にもconfigとPlanの一致を再計算する。
+
+authorization時のcallerはwindowを選択できない。提示した `final_evaluation_start` / `final_evaluation_stop_exclusive` がStudyPlan v2と完全一致しなければ拒否し、artifactにはStudyPlanのwindowだけを保存する。
+
+historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな研究を行う場合は、結果前に新しいv3 bootstrap / v2 StudyPlanを作る。
+
 ## Non-goals / dependency boundary
 
 このpackageは次を所有しない。
@@ -56,6 +78,10 @@ window timestampはcanonical nanosecond表現を使う。final startはdevelopme
 ## State transition
 
 ```text
+bootstrap v3 / StudyPlan v2
+    |
+    | preregistered unused window
+    v
 Development Study
     |
     +-- unfrozen --------------------------X authorization
@@ -122,16 +148,18 @@ test oracleはauthorization前後でStudy treeの全file bytes/digestが同一�
 
 1. WINNER Studyだけがauthorizationできる。
 2. NO_WINNER / unfrozenを拒否する。
-3. development overlap / empty final windowを拒否する。
-4. pre-freeze authorization timestampを拒否する。
-5. publication後のread-backが同じcontractを再構築する。
-6. Study bytesがauthorization前後で不変である。
-7. 二回目の同一root publicationを拒否する。
-8. concurrent publicationで成功者を一つに限定する。
-9. rename直前に別publisherがtargetをclaimしたraceをone-shot conflictとして拒否する。
-10. JSON/body tamper、non-canonical rewrite、別Study substitution、symlink root/ancestorを拒否する。
-11. packageがdata/execution pathをimportしない。
-12. full repository CIでdevelopment Study semanticsがGreenのままである。
+3. legacy StudyPlan v1などpreregistered final windowを持たないStudyを拒否する。
+4. caller windowがStudyPlan v2のpreregistered windowと異なる場合を拒否する。
+5. development overlap / empty final windowを拒否する。
+6. pre-freeze authorization timestampを拒否する。
+7. publication後のread-backが同じcontractを再構築する。
+8. Study bytesがauthorization前後で不変である。
+9. 二回目の同一root publicationを拒否する。
+10. concurrent publicationで成功者を一つに限定する。
+11. rename直前に別publisherがtargetをclaimしたraceをone-shot conflictとして拒否する。
+12. JSON/body tamper、non-canonical rewrite、別Study substitution、symlink root/ancestorを拒否する。
+13. packageがdata/execution pathをimportしない。
+14. full repository CIでdevelopment Study semanticsがGreenのままである。
 
 ## Research assuranceとの関係
 

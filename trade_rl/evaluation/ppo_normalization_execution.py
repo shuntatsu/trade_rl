@@ -50,6 +50,8 @@ SEALED_PROTOCOL_SHA256 = (
 # A separate result-blind activation change must bind one exact reviewed digest.
 SEALED_EXECUTION_ACTIVATION_SHA256: str | None = None
 SLOT_RESULT_SCHEMA = "ppo_normalization_replication_result_v1"
+SLOT_VERIFICATION_SCHEMA = "ppo_normalization_replication_verification_v1"
+COMPARISON_SCHEMA = "ppo_normalization_replication_comparison_v1"
 
 
 class _ReplicationConfig(Protocol):
@@ -464,6 +466,67 @@ def replication_slot_state(
     }
 
 
+def _read_verified_record(
+    store: StudyStore,
+    spec: ReplicationArmSpec,
+    *,
+    result: dict[str, object],
+    result_raw: bytes,
+) -> dict[str, object]:
+    relative = _slot_relative(spec, "verified.json")
+    digest_relative = _slot_relative(spec, "verified.sha256.json")
+    path = store.root / relative
+    digest_path = store.root / digest_relative
+    if not path.exists() or not digest_path.exists():
+        raise ValueError(f"replication slot is not independently verified: {spec.slot}")
+    payload, raw = _read_canonical_json(
+        store,
+        relative,
+        field="replication verification record",
+    )
+    digest, _digest_raw = _read_canonical_json(
+        store,
+        digest_relative,
+        field="replication verification digest",
+    )
+    if digest != {"sha256": sha256(raw).hexdigest()}:
+        raise ValueError("replication verification digest mismatch")
+    expected_keys = {
+        "schema",
+        "slot",
+        "protocol_arm",
+        "seed",
+        "normalize_features",
+        "protocol_sha256",
+        "activation_digest",
+        "implementation_digest",
+        "result_sha256",
+        "bundle_digest",
+        "bundle_policy_sha256",
+        "no_refit",
+        "replay_verified",
+    }
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema") != SLOT_VERIFICATION_SCHEMA
+        or payload.get("slot") != spec.slot
+        or payload.get("protocol_arm") != spec.protocol_arm
+        or payload.get("seed") != spec.seed
+        or payload.get("normalize_features") is not spec.normalize_features
+        or payload.get("protocol_sha256") != SEALED_PROTOCOL_SHA256
+        or payload.get("activation_digest") != result.get("activation_digest")
+        or payload.get("implementation_digest") != result.get("implementation_digest")
+        or payload.get("result_sha256") != sha256(result_raw).hexdigest()
+        or payload.get("bundle_digest") != result.get("bundle_digest")
+        or payload.get("bundle_policy_sha256")
+        != result.get("bundle_policy_sha256")
+        or payload.get("no_refit") is not True
+        or payload.get("replay_verified") is not True
+    ):
+        raise ValueError("replication verification record differs from published result")
+    return payload
+
+
 def _result_total_return(row: dict[str, Any]) -> float:
     metrics = row.get("metrics")
     if not isinstance(metrics, dict):
@@ -578,7 +641,7 @@ def recompute_replication_decision(
     else:
         decision = "PROSPECTIVE_PAPER_REQUIRED"
     return {
-        "schema": "ppo_normalization_replication_comparison_v1",
+        "schema": COMPARISON_SCHEMA,
         "paired_return_deltas": paired,
         "paired_win_count": paired_win_count,
         "median_paired_total_return_delta": median_delta,
@@ -961,7 +1024,107 @@ def verify_replication_slot(
     }
     if canonical_json_bytes(replay) != canonical_json_bytes(recorded_replay):
         raise ValueError("fresh bundle replay differs from published result")
+    verification = {
+        "schema": SLOT_VERIFICATION_SCHEMA,
+        "slot": spec.slot,
+        "protocol_arm": spec.protocol_arm,
+        "seed": spec.seed,
+        "normalize_features": spec.normalize_features,
+        "protocol_sha256": SEALED_PROTOCOL_SHA256,
+        "activation_digest": expected_activation_digest,
+        "implementation_digest": implementation,
+        "result_sha256": sha256(result_raw).hexdigest(),
+        "bundle_digest": result.get("bundle_digest"),
+        "bundle_policy_sha256": result.get("bundle_policy_sha256"),
+        "no_refit": True,
+        "replay_verified": True,
+    }
+    with store.mutation_lock():
+        verification_path = _slot_relative(spec, "verified.json")
+        store.publish_json_once(verification_path, verification)
+        verification_raw = canonical_json_bytes(verification)
+        store.publish_json_once(
+            _slot_relative(spec, "verified.sha256.json"),
+            {"sha256": sha256(verification_raw).hexdigest()},
+        )
     return result
+
+
+def publish_replication_decision(root: Path) -> dict[str, object]:
+    """Publish a comparison only after all ten immutable results were verified."""
+
+    activation = _validate_execution_root(root)
+    implementation = activation.get("implementation_digest")
+    if not isinstance(implementation, str):
+        raise ValueError("activation implementation digest is malformed")
+    activation_digest = _sealed_execution_activation_digest()
+    store = StudyStore(root)
+    control: dict[int, dict[str, Any]] = {}
+    candidate: dict[int, dict[str, Any]] = {}
+    verified_slots: list[str] = []
+
+    for spec in replication_arm_specs():
+        state = replication_slot_state(root, spec)
+        if (
+            not state["consumed"]
+            or state["failed"]
+            or not state["result_published"]
+        ):
+            raise ValueError(f"replication slot is incomplete: {spec.slot}")
+        result, result_raw = _read_canonical_json(
+            store,
+            _slot_relative(spec, "result.json"),
+            field="replication slot result",
+        )
+        digest, _digest_raw = _read_canonical_json(
+            store,
+            _slot_relative(spec, "result.sha256.json"),
+            field="replication slot result digest",
+        )
+        if digest != {"sha256": sha256(result_raw).hexdigest()}:
+            raise ValueError("slot result digest mismatch")
+        if (
+            result.get("schema") != SLOT_RESULT_SCHEMA
+            or result.get("slot") != spec.slot
+            or result.get("protocol_arm") != spec.protocol_arm
+            or result.get("seed") != spec.seed
+            or result.get("normalize_features") is not spec.normalize_features
+            or result.get("protocol_sha256") != SEALED_PROTOCOL_SHA256
+            or result.get("activation_digest") != activation_digest
+            or result.get("implementation_digest") != implementation
+            or result.get("provenance") != activation.get("provenance")
+        ):
+            raise ValueError("slot result identity differs from comparison authority")
+        _read_verified_record(
+            store,
+            spec,
+            result=result,
+            result_raw=result_raw,
+        )
+        verified_slots.append(spec.slot)
+        economic = {
+            key: value for key, value in result.items() if key not in _RESULT_METADATA
+        }
+        target = control if spec.protocol_arm == "control_raw" else candidate
+        target[spec.seed] = economic
+
+    report = recompute_replication_decision(control, candidate)
+    report.update(
+        protocol_sha256=SEALED_PROTOCOL_SHA256,
+        activation_digest=activation_digest,
+        implementation_digest=implementation,
+        verified_slots=verified_slots,
+        all_slots_independently_verified=True,
+        economic_result_inspected=True,
+    )
+    with store.mutation_lock():
+        store.publish_json_once("comparison.json", report)
+        raw = canonical_json_bytes(report)
+        store.publish_json_once(
+            "comparison.sha256.json",
+            {"sha256": sha256(raw).hexdigest()},
+        )
+    return report
 
 
 __all__ = [
@@ -969,11 +1132,13 @@ __all__ = [
     "ReplicationArmSpec",
     "SEALED_EXECUTION_ACTIVATION_SHA256",
     "SEALED_PROTOCOL_SHA256",
+    "SLOT_VERIFICATION_SCHEMA",
     "SLOT_RESULT_SCHEMA",
     "claim_replication_slot",
     "execute_replication_slot",
     "fit_replication_strategy",
     "prepare_replication_execution",
+    "publish_replication_decision",
     "recompute_replication_decision",
     "record_consumed_failure",
     "record_prefit_failure",

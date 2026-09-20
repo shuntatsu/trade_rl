@@ -1,0 +1,31 @@
+name: Verify PR704 MarketDataset cache RED
+on:
+  push:
+    branches:
+      - verify/pr704-market-cache-red
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 47ac16bd2d98d4683260f868e816713ad163f46e
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - name: Require intended cache RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q             tests/data/test_dataset_content_identity.py::test_market_dataset_internal_caches_are_deeply_immutable             > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/red.log"
+          test "$status" -ne 0
+          grep -Fq "test_market_dataset_internal_caches_are_deeply_immutable" "$RUNNER_TEMP/red.log"
+          grep -Eq "1 failed" "$RUNNER_TEMP/red.log"

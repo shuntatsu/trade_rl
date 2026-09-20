@@ -27,6 +27,18 @@ _BOOK_DEPTH_HEADER = ("timestamp", "percentage", "depth", "notional")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _immutable_array(
+    value: np.ndarray,
+    *,
+    dtype: np.dtype[np.generic] | str,
+) -> np.ndarray:
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
+
+
 @dataclass(frozen=True, slots=True)
 class BinanceBookDepthSeries:
     """Immutable provider-specific cumulative depth snapshots and raw provenance."""
@@ -42,15 +54,20 @@ class BinanceBookDepthSeries:
     percentage_bands: tuple[int, ...] = BOOK_DEPTH_PERCENTAGE_BANDS
 
     def __post_init__(self) -> None:
-        timestamps = (
-            np.asarray(self.timestamps, dtype="datetime64[ns]").reshape(-1).copy()
+        timestamps = _immutable_array(
+            self.timestamps,
+            dtype="datetime64[ns]",
+        ).reshape(-1)
+        available_at = _immutable_array(
+            self.available_at,
+            dtype="datetime64[ns]",
+        ).reshape(-1)
+        depth = _immutable_array(self.depth, dtype=np.dtype(np.float64))
+        notional = _immutable_array(self.notional, dtype=np.dtype(np.float64))
+        implied = _immutable_array(
+            self.implied_average_price,
+            dtype=np.dtype(np.float64),
         )
-        available_at = (
-            np.asarray(self.available_at, dtype="datetime64[ns]").reshape(-1).copy()
-        )
-        depth = np.asarray(self.depth, dtype=np.float64).copy()
-        notional = np.asarray(self.notional, dtype=np.float64).copy()
-        implied = np.asarray(self.implied_average_price, dtype=np.float64).copy()
 
         if not self.source_uri:
             raise ValueError("source_uri must be non-empty")
@@ -92,8 +109,6 @@ class BinanceBookDepthSeries:
         if np.any(available_at < timestamps):
             raise ValueError("available_at cannot precede timestamps")
 
-        for values in (timestamps, available_at, depth, notional, implied):
-            values.setflags(write=False)
         object.__setattr__(self, "timestamps", timestamps)
         object.__setattr__(self, "available_at", available_at)
         object.__setattr__(self, "depth", depth)

@@ -30,13 +30,11 @@ local_values
 
 初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。
 
-## 学習時の銘柄スケジュールは3方式
+## 学習時の銘柄スケジュールは2方式
 
 `fit_ppo_strategy`の既定は従来どおり`sequential`です。1つの`PPOTradingEnv`がfit対象銘柄をfull-window episodeごとにround-robinするため、既存のStudyやcandidateの意味は変わりません。
 
-`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。
-
-`shared_cash`はもう一つのopt-in layoutです。各symbol slotは従来どおりObservation v2と3値actionを使いますが、custom VecEnvが同じ時点の全actionを先に集め、portfolio proposalを一度だけriskへ通して、一つのshared cash / BookStateを一度だけexecutionします。全slotには同じportfolio log-return rewardを返します。
+`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Observation v2、reward、hard risk、約定・会計、network、entropy係数は変えません。
 
 ```text
 sequential（既定）
@@ -46,17 +44,11 @@ interleaved（opt-in）
   BTC固定env ─┐
   ETH固定env ─┼─ DummyVecEnv → 同じPPO policy update
   ...         ─┘
-
-shared_cash（opt-in）
-  BTC Observation ─┐
-  ETH Observation ─┼─ 同時action収集 → portfolio risk 1回 → shared execution 1回
-  ...             ─┘                         ↓
-                                  同じteam rewardを各slotへ
 ```
 
-これらは**未評価の実装能力**です。shared-cashはcash accountだけでなく、portfolio-level risk couplingと全slot共通team rewardを同時に持ちます。またlocal Observation v2には他symbol weightやshared cashを追加しないため、各slotから見るとportfolio stateは部分観測です。したがって「accountだけを変えた純粋な比較」とは扱いません。developmentで比較するときはlayout、`rollout_steps_per_env`、team-reward semanticsを結果を見る前に固定し、per-symbol contribution rewardやjoint observationは別factorにします。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、policy seedとexecution乱数を同時に変えないため、`interleaved`と`shared_cash`のvectorized fitはどちらも`slippage_std > 0`をfail closedにします。
+これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
 
-PPOの更新則もSB3 defaultへ暗黙委譲しません。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、batch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip `0.2`、value clipなし、advantage normalizationあり、entropy係数`0.0`、value係数`0.5`、gradient clip`0.5`、gSDE無効、`target_kl=None`です。vectorized layoutでは`n_steps`だけ明示した`rollout_steps_per_env`へ差し替えます。これらはSB3 2.3.2で既に使われていた値をコードへ固定したもので、結果を見て変更した値ではありません。MlpPolicy側もTanh、orthogonal initialization、FlattenExtractor、policy/value shared feature extractor、Adam、epsilon `1e-5`を明示し、policy constructionをSB3 defaultへ委譲しません。
+PPOへ渡す主要constructor/policy設定もコードで明示します。learning rate、rollout長、batch/epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KLに加え、MlpPolicyのTanh、orthogonal init、FlattenExtractor、shared feature extractor、Adam epsを固定します。これはSB3 2.3.2で既に有効だった値を明文化するもので、performanceを見た調整ではありません。ただしSB3/PyTorch内部の学習実装そのものを複製しているわけではないため、依存versionは引き続きimplementation identityの一部です。
 
 ## 学習stepの全体像
 
@@ -161,9 +153,7 @@ reward = log1p(interval_net_return)
 - PPO actionを直接P&L/rewardへ変換しない。
 - hard riskと共通execution/accountingを必ず通す。
 - 実行時も学習時と同じencoderを使う。
-- shared-cashでは全symbol actionを同じpre-execution snapshotから集め、risk/executionをportfolioごとに1回だけ実行する。
-- shared-cashのteam rewardをper-symbol独立rewardと解釈しない。
 
 ## まだ保証していないこと
 
-Observation contractがcausalであることと、PPOが儲かることは別です。shared-cash capabilityもsynthetic/canonical/real-SB3 integrationを検証する実装能力であり、実データでの優位性はまだ評価していません。現行研究はPPO superiorityやproduction profitabilityを証明していません。
+Observation contractがcausalであることと、PPOが儲かることは別です。現行研究はPPO superiorityやproduction profitabilityを証明していません。

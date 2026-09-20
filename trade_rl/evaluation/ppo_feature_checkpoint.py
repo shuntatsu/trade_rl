@@ -977,6 +977,7 @@ def replay_cell(
             PPOIntentStrategy,
             strategy.policy,
             feature_indices=tuple(fit_manifest["feature_indices"]),
+            feature_names=strategy.feature_names,
             feature_normalizer=strategy.feature_normalizer,
         )
 

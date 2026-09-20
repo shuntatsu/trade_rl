@@ -256,13 +256,48 @@ class PPOIntentStrategy:
         policy: _PredictPolicy,
         *,
         feature_indices: tuple[int, ...],
+        feature_names: tuple[str, ...] | None = None,
         feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         self.policy = policy
-        self.feature_indices = _validated_indices(feature_indices)
+        indices = _validated_indices(feature_indices)
+        if feature_names is None:
+            selected_names = (
+                None
+                if feature_normalizer is None
+                else tuple(feature_normalizer.feature_names)
+            )
+        else:
+            selected_names = tuple(feature_names)
+            if (
+                len(selected_names) != len(indices)
+                or len(set(selected_names)) != len(selected_names)
+                or any(not isinstance(name, str) or not name for name in selected_names)
+            ):
+                raise ValueError(
+                    "feature_names must match feature_indices with unique non-empty strings"
+                )
         if feature_normalizer is not None:
-            feature_normalizer.validate_features(self.feature_indices)
-        self.feature_normalizer = feature_normalizer
+            feature_normalizer.validate_features(indices)
+            if selected_names != feature_normalizer.feature_names:
+                raise ValueError(
+                    "strategy feature names differ from fitted normalization"
+                )
+        self._feature_indices = indices
+        self._feature_names = selected_names
+        self._feature_normalizer = feature_normalizer
+
+    @property
+    def feature_indices(self) -> tuple[int, ...]:
+        return self._feature_indices
+
+    @property
+    def feature_names(self) -> tuple[str, ...] | None:
+        return self._feature_names
+
+    @property
+    def feature_normalizer(self) -> PPOFeatureNormalizer | None:
+        return self._feature_normalizer
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
         encoded = _encode_observation(
@@ -800,6 +835,7 @@ def fit_ppo_strategy(
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
+        feature_names=tuple(dataset.feature_names[index] for index in indices),
         feature_normalizer=normalizer,
     )
 

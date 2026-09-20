@@ -342,6 +342,32 @@ and a fresh result-blind G0–G2 review bound to that protocol and source.
 The scientific factor, fit budget, five seeds, cost and latency stresses,
 development-only claim, and 20% drawdown veto remain as registered above.
 
+The checkpoint implementation has passed the full Linux repository, PPO
+runtime, distribution, clean-install, and Guide browser checks and is integrated.
+Its independent code review found no blocking integration issue. These checks
+do not authorize a new real-data run. The next execution uses the manual
+`ppo-feature-checkpoint.yml` workflow on a standard Ubuntu runner, because the
+local host did not retain the required free memory. It retrieves the frozen
+source from artifact `10331899302`, run `34803217815`, with outer SHA-256
+`89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce`.
+The publisher's verification stopped at a SHA-prefix comparison. Its existing
+verification-only recovery, run `34803432434`, subsequently passed independent
+source reconstruction and the verification audit for this same bundle.
+Recovery artifact `10332575500` has outer SHA-256
+`2067c38da3c1f45927748e2cc7481f11268710b2b386a5bd3b9a289394937589`;
+its downloaded bytes, bundle binding, Dataset/Study identities, and explicit
+no-P&L assertions have been checked. It does not replace the new study review.
+Preparation must publish a new Linux-bound protocol before the independent
+G0–G2 review. Each later dispatch reuses that exact source commit, workflow
+revision, and approved protocol, saves completed checkpoint evidence, and
+preserves failed attempts.
+This transport does not import the original, r1, or r2 partial roots.
+After the strategy-owned feature schema was integrated, the checkpoint replay
+wrapper was updated to retain the loaded policy's feature names. A focused
+counterexample failed before the forwarding fix; the real SB3 roundtrip also
+checks that loaded and replayed policies retain the fitted schema. This is an
+identity-preservation repair and does not change the registered feature roster.
+
 The separate follow-on order is algorithm comparison before ensembling: first
 compare PPO with A2C on the same `Discrete(3)` environment and fixed data,
 features, fit scope, account, and execution contract; test DQN only as a later,

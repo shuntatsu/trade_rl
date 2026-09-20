@@ -115,7 +115,7 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "7c2c18ee12f29e3eb452da734920eb8fb3fa1c3155c59232ac7f4abb840c8751",
+      "source_sha256": "ada8be0eeb98b6b0bf6c47c1125cb664690a1e9c1f8cb3badc767c2fb0ce73b0",
       "label_ja": "PPO方策を学習する",
       "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。主要なPPO constructor/policy construction値をsourceへ明示しつつ、SB3/PyTorch内部実装とdependency versionはimplementation identityの一部として残します。",
       "variables": [

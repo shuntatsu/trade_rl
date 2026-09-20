@@ -48,6 +48,9 @@ jobs:
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
 
+      - name: Checkpoint transport types
+        run: uv run mypy tools/ppo_checkpoint_actions.py
+
   core:
     name: Lean Core
     if: github.event_name == 'pull_request'
@@ -79,6 +82,9 @@ jobs:
 
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+
+      - name: Checkpoint transport types
+        run: uv run mypy tools/ppo_checkpoint_actions.py
 
       - name: Core tests
         run: uv run pytest -q tests

@@ -99,7 +99,10 @@ current `ppo_inference_bundle_v1` is write-once and supports both raw and
 normalized PPO: it binds policy bytes, Observation v2, selected feature
 indices/names and the optional fitted normalizer under one manifest digest.
 `load_ppo_inference_bundle` requires that digest and the current feed's ordered
-feature names, rejects selected-feature semantic drift before policy
+feature names. The fitted PPO strategy itself retains the selected feature names
+derived from its training Dataset; publication rejects a caller-provided feed
+whose selected names differ from that strategy-owned binding. The loader restores
+that binding from the verified manifest, rejects selected-feature semantic drift before policy
 deserialization, verifies policy bytes and SB3 spaces, and restores inference on
 CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
 `load_normalized_ppo`; historical standalone research `model.zip` evidence is
@@ -251,12 +254,12 @@ Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-
 
 ## Independent per-symbol evaluation
 
-同じfrozen strategy objectを各銘柄へ独立Replayする。
+同じfrozen model/policyを共有しつつ、strategy/controller wrapperは各銘柄ごとにfresh instanceを生成して独立Replayする。前の銘柄で更新されたwrapper内部状態を次の銘柄へ持ち越さない。
 
 ```text
-universal frozen strategy
-  ├─ symbol A independent replay
-  ├─ symbol B independent replay
+universal frozen model/policy
+  ├─ fresh wrapper → symbol A independent replay
+  ├─ fresh wrapper → symbol B independent replay
   └─ ...
 ```
 

@@ -152,6 +152,16 @@ def test_real_checkpoint_reuses_fit_and_replays_identically_after_reload(
         return strategy
 
     monkeypatch.setattr(checkpoint, "load_ppo_inference_bundle", load_bundle)
+
+    def evaluate_with_bound_schema(dataset, factory, **kwargs):
+        strategy = factory()
+        assert strategy.feature_names == fitted[0].feature_names
+        assert strategy.feature_indices == fitted[0].feature_indices
+        return evaluate_directional_arm(dataset, factory, **kwargs)
+
+    monkeypatch.setattr(
+        checkpoint, "evaluate_directional_arm", evaluate_with_bound_schema
+    )
     for index in (0, 1):
         expected = evaluate_directional_arm(
             dataset,

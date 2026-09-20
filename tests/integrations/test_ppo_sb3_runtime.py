@@ -96,6 +96,40 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     assert model.num_timesteps == 16
 
 
+def test_real_sequential_normalized_fit_keeps_verified_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)
+
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(1, 0),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=1,
+        seed=19,
+        normalize_features=True,
+    )
+
+    vector = strategy.policy.get_env()
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (1, 0)
+    assert len(vector.envs) == 1
+
+    env = vector.envs[0].unwrapped
+    assert isinstance(env, PPOTradingEnv)
+    assert env.symbol_indices == (1, 0)
+    assert env.information_symbol_indices == (1, 0)
+    assert env.feature_normalizer is strategy.feature_normalizer
+
+    _first_observation, first_info = env.reset(seed=19)
+    _second_observation, second_info = env.reset()
+    assert first_info["symbol"] == "ETHUSDT"
+    assert second_info["symbol"] == "BTCUSDT"
+
+
 def test_real_sb3_interleaved_fit_preserves_verified_information_scope() -> None:
     pytest.importorskip("stable_baselines3")
     dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)

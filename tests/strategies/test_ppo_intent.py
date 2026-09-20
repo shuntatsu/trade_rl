@@ -43,6 +43,7 @@ class FakePolicy:
         return np.asarray(self.action), None
 
 
+
 class FakeTanh:
     pass
 
@@ -350,8 +351,22 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
         "optimizer_class": FakeAdam,
         "optimizer_kwargs": {"eps": 1e-5},
     }
+    assert fitted.kwargs["learning_rate"] == pytest.approx(3e-4)
+    assert fitted.kwargs["n_steps"] == 2048
+    assert fitted.kwargs["batch_size"] == 64
+    assert fitted.kwargs["n_epochs"] == 10
+    assert fitted.kwargs["gamma"] == pytest.approx(0.99)
+    assert fitted.kwargs["gae_lambda"] == pytest.approx(0.95)
+    assert fitted.kwargs["clip_range"] == pytest.approx(0.2)
+    assert fitted.kwargs["clip_range_vf"] is None
+    assert fitted.kwargs["normalize_advantage"] is True
+    assert fitted.kwargs["ent_coef"] == pytest.approx(0.0)
+    assert fitted.kwargs["vf_coef"] == pytest.approx(0.5)
+    assert fitted.kwargs["max_grad_norm"] == pytest.approx(0.5)
+    assert fitted.kwargs["use_sde"] is False
+    assert fitted.kwargs["sde_sample_freq"] == -1
+    assert fitted.kwargs["target_kl"] is None
     assert fitted.kwargs["seed"] == 11
-    assert fitted.kwargs["ent_coef"] == 0.0
     assert fitted.learn_timesteps == 256
     assert isinstance(strategy, PPOIntentStrategy)
 

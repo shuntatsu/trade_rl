@@ -40,7 +40,7 @@ evaluation/experiments/bootstrap
   immutable StudyPlan creation
 ```
 
-`evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。
+`evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。 frozen WINNERの後にunused-futureを開く資格は、逆向きのread-only consumerである [`evaluation/final_test`](final-evaluation-authorization.md) が別rootへone-shotで発行する。Controlled Experiment側へauthorization mutationを追加しない。
 
 `evaluation/experiments` 内部では、`codec.py` がpersisted payloadのdecode/semantic identity、`inspection.py` がread-only filesystem reconstructionとtamper validation、`workflow.py` がmutation commandを所有する。read sideからmutation workflowへの逆依存は作らない。既存の `workflow.StudySnapshot` / `workflow.inspect_study` は明示export契約としてinspection ownerの同一objectをre-exportする。
 

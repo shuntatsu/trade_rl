@@ -204,6 +204,93 @@ def test_inspection_rejects_authorization_tamper(
         inspect_final_evaluation_authorization(output, study_root=study_root)
 
 
+def test_inspection_rejects_noncanonical_json_rewrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path, monkeypatch)
+    output = tmp_path / "authorization"
+    authorize_final_evaluation(
+        output,
+        study_root=study_root,
+        final_evaluation_start=_FINAL_START,
+        final_evaluation_stop_exclusive=_FINAL_STOP,
+        authorized_by="final-gate",
+        authorized_at=_AUTHORIZED_AT,
+    )
+    artifact_path = output / "authorization.json"
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="canonical"):
+        inspect_final_evaluation_authorization(output, study_root=study_root)
+
+
+def test_inspection_rejects_symlinked_parent_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path / "study", monkeypatch)
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    output = real_parent / "authorization"
+    authorize_final_evaluation(
+        output,
+        study_root=study_root,
+        final_evaluation_start=_FINAL_START,
+        final_evaluation_stop_exclusive=_FINAL_STOP,
+        authorized_by="final-gate",
+        authorized_at=_AUTHORIZED_AT,
+    )
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real_parent, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+
+    with pytest.raises(ArtifactIntegrityError, match="symlink|trusted"):
+        inspect_final_evaluation_authorization(
+            alias / "authorization",
+            study_root=study_root,
+        )
+
+
+def test_publication_race_is_reported_as_one_shot_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study_root, _ = _winner_study(tmp_path / "study", monkeypatch)
+    output = tmp_path / "authorization"
+    original_rename = Path.rename
+
+    def claim_before_rename(path: Path, target: str | Path) -> Path:
+        resolved_target = Path(target)
+        if (
+            path.name.startswith(".authorization.staging-")
+            and resolved_target == output
+        ):
+            output.mkdir()
+            (output / "claimed").write_text("other publisher", encoding="utf-8")
+        return original_rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", claim_before_rename)
+
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        authorize_final_evaluation(
+            output,
+            study_root=study_root,
+            final_evaluation_start=_FINAL_START,
+            final_evaluation_stop_exclusive=_FINAL_STOP,
+            authorized_by="final-gate",
+            authorized_at=_AUTHORIZED_AT,
+        )
+
+    assert (output / "claimed").read_text(encoding="utf-8") == "other publisher"
+
+
 def test_inspection_rejects_malformed_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

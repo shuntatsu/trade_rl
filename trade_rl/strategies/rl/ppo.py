@@ -730,8 +730,8 @@ def _build_shared_cash_vec_env(
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict[str, object]]]:
         if self.actions is None:
             raise RuntimeError("shared-cash VecEnv step_wait called without actions")
-        observations, reward, terminated, coordinator_infos = (
-            self.coordinator.step(self.actions)
+        observations, reward, terminated, coordinator_infos = self.coordinator.step(
+            self.actions
         )
         self.actions = None
         rewards = np.full(self.num_envs, reward, dtype=np.float32)

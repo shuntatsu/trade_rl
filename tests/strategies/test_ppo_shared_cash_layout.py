@@ -316,9 +316,7 @@ def test_shared_cash_terminal_settlement_reserves_latency_window() -> None:
     )
     coordinator.reset(seed=37)
 
-    _, reward, terminated, infos = coordinator.step(
-        np.asarray([2, 2], dtype=np.int64)
-    )
+    _, reward, terminated, infos = coordinator.step(np.asarray([2, 2], dtype=np.int64))
 
     assert terminated is True
     assert coordinator.agent_stop_index == 1

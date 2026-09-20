@@ -436,3 +436,21 @@ def test_ppo_strategy_feature_contract_is_read_only() -> None:
 
     assert strategy.feature_indices == (0,)
     assert strategy.feature_names == ("signal",)
+
+
+@pytest.mark.parametrize(
+    "feature_names",
+    (
+        (["signal"],),
+        ({"name": "signal"},),
+    ),
+)
+def test_ppo_strategy_rejects_unhashable_feature_names_as_validation_error(
+    feature_names: tuple[object, ...],
+) -> None:
+    with pytest.raises(ValueError, match="feature_names"):
+        PPOIntentStrategy(
+            FakePolicy(1),
+            feature_indices=(0,),
+            feature_names=feature_names,  # type: ignore[arg-type]
+        )

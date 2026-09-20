@@ -144,4 +144,9 @@ def fit_directional_candidate(
         settle_terminal_position=True,
     )
     getattr(ppo.policy, "save")(str(output / "model.zip"))
-    return lambda: PPOIntentStrategy(ppo.policy, feature_indices=config.feature_indices)
+    return lambda: PPOIntentStrategy(
+        ppo.policy,
+        feature_indices=ppo.feature_indices,
+        feature_names=ppo.feature_names,
+        feature_normalizer=ppo.feature_normalizer,
+    )

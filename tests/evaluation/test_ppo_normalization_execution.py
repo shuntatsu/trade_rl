@@ -255,7 +255,10 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     tmp_path,
     monkeypatch,
 ) -> None:
-    provenance = {"schema_version": "test-provenance"}
+    provenance = {
+        "schema_version": "test-provenance",
+        "implementation_digest": "b" * 64,
+    }
     activation = _activation(provenance)
     activation_digest = content_digest(activation)
     root = tmp_path / "execution"
@@ -371,7 +374,10 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
 
 
 def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
-    provenance = {"schema_version": "test-provenance"}
+    provenance = {
+        "schema_version": "test-provenance",
+        "implementation_digest": "b" * 64,
+    }
     for field in (
         "economic_result_inspected",
         "unused_data_accessed",
@@ -387,3 +393,18 @@ def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
                 activation,
                 expected_activation_digest=content_digest(activation),
             )
+
+
+
+def test_activation_rejects_implementation_digest_drift(tmp_path) -> None:
+    provenance = {
+        "schema_version": "test-provenance",
+        "implementation_digest": "c" * 64,
+    }
+    activation = _activation(provenance)
+    with pytest.raises(ValueError, match="implementation digest"):
+        prepare_replication_execution(
+            tmp_path / "identity-drift",
+            activation,
+            expected_activation_digest=content_digest(activation),
+        )

@@ -154,7 +154,8 @@ def _safe_attempt_id(value: str) -> str:
         not value
         or value in {".", ".."}
         or any(
-            character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+            character
+            not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
             for character in value
         )
     ):
@@ -351,7 +352,9 @@ def _termination_count(row: dict[str, Any]) -> int:
     return len(reasons)
 
 
-def _candidate_base_family(candidate: dict[int, dict[str, Any]]) -> tuple[int, float, dict[str, float]]:
+def _candidate_base_family(
+    candidate: dict[int, dict[str, Any]],
+) -> tuple[int, float, dict[str, float]]:
     base_pass = {
         seed: passes_screen(row, require_positive_years=True)
         for seed, row in candidate.items()
@@ -361,10 +364,7 @@ def _candidate_base_family(candidate: dict[int, dict[str, Any]]) -> tuple[int, f
     median_years = {
         year: float(
             np.median(
-                [
-                    float(candidate[seed]["year_returns"][year])
-                    for seed in range(5)
-                ]
+                [float(candidate[seed]["year_returns"][year]) for seed in range(5)]
             )
         )
         for year in ("2023", "2024")
@@ -595,7 +595,9 @@ def _load_replication_context(
     return dataset, plan.baseline_config, start, stop
 
 
-def _manifest_for_bundle(store: StudyStore, spec: ReplicationArmSpec) -> dict[str, object]:
+def _manifest_for_bundle(
+    store: StudyStore, spec: ReplicationArmSpec
+) -> dict[str, object]:
     manifest = store.read_json(Path("slots") / spec.slot / "bundle" / "manifest.json")
     expected_normalizer = spec.normalize_features
     has_normalizer = manifest.get("normalizer") is not None

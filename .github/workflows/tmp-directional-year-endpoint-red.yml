@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   red:
@@ -17,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 68220830dd76b05ecf4249e17bbf8924fd5dee69
+          ref: c8abacf49a802e46c7cdfb18b3f7dbedafd0854a
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
@@ -26,17 +27,42 @@ jobs:
       - run: uv sync --extra dev
       - name: Prove year-return endpoint semantic RED
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          uv run ruff check tests/evaluation/test_directional.py
-          uv run ruff format --check tests/evaluation/test_directional.py
           set +e
-          uv run pytest -q             tests/evaluation/test_directional.py::test_year_returns_use_interval_end_timestamp             > "$RUNNER_TEMP/red.log" 2>&1
-          status=$?
-          set -e
+          status=0
+
+          uv run ruff check tests/evaluation/test_directional.py || status=1
+          uv run ruff format --check tests/evaluation/test_directional.py || status=1
+
+          uv run pytest -q \
+            tests/evaluation/test_directional.py::test_year_returns_use_interval_end_timestamp \
+            > "$RUNNER_TEMP/red.log" 2>&1
+          pytest_status=$?
           cat "$RUNNER_TEMP/red.log"
-          test "$status" -ne 0
-          grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log"
-          grep -q "AssertionError" "$RUNNER_TEMP/red.log"
-          ! grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log"
-          echo ISSUE667_DIRECTIONAL_YEAR_ENDPOINT_RED=PASS
+
+          if [ "$pytest_status" -eq 0 ]; then
+            echo "expected targeted test to fail before production fix"
+            status=1
+          fi
+          grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log" || status=1
+          grep -q "AssertionError" "$RUNNER_TEMP/red.log" || status=1
+          grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log" && status=1
+
+          if [ "$status" -eq 0 ]; then
+            state=success
+            description="year-endpoint regression is semantic RED"
+          else
+            state=failure
+            description="targeted RED verifier did not prove semantic failure"
+          fi
+
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"issue667/semantic-red\",\"description\":\"$description\"}"
+
+          exit "$status"

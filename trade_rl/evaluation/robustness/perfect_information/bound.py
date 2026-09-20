@@ -250,8 +250,9 @@ def _canonical_float(value: float) -> float:
 def _readonly(value: np.ndarray) -> np.ndarray:
     result = np.asarray(value, dtype=np.float64).copy(order="C")
     result[result == 0.0] = 0.0
-    result.setflags(write=False)
-    return result
+    return np.frombuffer(result.tobytes(order="C"), dtype=np.float64).reshape(
+        result.shape
+    )
 
 
 def _turnover(weights: np.ndarray, initial_weights: np.ndarray) -> np.ndarray:

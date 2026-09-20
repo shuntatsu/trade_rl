@@ -76,6 +76,8 @@ session calendarでclose-to-close間隔がnominal barより長い場合、closed
 - `processing_bar_volume_capacity=True` は既存互換modeです。約定を処理するbar全体の最終volumeをcapacity poolに使います。同じbarのopen時点では最終volumeはまだ確定していないため、point-in-timeで観測済みのliquidityとはみなしません。既存canonical runの意味を変えないためdefaultとして残します。
 - `processing_bar_volume_capacity=False` はcausal stress modeです。直前に完全終了したbarのvolumeだけをcapacity authorityにし、base-volumeならその前barcloseでmarket notionalへ換算します。現在barの最終volumeをfill capacityへ使いません。
 
+volumeの単位もcapacity計算に残します。QUOTE_NOTIONALは従来どおりquote notionalだけで上限を持ちます。BASE_ASSET / CONTRACTSはそのquote-notional上限に加え、raw base量 / raw contract数から得るnative quantity上限も同じparticipation率で適用します。そのため、LIMIT/STOPのactual fill priceがcapacity referenceより低くても、価格差を使って観測されたbase量やcontract数より多く約定させません。trigger segmentの利用可能volume fractionもquote/notionalとnative quantityの両poolへ同じ割合で掛かります。
+
 `False` は「次barの流動性を正しく予測できる」という主張ではありません。同一barの未来volumeへ依存しない条件でedgeが残るかを見るための、より保守的なstressです。modeはexecution-policy identityへ含まれるため、既存runを後から別modeとして読み替えません。
 
 ## 研究仮定と実市場truthを混同しない

@@ -33,7 +33,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "45993b794e54e1c30b6c93ec882ee36aa8843f3d1d3ec93a4bf97644cee35834"
+      "sha256": "aa81df2bc1901dcbbe7d9efc4945c8398d1184453a72fe7d551368359bc0f760"
     }
   ],
   "code_references": [
@@ -119,9 +119,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "a83610e54561bd9f225d237d0d3fd23005e126c4f9020c3e480f5448f1c81fe7",
+      "source_sha256": "42873dcefe43fb48e4f197672c17a4862328dbd9cceab7255602f94694dfc5de",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定sequential、独立accountのinterleaved、shared portfolioのshared_cashをCPU・1 threadで学習します。shared_cashはlocal Observation v2/Discrete(3)を維持したまま全symbol actionを同期収集し、一つのshared BookStateを進めてteam rewardを各slotへ返します。",
+      "description_ja": "sequential / interleaved / shared_cashの各layoutを構成し、PPO更新則をsourceへ明示固定してCPU・1 threadで学習します。learning rate 3e-4、sequential n_steps 2048、batch 64、epochs 10、gamma 0.99、GAE 0.95、clip 0.2、advantage normalizationあり等を暗黙defaultへ委譲しません。vectorized layoutではn_stepsだけrollout_steps_per_envへ置換します。",
       "variables": [
         {
           "name": "training_layout",

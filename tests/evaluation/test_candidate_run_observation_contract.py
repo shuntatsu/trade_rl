@@ -202,7 +202,10 @@ def test_candidate_v2_requires_and_loads_exact_observation_contract(
     loaded = load_candidate_run_artifact(root)
     identity = inspect_candidate_run_artifact(root)
 
-    assert to_json_value(loaded.summary["ppo_observation"]) == ppo_observation_contract_payload()
+    assert (
+        to_json_value(loaded.summary["ppo_observation"])
+        == ppo_observation_contract_payload()
+    )
     assert identity.result_schema_version == "lean_candidate_result_v2"
 
 
@@ -241,7 +244,9 @@ def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
         symbols.append("ETHUSDT")  # type: ignore[attr-defined]
 
     implementation = loaded.provenance["implementation"]
-    assert implementation["schema_version"] == "candidate_run_implementation_v1"  # type: ignore[index]
+    assert (
+        implementation["schema_version"] == "candidate_run_implementation_v1"  # type: ignore[index]
+    )
     with pytest.raises(TypeError):
         implementation["files"] = ["tampered.py"]  # type: ignore[index]
 

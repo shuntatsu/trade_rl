@@ -10,12 +10,13 @@ Active directional exit work: [design](specs/reduce-only-exits.md) and
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。
 
-現在読むべき恒久文書は次の6つである。
+現在読むべき恒久文書は次の7つである。
 
 - [`AGENTS.md`](AGENTS.md) — Agent向けの読む順序、更新先、保持・削除ルール、verification contract
 - [`architecture/lean-core.md`](architecture/lean-core.md) — 現行lean coreの目的、データ・strategy・risk・execution/accounting・artifactの不変条件
 - [`architecture/package-boundaries.md`](architecture/package-boundaries.md) — 現在のpackage配置、責務境界、依存方向、public API方針
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
+- [`architecture/final-evaluation-authorization.md`](architecture/final-evaluation-authorization.md) — frozen WINNERからunused-futureを一度だけ開くread-only authorization、one-shot publication、tamper/concurrency境界の恒久契約
 - [`architecture/research-assurance.md`](architecture/research-assurance.md) — G0-G5、Research Question / Mechanism Contract、semantic invariant、independent oracle、Assurance Matrixの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
@@ -47,6 +48,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
+- final/unused-data authorization、WINNER binding、one-shot publicationを変えた → `architecture/final-evaluation-authorization.md` と final-test contract tests
 - economic hypothesis、causal story、capital/observation/action/reward/risk/execution/accounting semantics、G0-G2 oracleを変えた → `architecture/research-assurance.md` と関連contract/property tests
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionまたはPython symbolを変えた → 対応する `guide/content/pages/*.md` と `guide/content/meta/*.json` を再確認し、`--refresh` / `--refresh-code` を対象topicだけ実行して `guide/tools/content_contract.py --check` を通す

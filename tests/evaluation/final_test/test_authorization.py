@@ -26,8 +26,8 @@ from trade_rl.evaluation.final_test import (
 )
 
 _AUTHORIZED_AT = datetime(2026, 9, 13, 11, 45, tzinfo=UTC)
-_FINAL_START = "2026-01-01T20:00:00.000000000"
-_FINAL_STOP = "2026-01-02T20:00:00.000000000"
+_FINAL_START = "2026-01-02T00:00:00.000000000"
+_FINAL_STOP = "2026-01-03T00:00:00.000000000"
 
 
 def _study_file_digests(root: Path) -> dict[str, str]:
@@ -186,7 +186,7 @@ def test_authorization_contract_rejects_overlap_or_empty_window(
             study_freeze_digest="b" * 64,
             winner_evidence_digest="c" * 64,
             winner_strategy="ppo",
-            development_evaluation_stop_exclusive=_FINAL_START,
+            development_evaluation_stop_exclusive="2026-01-01T20:00:00.000000000",
             final_evaluation_start=final_start,
             final_evaluation_stop_exclusive=final_stop,
             authorized_by="final-gate",

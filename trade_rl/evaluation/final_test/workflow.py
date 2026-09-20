@@ -125,6 +125,34 @@ def _checked_new_root(
     return absolute
 
 
+def _publication_claim_path(target: Path) -> Path:
+    return target.with_name(f".{target.name}.claim")
+
+
+def _claim_publication(target: Path) -> Path:
+    claim = _publication_claim_path(target)
+    try:
+        descriptor = os.open(
+            claim,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError as error:
+        raise InvalidExperimentStateError(
+            "authorization output root already exists or is already claimed"
+        ) from error
+    except OSError as error:
+        raise ArtifactIntegrityError(
+            "authorization publication claim cannot be created"
+        ) from error
+    try:
+        os.write(descriptor, b"final-evaluation-authorization-claim\n")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return claim
+
+
 def _publish_once(
     output_root: str | Path,
     authorization: FinalEvaluationAuthorization,
@@ -136,30 +164,66 @@ def _publish_once(
     if staging.exists() or staging.is_symlink():
         raise ArtifactIntegrityError("authorization staging path already exists")
     staging.mkdir()
+    claim: Path | None = None
+    published = False
     try:
         artifact_path = staging / _ARTIFACT_NAME
         with artifact_path.open("xb") as handle:
             handle.write(canonical_json_bytes(_artifact_payload(authorization)))
             handle.flush()
             os.fsync(handle.fileno())
+
+        claim = _claim_publication(target)
         if target.exists() or target.is_symlink():
             raise InvalidExperimentStateError(
                 "authorization output root already exists"
             )
-        staging.rename(target)
+        try:
+            staging.rename(target)
+        except OSError as error:
+            if target.exists() or target.is_symlink():
+                raise InvalidExperimentStateError(
+                    "authorization output root already exists"
+                ) from error
+            raise ArtifactIntegrityError(
+                "authorization publication rename failed"
+            ) from error
+        published = True
     finally:
         if staging.exists() or staging.is_symlink():
             if staging.is_dir() and not staging.is_symlink():
                 shutil.rmtree(staging)
             else:
                 staging.unlink(missing_ok=True)
+        if published and claim is not None:
+            try:
+                claim.unlink(missing_ok=True)
+            except OSError:
+                # The final root is already immutable authority. A leftover claim
+                # only makes later publication attempts more conservative.
+                pass
     return target
 
 
-def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
-    root = Path(output_root)
-    if root.is_symlink() or not root.is_dir():
+def _trusted_existing_root(output_root: str | Path) -> Path:
+    absolute = Path(os.path.abspath(Path(output_root)))
+    if absolute.is_symlink() or not absolute.is_dir():
         raise ArtifactIntegrityError("authorization root must be a regular directory")
+    try:
+        resolved = absolute.resolve(strict=True)
+    except OSError as error:
+        raise ArtifactIntegrityError(
+            "authorization root cannot be trusted"
+        ) from error
+    if resolved != absolute:
+        raise ArtifactIntegrityError(
+            "authorization root path must not traverse symlinks"
+        )
+    return absolute
+
+
+def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
+    root = _trusted_existing_root(output_root)
     try:
         names = {entry.name for entry in root.iterdir()}
     except OSError as error:
@@ -170,7 +234,8 @@ def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
     if artifact_path.is_symlink() or not artifact_path.is_file():
         raise ArtifactIntegrityError("authorization artifact must be a regular file")
     try:
-        raw = json.loads(artifact_path.read_text(encoding="utf-8"))
+        raw_bytes = artifact_path.read_bytes()
+        raw = json.loads(raw_bytes.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ArtifactIntegrityError(
             "authorization artifact JSON is malformed"
@@ -180,6 +245,10 @@ def _read_artifact(output_root: str | Path) -> FinalEvaluationAuthorization:
             "authorization artifact must contain a JSON object"
         )
     payload = cast(dict[str, object], raw)
+    if raw_bytes != canonical_json_bytes(payload):
+        raise ArtifactIntegrityError(
+            "authorization artifact must use canonical JSON bytes"
+        )
     if (
         set(payload) != _ARTIFACT_KEYS
         or payload.get("schema_version") != _ARTIFACT_SCHEMA

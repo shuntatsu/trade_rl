@@ -33,7 +33,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "aa81df2bc1901dcbbe7d9efc4945c8398d1184453a72fe7d551368359bc0f760"
+      "sha256": "d6eb2d4e07bf025fa89bb0c85db3a3d11574065593bb146c6b7580380ce49145"
     }
   ],
   "code_references": [
@@ -119,9 +119,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "42873dcefe43fb48e4f197672c17a4862328dbd9cceab7255602f94694dfc5de",
+      "source_sha256": "951cfd3b5d78b7f0dcc0a8e9793d3df394ded0256c7a273fa0ec74c3e8063068",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "sequential / interleaved / shared_cashの各layoutを構成し、PPO更新則をsourceへ明示固定してCPU・1 threadで学習します。learning rate 3e-4、sequential n_steps 2048、batch 64、epochs 10、gamma 0.99、GAE 0.95、clip 0.2、advantage normalizationあり等を暗黙defaultへ委譲しません。vectorized layoutではn_stepsだけrollout_steps_per_envへ置換します。",
+      "description_ja": "sequential / interleaved / shared_cashの各layoutを構成し、PPO updateとMlpPolicy constructionをsourceへ明示固定してCPU・1 threadで学習します。learning rate 3e-4、sequential n_steps 2048、batch 64、epochs 10、gamma 0.99、GAE 0.95、clip 0.2、Tanh、orthogonal init、FlattenExtractor、Adam eps 1e-5等をSB3 defaultへ暗黙委譲しません。vectorized layoutではn_stepsだけrollout_steps_per_envへ置換します。",
       "variables": [
         {
           "name": "training_layout",

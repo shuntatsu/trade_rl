@@ -661,9 +661,7 @@ def test_transport_roundtrips_prepare_failed_arm_resume_and_finalize(
         },
     }
     protocol_digest = transport.content_digest(protocol)
-    review_reference = (
-        "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
-    )
+    review_reference = "https://github.com/owner/repo/pull/744#issuecomment-5752780311"
     review_record_sha256 = ""
     review_body = ""
     prepare_reference_for_review: transport.ArtifactReference | None = None

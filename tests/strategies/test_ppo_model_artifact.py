@@ -232,3 +232,34 @@ def test_ppo_inference_bundle_is_write_once_and_requires_matching_selected_names
             strategy,
             feature_names=(),
         )
+
+
+
+@pytest.mark.parametrize(
+    ("observation_shape", "action_n", "action_start"),
+    (
+        ((4,), 3, 0),
+        ((5,), 2, 0),
+        ((5,), 3, 1),
+    ),
+)
+def test_inference_bundle_rejects_incompatible_policy_spaces_before_creation(
+    tmp_path,
+    observation_shape,
+    action_n,
+    action_start,
+) -> None:
+    policy = Policy()
+    policy.observation_space = SimpleNamespace(shape=observation_shape)
+    policy.action_space = SimpleNamespace(n=action_n, start=action_start)
+    strategy = PPOIntentStrategy(policy, feature_indices=(0,))
+    root = tmp_path / "bad-inference"
+
+    with pytest.raises(ValueError, match="policy spaces|PPO contract"):
+        save_ppo_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()

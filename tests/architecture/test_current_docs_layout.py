@@ -296,6 +296,7 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "execution_clock",
         "terminal_semantics",
         "SOURCE-001",
+        "catalog membership does not mean PASS",
         "source_available_time",
         "received_time",
         "Statement",

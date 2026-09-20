@@ -17,9 +17,11 @@ def _readonly(
     *,
     dtype: np.dtype[np.generic] | None = None,
 ) -> np.ndarray:
-    array = np.asarray(value, dtype=dtype).copy(order="C")
-    array.setflags(write=False)
-    return array
+    contiguous = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    return np.frombuffer(
+        contiguous.tobytes(order="C"),
+        dtype=contiguous.dtype,
+    ).reshape(contiguous.shape)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +41,10 @@ class RawMarketSeries:
     funding_event_count: np.ndarray | None = None
 
     def __post_init__(self) -> None:
-        timestamps = _readonly(self.timestamps)
+        timestamps = _readonly(
+            self.timestamps,
+            dtype=np.dtype("datetime64[ns]"),
+        )
         if timestamps.ndim != 1 or not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must be a one-dimensional datetime64 array")
         timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
@@ -53,7 +58,10 @@ class RawMarketSeries:
         available_at_value = (
             timestamps if self.available_at is None else self.available_at
         )
-        available_at = _readonly(available_at_value)
+        available_at = _readonly(
+            available_at_value,
+            dtype=np.dtype("datetime64[ns]"),
+        )
         if available_at.ndim != 1 or not np.issubdtype(
             available_at.dtype, np.datetime64
         ):
@@ -117,8 +125,8 @@ class RawMarketSeries:
         ):
             raise ValueError("OHLC values violate bar price invariants")
 
-        object.__setattr__(self, "timestamps", timestamps.astype("datetime64[ns]"))
-        object.__setattr__(self, "available_at", available_at.astype("datetime64[ns]"))
+        object.__setattr__(self, "timestamps", timestamps)
+        object.__setattr__(self, "available_at", available_at)
         for field_name, array in arrays.items():
             object.__setattr__(self, field_name, array)
 

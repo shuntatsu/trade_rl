@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_interleaved_training import pooled_market
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, MarketBuildConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
@@ -31,6 +32,16 @@ def _env() -> PPOTradingEnv:
         gross_budget=0.1,
         initial_capital=1_000.0,
     )
+
+
+def _content_verified_market(kind: FeatureKind) -> MarketDataset:
+    dataset = pooled_market()
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec(name="signal", kind=kind),),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    return dataset.with_content_identity({"config": config.canonical_payload()})
 
 
 def _observation(symbol_index: int = 0) -> StrategyObservation:
@@ -83,6 +94,43 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     }
     assert model.device.type == "cpu"
     assert model.num_timesteps == 16
+
+
+def test_real_sb3_interleaved_fit_preserves_verified_information_scope() -> None:
+    pytest.importorskip("stable_baselines3")
+    dataset = _content_verified_market(FeatureKind.RELATIVE_RETURN_TO_BTC)
+
+    strategy = fit_ppo_strategy(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=21,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+        normalize_features=True,
+    )
+
+    vector = strategy.policy.get_env()
+    assert vector is not None
+    assert strategy.feature_normalizer is not None
+    assert strategy.feature_normalizer.fit_symbol_indices == (0, 1)
+    envs = vector.envs
+    assert len(envs) == 2
+    for expected_symbol, raw_env in zip(
+        ("BTCUSDT", "ETHUSDT"),
+        envs,
+        strict=True,
+    ):
+        env = raw_env.unwrapped
+        assert isinstance(env, PPOTradingEnv)
+        assert env.information_symbol_indices == (0, 1)
+        assert env.feature_normalizer is strategy.feature_normalizer
+        _observation_value, info = env.reset(seed=21)
+        assert info["symbol"] == expected_symbol
 
 
 def test_real_sb3_interleaved_normalized_fit_roundtrips_bundle(

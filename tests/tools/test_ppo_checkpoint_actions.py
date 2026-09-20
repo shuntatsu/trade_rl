@@ -956,3 +956,152 @@ def test_failed_command_propagates_without_deleting_completed_checkpoint(
 
     assert calls == commands[:2]
     assert cell.read_bytes() == b"complete evidence"
+
+
+def _review_body(
+    *,
+    code_sha: str = "a" * 40,
+    workflow_sha: str = "b" * 40,
+    protocol_digest: str = "c" * 64,
+    artifact_id: int = 90,
+    run_id: int = 34,
+    artifact_sha256: str = "d" * 64,
+) -> str:
+    payload = {
+        "schema": "ppo_feature_review_evidence_v1",
+        "outcome": "G0_G1_CLEAR_G2_EVIDENCE_BOUND",
+        "code_sha": code_sha,
+        "workflow_sha": workflow_sha,
+        "protocol_digest": protocol_digest,
+        "prepare_artifact": {
+            "id": artifact_id,
+            "run_id": run_id,
+            "sha256": artifact_sha256,
+        },
+        "result_blind": True,
+        "economic_execution_authorized": True,
+        "unused_data_accessed": False,
+        "final_data_accessed": False,
+        "source_review_reference": "https://github.com/owner/repo/pull/744#issuecomment-5752780311",
+    }
+    return (
+        "<!-- ppo-feature-review-evidence-v1 -->\n"
+        + transport.canonical_json_bytes(payload).decode("utf-8")
+        + "\n"
+    )
+
+
+def test_review_reference_must_be_exact_same_repo_pr_comment_url() -> None:
+    assert transport.parse_review_reference(
+        "https://github.com/owner/repo/pull/744#issuecomment-5752780311",
+        repository="owner/repo",
+    ) == (744, 5752780311)
+
+    for value in (
+        "reviewed",
+        "https://github.com/other/repo/pull/744#issuecomment-5752780311",
+        "https://github.com/owner/repo/issues/744#issuecomment-5752780311",
+        "https://github.com/owner/repo/pull/744#pullrequestreview-5261754458",
+    ):
+        with pytest.raises(ValueError, match="review reference"):
+            transport.parse_review_reference(value, repository="owner/repo")
+
+
+def test_review_evidence_binds_comment_body_code_protocol_and_prepare_artifact() -> None:
+    reference = transport.ArtifactReference(90, 34, "d" * 64)
+    body = _review_body()
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    comment = {
+        "html_url": "https://github.com/owner/repo/pull/744#issuecomment-5752780311",
+        "issue_url": "https://api.github.com/repos/owner/repo/issues/744",
+        "body": body,
+    }
+    pull = {
+        "head": {
+            "sha": "a" * 40,
+            "repo": {"id": 12},
+        }
+    }
+
+    evidence = transport.validate_review_evidence_comment(
+        comment,
+        pull,
+        review_reference=comment["html_url"],
+        review_record_sha256=digest,
+        repository="owner/repo",
+        repository_id=12,
+        code_sha="a" * 40,
+        workflow_sha="b" * 40,
+        protocol_digest="c" * 64,
+        prepare_reference=reference,
+    )
+
+    assert evidence["prepare_artifact"] == reference.to_mapping()
+    assert evidence["result_blind"] is True
+    assert evidence["economic_execution_authorized"] is True
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("body_digest", "code_sha", "protocol", "artifact", "authorization", "result_blind"),
+)
+def test_review_evidence_rejects_unbound_or_non_authorizing_record(
+    mutation: str,
+) -> None:
+    reference = transport.ArtifactReference(90, 34, "d" * 64)
+    body = _review_body()
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    comment = {
+        "html_url": "https://github.com/owner/repo/pull/744#issuecomment-5752780311",
+        "issue_url": "https://api.github.com/repos/owner/repo/issues/744",
+        "body": body,
+    }
+    pull = {"head": {"sha": "a" * 40, "repo": {"id": 12}}}
+    kwargs = {
+        "review_reference": comment["html_url"],
+        "review_record_sha256": digest,
+        "repository": "owner/repo",
+        "repository_id": 12,
+        "code_sha": "a" * 40,
+        "workflow_sha": "b" * 40,
+        "protocol_digest": "c" * 64,
+        "prepare_reference": reference,
+    }
+    if mutation == "body_digest":
+        kwargs["review_record_sha256"] = "e" * 64
+    elif mutation == "code_sha":
+        kwargs["code_sha"] = "f" * 40
+    elif mutation == "protocol":
+        kwargs["protocol_digest"] = "e" * 64
+    elif mutation == "artifact":
+        kwargs["prepare_reference"] = transport.ArtifactReference(91, 34, "d" * 64)
+    else:
+        raw = json.loads(body.split("\n", 1)[1])
+        if mutation == "authorization":
+            raw["economic_execution_authorized"] = False
+        else:
+            raw["result_blind"] = False
+        body = (
+            "<!-- ppo-feature-review-evidence-v1 -->\n"
+            + transport.canonical_json_bytes(raw).decode("utf-8")
+            + "\n"
+        )
+        comment["body"] = body
+        kwargs["review_record_sha256"] = hashlib.sha256(
+            body.encode("utf-8")
+        ).hexdigest()
+
+    with pytest.raises(ValueError, match="review"):
+        transport.validate_review_evidence_comment(comment, pull, **kwargs)
+
+
+def test_operator_approval_rejects_free_text_review_reference() -> None:
+    with pytest.raises(ValueError, match="review reference"):
+        transport.validate_operator_approval(
+            "arm",
+            "c" * 64,
+            "reviewed",
+            "c" * 64,
+            repository="owner/repo",
+            review_record_sha256="e" * 64,
+        )

@@ -96,3 +96,26 @@ def test_risk_target_rejects_mismatched_pipeline_stage_shapes() -> None:
             proposal_weights=np.array([0.1]),
             pretrade_weights=np.array([0.1, -0.1]),
         )
+
+
+
+def test_default_for_execution_owns_training_replay_risk_semantics() -> None:
+    risk = PreTradeRisk.default_for_execution(max_leverage=0.75)
+
+    assert risk.config == PreTradeRiskConfig(
+        max_gross=0.75,
+        max_abs_weight=0.75,
+        max_turnover=None,
+        drawdown_start=1.0,
+        drawdown_stop=1.0,
+    )
+
+    capped = PreTradeRisk.default_for_execution(max_leverage=4.0)
+    assert capped.config.max_gross == pytest.approx(1.0)
+    assert capped.config.max_abs_weight == pytest.approx(1.0)
+
+    for invalid in (0.0, -1.0, float("inf"), float("nan"), True):
+        with pytest.raises(ValueError):
+            PreTradeRisk.default_for_execution(
+                max_leverage=invalid  # type: ignore[arg-type]
+            )

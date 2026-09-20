@@ -1,0 +1,22 @@
+name: tmp PR707 guide refresh
+on:
+  push:
+    branches:
+      - automation/pr707-guide-refresh
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 155f1fe01a750e8c79de5d059128ed7d5cc98ac7
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          cd guide
+          python3 tools/content_contract.py --refresh-code implementation-ppo
+          python3 tools/content_contract.py --check
+          cd ..
+          git diff -- guide/content/meta/implementation-ppo.json

@@ -39,6 +39,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Shared-cash test format diagnostic
+        run: uv run ruff format --diff tests/strategies/test_ppo_shared_cash_layout.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

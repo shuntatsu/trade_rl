@@ -78,6 +78,26 @@ def test_execution_rule_stress_multiplies_point_in_time_rules_without_mutation()
     assert dataset.tick_size[1] == pytest.approx([0.1])
 
 
+def test_enabled_rule_stress_changes_execution_policy_identity() -> None:
+    dataset = _market()
+    cost = ExecutionCostConfig.zero()
+    nominal = MarketExecutor(dataset, cost)
+    stressed = MarketExecutor(
+        dataset,
+        cost,
+        rule_stress=ExecutionRuleStress(
+            name="joint_2x",
+            tick_size_factor=2.0,
+            lot_size_factor=2.0,
+            minimum_notional_factor=2.0,
+            adverse_tick_rounding=True,
+        ),
+    )
+
+    assert nominal.execution_policy_digest == cost.execution_policy_digest
+    assert stressed.execution_policy_digest != nominal.execution_policy_digest
+
+
 def test_execution_rule_stress_rejects_zero_source_rule() -> None:
     dataset = _market(lot_size=np.zeros((4, 1)))
 

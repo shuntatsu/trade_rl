@@ -29,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "482fd6f073a1eb290426f8d268a2576df70332f5133d7ab23c70f519a112e0ed"
+      "sha256": "bf32f0cd38ef51a3b713e6e3706c051ec5b05ceb001642e9d440a97d016538d8"
     }
   ],
   "code_references": [
@@ -115,9 +115,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "3546c79384dd34fea6b56f8e8af0937c7c2c3bbb4f9c6f6ef696fc593dcb85f0",
+      "source_sha256": "c96313b6c8e8bf2c530417d63b54e97117ebb92b57d94e55c4ba02e04c6196e5",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。terminal settlement有効時はlatencyに応じてagent decision windowを予約し、feature normalizerもagentが実際に観測するrowsだけでfitします。",
+      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。主要なPPO constructor/policy construction値をsourceへ明示しつつ、SB3/PyTorch内部実装とdependency versionはimplementation identityの一部として残します。",
       "variables": [
         {
           "name": "training_layout",
@@ -138,7 +138,8 @@
       "tests": [
         "tests/strategies/test_ppo_intent.py",
         "tests/strategies/test_ppo_interleaved_training.py",
-        "tests/strategies/test_ppo_terminal_settlement.py"
+        "tests/strategies/test_ppo_terminal_settlement.py",
+        "tests/integrations/test_ppo_sb3_runtime.py"
       ]
     },
     {

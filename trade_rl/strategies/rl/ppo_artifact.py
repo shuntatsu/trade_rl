@@ -20,6 +20,25 @@ from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 _SCHEMA = "ppo_normalized_model_v1"
 
 
+def _validate_policy_spaces(
+    policy: object,
+    normalizer: PPOFeatureNormalizer,
+) -> None:
+    try:
+        observation_shape = tuple(getattr(getattr(policy, "observation_space"), "shape"))
+        action_space = getattr(policy, "action_space")
+        action_count = getattr(action_space, "n")
+        action_start = getattr(action_space, "start")
+    except (AttributeError, TypeError) as error:
+        raise ValueError("policy spaces differ from the PPO contract") from error
+    if (
+        observation_shape != (3 * len(normalizer.feature_indices) + 2,)
+        or action_count != 3
+        or action_start != 0
+    ):
+        raise ValueError("policy spaces differ from the PPO contract")
+
+
 def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     """Publish a complete normalized policy; return the digest callers must pin."""
     normalizer = strategy.feature_normalizer
@@ -28,6 +47,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     normalizer.validate_features(strategy.feature_indices)
     if root.exists():
         raise FileExistsError(f"normalized PPO destination already exists: {root}")
+    _validate_policy_spaces(strategy.policy, normalizer)
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))
@@ -81,13 +101,7 @@ def load_normalized_ppo(
     torch_module = importlib.import_module("torch")
     getattr(torch_module, "set_num_threads")(1)
     model = getattr(module, "PPO").load(str(policy_path), device="cpu")
-    if (
-        tuple(model.observation_space.shape)
-        != (3 * len(normalizer.feature_indices) + 2,)
-        or model.action_space.n != 3
-        or model.action_space.start != 0
-    ):
-        raise ValueError("saved policy spaces differ from the PPO contract")
+    _validate_policy_spaces(model, normalizer)
     return PPOIntentStrategy(
         model,
         feature_indices=normalizer.feature_indices,

@@ -129,4 +129,3 @@ def test_year_returns_use_interval_end_timestamp() -> None:
     assert result["returns"][1] == pytest.approx(0.0002)
     assert result["year_returns"]["2025"] == pytest.approx(-0.0001)
     assert result["year_returns"]["2026"] == pytest.approx(0.0002)
-

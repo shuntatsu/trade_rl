@@ -101,11 +101,12 @@ evaluation statistics or loading a model without its transform is not supported.
 PPO environment/fitter callers can explicitly provide an immutable
 `PreTradeRiskConfig` via `risk_config`. The same configuration applies when the
 environment is created and after every reset, in both sequential and interleaved
-layouts. Omission preserves the legacy execution-leverage-limited risk with
-drawdown start/stop 1.0. This is a training-only opt-in; it does not alter policy
-observations, rewards, action meanings, or replay risk. Research callers must
-bind the explicit training configuration in their protocol and separately verify
-that evaluation risk matches the intended deployment objective.
+layouts. Omission uses the common `PreTradeRisk.default_for_execution` authority
+shared with canonical replay: `max_gross=max_abs_weight=min(1, max_leverage)`,
+`max_turnover=None`, and drawdown start/stop 1.0. This preserves the existing
+execution-leverage-limited behavior while preventing training/replay default-risk
+drift. Explicit training risk remains a controlled factor and must match the
+intended deployment objective when a study enables it.
 
 Directional PPOのfitとdevelopment評価は `DIRECTIONAL_BASE_EXECUTION_COST` を共通authorityとして使う。zero overlayでもDataset由来のfee / spread / funding / borrowは消さず、特に `borrow_rate_multiplier=1.0` を学習・評価の両方で維持する。過去のPPO evidenceは生成時の旧implementation SHAにbindされたままであり、このcorrected execution contractのcontrolとして自動再利用しない。
 
@@ -116,6 +117,8 @@ Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
 このlayoutは学習sampleの並び方を変える実装能力であり、性能改善・profitability・winnerを意味しない。developmentで比較する場合は、exact layoutとrollout stepsを別Controlled Factorとして結果前にpreregisterする。PPOの学習deviceはCPUへ固定し、同じsource/runtime identityがGPU有無だけで別のSB3 execution deviceを選ばないようにする。interleavedではSB3がsub-envへ異なるreset seedを配るため、execution RNGをfactorへ混ぜないよう`slippage_std > 0`の確率的slippageは現時点でfail closedにする。
+
+PPOのoptimizer/update contractもSB3 constructor defaultへ暗黙委譲しない。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、minibatch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip range `0.2`、value clipなし、advantage normalizationあり、entropy coefficient `0.0`、value coefficient `0.5`、gradient clip `0.5`、gSDE無効、`target_kl=None`である。interleavedは`n_steps`だけを事前固定した`rollout_steps_per_env`へ置換する。MlpPolicy constructionもTanh activation、orthogonal initialization、`FlattenExtractor`、shared feature extractor、Adam、Adam epsilon `1e-5`をsourceへ明示する。これらはpinned SB3 2.3.2で既に有効だった値のsource-level freezeであり、performance resultを見たparameter tuningではない。
 
 ## StrategyとRiskの責任分離
 

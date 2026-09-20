@@ -33,7 +33,9 @@ SOURCE_ARTIFACT_SHA256 = (
     "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
 WORKFLOW_PATH = ".github/workflows/ppo-feature-checkpoint.yml"
-RECEIPT_SCHEMA = "ppo_feature_checkpoint_actions_receipt_v1"
+RECEIPT_SCHEMA = "ppo_feature_checkpoint_actions_receipt_v2"
+REVIEW_EVIDENCE_SCHEMA = "ppo_feature_review_evidence_v1"
+REVIEW_EVIDENCE_MARKER = "<!-- ppo-feature-review-evidence-v1 -->\n"
 CHECKPOINT_ARTIFACT_PREFIX = "ppo-feature-checkpoint"
 TOTAL_DEADLINE_SECONDS = 300 * 60
 START_MINIMUM_AVAILABLE_BYTES = 4 * 1024**3
@@ -46,6 +48,11 @@ MAX_CHILD_DIAGNOSTIC_BYTES = 384
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SAFE_REPO_PART_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_REVIEW_REFERENCE_RE = re.compile(
+    r"^https://github\.com/"
+    r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/"
+    r"pull/(?P<pull>[1-9][0-9]*)#issuecomment-(?P<comment>[1-9][0-9]*)$"
+)
 _STAGE_NAMES = {"prepare", "arm", "finalize"}
 
 
@@ -109,13 +116,145 @@ def parse_artifact_references(raw: str) -> tuple[ArtifactReference, ...]:
     return tuple(references)
 
 
+def parse_review_reference(
+    review_reference: str,
+    *,
+    repository: str,
+) -> tuple[int, int]:
+    """Parse one exact same-repository pull-request issue-comment URL."""
+    if not isinstance(review_reference, str):
+        raise ValueError("review reference must be a GitHub pull-request comment URL")
+    match = _REVIEW_REFERENCE_RE.fullmatch(review_reference)
+    if match is None:
+        raise ValueError("review reference must be an exact GitHub PR issue-comment URL")
+    expected_owner, expected_repo = _repo_path(repository).split("/", 1)
+    if (
+        match.group("owner") != expected_owner
+        or match.group("repo") != expected_repo
+    ):
+        raise ValueError("review reference belongs to another repository")
+    return int(match.group("pull")), int(match.group("comment"))
+
+
+def validate_review_evidence_comment(
+    comment: object,
+    pull: object,
+    *,
+    review_reference: str,
+    review_record_sha256: str,
+    repository: str,
+    repository_id: int,
+    code_sha: str,
+    workflow_sha: str,
+    protocol_digest: str,
+    prepare_reference: ArtifactReference,
+) -> dict[str, Any]:
+    """Validate one GitHub-bound, result-blind review evidence record."""
+    pull_number, comment_id = parse_review_reference(
+        review_reference,
+        repository=repository,
+    )
+    expected_review_sha = _require_sha256(
+        review_record_sha256,
+        field="review record SHA-256",
+    )
+    expected_code_sha = _require_commit_sha(code_sha, field="review code SHA")
+    expected_workflow_sha = _require_commit_sha(
+        workflow_sha,
+        field="review workflow SHA",
+    )
+    expected_protocol = _require_sha256(
+        protocol_digest,
+        field="review protocol digest",
+    )
+    expected_repository_id = _strict_positive_int(
+        repository_id,
+        field="review repository id",
+    )
+    if not isinstance(comment, dict) or not isinstance(pull, dict):
+        raise ValueError("review evidence GitHub records are malformed")
+    expected_issue_url = (
+        f"https://api.github.com/repos/{_repo_path(repository)}/issues/{pull_number}"
+    )
+    if (
+        comment.get("html_url") != review_reference
+        or comment.get("issue_url") != expected_issue_url
+    ):
+        raise ValueError("review evidence comment identity differs")
+    body = comment.get("body")
+    if not isinstance(body, str):
+        raise ValueError("review evidence comment body is malformed")
+    if hashlib.sha256(body.encode("utf-8")).hexdigest() != expected_review_sha:
+        raise ValueError("review evidence comment body SHA-256 differs")
+    head = pull.get("head")
+    if (
+        not isinstance(head, dict)
+        or head.get("sha") != expected_code_sha
+        or not isinstance(head.get("repo"), dict)
+        or _strict_positive_int(
+            head["repo"].get("id"),
+            field="review pull head repository id",
+        )
+        != expected_repository_id
+    ):
+        raise ValueError("review evidence pull request is not bound to the code SHA")
+
+    if not body.startswith(REVIEW_EVIDENCE_MARKER) or not body.endswith("\n"):
+        raise ValueError("review evidence body does not use the canonical marker")
+    raw_payload = body[len(REVIEW_EVIDENCE_MARKER) : -1].encode("utf-8")
+    try:
+        payload = json.loads(raw_payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("review evidence payload is not valid JSON") from error
+    expected_keys = {
+        "schema",
+        "outcome",
+        "code_sha",
+        "workflow_sha",
+        "protocol_digest",
+        "prepare_artifact",
+        "result_blind",
+        "economic_execution_authorized",
+        "unused_data_accessed",
+        "final_data_accessed",
+        "source_review_reference",
+    }
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != expected_keys
+        or canonical_json_bytes(payload) != raw_payload
+        or payload.get("schema") != REVIEW_EVIDENCE_SCHEMA
+        or payload.get("outcome") != "G0_G1_CLEAR_G2_EVIDENCE_BOUND"
+        or payload.get("code_sha") != expected_code_sha
+        or payload.get("workflow_sha") != expected_workflow_sha
+        or payload.get("protocol_digest") != expected_protocol
+        or payload.get("prepare_artifact") != prepare_reference.to_mapping()
+        or payload.get("result_blind") is not True
+        or payload.get("economic_execution_authorized") is not True
+        or payload.get("unused_data_accessed") is not False
+        or payload.get("final_data_accessed") is not False
+    ):
+        raise ValueError("review evidence payload differs from the execution contract")
+    source_reference = payload.get("source_review_reference")
+    source_pull, source_comment = parse_review_reference(
+        source_reference,
+        repository=repository,
+    )
+    if source_pull != pull_number or source_comment == comment_id:
+        raise ValueError("review evidence source review reference is malformed")
+    return payload
+
+
 def validate_operator_approval(
     stage: str,
     approved_protocol_digest: str,
     review_reference: str,
     actual_protocol_digest: str | None,
+    *,
+    repository: str | None = None,
+    review_record_sha256: str | None = None,
 ) -> str | None:
-    """Check the operator's outer-protocol assertion without authenticating it."""
+    """Validate operator-selected protocol and immutable review-record identity."""
     if stage not in _STAGE_NAMES:
         raise ValueError("checkpoint stage is not supported")
     if stage == "prepare":
@@ -128,10 +267,10 @@ def validate_operator_approval(
     actual = _require_sha256(actual_protocol_digest, field="checkpoint protocol digest")
     if approved != actual:
         raise ValueError("approved protocol digest does not match the checkpoint")
-    if not isinstance(review_reference, str) or not review_reference.strip():
-        raise ValueError("review reference is required for arm and finalize")
-    if len(review_reference) > 1024 or "\x00" in review_reference:
-        raise ValueError("review reference is malformed")
+    if repository is None:
+        raise ValueError("review reference repository is required")
+    parse_review_reference(review_reference, repository=repository)
+    _require_sha256(review_record_sha256, field="review record SHA-256")
     return review_reference
 
 
@@ -180,6 +319,7 @@ def validate_prior_receipt(
     protocol_digest: str | None,
     approved_protocol_digest: str | None = None,
     review_reference: str | None = None,
+    review_record_sha256: str | None = None,
     runtime: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Require every imported checkpoint ZIP to carry a matching run receipt."""
@@ -203,6 +343,7 @@ def validate_prior_receipt(
         "checkpoint_protocol_digest",
         "approved_protocol_digest",
         "review_reference",
+        "review_record_sha256",
         "input_artifacts",
         "source_artifact",
         "python_version",
@@ -316,26 +457,39 @@ def validate_prior_receipt(
     if receipt_digest is not None:
         _require_sha256(receipt_digest, field="receipt checkpoint protocol digest")
     receipt_approval = receipt.get("approved_protocol_digest")
+    receipt_review_reference = receipt.get("review_reference")
+    receipt_review_sha = receipt.get("review_record_sha256")
     if receipt["stage"] == "prepare":
-        if receipt_approval is not None or receipt.get("review_reference") is not None:
+        if (
+            receipt_approval is not None
+            or receipt_review_reference is not None
+            or receipt_review_sha is not None
+        ):
             raise ValueError("prepare receipt cannot claim review approval")
     else:
         _require_sha256(receipt_approval, field="receipt approved protocol digest")
         if receipt_approval != receipt_digest:
             raise ValueError("economic receipt approval differs from its protocol")
-        if (
-            not isinstance(receipt.get("review_reference"), str)
-            or not receipt["review_reference"].strip()
-        ):
-            raise ValueError("economic receipt has no review reference")
+        parse_review_reference(
+            receipt_review_reference,
+            repository=identity["repository"],
+        )
+        _require_sha256(
+            receipt_review_sha,
+            field="receipt review record SHA-256",
+        )
         if approved_protocol_digest is not None and receipt_approval != (
             approved_protocol_digest
         ):
             raise ValueError("checkpoint receipt uses a different approved protocol")
-        if review_reference is not None and receipt.get("review_reference") != (
+        if review_reference is not None and receipt_review_reference != (
             review_reference
         ):
             raise ValueError("checkpoint receipt uses a different review reference")
+        if review_record_sha256 is not None and receipt_review_sha != (
+            review_record_sha256
+        ):
+            raise ValueError("checkpoint receipt uses a different review record")
     input_artifacts = receipt.get("input_artifacts")
     if not isinstance(input_artifacts, list):
         raise ValueError("checkpoint artifact receipt input roster is malformed")
@@ -1170,6 +1324,7 @@ def _new_receipt(
         "checkpoint_protocol_digest": None,
         "approved_protocol_digest": None,
         "review_reference": None,
+        "review_record_sha256": None,
         "input_artifacts": [],
         "source_artifact": {
             "id": SOURCE_ARTIFACT_ID,
@@ -1209,6 +1364,7 @@ def _initial_receipt(stage: str) -> dict[str, Any]:
         "checkpoint_protocol_digest": None,
         "approved_protocol_digest": None,
         "review_reference": None,
+        "review_record_sha256": None,
         "input_artifacts": [],
         "source_artifact": {
             "id": SOURCE_ARTIFACT_ID,
@@ -1340,6 +1496,7 @@ def _restore_checkpoint_inputs(
     token: str,
     approved_protocol_digest: str,
     review_reference: str,
+    review_record_sha256: str,
     stage: str,
     runtime: dict[str, str],
     deadline: float,
@@ -1410,7 +1567,50 @@ def _restore_checkpoint_inputs(
         protocol = module.validate_checkpoint_protocol(source_root, staging)
         digest = content_digest(protocol)
         validate_operator_approval(
-            stage, approved_protocol_digest, review_reference, digest
+            stage,
+            approved_protocol_digest,
+            review_reference,
+            digest,
+            repository=identity["repository"],
+            review_record_sha256=review_record_sha256,
+        )
+        prepare_rows = [
+            (reference, receipt)
+            for reference, _metadata, receipt in prior
+            if receipt["stage"] == "prepare" and receipt["status"] == "succeeded"
+        ]
+        if len(prepare_rows) != 1:
+            raise ValueError(
+                "review evidence requires exactly one succeeded prepare artifact"
+            )
+        prepare_reference, _prepare_receipt = prepare_rows[0]
+        pull_number, comment_id = parse_review_reference(
+            review_reference,
+            repository=identity["repository"],
+        )
+        review_comment = _api_json(
+            "https://api.github.com/repos/"
+            f"{_repo_path(identity['repository'])}/issues/comments/{comment_id}",
+            token=token,
+            deadline=deadline,
+        )
+        review_pull = _api_json(
+            "https://api.github.com/repos/"
+            f"{_repo_path(identity['repository'])}/pulls/{pull_number}",
+            token=token,
+            deadline=deadline,
+        )
+        validate_review_evidence_comment(
+            review_comment,
+            review_pull,
+            review_reference=review_reference,
+            review_record_sha256=review_record_sha256,
+            repository=identity["repository"],
+            repository_id=identity["repository_id"],
+            code_sha=identity["code_sha"],
+            workflow_sha=identity["workflow_sha"],
+            protocol_digest=digest,
+            prepare_reference=prepare_reference,
         )
         for reference, metadata, receipt in prior:
             validate_prior_receipt(
@@ -1421,6 +1621,7 @@ def _restore_checkpoint_inputs(
                 protocol_digest=digest,
                 approved_protocol_digest=approved_protocol_digest,
                 review_reference=review_reference,
+                review_record_sha256=review_record_sha256,
                 runtime=runtime,
             )
     staging.rename(destination)
@@ -1537,6 +1738,7 @@ def execute_from_environment(environment: dict[str, str] | None = None) -> int:
         protocol_digest: str | None = None
         approval_digest = env.get("CHECKPOINT_APPROVED_PROTOCOL_DIGEST", "")
         review_input = env.get("CHECKPOINT_REVIEW_REFERENCE", "")
+        review_record_input = env.get("CHECKPOINT_REVIEW_RECORD_SHA256", "")
         review_reference: str | None = None
         if stage == "prepare":
             if checkpoint_root.exists() or checkpoint_root.is_symlink():
@@ -1551,15 +1753,22 @@ def execute_from_environment(environment: dict[str, str] | None = None) -> int:
                 token=token,
                 approved_protocol_digest=approval_digest,
                 review_reference=review_reference,
+                review_record_sha256=review_record_input,
                 stage=stage,
                 runtime=runtime,
                 deadline=deadline,
             )
             validate_operator_approval(
-                stage, approval_digest, review_input, protocol_digest
+                stage,
+                approval_digest,
+                review_input,
+                protocol_digest,
+                repository=identity["repository"],
+                review_record_sha256=review_record_input,
             )
             receipt["approved_protocol_digest"] = approval_digest
             receipt["review_reference"] = review_reference
+            receipt["review_record_sha256"] = review_record_input
             receipt["checkpoint_protocol_digest"] = protocol_digest
             _atomic_receipt(receipt_path, receipt)
 
@@ -1594,7 +1803,12 @@ def execute_from_environment(environment: dict[str, str] | None = None) -> int:
         protocol_digest = content_digest(protocol)
         if stage != "prepare":
             validate_operator_approval(
-                stage, approval_digest, review_input, protocol_digest
+                stage,
+                approval_digest,
+                review_input,
+                protocol_digest,
+                repository=identity["repository"],
+                review_record_sha256=review_record_input,
             )
         receipt["checkpoint_protocol_digest"] = protocol_digest
         receipt["status"] = "succeeded"

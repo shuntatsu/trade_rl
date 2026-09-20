@@ -395,7 +395,6 @@ def test_activation_rejects_result_or_unused_data_authority(tmp_path) -> None:
             )
 
 
-
 def test_activation_rejects_implementation_digest_drift(tmp_path) -> None:
     provenance = {
         "schema_version": "test-provenance",

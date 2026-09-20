@@ -3,7 +3,6 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from trade_rl.data.contracts import FeatureKind
 from tests.strategies.test_ppo_interleaved_training import (
     FakeDummyVecEnv,
     FakePPO,
@@ -11,6 +10,7 @@ from tests.strategies.test_ppo_interleaved_training import (
     install_fake_sb3,
     pooled_market,
 )
+from trade_rl.data.contracts import FeatureKind
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,

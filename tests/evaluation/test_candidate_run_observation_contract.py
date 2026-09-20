@@ -216,3 +216,41 @@ def test_candidate_v2_rejects_tampered_observation_contract(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="PPO observation contract"):
         load_candidate_run_artifact(root)
+
+
+
+def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
+    root = tmp_path / "immutable"
+    _write_root(
+        root,
+        _summary(
+            schema="lean_candidate_result_v2",
+            observation=ppo_observation_contract_payload(),
+        ),
+    )
+
+    loaded = load_candidate_run_artifact(root)
+    key = "symbol_0_strategy_0"
+
+    with pytest.raises(TypeError):
+        loaded.summary["dataset_id"] = "c" * 64
+
+    symbols = loaded.summary["symbols"]
+    assert isinstance(symbols, list)
+    with pytest.raises(TypeError):
+        symbols.append("ETHUSDT")
+
+    implementation = loaded.provenance["implementation"]
+    assert isinstance(implementation, dict)
+    with pytest.raises(TypeError):
+        implementation["files"] = ["tampered.py"]
+
+    with pytest.raises(TypeError):
+        loaded.returns[key] = np.asarray([1.0], dtype=np.float64)
+
+    values = loaded.returns[key]
+    assert values.flags.writeable is False
+    with pytest.raises(ValueError):
+        values.setflags(write=True)
+    with pytest.raises(ValueError):
+        values[0] = 1.0

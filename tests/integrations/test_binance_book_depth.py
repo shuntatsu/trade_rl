@@ -127,10 +127,16 @@ def test_book_depth_parser_returns_immutable_deterministic_evidence() -> None:
     assert series.source_uri == source
     assert series.raw_payload_sha256 == hashlib.sha256(payload).hexdigest()
     assert series.raw_payload_size_bytes == len(payload)
-    assert series.timestamps.flags.writeable is False
-    assert series.depth.flags.writeable is False
-    assert series.notional.flags.writeable is False
-    assert series.implied_average_price.flags.writeable is False
+    for values in (
+        series.timestamps,
+        series.available_at,
+        series.depth,
+        series.notional,
+        series.implied_average_price,
+    ):
+        assert values.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            values.setflags(write=True)
     with pytest.raises(ValueError):
         series.depth[0, 0] = 1.0
     with pytest.raises(FrozenInstanceError):

@@ -88,6 +88,36 @@ def test_damaged_bundle_is_rejected_before_loading_policy(
     assert not Policy.loaded
 
 
+@pytest.mark.parametrize(
+    ("observation_shape", "action_n", "action_start"),
+    (
+        ((4,), 3, 0),
+        ((5,), 2, 0),
+        ((5,), 3, 1),
+    ),
+)
+def test_publish_rejects_incompatible_policy_spaces_before_creation(
+    tmp_path,
+    observation_shape,
+    action_n,
+    action_start,
+):
+    policy = Policy()
+    policy.observation_space = SimpleNamespace(shape=observation_shape)
+    policy.action_space = SimpleNamespace(n=action_n, start=action_start)
+    strategy = PPOIntentStrategy(
+        policy,
+        feature_indices=(0,),
+        feature_normalizer=_fit(),
+    )
+    root = tmp_path / "policy"
+
+    with pytest.raises(ValueError, match="policy spaces|PPO contract"):
+        save_normalized_ppo(root, strategy)
+
+    assert not root.exists()
+
+
 def test_unnormalized_policy_cannot_be_published_as_normalized(tmp_path):
     with pytest.raises(ValueError, match="normalizer"):
         save_normalized_ppo(

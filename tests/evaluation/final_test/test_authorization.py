@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from inspect import signature
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from inspect import signature
 from pathlib import Path
 
 import pytest

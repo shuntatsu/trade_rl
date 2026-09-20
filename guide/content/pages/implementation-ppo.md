@@ -56,6 +56,8 @@ shared_cash（opt-in）
 
 これらは**未評価の実装能力**です。shared-cashはcash accountだけでなく、portfolio-level risk couplingと全slot共通team rewardを同時に持ちます。またlocal Observation v2には他symbol weightやshared cashを追加しないため、各slotから見るとportfolio stateは部分観測です。したがって「accountだけを変えた純粋な比較」とは扱いません。developmentで比較するときはlayout、`rollout_steps_per_env`、team-reward semanticsを結果を見る前に固定し、per-symbol contribution rewardやjoint observationは別factorにします。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、policy seedとexecution乱数を同時に変えないため、`interleaved`と`shared_cash`のvectorized fitはどちらも`slippage_std > 0`をfail closedにします。
 
+PPOの更新則もSB3 defaultへ暗黙委譲しません。current contractはlearning rate `3e-4`、sequential `n_steps=2048`、batch `64`、`n_epochs=10`、`gamma=0.99`、`gae_lambda=0.95`、clip `0.2`、value clipなし、advantage normalizationあり、entropy係数`0.0`、value係数`0.5`、gradient clip`0.5`、gSDE無効、`target_kl=None`です。vectorized layoutでは`n_steps`だけ明示した`rollout_steps_per_env`へ差し替えます。これらはSB3 2.3.2で既に使われていた値をコードへ固定したもので、結果を見て変更した値ではありません。
+
 ## 学習stepの全体像
 
 ```text

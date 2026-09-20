@@ -192,6 +192,14 @@ def save_ppo_inference_bundle(
 
     indices = tuple(strategy.feature_indices)
     selected_names = _validated_feed_feature_names(feature_names, indices)
+    if strategy.feature_names is None:
+        raise ValueError(
+            "PPO strategy feature schema must be bound before inference publication"
+        )
+    if tuple(strategy.feature_names) != selected_names:
+        raise ValueError(
+            "strategy feature schema differs from the inference feed schema"
+        )
     normalizer = strategy.feature_normalizer
     if normalizer is not None:
         normalizer.validate_features(indices)
@@ -311,5 +319,6 @@ def load_ppo_inference_bundle(
     return PPOIntentStrategy(
         model,
         feature_indices=indices,
+        feature_names=selected_names,
         feature_normalizer=normalizer,
     )

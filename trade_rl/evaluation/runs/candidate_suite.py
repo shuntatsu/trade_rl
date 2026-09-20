@@ -195,6 +195,7 @@ def run_lean_candidate_suite(
         "ppo": lambda: PPOIntentStrategy(
             ppo_strategy.policy,
             feature_indices=ppo_strategy.feature_indices,
+            feature_names=ppo_strategy.feature_names,
             feature_normalizer=ppo_strategy.feature_normalizer,
         ),
     }

@@ -301,9 +301,7 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "controlled_study_plan_v2" in controlled_loop
     assert "legacy v1 Plan" in controlled_loop
 
-    research = (DOCS / "research" / "current-status.md").read_text(
-        encoding="utf-8"
-    )
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     assert "trade_rl.evaluation.final_test" in research
     assert "final economic evaluation自体は未実行" in research
     assert "canonical_m2_bootstrap_config_v3" in research

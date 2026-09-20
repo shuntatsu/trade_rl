@@ -7,6 +7,7 @@ import json
 import shutil
 import tempfile
 from hashlib import sha256
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,14 @@ _SCHEMA = "ppo_normalized_model_v1"
 _INFERENCE_SCHEMA = "ppo_inference_bundle_v1"
 
 
+def _matches_integer(value: object, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, Integral)
+        and int(value) == expected
+    )
+
+
 def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
     try:
         observation_shape = tuple(
@@ -33,9 +42,13 @@ def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
     except (AttributeError, TypeError) as error:
         raise ValueError("policy spaces differ from the PPO contract") from error
     if (
-        observation_shape != (3 * feature_count + 2,)
-        or action_count != 3
-        or action_start != 0
+        len(observation_shape) != 1
+        or not _matches_integer(
+            observation_shape[0],
+            3 * feature_count + 2,
+        )
+        or not _matches_integer(action_count, 3)
+        or not _matches_integer(action_start, 0)
     ):
         raise ValueError("policy spaces differ from the PPO contract")
 
@@ -119,8 +132,8 @@ def _validated_feed_feature_names(
     names = tuple(feature_names)
     if (
         not names
-        or len(set(names)) != len(names)
         or any(not isinstance(name, str) or not name for name in names)
+        or len(set(names)) != len(names)
     ):
         raise ValueError("feature_names must be non-empty unique strings")
     indices = tuple(feature_indices)

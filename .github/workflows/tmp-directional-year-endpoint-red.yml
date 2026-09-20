@@ -1,4 +1,4 @@
-name: tmp directional year endpoint RED
+name: tmp directional year format probe
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -24,19 +24,10 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Prove year-return endpoint semantic RED
+      - name: Show formatter diff
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff check tests/evaluation/test_directional.py
-          uv run ruff format --check tests/evaluation/test_directional.py
-          set +e
-          uv run pytest -q             tests/evaluation/test_directional.py::test_year_returns_use_interval_end_timestamp             > "$RUNNER_TEMP/red.log" 2>&1
-          status=$?
-          set -e
-          cat "$RUNNER_TEMP/red.log"
-          test "$status" -ne 0
-          grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log"
-          grep -q "AssertionError" "$RUNNER_TEMP/red.log"
-          ! grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log"
-          echo ISSUE667_DIRECTIONAL_YEAR_ENDPOINT_RED=PASS
+          uv run ruff format tests/evaluation/test_directional.py
+          git diff -- tests/evaluation/test_directional.py
+          test -z "$(git status --short -- tests/evaluation/test_directional.py)"

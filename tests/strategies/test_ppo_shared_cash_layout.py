@@ -68,9 +68,7 @@ def test_shared_cash_coordinator_matches_canonical_replay() -> None:
             np.asarray(actions, dtype=np.int64)
         )
         rewards.append(reward)
-        target_weights.append(
-            tuple(float(info["target_weight"]) for info in infos)
-        )
+        target_weights.append(tuple(float(info["target_weight"]) for info in infos))
 
     assert terminated is True
     np.testing.assert_allclose(rewards, np.log1p(replay.returns.values))

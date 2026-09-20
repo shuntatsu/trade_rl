@@ -281,11 +281,11 @@ def load_ppo_inference_bundle(
     if (
         not indices
         or len(indices) != len(selected_names)
-        or len(set(indices)) != len(indices)
         or any(
             isinstance(index, bool) or not isinstance(index, int) or index < 0
             for index in indices
         )
+        or len(set(indices)) != len(indices)
         or any(not isinstance(name, str) or not name for name in selected_names)
     ):
         raise ValueError("PPO inference feature schema is malformed")

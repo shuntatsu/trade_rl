@@ -652,7 +652,7 @@ Controlled Experiment Loop自体からsealed unused-futureを開かない。Deve
 
 現行codeには、その別境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityのGreenをfinal evidenceとして数えない。
 
-final-eligibleな新規research lineでは、unused windowをdevelopment結果後に選ばない。`canonical_m2_bootstrap_config_v3` でfinal windowを事前登録し、その値を `controlled_study_plan_v2` のdigestへbindしたStudyだけをauthorization対象にする。historical bootstrap v1/v2 / StudyPlan v1はread/inspection互換とdevelopment evidenceを維持するが、final windowを後付けしてeligible化しない。authorization時にcallerが別windowを指定しても拒否する。
+final-eligibleな新規research lineでは、unused windowをdevelopment結果後に選ばない。`canonical_m2_bootstrap_config_v3` でfinal windowを事前登録し、その値を `controlled_study_plan_v2` のdigestへbindしたStudyだけをauthorization対象にする。historical bootstrap v1/v2 / StudyPlan v1はread/inspection互換とdevelopment evidenceを維持するが、final windowを後付けしてeligible化しない。authorization APIはwindow overrideを受け取らず、StudyPlan v2にpreregisterされたwindowだけを使用する。
 
 ## Superseded evidenceの扱い
 

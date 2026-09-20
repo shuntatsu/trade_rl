@@ -20,7 +20,7 @@ def test_protocol_freezes_single_normalization_factor_on_current_economics() -> 
 
     assert protocol["schema"] == PPO_NORMALIZATION_PROTOCOL_SCHEMA
     assert protocol["software_authority"]["minimum_main_sha"] == (
-        "7bcc6854b56f52d0dea076763db047dfc2d83976"
+        "2068dbba481945092a082a79aa640edce8f951b8"
     )
     assert protocol["source"] == {
         "dataset_id": "6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518",

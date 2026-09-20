@@ -17,6 +17,18 @@ from trade_rl.strategies.rl.ppo import (
 )
 
 
+class FakeTanh:
+    pass
+
+
+class FakeAdam:
+    pass
+
+
+class FakeFlattenExtractor:
+    pass
+
+
 class FakePPO:
     last: FakePPO | None = None
 
@@ -85,7 +97,7 @@ def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         sys.modules,
         "torch",
-        SimpleNamespace(set_num_threads=lambda threads: None),
+        SimpleNamespace(\n            set_num_threads=lambda threads: None,\n            nn=SimpleNamespace(Tanh=FakeTanh),\n            optim=SimpleNamespace(Adam=FakeAdam),\n        ),
     )
     monkeypatch.setitem(
         sys.modules,

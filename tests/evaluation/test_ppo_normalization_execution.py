@@ -105,12 +105,39 @@ def test_fit_replication_strategy_changes_only_normalization_for_matched_seed(
         assert call["settle_terminal_position"] is True
 
 
-def test_replication_strategy_factory_creates_fresh_wrappers() -> None:
+def test_replication_strategy_factory_preserves_raw_feature_schema() -> None:
     policy = object()
-    normalizer = object()
     frozen = SimpleNamespace(
         policy=policy,
         feature_indices=(2, 4),
+        feature_names=("raw_2", "raw_4"),
+        feature_normalizer=None,
+    )
+
+    factory = replication_strategy_factory(frozen)
+    first = factory()
+    second = factory()
+
+    assert first is not second
+    assert first.policy is second.policy is policy
+    assert first.feature_indices == second.feature_indices == (2, 4)
+    assert first.feature_names == second.feature_names == ("raw_2", "raw_4")
+    assert first.feature_normalizer is second.feature_normalizer is None
+
+
+def test_replication_strategy_factory_preserves_normalized_feature_schema() -> None:
+    class FakeNormalizer:
+        feature_names = ("norm_2", "norm_4")
+
+        def validate_features(self, feature_indices) -> None:
+            assert feature_indices == (2, 4)
+
+    policy = object()
+    normalizer = FakeNormalizer()
+    frozen = SimpleNamespace(
+        policy=policy,
+        feature_indices=(2, 4),
+        feature_names=("norm_2", "norm_4"),
         feature_normalizer=normalizer,
     )
 
@@ -121,8 +148,8 @@ def test_replication_strategy_factory_creates_fresh_wrappers() -> None:
     assert first is not second
     assert first.policy is second.policy is policy
     assert first.feature_indices == second.feature_indices == (2, 4)
+    assert first.feature_names == second.feature_names == ("norm_2", "norm_4")
     assert first.feature_normalizer is second.feature_normalizer is normalizer
-
 
 def test_slot_boundary_distinguishes_prefit_from_consumed_failure(tmp_path) -> None:
     spec = replication_arm_specs()[0]
@@ -285,6 +312,7 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     saved = SimpleNamespace(
         policy=SimpleNamespace(num_timesteps=262_144),
         feature_indices=(0,),
+        feature_names=("signal",),
         feature_normalizer=None,
     )
 
@@ -297,6 +325,7 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     loaded = SimpleNamespace(
         policy=SimpleNamespace(num_timesteps=262_144),
         feature_indices=(0,),
+        feature_names=("signal",),
         feature_normalizer=None,
     )
 

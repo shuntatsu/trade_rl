@@ -17,14 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 3feb070e3348204a81f0abb188c5a468be0d432e
+          ref: dbdee16fe56347d7dc6ce2e1b8ce5b1729946b4b
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Print characterization deltas
+      - name: Print fill-level characterization
         shell: bash
         run: |
           uv run python - <<'PY'
@@ -33,23 +33,21 @@ jobs:
 
           ns = runpy.run_path("tests/simulation/test_stateful_execution_characterization.py")
           result = ns["_baseline_result"]()
-          normalize = ns["_normalize"]
-          payload = normalize(ns["_result_payload"](result))
-          selected = {
-              "book": payload["book"],
-              "interval_cost": payload["interval_cost"],
-              "interval_gross_return": payload["interval_gross_return"],
-              "interval_net_return": payload["interval_net_return"],
-              "interval_log_return": payload["interval_log_return"],
-              "filled_notional": payload["filled_notional"],
-              "filled_turnover": payload["filled_turnover"],
-              "fill_ratio": payload["fill_ratio"],
-              "unfilled_turnover": payload["unfilled_turnover"],
-              "max_participation": payload["max_participation"],
-              "filled_notional_by_symbol": payload["filled_notional_by_symbol"],
-              "participation_by_symbol": payload["participation_by_symbol"],
-              "cost_by_symbol": payload["cost_by_symbol"],
-              "capacity_evidence": payload["capacity_evidence"],
-          }
-          print("CHARACTERIZATION_SELECTED="+json.dumps(selected, sort_keys=True, separators=(",", ":")))
+          fills = [
+              {
+                  "event_type": event.event_type,
+                  "filled_quantity": event.filled_quantity,
+                  "execution_price": event.execution_price,
+                  "filled_notional": event.filled_notional,
+                  "participation_rate": event.participation_rate,
+                  "trigger_segment": event.trigger_segment,
+                  "available_volume_fraction": event.available_volume_fraction,
+                  "order_id": event.order_id,
+              }
+              for event in result.order_events
+              if event.event_type in {"filled", "partial_fill"}
+          ]
+          print("CHARACTERIZATION_FILLS="+json.dumps(fills, sort_keys=True, separators=(",", ":")))
+          print("COST_BY_SYMBOL="+json.dumps(result.cost_by_symbol.tolist()))
+          print("INTERVAL_COST="+repr(result.interval_cost))
           PY

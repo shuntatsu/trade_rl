@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
 from tests.evaluation.experiments.test_lineage import _decided_first_experiment
 from tests.evaluation.experiments.test_workflow import _with_baseline
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
     ContractViolationError,

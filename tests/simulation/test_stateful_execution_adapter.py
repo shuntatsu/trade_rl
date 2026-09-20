@@ -8,7 +8,7 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution import ExecutionCostConfig, ExecutionRuleStress
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -148,6 +148,81 @@ def test_stateful_target_replaces_matching_residual_from_old_policy() -> None:
         event.reason != "identity_mismatch"
         for event in result.order_events
         if event.event_type == "rejected"
+    )
+
+
+def test_stress_replaces_matching_nominal_residual() -> None:
+    n_bars = 4
+    volume = np.full((n_bars, 1), 1_000.0)
+    dataset = MarketDataset(
+        dataset_id="d" * 64,
+        symbols=("BTC",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 1, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=np.full((n_bars, 1), 100.0),
+        high=np.full((n_bars, 1), 101.0),
+        low=np.full((n_bars, 1), 99.0),
+        close=np.full((n_bars, 1), 100.0),
+        volume=volume,
+        funding_rate=np.zeros((n_bars, 1)),
+        tradable=np.ones((n_bars, 1), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        tick_size=np.full((n_bars, 1), 0.1),
+    )
+    base_cost = cost(participation=1.0)
+    nominal = MarketExecutor(dataset, base_cost)
+    stressed = MarketExecutor(
+        dataset,
+        base_cost,
+        rule_stress=ExecutionRuleStress(
+            name="tick_2x",
+            tick_size_factor=2.0,
+        ),
+    )
+    old_intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="old-nominal-target",
+        execution_policy_digest=nominal.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=5.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    old_order = PendingOrder.from_intent(old_intent)
+
+    result = execute_target_statefully(
+        stressed,
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        OrderBookState(active_orders=(old_order,), terminal_orders=()),
+        np.array([0.5]),
+        start_index=0,
+        bars=1,
+        target_identity="stressed-target",
+    )
+
+    cancelled = [
+        event
+        for event in result.order_events
+        if event.order_id == old_order.order_id and event.event_type == "cancelled"
+    ]
+    assert len(cancelled) == 1
+    assert cancelled[0].reason == "superseded"
+    assert any(
+        order.intent.execution_policy_digest == stressed.execution_policy_digest
+        for order in result.order_book.terminal_orders
+        if order.order_id != old_order.order_id
     )
 
 

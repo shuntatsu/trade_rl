@@ -217,6 +217,147 @@ remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
 
+### Active result-blind PPO BTC-relative feature ablation
+
+A dedicated private runner, `trade_rl.evaluation.ppo_feature_study`, and its
+result-blind protocol are implemented. The first preregistered attempt was
+started on 2026-09-20, then stopped during the fifth baseline arm's development
+replay when the host approached its memory-commit limit. Four baseline arms had
+completed; the fifth model was saved, but its ledger replay and the paired study
+were incomplete. The attempt was not finalized, and its economic outputs were
+not inspected. Its partial write-once artifacts remain preserved under
+`output/ppo-btc-relative-feature-ablation-20260920` and must not be combined with
+a later protocol.
+
+They test one narrow question: whether adding three existing BTC-relative
+return features helps the current PPO candidate under its fixed development
+screens. The exact frozen successor Dataset/Study artifact is preserved in the
+companion `directional-profit-bot/output/source-successor` worktree. Its
+Dataset, artifact, StudyPlan, evaluation-Dataset, and protocol identities were
+re-resolved and matched the fixed values. The replacement run uses the same
+fixed source and economic comparison, with a memory-bounded ledger observer.
+Do not substitute the separate 2024–2026 realdata generation. The
+baseline feature roster is compared with the same roster plus
+`1h__relative_return_to_btc_1bar`, `4h__relative_return_to_btc_1bar`, and
+`1d__relative_return_to_btc_1bar`. This is a PPO feature ablation, not a
+comparison of PPO against other RL families.
+
+The protocol pairs two arms over the same five seeds (0–4), sequential PPO
+layout, 262,144 requested training steps per seed, full fit-symbol roster,
+pre-2023 fit cutoff, `max_gross=0.5`, `max_abs_weight=0.1`, no turnover cap,
+drawdown start 0.1 / stop 0.2, and the same execution/accounting implementation.
+That is ten fits in total. Evaluation uses five independent 10,000 USDT accounts
+(one per BTC/ETH/BNB/XRP/ADA symbol), each with gross budget 0.1, over the same
+17,544 development intervals from 2023-01-01 00:00 to 2025-01-01 00:00. Return
+intervals are grouped by their start timestamp: 2023 has 8,760 intervals and
+2024 has 8,784; the final 2025 timestamp closes the last 2024 interval.
+
+Candidate base and stress cells all carry a global hard veto: any seed-symbol
+cell with ledger drawdown above 20%, termination, a non-flat terminal position,
+or an active order remainder blocks admission. A seed votes for the absolute
+return screen only when full and every-year returns are positive in base and
+both stresses. Four of five same-seed full-return deltas must be strictly
+positive for the paired vote, with positive five-seed median full and each-year
+deltas. These economic votes never relax the hard veto; all candidate medians
+use all five seeds. The candidate alone is replayed under doubled execution
+cost and one-bar latency, across every seed-symbol cell. A pass can request a
+prospective paper study only.
+
+The independent result-blind G0–G2 review passed on 2026-09-20 for the original
+protocol
+digest `09ec5e9e051c7867686dcac9290f6d6a32120c8db459069439386c286f8bbf44`,
+implementation digest `58f1e0e801b094df5fc5b8dfe683f8f55edcc5955dc5251e77244497f56dbb62`,
+and source snapshot `e04210707a33d812bd3e41b7907528658d17f94869d1950772d48389d3d4bce2`.
+The reviewer independently rehashed the implementation and source snapshot;
+the protocol digest was supplied as the fixed binding. That review authorized
+only the original exact source; it does not carry over to the memory fix. The
+replacement protocol was prepared on 2026-09-21 at
+`output/ppo-btc-relative-feature-ablation-20260921-r1`, with protocol digest
+`a25aa21fcfb2b4c17c83f7fc465a49b1e08171704742563511a24e9933b07fb3`,
+implementation digest `f3db8d4f070f3d3bd21c73cd35462c5f87405c79774140ff3e7e4c00162313e4`,
+and source snapshot `8a994f7e3d7f6961edff9363f8c65b52e534a391970bde43d3f6f4281b27dc16`.
+Its independent result-blind review completed on 2026-09-21: G0 PASS, G1 PASS,
+and G2 PASS for this exact binding. The baseline seed-0 fit started on
+2026-09-21 and was safely interrupted before fit completion after available
+physical memory fell to 1.18 GB on a 15.75 GB host (92% load). Its arm directory
+contains only `started.json`; no model, result, ledger, or economic output was
+published or inspected. The partial start marker is preserved. A retry needs a
+new write-once output root, and must not combine with the 2026-09-20 attempt.
+The reviewers confirmed G0 and G1 for the fixed paired mechanism. G2 PASS is
+bound to the exact implementation
+digest and source snapshot above; its ledger validator does not independently
+recompute P&L from persisted order/fill events, and its ledger schema does not
+carry an expected symbol index. The current generator passes the symbol index
+through single-symbol replay, keeps other symbols flat, and validates row
+identity, so reviewers found no current-generation mismatch. These are limits
+of the evidence verifier, not a claim that event-level P&L has been independently
+reconstructed. No economic outputs from either attempt were inspected when the
+reviews were performed. These reviews do not establish completion of repository
+quality gates or any economic result. The Dataset and 2023–2024
+development interval have already been used by prior research, so this
+experiment is not confirmatory, is not an unused-data validation, and cannot
+establish general profitability. No production or live-trading claim follows
+from its outcome.
+
+After the r1 interruption, source review found `run_arm` retained both the raw
+Dataset and the immutable price-channel-augmented Dataset for the full fit and
+replay. The code now releases the unused raw reference immediately after
+augmentation in both `expected_protocol` and `run_arm`; a weak-reference test
+was RED before this change and passes at fit entry. The 61 feature-study tests,
+Ruff, and package mypy passed. New exact protocol
+`output/ppo-btc-relative-feature-ablation-20260921-r2` binds protocol digest
+`e5e11eda3c3206087752e184381931eedc8d94efd6fc21679457b6cfb71633b0`,
+implementation digest `7d685cd2f83e59c149171f7c367a95332faff69f56a66542a7124a1faa5a908d`,
+and source snapshot `cb55da0e9d53a2e4af53aed0ab8f5fc25e98238ff73292681b9ec71c108f7b37`.
+Its independent result-blind review completed on 2026-09-21 with G0 PASS, G1
+PASS, and G2 PASS for this exact binding. The G2 reviewer confirmed the
+lifetime-only change does not alter Dataset values or training/evaluation
+semantics; the memory reduction itself has not yet been measured in a full fit.
+The reviewer did not reload the companion Dataset/Study artifacts; local
+`reserve_study()` re-resolved their identities while preparing r2. G2 retains
+the earlier ledger-verifier limitations: no event-level independent P&L
+reconstruction and no expected symbol index in the ledger schema. Baseline
+seed 0 fit completed and entered replay on 2026-09-21. Replay was safely
+interrupted when host available physical memory reached 1.479 GB of 15.75 GB
+(90% load), below the 1.5 GB stop line. Preserve r2 as incomplete: it contains
+the fitted `model.zip`, `started.json`, and base ledgers for symbols 0, 1, and
+2 of 5; symbols 3 and 4 and the arm result were not published. No economic
+output was read. Do not finalize this root or combine it with the original or
+r1 partial attempts. Any retry needs a new output root and at least 4.0 GB of
+available physical memory at preflight; interrupt again if availability falls
+below 1.5 GB.
+
+The checkpoint runner is implemented at
+`evaluation/ppo_feature_checkpoint.py`, but is not yet admitted for real-data
+execution. It completes the same fixed comparison
+without repeating an already completed fit after a replay interruption.
+It introduces a separate protocol identity and atomic completion boundaries
+for fits, individual seed-symbol-scenario replays, arm assembly, and comparison.
+Each retry must verify completed evidence before reusing it; missing work may
+be rerun, while corrupt completed evidence must fail closed. An interrupted
+fit is restarted, not resumed from a partial optimizer or rollout state.
+The original, r1, and r2 roots remain incomplete evidence and are not inputs to
+the checkpoint runner. A new real-data run still needs a prepared exact protocol
+and a fresh result-blind G0–G2 review bound to that protocol and source.
+The scientific factor, fit budget, five seeds, cost and latency stresses,
+development-only claim, and 20% drawdown veto remain as registered above.
+
+The separate follow-on order is algorithm comparison before ensembling: first
+compare PPO with A2C on the same `Discrete(3)` environment and fixed data,
+features, fit scope, account, and execution contract; test DQN only as a later,
+separate factor because it adds replay-buffer and exploration settings. The
+repository currently has a PPO adapter only. Its pinned SB3 2.3.2 dependency
+supports A2C and DQN for discrete actions, but neither is implemented here.
+Do not combine policies unless independent candidates first pass the same
+out-of-sample gates and their errors show useful complementarity.
+
+Data improvement should also be isolated from the learner comparison. The
+Binance aggTrades parser is not connected to the canonical Dataset feature
+builder, and those records do not provide exchange publication or client
+receipt times. Any signed-volume-flow feature therefore needs a documented
+availability lag and verified raw coverage before it enters a study. Broader
+regime and symbol coverage is preferable to adding many unverified indicators.
+
 The separately preregistered corrected-accounting replication in Issue #645 then
 ran the unchanged 13-arm screen from frozen source `c80652a12678` plus only
 the accounting-correction source `95a4831bfbd5`. Official run `35287338444` on
@@ -513,6 +654,7 @@ Canonical M2 bootstrapはresearch runそのものではなく、real development
 - allowed controlled factors / experiment budget
 - bootstrap count / seed
 - bootstrap v2では明示的なexecution economics profile
+- final-eligibleな新規Studyを作るbootstrap v3では、さらにunused `final_evaluation_start` / `final_evaluation_stop_exclusive`
 
 baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
 
@@ -648,6 +790,10 @@ Developmentで繰り返し見た期間をfinal testと呼ばない。Candidate�
 Stress結果を見てから合格thresholdを変更しない。
 
 Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
+
+現行codeには、その別境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityのGreenをfinal evidenceとして数えない。
+
+final-eligibleな新規research lineでは、unused windowをdevelopment結果後に選ばない。`canonical_m2_bootstrap_config_v3` でfinal windowを事前登録し、その値を `controlled_study_plan_v2` のdigestへbindしたStudyだけをauthorization対象にする。 StudyPlan v2作成時にもfinal startがdevelopment Datasetの最終timestampより後であることを要求し、Datasetに既に含まれている期間をreplay未使用という理由だけでfinal扱いしない。historical bootstrap v1/v2 / StudyPlan v1はread/inspection互換とdevelopment evidenceを維持するが、final windowを後付けしてeligible化しない。authorization APIはwindow overrideを受け取らず、StudyPlan v2にpreregisterされたwindowだけを使用する。
 
 ## Superseded evidenceの扱い
 

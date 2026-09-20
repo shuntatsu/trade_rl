@@ -224,28 +224,39 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
 
 
 def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
-    _expect_keys(
-        payload,
-        {
-            "schema_version",
-            "research_question",
-            "dataset_id",
-            "dataset_artifact_schema",
-            "dataset_artifact_digest",
-            "symbols",
-            "baseline_config",
-            "ppo_seeds",
-            "allowed_factors",
-            "max_experiments",
-            "n_bootstrap",
-            "bootstrap_seed",
-            "implementation_digest",
-            "runtime_environment_digest",
-            "candidate_strategy_names",
-            "control_strategy_names",
-        },
-        label="plan.json",
+    schema_version = _as_string(
+        payload.get("schema_version"),
+        field="schema_version",
     )
+    expected = {
+        "schema_version",
+        "research_question",
+        "dataset_id",
+        "dataset_artifact_schema",
+        "dataset_artifact_digest",
+        "symbols",
+        "baseline_config",
+        "ppo_seeds",
+        "allowed_factors",
+        "max_experiments",
+        "n_bootstrap",
+        "bootstrap_seed",
+        "implementation_digest",
+        "runtime_environment_digest",
+        "candidate_strategy_names",
+        "control_strategy_names",
+    }
+    if schema_version == "controlled_study_plan_v2":
+        expected.update(
+            {
+                "final_evaluation_start",
+                "final_evaluation_stop_exclusive",
+            }
+        )
+    elif schema_version != "controlled_study_plan_v1":
+        raise ArtifactIntegrityError("unsupported StudyPlan schema_version")
+    _expect_keys(payload, expected, label="plan.json")
+
     candidates = _as_string_tuple(
         payload["candidate_strategy_names"], field="candidate_strategy_names"
     )
@@ -253,7 +264,7 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
         payload["control_strategy_names"], field="control_strategy_names"
     )
     if candidates != CANDIDATE_STRATEGY_NAMES or controls != CONTROL_STRATEGY_NAMES:
-        raise ArtifactIntegrityError("Study strategy roster differs from v1 contract")
+        raise ArtifactIntegrityError("Study strategy roster differs from contract")
     factors: list[ControlledFactor] = []
     for value in _as_list(payload["allowed_factors"], field="allowed_factors"):
         try:
@@ -292,9 +303,23 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 payload["runtime_environment_digest"],
                 field="runtime_environment_digest",
             ),
-            schema_version=_as_string(
-                payload["schema_version"], field="schema_version"
+            final_evaluation_start=(
+                None
+                if schema_version == "controlled_study_plan_v1"
+                else _as_string(
+                    payload["final_evaluation_start"],
+                    field="final_evaluation_start",
+                )
             ),
+            final_evaluation_stop_exclusive=(
+                None
+                if schema_version == "controlled_study_plan_v1"
+                else _as_string(
+                    payload["final_evaluation_stop_exclusive"],
+                    field="final_evaluation_stop_exclusive",
+                )
+            ),
+            schema_version=schema_version,
         )
     except ContractViolationError as error:
         raise ArtifactIntegrityError("plan.json violates StudyPlan contract") from error

@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "何が検証済みで、何が次の課題・未証明・制約として残っているかを分離して表示します。",
+  "summary": "検証済みdevelopment evidence、未証明事項、実装済みfinal authorization境界と未実行のfinal evaluationを分離して表示します。",
   "role": "status",
   "keywords": [
     "M2",
@@ -13,7 +13,8 @@
     "KEEP_BASELINE",
     "profitability",
     "winner",
-    "limitations"
+    "limitations",
+    "final authorization"
   ],
   "source_sections": [
     {

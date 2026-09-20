@@ -327,6 +327,21 @@ r1 partial attempts. Any retry needs a new output root and at least 4.0 GB of
 available physical memory at preflight; interrupt again if availability falls
 below 1.5 GB.
 
+The checkpoint runner is implemented at
+`evaluation/ppo_feature_checkpoint.py`, but is not yet admitted for real-data
+execution. It completes the same fixed comparison
+without repeating an already completed fit after a replay interruption.
+It introduces a separate protocol identity and atomic completion boundaries
+for fits, individual seed-symbol-scenario replays, arm assembly, and comparison.
+Each retry must verify completed evidence before reusing it; missing work may
+be rerun, while corrupt completed evidence must fail closed. An interrupted
+fit is restarted, not resumed from a partial optimizer or rollout state.
+The original, r1, and r2 roots remain incomplete evidence and are not inputs to
+the checkpoint runner. A new real-data run still needs a prepared exact protocol
+and a fresh result-blind G0–G2 review bound to that protocol and source.
+The scientific factor, fit budget, five seeds, cost and latency stresses,
+development-only claim, and 20% drawdown veto remain as registered above.
+
 The separate follow-on order is algorithm comparison before ensembling: first
 compare PPO with A2C on the same `Discrete(3)` environment and fixed data,
 features, fit scope, account, and execution contract; test DQN only as a later,

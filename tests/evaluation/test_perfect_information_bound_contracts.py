@@ -93,9 +93,11 @@ def test_result_arrays_are_read_only() -> None:
         result.period_transaction_costs,
         result.period_net_returns,
     ):
-        assert not value.flags.writeable
-    with pytest.raises(ValueError):
-        result.target_weights[0, 0] = 0.0
+        assert value.flags.writeable is False
+        with pytest.raises(ValueError, match="WRITEABLE|writeable|writable"):
+            value.setflags(write=True)
+        with pytest.raises(ValueError):
+            value.flat[0] = 0.0
 
 
 def test_repeated_solves_are_deterministic_and_digest_stable() -> None:

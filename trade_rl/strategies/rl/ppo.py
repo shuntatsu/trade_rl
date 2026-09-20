@@ -17,7 +17,6 @@ from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.risk.pretrade import should_rebind_strategy_proposal
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.dataset_scope import (
-    validated_feature_indices,
     validated_symbol_indices,
     validated_training_scope,
 )
@@ -328,7 +327,10 @@ class PPOTradingEnv(gym.Env):
         if feature_normalizer is not None:
             feature_normalizer.validate_features(self.feature_indices)
             feature_normalizer.validate_training_scope(
-                dataset, self.symbol_indices, start_index, self.agent_stop_index
+                dataset,
+                self.information_symbol_indices,
+                start_index,
+                self.agent_stop_index,
             )
         self.feature_normalizer = feature_normalizer
         if risk_config is not None and (

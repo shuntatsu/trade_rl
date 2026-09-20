@@ -234,6 +234,8 @@ def validate_review_evidence_comment(
         or payload.get("final_data_accessed") is not False
     ):
         raise ValueError("review evidence payload differs from the execution contract")
+    # The machine gate binds the source-review comment identity only; reviewer
+    # independence and semantic review quality remain external assurance claims.
     source_reference = payload.get("source_review_reference")
     if not isinstance(source_reference, str):
         raise ValueError("review evidence source review reference is malformed")

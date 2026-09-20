@@ -1,0 +1,22 @@
+name: Verify PR704 MarketDataset GREEN
+on:
+  push:
+    branches:
+      - verify/pr704-market-dataset-green
+permissions:
+  contents: read
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d59b54e12810d966a5531f193eb8b67d6faf5cf2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          python-version: '3.12'
+      - run: uv sync --extra dev
+      - run: |
+          uv run pytest -q             tests/data/test_dataset_content_identity.py             tests/data/test_market_dataset_artifact.py             tests/data/test_market_dataset_v2.py

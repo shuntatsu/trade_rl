@@ -11,6 +11,8 @@ _GIT_SHA_RE: Final = re.compile(r"^[0-9a-f]{40}$")
 
 
 def require_non_empty(value: str, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be non-empty")
     normalized = value.strip()
     if not normalized:
         raise ValueError(f"{field} must be non-empty")
@@ -24,12 +26,14 @@ def require_sha256(value: str, *, field: str) -> str:
 
 
 def require_git_sha(value: str, *, field: str = "git_commit") -> str:
-    if not _GIT_SHA_RE.fullmatch(value):
+    if not isinstance(value, str) or not _GIT_SHA_RE.fullmatch(value):
         raise ValueError(f"{field} must be a lowercase 40-character Git SHA")
     return value
 
 
 def require_aware_datetime(value: datetime, *, field: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError(f"{field} must be timezone-aware")
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field} must be timezone-aware")
     return value

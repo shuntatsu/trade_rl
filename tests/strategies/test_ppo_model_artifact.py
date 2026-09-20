@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
+from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
@@ -536,3 +537,45 @@ def test_inference_bundle_rejects_feed_schema_different_from_strategy_binding(
         )
 
     assert not root.exists()
+
+
+@pytest.mark.parametrize(
+    "bad_indices",
+    (
+        [[0]],
+        [{"index": 0}],
+    ),
+)
+def test_inference_manifest_rejects_nested_feature_indices_as_validation_error(
+    tmp_path,
+    monkeypatch,
+    bad_indices,
+) -> None:
+    _install_policy_loader(monkeypatch)
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+    )
+    root = tmp_path / "nested-indices"
+    _digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+    payload = json.loads((root / "manifest.json").read_bytes())
+    payload["feature_indices"] = bad_indices
+    (root / "manifest.json").write_bytes(canonical_json_bytes(payload))
+    expected_digest = content_digest(payload)
+    Policy.loaded = False
+    Policy.load_path = None
+
+    with pytest.raises(ValueError, match="feature schema"):
+        load_ppo_inference_bundle(
+            root,
+            expected_digest=expected_digest,
+            feature_names=("signal",),
+        )
+
+    assert Policy.loaded is False
+    assert Policy.load_path is None

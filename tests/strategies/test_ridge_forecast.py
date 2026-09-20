@@ -164,7 +164,6 @@ def test_ridge_strategy_uses_shared_forecast_controller_and_fails_closed() -> No
     assert strategy.decide(observation(0.20, available=False)) is PositionIntent.FLAT
 
 
-
 def test_training_set_arrays_are_deeply_immutable() -> None:
     training = CausalForecastTrainingSet(
         feature_indices=(0,),

@@ -101,7 +101,6 @@ def test_unnormalized_policy_cannot_be_published_as_normalized(tmp_path):
     assert not (tmp_path / "policy").exists()
 
 
-
 def test_raw_ppo_inference_bundle_roundtrip_binds_feed_feature_schema(
     tmp_path, monkeypatch
 ) -> None:

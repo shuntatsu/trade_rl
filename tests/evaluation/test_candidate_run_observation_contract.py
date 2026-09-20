@@ -235,14 +235,14 @@ def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
         loaded.summary["dataset_id"] = "c" * 64
 
     symbols = loaded.summary["symbols"]
-    assert isinstance(symbols, list)
-    with pytest.raises(TypeError):
-        symbols.append("ETHUSDT")
+    assert symbols[0] == "BTCUSDT"  # type: ignore[index]
+    with pytest.raises((AttributeError, TypeError)):
+        symbols.append("ETHUSDT")  # type: ignore[attr-defined]
 
     implementation = loaded.provenance["implementation"]
-    assert isinstance(implementation, dict)
+    assert implementation["schema_version"] == "candidate_run_implementation_v1"  # type: ignore[index]
     with pytest.raises(TypeError):
-        implementation["files"] = ["tampered.py"]
+        implementation["files"] = ["tampered.py"]  # type: ignore[index]
 
     with pytest.raises(TypeError):
         loaded.returns[key] = np.asarray([1.0], dtype=np.float64)

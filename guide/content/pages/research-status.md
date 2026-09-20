@@ -58,7 +58,7 @@ PPO aggregate metricはExperiment 0001のformal decision oracleには使って�
 
 1. developmentで一因子Experimentを積む。
 2. winner / no-winner判断を事前ruleに従って固定する。
-3. final-eligibleな新規Studyでは、development resultより前にbootstrap v3 / StudyPlan v2でunused windowを固定する。historical StudyPlan v1へwindowを後付けしない。
+3. final-eligibleな新規Studyでは、development resultより前にbootstrap v3 / StudyPlan v2でunused windowを固定する。final startはdevelopment Datasetの最終timestampより後に置き、historical StudyPlan v1へwindowを後付けしない。
 4. そのStudyがWINNERになった場合だけ、実装済みのfinal authorization gateでStudy freeze・winner evidence・事前登録windowをone-shot artifactへbindする。
 5. authorizationとは別の将来consumerが、そのartifactを検証して初めてsealed unused-futureを開く。
 6. final evaluation後もexecution stress、capacity、account-specific economicsを別途確認する。

@@ -260,7 +260,7 @@ class PPOIntentStrategy:
         feature_normalizer: PPOFeatureNormalizer | None = None,
     ) -> None:
         self.policy = policy
-        self.feature_indices = _validated_indices(feature_indices)
+        indices = _validated_indices(feature_indices)
         if feature_names is None:
             selected_names = (
                 None
@@ -270,7 +270,7 @@ class PPOIntentStrategy:
         else:
             selected_names = tuple(feature_names)
             if (
-                len(selected_names) != len(self.feature_indices)
+                len(selected_names) != len(indices)
                 or len(set(selected_names)) != len(selected_names)
                 or any(not isinstance(name, str) or not name for name in selected_names)
             ):
@@ -278,13 +278,26 @@ class PPOIntentStrategy:
                     "feature_names must match feature_indices with unique non-empty strings"
                 )
         if feature_normalizer is not None:
-            feature_normalizer.validate_features(self.feature_indices)
+            feature_normalizer.validate_features(indices)
             if selected_names != feature_normalizer.feature_names:
                 raise ValueError(
                     "strategy feature names differ from fitted normalization"
                 )
-        self.feature_names = selected_names
-        self.feature_normalizer = feature_normalizer
+        self._feature_indices = indices
+        self._feature_names = selected_names
+        self._feature_normalizer = feature_normalizer
+
+    @property
+    def feature_indices(self) -> tuple[int, ...]:
+        return self._feature_indices
+
+    @property
+    def feature_names(self) -> tuple[str, ...] | None:
+        return self._feature_names
+
+    @property
+    def feature_normalizer(self) -> PPOFeatureNormalizer | None:
+        return self._feature_normalizer
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
         encoded = _encode_observation(

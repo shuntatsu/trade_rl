@@ -63,6 +63,8 @@ def _with_baseline(
     monkeypatch: pytest.MonkeyPatch,
     *,
     max_experiments: int = 3,
+    final_evaluation_start: str | None = None,
+    final_evaluation_stop_exclusive: str | None = None,
 ):
     root, dataset_root, _ = _created_study(
         tmp_path,

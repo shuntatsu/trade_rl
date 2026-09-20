@@ -60,7 +60,11 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         calls["ppo"] = int(calls["ppo"]) + 1
         calls["ppo_dataset"] = args[0]
         calls["ppo_kwargs"] = kwargs
-        return ConstantIntentStrategy(PositionIntent.FLAT)
+        return SimpleNamespace(
+            policy=object(),
+            feature_indices=(0,),
+            feature_normalizer=None,
+        )
 
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
     monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
@@ -73,6 +77,11 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch.setattr(
         candidate_suite,
         "LightGBMForecastStrategy",
+        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
+    )
+    monkeypatch.setattr(
+        candidate_suite,
+        "PPOIntentStrategy",
         lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
     )
 

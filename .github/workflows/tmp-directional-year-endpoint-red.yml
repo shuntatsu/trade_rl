@@ -25,16 +25,45 @@ jobs:
           version: '0.10.0'
           python-version: '3.12'
       - run: uv sync --extra dev
-      - name: Prove year-return endpoint semantic RED
+      - name: Diagnose year-return endpoint RED
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
+
+          post_status() {
+            context="$1"
+            state="$2"
+            description="$3"
+            curl --fail-with-body -sS -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -d "{\"state\":\"$state\",\"context\":\"$context\",\"description\":\"$description\"}" \
+              >/dev/null
+          }
+
           status=0
 
-          uv run ruff check tests/evaluation/test_directional.py || status=1
-          uv run ruff format --check tests/evaluation/test_directional.py || status=1
+          uv run ruff check tests/evaluation/test_directional.py
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            post_status issue667/red/ruff-check success "ruff check passed"
+          else
+            post_status issue667/red/ruff-check failure "ruff check failed"
+            status=1
+          fi
+
+          uv run ruff format --check tests/evaluation/test_directional.py
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            post_status issue667/red/ruff-format success "ruff format check passed"
+          else
+            post_status issue667/red/ruff-format failure "ruff format check failed"
+            status=1
+          fi
 
           uv run pytest -q \
             tests/evaluation/test_directional.py::test_year_returns_use_interval_end_timestamp \
@@ -42,27 +71,38 @@ jobs:
           pytest_status=$?
           cat "$RUNNER_TEMP/red.log"
 
-          if [ "$pytest_status" -eq 0 ]; then
-            echo "expected targeted test to fail before production fix"
+          if [ "$pytest_status" -ne 0 ]; then
+            post_status issue667/red/pytest-nonzero success "targeted pytest returned nonzero"
+          else
+            post_status issue667/red/pytest-nonzero failure "targeted pytest unexpectedly passed"
             status=1
           fi
-          grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log" || status=1
-          grep -q "AssertionError" "$RUNNER_TEMP/red.log" || status=1
-          grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log" && status=1
 
-          if [ "$status" -eq 0 ]; then
-            state=success
-            description="year-endpoint regression is semantic RED"
+          if grep -q "test_year_returns_use_interval_end_timestamp" "$RUNNER_TEMP/red.log"; then
+            post_status issue667/red/target-name success "failure references targeted test"
           else
-            state=failure
-            description="targeted RED verifier did not prove semantic failure"
+            post_status issue667/red/target-name failure "targeted test name missing from log"
+            status=1
           fi
 
-          curl --fail-with-body -sS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"$state\",\"context\":\"issue667/semantic-red\",\"description\":\"$description\"}"
+          if grep -q "AssertionError" "$RUNNER_TEMP/red.log"; then
+            post_status issue667/red/assertion success "failure is an assertion"
+          else
+            post_status issue667/red/assertion failure "AssertionError missing from log"
+            status=1
+          fi
+
+          if grep -Eq "ERROR collecting|ImportError|ModuleNotFoundError|SyntaxError" "$RUNNER_TEMP/red.log"; then
+            post_status issue667/red/no-collection-error failure "collection/import/syntax error detected"
+            status=1
+          else
+            post_status issue667/red/no-collection-error success "no collection/import/syntax error"
+          fi
+
+          if [ "$status" -eq 0 ]; then
+            post_status issue667/semantic-red success "year-endpoint regression is semantic RED"
+          else
+            post_status issue667/semantic-red failure "targeted RED verifier did not prove semantic failure"
+          fi
 
           exit "$status"

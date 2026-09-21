@@ -21,6 +21,11 @@ from trade_rl.strategies.forecasts.supervised import (
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
+from trade_rl.strategies.rl.a2c import (
+    A2CFitMetadata,
+    A2CIntentStrategy,
+    fit_a2c_strategy,
+)
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
@@ -35,6 +40,8 @@ from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrate
 __all__ = [
     "CausalForecastTrainingSet",
     "ConstantIntentStrategy",
+    "A2CFitMetadata",
+    "A2CIntentStrategy",
     "ForecastIntentConfig",
     "ForecastIntentController",
     "LightGBMForecastModel",
@@ -52,6 +59,7 @@ __all__ = [
     "TrendIntentStrategy",
     "build_causal_forecast_training_set",
     "fit_lightgbm_forecast",
+    "fit_a2c_strategy",
     "fit_ppo_strategy",
     "fit_ridge_forecast",
     "target_weight_for_intent",

@@ -5,8 +5,7 @@ from __future__ import annotations
 import importlib
 import math
 from functools import partial
-from numbers import Integral
-from typing import Protocol, cast
+from typing import cast
 
 import gymnasium as gym
 import numpy as np
@@ -24,6 +23,12 @@ from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
+)
+from trade_rl.strategies.rl.intent import (
+    _encode_observation,
+    _intent_from_action,
+    _PredictPolicy,
+    _ThreeActionIntentStrategy,
 )
 from trade_rl.strategies.rl.ppo_normalization import (
     PPOFeatureNormalizer,
@@ -51,15 +56,6 @@ _PPO_SDE_SAMPLE_FREQ = -1
 _PPO_TARGET_KL: float | None = None
 
 
-class _PredictPolicy(Protocol):
-    def predict(
-        self,
-        observation: np.ndarray,
-        *,
-        deterministic: bool = True,
-    ) -> tuple[object, object]: ...
-
-
 def ppo_observation_contract_payload() -> dict[str, object]:
     """Return the frozen semantic PPO observation contract for persisted evidence."""
 
@@ -75,18 +71,6 @@ def ppo_observation_contract_payload() -> dict[str, object]:
             "current_weight",
         ],
     }
-
-
-def _validated_indices(feature_indices: tuple[int, ...]) -> tuple[int, ...]:
-    indices = tuple(feature_indices)
-    if not indices or len(set(indices)) != len(indices):
-        raise ValueError("feature_indices must be non-empty and unique")
-    if any(
-        isinstance(index, bool) or not isinstance(index, int) or index < 0
-        for index in indices
-    ):
-        raise ValueError("feature_indices must contain non-negative integers")
-    return indices
 
 
 def _validated_training_layout(
@@ -131,76 +115,25 @@ def _validate_sequential_symbol_coverage(
     *,
     episode_steps: int,
     n_symbols: int,
+    rollout_steps: int = _PPO_DEFAULT_N_STEPS,
+    algorithm: str = "PPO",
+    require_single_symbol_coverage: bool = False,
 ) -> None:
-    """Require rollout-rounded sequential training to reach every fit symbol."""
+    """Check nominal full-window budget capacity across sequential fit symbols."""
 
-    if n_symbols <= 1 or episode_steps <= 0:
+    if episode_steps <= 0 or (n_symbols <= 1 and not require_single_symbol_coverage):
         return
     effective_timesteps = (
-        (total_timesteps + _PPO_DEFAULT_N_STEPS - 1) // _PPO_DEFAULT_N_STEPS
-    ) * _PPO_DEFAULT_N_STEPS
+        (total_timesteps + rollout_steps - 1) // rollout_steps
+    ) * rollout_steps
     required_timesteps = episode_steps * n_symbols
     if effective_timesteps < required_timesteps:
         raise ValueError(
-            "sequential PPO requires at least one full episode for every fit symbol; "
+            f"sequential {algorithm} requires nominal budget capacity for at least "
+            "one full episode per fit symbol; symbol coverage budget check failed; "
             f"rollout-rounded budget={effective_timesteps}, "
             f"required={required_timesteps}"
         )
-
-
-def _encode_observation(
-    observation: StrategyObservation,
-    feature_indices: tuple[int, ...],
-    feature_normalizer: PPOFeatureNormalizer | None = None,
-) -> np.ndarray:
-    indices = _validated_indices(feature_indices)
-    if max(indices) >= observation.features.size:
-        raise ValueError("feature index is outside observation features")
-
-    selected = np.asarray(observation.features[list(indices)], dtype=np.float64)
-    available = np.asarray(
-        observation.feature_available[list(indices)],
-        dtype=np.bool_,
-    )
-    if observation.feature_staleness is None:
-        raise ValueError("PPO Observation v2 requires feature staleness")
-    staleness = np.asarray(
-        observation.feature_staleness[list(indices)],
-        dtype=np.float64,
-    )
-    finite = np.isfinite(selected)
-    usable = available & finite
-    values = np.where(usable, selected, 0.0)
-    if feature_normalizer is not None:
-        values = feature_normalizer.transform(selected, usable)
-
-    state = np.asarray(
-        [float(observation.current_intent), observation.current_weight],
-        dtype=np.float64,
-    )
-    encoded = np.concatenate(
-        (
-            values,
-            usable.astype(np.float64),
-            staleness,
-            state,
-        ),
-    ).astype(np.float32)
-    encoded.setflags(write=False)
-    return encoded
-
-
-def _intent_from_action(action: object) -> PositionIntent:
-    values = np.asarray(action).reshape(-1)
-    if values.size != 1:
-        raise ValueError("PPO action must contain exactly one value")
-    raw = values[0]
-    if isinstance(raw, (bool, np.bool_)) or not isinstance(raw, Integral):
-        raise ValueError("PPO action must be an integer in {0, 1, 2}")
-    value = int(raw)
-    if value not in {0, 1, 2}:
-        raise ValueError("PPO action must be an integer in {0, 1, 2}")
-    return PositionIntent(value - 1)
 
 
 def _desired_quantity_from_weight(
@@ -248,65 +181,10 @@ def _agent_stop_index(
     return agent_stop
 
 
-class PPOIntentStrategy:
-    """Map a deterministic three-action policy to SHORT/FLAT/LONG intent."""
+class PPOIntentStrategy(_ThreeActionIntentStrategy):
+    """PPO-named adapter over the shared three-action intent contract."""
 
-    def __init__(
-        self,
-        policy: _PredictPolicy,
-        *,
-        feature_indices: tuple[int, ...],
-        feature_names: tuple[str, ...] | None = None,
-        feature_normalizer: PPOFeatureNormalizer | None = None,
-    ) -> None:
-        self.policy = policy
-        indices = _validated_indices(feature_indices)
-        if feature_names is None:
-            selected_names = (
-                None
-                if feature_normalizer is None
-                else tuple(feature_normalizer.feature_names)
-            )
-        else:
-            selected_names = tuple(feature_names)
-            if (
-                len(selected_names) != len(indices)
-                or len(set(selected_names)) != len(selected_names)
-                or any(not isinstance(name, str) or not name for name in selected_names)
-            ):
-                raise ValueError(
-                    "feature_names must match feature_indices with unique non-empty strings"
-                )
-        if feature_normalizer is not None:
-            feature_normalizer.validate_features(indices)
-            if selected_names != feature_normalizer.feature_names:
-                raise ValueError(
-                    "strategy feature names differ from fitted normalization"
-                )
-        self._feature_indices = indices
-        self._feature_names = selected_names
-        self._feature_normalizer = feature_normalizer
-
-    @property
-    def feature_indices(self) -> tuple[int, ...]:
-        return self._feature_indices
-
-    @property
-    def feature_names(self) -> tuple[str, ...] | None:
-        return self._feature_names
-
-    @property
-    def feature_normalizer(self) -> PPOFeatureNormalizer | None:
-        return self._feature_normalizer
-
-    def decide(self, observation: StrategyObservation) -> PositionIntent:
-        encoded = _encode_observation(
-            observation,
-            self.feature_indices,
-            self.feature_normalizer,
-        )
-        action, _ = self.policy.predict(encoded, deterministic=True)
-        return _intent_from_action(action)
+    _family_name = "PPO"
 
 
 class PPOTradingEnv(gym.Env):

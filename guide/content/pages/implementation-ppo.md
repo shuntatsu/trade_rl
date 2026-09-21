@@ -138,7 +138,7 @@ reward = log1p(interval_net_return)
 
 ## 学習後も同じ観測契約を使う
 
-`fit_ppo_strategy`が返す`PPOIntentStrategy`は、実行時の`decide`でも同じ`_encode_observation`を使用します。
+`fit_ppo_strategy`が返す`PPOIntentStrategy`は、実行時にも共有private baseの`decide`と同じ`_encode_observation`を使用します。
 
 ```text
 学習時: StrategyObservation → _encode_observation → PPO

@@ -69,7 +69,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py}
+│   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── metrics.py
@@ -191,6 +191,12 @@ adapter shared by PPO and A2C. `a2c.py` owns explicit sequential CPU fitting,
 rollout rounding, and fit-scope metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions
 or economic performance.
+
+`a2c_artifact.py` owns the separate A2C inference-bundle schema. Save validates
+the A2C policy family and spaces before publication. Load requires fit metadata,
+binds the feature feed and policy digest in a canonical manifest, and verifies
+the manifest, feed, metadata, and private policy copy before deserialization;
+it checks the loaded policy spaces before returning the strategy.
 
 `ppo_artifact.py` owns durable PPO inference bundles. The current bundle binds
 raw or normalized policy bytes, Observation v2, selected feature semantics and

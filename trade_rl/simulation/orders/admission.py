@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import Protocol
 
 import numpy as np
 
@@ -17,6 +18,17 @@ from trade_rl.simulation.quantities import (
 )
 
 _TOLERANCE = 1e-12
+
+
+class _AdmissionBookView(Protocol):
+    quantities: np.ndarray
+    insolvent: bool
+
+    @property
+    def contract_multipliers(self) -> np.ndarray | None: ...
+
+    @property
+    def portfolio_value(self) -> float: ...
 
 
 def _projection_tolerance(price: float, projected: float) -> float:
@@ -132,7 +144,7 @@ class OrderAdmissionPolicy:
         intent: OrderIntent,
         *,
         remaining_quantity: float | None = None,
-        book: BookState,
+        book: BookState | _AdmissionBookView,
         processing_index: int,
         asset_active: bool,
         tradable: bool,
@@ -236,11 +248,14 @@ class OrderAdmissionPolicy:
         if intent.reduce_only:
             # Stateful admission projects other pending orders for economics,
             # but an unfilled opening is not inventory available to close.
-            position = (
-                book.exact_quantities[symbol]
-                if actual_position is None
-                else actual_position
-            )
+            if actual_position is None:
+                if not isinstance(book, BookState):
+                    raise OrderAdmissionError(
+                        "actual_position is required for a projected book"
+                    )
+                position = book.exact_quantities[symbol]
+            else:
+                position = actual_position
             request = exact_quantity(requested)
             if not position:
                 return self._reject("reduce_only_no_position")

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from functools import lru_cache
 
 
+@lru_cache(maxsize=2048)
 def exact_quantity(value: float) -> Fraction:
     if not math.isfinite(value):
         raise ValueError("quantity must be finite")

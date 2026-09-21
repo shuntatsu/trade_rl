@@ -1,0 +1,2700 @@
+{
+  "aggregate": {
+    "absolute_symbols": [],
+    "accepted_common_symbols": [],
+    "baseline_base_median_return_by_symbol": {
+      "ADAUSDT": -0.1528847987751772,
+      "BNBUSDT": -0.12062231751939897,
+      "BTCUSDT": -0.1410815148151054,
+      "ETHUSDT": -0.13182525611342485,
+      "XRPUSDT": -0.050882319114643845
+    },
+    "candidate_all_scenario_max_ledger_drawdown": 0.1991484758965626,
+    "candidate_base_max_ledger_drawdown": 0.1929931046473573,
+    "candidate_base_median_return_by_symbol": {
+      "ADAUSDT": -0.1533583162259063,
+      "BNBUSDT": -0.1781993545040163,
+      "BTCUSDT": -0.14480473404275296,
+      "ETHUSDT": -0.06663035102840427,
+      "XRPUSDT": -0.1738209761229578
+    },
+    "candidate_base_median_turnover_by_symbol": {
+      "ADAUSDT": 104.02306172513434,
+      "BNBUSDT": 244.01625887658992,
+      "BTCUSDT": 95.56761974076626,
+      "ETHUSDT": 103.00875901645382,
+      "XRPUSDT": 108.7142543555772
+    },
+    "candidate_candidate_base_median_cost_by_symbol": {
+      "ADAUSDT": 669.0760500899995,
+      "BNBUSDT": 1566.3384181900105,
+      "BTCUSDT": 665.7507422999997,
+      "ETHUSDT": 663.8696963849999,
+      "XRPUSDT": 701.8504343619999
+    },
+    "hard_guard_violations": [],
+    "max_abs_full_return_rounding_residual": 1.111610803405938e-14,
+    "max_difference_from_evaluator_year_diagnostic": 0.0007671769776695296,
+    "max_interval_end_drawdown_seen": 0.19914846590881308,
+    "order_fill_event_count_across_cells": 215433,
+    "relative_symbols": [
+      "ETHUSDT"
+    ],
+    "stress_symbols": []
+  },
+  "audited_at": "2026-09-21T20:50:36.343740+00:00",
+  "cells": [
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18991569957701349,
+      "factor": "baseline",
+      "fill_event_count": 2675,
+      "filled_notional": 2088459.1417999952,
+      "final_equity": 8100.843004229865,
+      "funding_pnl": -3.736196510139004,
+      "ledger_max_drawdown": 0.18991569957701349,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1461.9213992599994,
+      "total_return": -0.1899156995770167,
+      "turnover": 235.76734948179137,
+      "year_returns": {
+        "2023": -0.16661488702496985,
+        "2024": -0.027959237799277795
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19438001319442932,
+      "factor": "baseline",
+      "fill_event_count": 2943,
+      "filled_notional": 2666698.3718600026,
+      "final_equity": 8059.615377716715,
+      "funding_pnl": -7.051181981321286,
+      "ledger_max_drawdown": 0.19438001319442932,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1866.6888603020009,
+      "total_return": -0.19403846222832632,
+      "turnover": 300.80661735571846,
+      "year_returns": {
+        "2023": -0.1489431532174662,
+        "2024": -0.05298742285118245
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19214954419030916,
+      "factor": "baseline",
+      "fill_event_count": 3614,
+      "filled_notional": 3300902.998699988,
+      "final_equity": 8142.401275361035,
+      "funding_pnl": 98.72627445095604,
+      "ledger_max_drawdown": 0.19215219097907665,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2310.632099089999,
+      "total_return": -0.1857598724638926,
+      "turnover": 363.6515657831321,
+      "year_returns": {
+        "2023": -0.13698746418338303,
+        "2024": -0.05651413653494522
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1946551849904813,
+      "factor": "baseline",
+      "fill_event_count": 3454,
+      "filled_notional": 2264038.516060002,
+      "final_equity": 8114.418695073467,
+      "funding_pnl": -0.7363236845492989,
+      "ledger_max_drawdown": 0.19465539348374306,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1584.8269612420017,
+      "total_return": -0.1885581304926535,
+      "turnover": 249.61479784513398,
+      "year_returns": {
+        "2023": -0.15148335627959006,
+        "2024": -0.043693632278684814
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19697933228451592,
+      "factor": "baseline",
+      "fill_event_count": 3776,
+      "filled_notional": 2555482.9506000145,
+      "final_equity": 8167.042982874047,
+      "funding_pnl": -4.776351705982994,
+      "ledger_max_drawdown": 0.19697933228451592,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1788.8380654199948,
+      "total_return": -0.18329570171259144,
+      "turnover": 280.1548721009113,
+      "year_returns": {
+        "2023": -0.1459262703844141,
+        "2024": -0.043754338802806936
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1465280897831055,
+      "factor": "baseline",
+      "fill_event_count": 255,
+      "filled_notional": 162545.57039999994,
+      "final_equity": 8589.184851849046,
+      "funding_pnl": 73.0095511290459,
+      "ledger_max_drawdown": 0.14652860168256332,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 113.78189927999993,
+      "total_return": -0.1410815148151054,
+      "turnover": 18.120681047308548,
+      "year_returns": {
+        "2023": -0.12374268001935251,
+        "2024": -0.01978737797720855
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.14735156700505547,
+      "factor": "baseline",
+      "fill_event_count": 441,
+      "filled_notional": 217604.82416000013,
+      "final_equity": 8681.747438865716,
+      "funding_pnl": 60.09937577770634,
+      "ledger_max_drawdown": 0.14735156700505547,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 152.32337691200004,
+      "total_return": -0.13182525611342485,
+      "turnover": 23.684061928187084,
+      "year_returns": {
+        "2023": -0.0824294596654348,
+        "2024": -0.05383324145299971
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.10693450064246335,
+      "factor": "baseline",
+      "fill_event_count": 910,
+      "filled_notional": 350644.52200000035,
+      "final_equity": 8978.67946789233,
+      "funding_pnl": -60.12876670769702,
+      "ledger_max_drawdown": 0.10693450064246335,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 245.45116539999978,
+      "total_return": -0.1021320532107828,
+      "turnover": 36.678529992079525,
+      "year_returns": {
+        "2023": -0.036413262757769946,
+        "2024": -0.06820225716379097
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0876759311547397,
+      "factor": "baseline",
+      "fill_event_count": 925,
+      "filled_notional": 328536.2048000001,
+      "final_equity": 9892.5789254784,
+      "funding_pnl": 67.99054883838645,
+      "ledger_max_drawdown": 0.0876759311547397,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 229.97534336000012,
+      "total_return": -0.010742107452171443,
+      "turnover": 33.62499543039055,
+      "year_returns": {
+        "2023": -0.03187201402226475,
+        "2024": 0.021825530173837208
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.16205290989288645,
+      "factor": "baseline",
+      "fill_event_count": 2117,
+      "filled_notional": 194126.61209999994,
+      "final_equity": 8471.152012248238,
+      "funding_pnl": 66.24494071820392,
+      "ledger_max_drawdown": 0.16205290989288645,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 135.88862847,
+      "total_return": -0.1528847987751772,
+      "turnover": 21.478719106779042,
+      "year_returns": {
+        "2023": -0.11950909432608539,
+        "2024": -0.037905791228526685
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0239867114329827,
+      "factor": "baseline",
+      "fill_event_count": 450,
+      "filled_notional": 438132.54729999986,
+      "final_equity": 9763.125078970173,
+      "funding_pnl": 1.2535620801820002,
+      "ledger_max_drawdown": 0.024053803352982683,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 306.6927831100002,
+      "total_return": -0.02368749210298379,
+      "turnover": 44.31523028103492,
+      "year_returns": {
+        "2023": -0.012248664275356133,
+        "2024": -0.011580675635569549
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0304969882398336,
+      "factor": "baseline",
+      "fill_event_count": 439,
+      "filled_notional": 431545.22504,
+      "final_equity": 9737.69657077417,
+      "funding_pnl": 2.3715483021764,
+      "ledger_max_drawdown": 0.030564756989133635,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 302.081657528,
+      "total_return": -0.026230342922582278,
+      "turnover": 43.95649949072081,
+      "year_returns": {
+        "2023": -0.026381631449433316,
+        "2024": 0.00015538791351714466
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.12214212746771125,
+      "factor": "baseline",
+      "fill_event_count": 1928,
+      "filled_notional": 1844474.7915000005,
+      "final_equity": 8793.776824806011,
+      "funding_pnl": 57.90907885600693,
+      "ledger_max_drawdown": 0.12214212746771125,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1291.1323540499986,
+      "total_return": -0.12062231751939897,
+      "turnover": 198.43605037157053,
+      "year_returns": {
+        "2023": -0.09086299301049872,
+        "2024": -0.032733597114745876
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.05294652437507519,
+      "factor": "baseline",
+      "fill_event_count": 673,
+      "filled_notional": 614952.4750400005,
+      "final_equity": 9491.176808853601,
+      "funding_pnl": 1.3222213816260997,
+      "ledger_max_drawdown": 0.0530128164478475,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 430.46673252799997,
+      "total_return": -0.050882319114643845,
+      "turnover": 63.25004354760084,
+      "year_returns": {
+        "2023": -0.04120474198066181,
+        "2024": -0.010093476217199691
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.04088589295498091,
+      "factor": "baseline",
+      "fill_event_count": 635,
+      "filled_notional": 585126.7399999998,
+      "final_equity": 9779.806078415255,
+      "funding_pnl": 4.360196415256003,
+      "ledger_max_drawdown": 0.04088589295498091,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 409.5887180000004,
+      "total_return": -0.022019392158470676,
+      "turnover": 59.65493502883798,
+      "year_returns": {
+        "2023": -0.03579695766731805,
+        "2024": 0.014289070770317748
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.066230589795777,
+      "factor": "baseline",
+      "fill_event_count": 1004,
+      "filled_notional": 942490.3437000009,
+      "final_equity": 9376.034139104442,
+      "funding_pnl": -29.83412030558102,
+      "ledger_max_drawdown": 0.0662912705781612,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 659.7432405900006,
+      "total_return": -0.062396586089556186,
+      "turnover": 97.58252621746159,
+      "year_returns": {
+        "2023": -0.038880000622755165,
+        "2024": -0.024467897330238183
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.10767079768989185,
+      "factor": "baseline",
+      "fill_event_count": 1069,
+      "filled_notional": 983100.797649999,
+      "final_equity": 8944.703995395803,
+      "funding_pnl": -27.87253624921099,
+      "ledger_max_drawdown": 0.10767079768989185,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 688.1705583549996,
+      "total_return": -0.10552960046041776,
+      "turnover": 104.41522054725989,
+      "year_returns": {
+        "2023": -0.04637887078277566,
+        "2024": -0.0620274948460881
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.04950162372815947,
+      "factor": "baseline",
+      "fill_event_count": 833,
+      "filled_notional": 725389.2874000007,
+      "final_equity": 9751.025481824356,
+      "funding_pnl": -41.37161699567697,
+      "ledger_max_drawdown": 0.04956793132250725,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 507.7725011800001,
+      "total_return": -0.02489745181756483,
+      "turnover": 73.8785411008445,
+      "year_returns": {
+        "2023": -0.02961677296741861,
+        "2024": 0.004863358123249308
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.09652078827923005,
+      "factor": "baseline",
+      "fill_event_count": 1111,
+      "filled_notional": 947749.0865600004,
+      "final_equity": 10022.481893961924,
+      "funding_pnl": -36.14434544607259,
+      "ledger_max_drawdown": 0.09658404084009575,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 663.4243605919991,
+      "total_return": 0.002248189396192363,
+      "turnover": 96.86600714926126,
+      "year_returns": {
+        "2023": -0.01727906574538078,
+        "2024": 0.01987060055496254
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.06557089182930353,
+      "factor": "baseline",
+      "fill_event_count": 1206,
+      "filled_notional": 990947.9996000002,
+      "final_equity": 9668.790543657582,
+      "funding_pnl": -33.66865662242301,
+      "ledger_max_drawdown": 0.06557089182930353,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 693.6635997199995,
+      "total_return": -0.0331209456342411,
+      "turnover": 102.26996400640996,
+      "year_returns": {
+        "2023": -0.0315985756077068,
+        "2024": -0.0015720443900520335
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1674635801499037,
+      "factor": "baseline",
+      "fill_event_count": 4830,
+      "filled_notional": 3340214.958000002,
+      "final_equity": 8373.552787378738,
+      "funding_pnl": -76.10054202129317,
+      "ledger_max_drawdown": 0.1674635801499037,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2338.150470599989,
+      "total_return": -0.16264472126212814,
+      "turnover": 364.7200813702439,
+      "year_returns": {
+        "2023": -0.11294661185356097,
+        "2024": -0.056026063450831234
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18240128607235284,
+      "factor": "baseline",
+      "fill_event_count": 5132,
+      "filled_notional": 3167327.970469999,
+      "final_equity": 8236.52021474095,
+      "funding_pnl": -74.47381593003095,
+      "ledger_max_drawdown": 0.18240128607235284,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2217.129579329002,
+      "total_return": -0.1763479785258993,
+      "turnover": 348.39060826135193,
+      "year_returns": {
+        "2023": -0.12263680302409775,
+        "2024": -0.061218860885586895
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18698966630348035,
+      "factor": "baseline",
+      "fill_event_count": 5106,
+      "filled_notional": 2818912.097800006,
+      "final_equity": 8130.103336965197,
+      "funding_pnl": -29.089794574818026,
+      "ledger_max_drawdown": 0.18698966630348035,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1973.238468459996,
+      "total_return": -0.18698966630348837,
+      "turnover": 314.07440127816756,
+      "year_returns": {
+        "2023": -0.14206427848868391,
+        "2024": -0.05236451483295871
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19544252346578928,
+      "factor": "baseline",
+      "fill_event_count": 5574,
+      "filled_notional": 2277080.7932299953,
+      "final_equity": 8101.527096496075,
+      "funding_pnl": -37.28785824290742,
+      "ledger_max_drawdown": 0.195445087918118,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1593.9565552610034,
+      "total_return": -0.18984729035038866,
+      "turnover": 249.55237336833437,
+      "year_returns": {
+        "2023": -0.161106089979535,
+        "2024": -0.03426082848801765
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19291963299500214,
+      "factor": "baseline",
+      "fill_event_count": 5581,
+      "filled_notional": 2222074.4149999814,
+      "final_equity": 8134.175019431553,
+      "funding_pnl": -46.152890068423986,
+      "ledger_max_drawdown": 0.19291963299500214,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1555.4520904999943,
+      "total_return": -0.18658249805684674,
+      "turnover": 246.477529886811,
+      "year_returns": {
+        "2023": -0.15205424139795432,
+        "2024": -0.040719888399249685
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17398358723905405,
+      "factor": "btc_relative",
+      "fill_event_count": 1188,
+      "filled_notional": 869361.8014999996,
+      "final_equity": 8283.065407549198,
+      "funding_pnl": 102.06816859914395,
+      "ledger_max_drawdown": 0.17398358723905405,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 608.5532610499984,
+      "total_return": -0.17169345924509108,
+      "turnover": 95.56761974076626,
+      "year_returns": {
+        "2023": -0.11848218478661066,
+        "2024": -0.060363243419646086
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.16320788834943512,
+      "factor": "btc_relative",
+      "fill_event_count": 1239,
+      "filled_notional": 948385.2805499998,
+      "final_equity": 8410.343880319066,
+      "funding_pnl": 123.62178670404627,
+      "ledger_max_drawdown": 0.16320788834943512,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 663.8696963849999,
+      "total_return": -0.15896561196809467,
+      "turnover": 103.00875901645382,
+      "year_returns": {
+        "2023": -0.09657141727980462,
+        "2024": -0.06906378199859814
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1834005420671584,
+      "factor": "btc_relative",
+      "fill_event_count": 1998,
+      "filled_notional": 1529004.7585999968,
+      "final_equity": 8184.1035070817,
+      "funding_pnl": -77.00376189827212,
+      "ledger_max_drawdown": 0.18340064528509015,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1070.3033310200003,
+      "total_return": -0.18158964929183177,
+      "turnover": 166.06349147123998,
+      "year_returns": {
+        "2023": -0.11622874731205217,
+        "2024": -0.07395680927727348
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18322628126978258,
+      "factor": "btc_relative",
+      "fill_event_count": 2250,
+      "filled_notional": 1002643.4776600009,
+      "final_equity": 8249.148118715064,
+      "funding_pnl": 141.5200330770552,
+      "ledger_max_drawdown": 0.1832273961874875,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 701.8504343619999,
+      "total_return": -0.1750851881284924,
+      "turnover": 108.7142543555772,
+      "year_returns": {
+        "2023": -0.09912212148872743,
+        "2024": -0.08432115878491343
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17713831952675363,
+      "factor": "btc_relative",
+      "fill_event_count": 2327,
+      "filled_notional": 955822.9287000003,
+      "final_equity": 8300.440055115903,
+      "funding_pnl": 114.56720520591273,
+      "ledger_max_drawdown": 0.17713831952675363,
+      "scenario": "base",
+      "seed": 0,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 669.0760500899995,
+      "total_return": -0.16995599448840668,
+      "turnover": 104.02306172513434,
+      "year_returns": {
+        "2023": -0.12525820388781617,
+        "2024": -0.05109826785372687
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1858453498640169,
+      "factor": "btc_relative",
+      "fill_event_count": 1193,
+      "filled_notional": 713106.2919,
+      "final_equity": 8151.709978713859,
+      "funding_pnl": 78.00968737384481,
+      "ledger_max_drawdown": 0.1858453498640169,
+      "scenario": "cost_2x",
+      "seed": 0,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 998.3488086599987,
+      "total_return": -0.18482900212860187,
+      "turnover": 79.17081339607418,
+      "year_returns": {
+        "2023": -0.1451394963609674,
+        "2024": -0.04642804948723362
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18326714615162654,
+      "factor": "btc_relative",
+      "fill_event_count": 1222,
+      "filled_notional": 780827.3340000007,
+      "final_equity": 8184.203758698566,
+      "funding_pnl": 92.15662629845275,
+      "ledger_max_drawdown": 0.18328588736793827,
+      "scenario": "cost_2x",
+      "seed": 0,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1093.1582676000014,
+      "total_return": -0.1815796241301443,
+      "turnover": 85.92672877491287,
+      "year_returns": {
+        "2023": -0.133887348892893,
+        "2024": -0.05506474842076114
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19575456382666045,
+      "factor": "btc_relative",
+      "fill_event_count": 1875,
+      "filled_notional": 1143346.1246999959,
+      "final_equity": 8055.777027649774,
+      "funding_pnl": -69.05449777023493,
+      "ledger_max_drawdown": 0.19575456382666045,
+      "scenario": "cost_2x",
+      "seed": 0,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1600.6845745800017,
+      "total_return": -0.19442229723502788,
+      "turnover": 126.45184827998125,
+      "year_returns": {
+        "2023": -0.15900482526001283,
+        "2024": -0.042113763596759196
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19218408663527908,
+      "factor": "btc_relative",
+      "fill_event_count": 1965,
+      "filled_notional": 780210.74454,
+      "final_equity": 8131.759237683674,
+      "funding_pnl": 98.40628003967468,
+      "ledger_max_drawdown": 0.19218408663527908,
+      "scenario": "cost_2x",
+      "seed": 0,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1092.295042355998,
+      "total_return": -0.18682407623163058,
+      "turnover": 85.98902413046903,
+      "year_returns": {
+        "2023": -0.13201457404317132,
+        "2024": -0.063145648013663
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18938381886696642,
+      "factor": "btc_relative",
+      "fill_event_count": 2001,
+      "filled_notional": 783913.4680000017,
+      "final_equity": 8138.5004442903655,
+      "funding_pnl": 84.22129949035693,
+      "ledger_max_drawdown": 0.18938381886696642,
+      "scenario": "cost_2x",
+      "seed": 0,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1097.4788552000023,
+      "total_return": -0.18614995557096517,
+      "turnover": 86.57876812265879,
+      "year_returns": {
+        "2023": -0.15130388723490154,
+        "2024": -0.041058357416688514
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17398358723905405,
+      "factor": "btc_relative",
+      "fill_event_count": 1188,
+      "filled_notional": 869362.6258999996,
+      "final_equity": 8282.240430469197,
+      "funding_pnl": 102.06816859914395,
+      "ledger_max_drawdown": 0.17398358723905405,
+      "scenario": "latency_1",
+      "seed": 0,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 608.5538381299983,
+      "total_return": -0.17177595695309128,
+      "turnover": 95.56772152385138,
+      "year_returns": {
+        "2023": -0.11848218478661066,
+        "2024": -0.060456829398938254
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.16320788834943512,
+      "factor": "btc_relative",
+      "fill_event_count": 1239,
+      "filled_notional": 948386.4690899998,
+      "final_equity": 8409.154508341066,
+      "funding_pnl": 123.62178670404627,
+      "ledger_max_drawdown": 0.16320788834943512,
+      "scenario": "latency_1",
+      "seed": 0,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 663.8705283629998,
+      "total_return": -0.15908454916589468,
+      "turnover": 103.0089055656797,
+      "year_returns": {
+        "2023": -0.09657141727980462,
+        "2024": -0.06919543291165857
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1834005420671584,
+      "factor": "btc_relative",
+      "fill_event_count": 1998,
+      "filled_notional": 1529005.0951999968,
+      "final_equity": 8183.7666714617,
+      "funding_pnl": -77.00376189827212,
+      "ledger_max_drawdown": 0.18340064528509015,
+      "scenario": "latency_1",
+      "seed": 0,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1070.3035666400003,
+      "total_return": -0.18162333285383178,
+      "turnover": 166.06353324176388,
+      "year_returns": {
+        "2023": -0.11622874731205217,
+        "2024": -0.07399492271657976
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18322628126978258,
+      "factor": "btc_relative",
+      "fill_event_count": 2250,
+      "filled_notional": 1002644.7600000009,
+      "final_equity": 8247.864881077065,
+      "funding_pnl": 141.5200330770552,
+      "ledger_max_drawdown": 0.1832273961874875,
+      "scenario": "latency_1",
+      "seed": 0,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 701.8513319999998,
+      "total_return": -0.17521351189229234,
+      "turnover": 108.71441243172488,
+      "year_returns": {
+        "2023": -0.09912212148872743,
+        "2024": -0.0844636018028417
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17713831952675363,
+      "factor": "btc_relative",
+      "fill_event_count": 2327,
+      "filled_notional": 955824.6407000002,
+      "final_equity": 8298.726856715904,
+      "funding_pnl": 114.56720520591273,
+      "ledger_max_drawdown": 0.17713831952675363,
+      "scenario": "latency_1",
+      "seed": 0,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 669.0772484899995,
+      "total_return": -0.1701273143284066,
+      "turnover": 104.02327245140656,
+      "year_returns": {
+        "2023": -0.12525820388781617,
+        "2024": -0.05129411975055104
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18569572941370993,
+      "factor": "btc_relative",
+      "fill_event_count": 3620,
+      "filled_notional": 1962031.9760000024,
+      "final_equity": 8152.1584092844905,
+      "funding_pnl": 61.29899248452205,
+      "ledger_max_drawdown": 0.18569572941370993,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1373.422383199998,
+      "total_return": -0.18478415907155138,
+      "turnover": 215.4192963816093,
+      "year_returns": {
+        "2023": -0.14111638010239894,
+        "2024": -0.050842486639061345
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1883384505419593,
+      "factor": "btc_relative",
+      "fill_event_count": 3824,
+      "filled_notional": 2004091.4142199943,
+      "final_equity": 8140.0556485234465,
+      "funding_pnl": 58.7631784774596,
+      "ledger_max_drawdown": 0.1883448269469593,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1402.8639899540035,
+      "total_return": -0.18599443514766606,
+      "turnover": 220.98700282635153,
+      "year_returns": {
+        "2023": -0.14966237699545643,
+        "2024": -0.04272662665899182
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1827335610176577,
+      "factor": "btc_relative",
+      "fill_event_count": 4122,
+      "filled_notional": 2242281.8615000104,
+      "final_equity": 8218.006454959788,
+      "funding_pnl": 40.566858009757,
+      "ledger_max_drawdown": 0.18274339759942038,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1569.5973030499981,
+      "total_return": -0.1781993545040163,
+      "turnover": 244.01625887658992,
+      "year_returns": {
+        "2023": -0.1348902482700632,
+        "2024": -0.050061979011736986
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1889631895964936,
+      "factor": "btc_relative",
+      "fill_event_count": 4429,
+      "filled_notional": 2287953.527210008,
+      "final_equity": 8144.218087397761,
+      "funding_pnl": 72.46658644473442,
+      "ledger_max_drawdown": 0.1889631895964936,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1601.567469047002,
+      "total_return": -0.1855781912602274,
+      "turnover": 252.47288161004252,
+      "year_returns": {
+        "2023": -0.1396349996994534,
+        "2024": -0.05339965194391331
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1863753680011757,
+      "factor": "btc_relative",
+      "fill_event_count": 4561,
+      "filled_notional": 2326837.7894000006,
+      "final_equity": 8201.113971365854,
+      "funding_pnl": 72.73282394587197,
+      "ledger_max_drawdown": 0.1863753680011757,
+      "scenario": "base",
+      "seed": 1,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1628.7864525800035,
+      "total_return": -0.179888602863414,
+      "turnover": 253.45711028431847,
+      "year_returns": {
+        "2023": -0.14428070597122092,
+        "2024": -0.04161165599591534
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19311013760824336,
+      "factor": "btc_relative",
+      "fill_event_count": 2826,
+      "filled_notional": 1234534.843500002,
+      "final_equity": 8068.8986239175665,
+      "funding_pnl": 34.84710481760097,
+      "ledger_max_drawdown": 0.19311013760824336,
+      "scenario": "cost_2x",
+      "seed": 1,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1728.3487808999973,
+      "total_return": -0.19311013760824203,
+      "turnover": 137.32865216029288,
+      "year_returns": {
+        "2023": -0.1782998318259904,
+        "2024": -0.018023978034668323
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1975556961673981,
+      "factor": "btc_relative",
+      "fill_event_count": 3336,
+      "filled_notional": 1230530.5109400053,
+      "final_equity": 8024.443038326019,
+      "funding_pnl": 33.088373642016506,
+      "ledger_max_drawdown": 0.1975556961673981,
+      "scenario": "cost_2x",
+      "seed": 1,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1722.742715315999,
+      "total_return": -0.19755569616740196,
+      "turnover": 137.40851711860154,
+      "year_returns": {
+        "2023": -0.18413157489957027,
+        "2024": -0.016453782074210364
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19764407047524613,
+      "factor": "btc_relative",
+      "fill_event_count": 4057,
+      "filled_notional": 1407035.359999999,
+      "final_equity": 8028.164807573589,
+      "funding_pnl": 19.574111573593974,
+      "ledger_max_drawdown": 0.19764475653997315,
+      "scenario": "cost_2x",
+      "seed": 1,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1969.8495040000037,
+      "total_return": -0.1971835192426402,
+      "turnover": 155.35215717349092,
+      "year_returns": {
+        "2023": -0.17931075668359345,
+        "2024": -0.021777746820249293
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19874285355332488,
+      "factor": "btc_relative",
+      "fill_event_count": 4104,
+      "filled_notional": 1294755.572700006,
+      "final_equity": 8017.634195582848,
+      "funding_pnl": 31.513937362792277,
+      "ledger_max_drawdown": 0.19874285355332488,
+      "scenario": "cost_2x",
+      "seed": 1,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1812.6578017799993,
+      "total_return": -0.19823658044171322,
+      "turnover": 144.21798211180737,
+      "year_returns": {
+        "2023": -0.1817371118274186,
+        "2024": -0.020164019232428734
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1983572690574047,
+      "factor": "btc_relative",
+      "fill_event_count": 4255,
+      "filled_notional": 1467568.2374000077,
+      "final_equity": 8023.853842035645,
+      "funding_pnl": 38.76077439566001,
+      "ledger_max_drawdown": 0.1983572690574047,
+      "scenario": "cost_2x",
+      "seed": 1,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2054.595532360007,
+      "total_return": -0.1976146157964375,
+      "turnover": 163.59146067761264,
+      "year_returns": {
+        "2023": -0.1833060179716935,
+        "2024": -0.017520146027288956
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18569572941370993,
+      "factor": "btc_relative",
+      "fill_event_count": 3620,
+      "filled_notional": 1962032.3882000023,
+      "final_equity": 8151.74592074449,
+      "funding_pnl": 61.29899248452205,
+      "ledger_max_drawdown": 0.18569572941370993,
+      "scenario": "latency_1",
+      "seed": 1,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1373.422671739998,
+      "total_return": -0.18482540792555147,
+      "turnover": 215.41934752681317,
+      "year_returns": {
+        "2023": -0.14111638010239894,
+        "2024": -0.05089051276628565
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1883384505419593,
+      "factor": "btc_relative",
+      "fill_event_count": 3824,
+      "filled_notional": 2004091.7720599943,
+      "final_equity": 8139.6975580354465,
+      "funding_pnl": 58.7631784774596,
+      "ledger_max_drawdown": 0.1883448269469593,
+      "scenario": "latency_1",
+      "seed": 1,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1402.8642404420034,
+      "total_return": -0.1860302441964661,
+      "turnover": 220.98704729283176,
+      "year_returns": {
+        "2023": -0.14966237699545643,
+        "2024": -0.042768738224834894
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1827335610176577,
+      "factor": "btc_relative",
+      "fill_event_count": 4122,
+      "filled_notional": 2242282.23550001,
+      "final_equity": 8217.632193159789,
+      "funding_pnl": 40.566858009757,
+      "ledger_max_drawdown": 0.18274339759942038,
+      "scenario": "latency_1",
+      "seed": 1,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1569.5975648499982,
+      "total_return": -0.17823678068401622,
+      "turnover": 244.01630517249316,
+      "year_returns": {
+        "2023": -0.1348902482700632,
+        "2024": -0.05010524078277246
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1889631895964936,
+      "factor": "btc_relative",
+      "fill_event_count": 4429,
+      "filled_notional": 2287954.361410008,
+      "final_equity": 8143.383303457761,
+      "funding_pnl": 72.46658644473442,
+      "ledger_max_drawdown": 0.1889631895964936,
+      "scenario": "latency_1",
+      "seed": 1,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1601.5680529870021,
+      "total_return": -0.18566166965422745,
+      "turnover": 252.47298517814158,
+      "year_returns": {
+        "2023": -0.1396349996994534,
+        "2024": -0.05349667866393427
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1863753680011757,
+      "factor": "btc_relative",
+      "fill_event_count": 4561,
+      "filled_notional": 2326838.837400001,
+      "final_equity": 8200.065237765855,
+      "funding_pnl": 72.73282394587197,
+      "ledger_max_drawdown": 0.1863753680011757,
+      "scenario": "latency_1",
+      "seed": 1,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1628.7871861800033,
+      "total_return": -0.1799934762234139,
+      "turnover": 253.45723978839342,
+      "year_returns": {
+        "2023": -0.14428070597122092,
+        "2024": -0.04173421179281245
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.004424942250218722,
+      "factor": "btc_relative",
+      "fill_event_count": 4,
+      "filled_notional": 3919.1343,
+      "final_equity": 9974.182592738924,
+      "funding_pnl": -0.056313251076000014,
+      "ledger_max_drawdown": 0.004424942250218722,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2.7433940100000003,
+      "total_return": -0.0025817407261072675,
+      "turnover": 0.3925343615764387,
+      "year_returns": {
+        "2023": -0.0025817407261072675,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0,
+      "factor": "btc_relative",
+      "fill_event_count": 0,
+      "filled_notional": 0.0,
+      "final_equity": 10000.0,
+      "funding_pnl": 0.0,
+      "ledger_max_drawdown": 0.0,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 0.0,
+      "total_return": 0.0,
+      "turnover": 0.0,
+      "year_returns": {
+        "2023": 0.0,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.01989261239146789,
+      "factor": "btc_relative",
+      "fill_event_count": 234,
+      "filled_notional": 147372.85080000013,
+      "final_equity": 10020.36702358564,
+      "funding_pnl": -96.89338085434599,
+      "ledger_max_drawdown": 0.019896999549945726,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 103.16099556000006,
+      "total_return": 0.0020367023585634043,
+      "turnover": 14.782446347092353,
+      "year_returns": {
+        "2023": -0.009133286143851435,
+        "2024": 0.011272947558148037
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.003065499245135661,
+      "factor": "btc_relative",
+      "fill_event_count": 13,
+      "filled_notional": 9995.647970000002,
+      "final_equity": 9984.408543600057,
+      "funding_pnl": -0.12651282094539998,
+      "ledger_max_drawdown": 0.003065499245135661,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 6.996953579,
+      "total_return": -0.0015591456399945997,
+      "turnover": 0.9998166854110964,
+      "year_returns": {
+        "2023": -0.0015591456399945997,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.00879933256199461,
+      "factor": "btc_relative",
+      "fill_event_count": 19,
+      "filled_notional": 8166.382199999999,
+      "final_equity": 10090.307226672443,
+      "funding_pnl": -1.08030578756,
+      "ledger_max_drawdown": 0.00879933256199461,
+      "scenario": "base",
+      "seed": 2,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 5.716467540000001,
+      "total_return": 0.009030722667243458,
+      "turnover": 0.8166466023131225,
+      "year_returns": {
+        "2023": 0.009030722667243458,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.004630643840740856,
+      "factor": "btc_relative",
+      "fill_event_count": 4,
+      "filled_notional": 3919.1343,
+      "final_equity": 9971.439198728925,
+      "funding_pnl": -0.056313251076000014,
+      "ledger_max_drawdown": 0.004630643840740856,
+      "scenario": "cost_2x",
+      "seed": 2,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 5.4867880200000005,
+      "total_return": -0.0028560801271078993,
+      "turnover": 0.3925748644735473,
+      "year_returns": {
+        "2023": -0.0028560801271078993,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0,
+      "factor": "btc_relative",
+      "fill_event_count": 0,
+      "filled_notional": 0.0,
+      "final_equity": 10000.0,
+      "funding_pnl": 0.0,
+      "ledger_max_drawdown": 0.0,
+      "scenario": "cost_2x",
+      "seed": 2,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 0.0,
+      "total_return": 0.0,
+      "turnover": 0.0,
+      "year_returns": {
+        "2023": 0.0,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.024897948829074368,
+      "factor": "btc_relative",
+      "fill_event_count": 226,
+      "filled_notional": 146582.58360000013,
+      "final_equity": 9917.855528528658,
+      "funding_pnl": -96.40185443132405,
+      "ledger_max_drawdown": 0.025037736581334014,
+      "scenario": "cost_2x",
+      "seed": 2,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 205.21561704000004,
+      "total_return": -0.008214447147131914,
+      "turnover": 14.778160430755584,
+      "year_returns": {
+        "2023": -0.015318235122223092,
+        "2024": 0.007214298292578754
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.003414494032857651,
+      "factor": "btc_relative",
+      "fill_event_count": 13,
+      "filled_notional": 9992.84382,
+      "final_equity": 9977.42197925769,
+      "funding_pnl": -0.12645939431070002,
+      "ledger_max_drawdown": 0.003414494032857651,
+      "scenario": "cost_2x",
+      "seed": 2,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 13.989981347999999,
+      "total_return": -0.00225780207423059,
+      "turnover": 0.9998513409315941,
+      "year_returns": {
+        "2023": -0.00225780207423059,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.00880543284090296,
+      "factor": "btc_relative",
+      "fill_event_count": 19,
+      "filled_notional": 8165.1664,
+      "final_equity": 10084.550085022413,
+      "funding_pnl": -1.079882017588,
+      "ledger_max_drawdown": 0.00880543284090296,
+      "scenario": "cost_2x",
+      "seed": 2,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 11.43123296,
+      "total_return": 0.008455008502240917,
+      "turnover": 0.8167306761447055,
+      "year_returns": {
+        "2023": 0.008455008502240917,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.004424942250218722,
+      "factor": "btc_relative",
+      "fill_event_count": 4,
+      "filled_notional": 3919.1343,
+      "final_equity": 9974.182592738924,
+      "funding_pnl": -0.056313251076000014,
+      "ledger_max_drawdown": 0.004424942250218722,
+      "scenario": "latency_1",
+      "seed": 2,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2.7433940100000003,
+      "total_return": -0.0025817407261072675,
+      "turnover": 0.3925343615764387,
+      "year_returns": {
+        "2023": -0.0025817407261072675,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0,
+      "factor": "btc_relative",
+      "fill_event_count": 0,
+      "filled_notional": 0.0,
+      "final_equity": 10000.0,
+      "funding_pnl": 0.0,
+      "ledger_max_drawdown": 0.0,
+      "scenario": "latency_1",
+      "seed": 2,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 0.0,
+      "total_return": 0.0,
+      "turnover": 0.0,
+      "year_returns": {
+        "2023": 0.0,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.01989261239146789,
+      "factor": "btc_relative",
+      "fill_event_count": 234,
+      "filled_notional": 147372.85080000013,
+      "final_equity": 10020.36702358564,
+      "funding_pnl": -96.89338085434599,
+      "ledger_max_drawdown": 0.019896999549945726,
+      "scenario": "latency_1",
+      "seed": 2,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 103.16099556000006,
+      "total_return": 0.0020367023585634043,
+      "turnover": 14.782446347092353,
+      "year_returns": {
+        "2023": -0.009133286143851435,
+        "2024": 0.011272947558148037
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.003065499245135661,
+      "factor": "btc_relative",
+      "fill_event_count": 13,
+      "filled_notional": 9995.647970000002,
+      "final_equity": 9984.408543600057,
+      "funding_pnl": -0.12651282094539998,
+      "ledger_max_drawdown": 0.003065499245135661,
+      "scenario": "latency_1",
+      "seed": 2,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 6.996953579,
+      "total_return": -0.0015591456399945997,
+      "turnover": 0.9998166854110964,
+      "year_returns": {
+        "2023": -0.0015591456399945997,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.00879933256199461,
+      "factor": "btc_relative",
+      "fill_event_count": 19,
+      "filled_notional": 8166.382199999999,
+      "final_equity": 10090.307226672443,
+      "funding_pnl": -1.08030578756,
+      "ledger_max_drawdown": 0.00879933256199461,
+      "scenario": "latency_1",
+      "seed": 2,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 5.716467540000001,
+      "total_return": 0.009030722667243458,
+      "turnover": 0.8166466023131225,
+      "year_returns": {
+        "2023": 0.009030722667243458,
+        "2024": 0.0
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.04986805697438468,
+      "factor": "btc_relative",
+      "fill_event_count": 932,
+      "filled_notional": 951072.4889999998,
+      "final_equity": 11127.580341173614,
+      "funding_pnl": -210.76671652638396,
+      "ledger_max_drawdown": 0.049870790751465166,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 665.7507422999997,
+      "total_return": 0.11275803411736611,
+      "turnover": 90.52980892607442,
+      "year_returns": {
+        "2023": 0.0560145029508004,
+        "2024": 0.0537336665434124
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.06275868586467626,
+      "factor": "btc_relative",
+      "fill_event_count": 1059,
+      "filled_notional": 926673.8575600013,
+      "final_equity": 10548.756909133062,
+      "funding_pnl": -214.85505057501217,
+      "ledger_max_drawdown": 0.06277849293964521,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 648.6717002919994,
+      "total_return": 0.0548756909133017,
+      "turnover": 90.43680016359045,
+      "year_returns": {
+        "2023": 0.02250343847017932,
+        "2024": 0.03165979812405932
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.09341707012538114,
+      "factor": "btc_relative",
+      "fill_event_count": 3033,
+      "filled_notional": 2489054.7431999934,
+      "final_equity": 9333.812400594197,
+      "funding_pnl": -49.841679165845,
+      "ledger_max_drawdown": 0.0934214761113239,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1742.3383202399996,
+      "total_return": -0.06661875994058156,
+      "turnover": 258.769494276592,
+      "year_returns": {
+        "2023": -0.05573749801571445,
+        "2024": -0.011523556110722486
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.14322334444564955,
+      "factor": "btc_relative",
+      "fill_event_count": 2567,
+      "filled_notional": 705898.0199500006,
+      "final_equity": 9710.861619794594,
+      "funding_pnl": -154.74231624051015,
+      "ledger_max_drawdown": 0.1432573942224451,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 494.12861396500006,
+      "total_return": -0.0289138380205265,
+      "turnover": 73.77704064534082,
+      "year_returns": {
+        "2023": -0.07287164940675549,
+        "2024": 0.04741286506674245
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.13765156060791783,
+      "factor": "btc_relative",
+      "fill_event_count": 3442,
+      "filled_notional": 729027.3344,
+      "final_equity": 9722.693985122933,
+      "funding_pnl": -141.88868079710383,
+      "ledger_max_drawdown": 0.1376608286946739,
+      "scenario": "base",
+      "seed": 3,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 510.3191340799983,
+      "total_return": -0.027730601487704513,
+      "turnover": 76.55485630891596,
+      "year_returns": {
+        "2023": -0.039172139657329255,
+        "2024": 0.01190800000901746
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.06396218184192337,
+      "factor": "btc_relative",
+      "fill_event_count": 932,
+      "filled_notional": 923198.0419,
+      "final_equity": 10463.972695639433,
+      "funding_pnl": -203.71474570052084,
+      "ledger_max_drawdown": 0.0640243794283305,
+      "scenario": "cost_2x",
+      "seed": 3,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1292.4772586599986,
+      "total_return": 0.04639726956393738,
+      "turnover": 90.65497672132477,
+      "year_returns": {
+        "2023": 0.018053139756682973,
+        "2024": 0.027841503257903338
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.08974975609499958,
+      "factor": "btc_relative",
+      "fill_event_count": 1053,
+      "filled_notional": 897917.3923300005,
+      "final_equity": 9902.084811832006,
+      "funding_pnl": -206.86036890599698,
+      "ledger_max_drawdown": 0.08976896968233183,
+      "scenario": "cost_2x",
+      "seed": 3,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1257.084349262,
+      "total_return": -0.00979151881679402,
+      "turnover": 90.43778055639066,
+      "year_returns": {
+        "2023": -0.017052171858105515,
+        "2024": 0.007386610798089451
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17241090290471672,
+      "factor": "btc_relative",
+      "fill_event_count": 2946,
+      "filled_notional": 1562932.2584000004,
+      "final_equity": 8325.452919271354,
+      "funding_pnl": -17.790118968614003,
+      "ledger_max_drawdown": 0.17241090290471672,
+      "scenario": "cost_2x",
+      "seed": 3,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2188.105161760006,
+      "total_return": -0.1674547080728622,
+      "turnover": 171.9711829001445,
+      "year_returns": {
+        "2023": -0.13138264421825097,
+        "2024": -0.04152814080274354
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.16100968293051798,
+      "factor": "btc_relative",
+      "fill_event_count": 2131,
+      "filled_notional": 612681.402970001,
+      "final_equity": 9143.760015320266,
+      "funding_pnl": -120.05757052168747,
+      "ledger_max_drawdown": 0.16101628860737682,
+      "scenario": "cost_2x",
+      "seed": 3,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 857.7539641579987,
+      "total_return": -0.08562399846798045,
+      "turnover": 64.92044666046174,
+      "year_returns": {
+        "2023": -0.10345138890633686,
+        "2024": 0.019884466071069473
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1620777685685293,
+      "factor": "btc_relative",
+      "fill_event_count": 2670,
+      "filled_notional": 597436.6084000015,
+      "final_equity": 9130.537242304234,
+      "funding_pnl": -105.71570593575113,
+      "ledger_max_drawdown": 0.1620777685685293,
+      "scenario": "cost_2x",
+      "seed": 3,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 836.4112517599976,
+      "total_return": -0.08694627576957178,
+      "turnover": 63.691638289910074,
+      "year_returns": {
+        "2023": -0.07788813948644101,
+        "2024": -0.009823251029529053
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.04986805697438468,
+      "factor": "btc_relative",
+      "fill_event_count": 932,
+      "filled_notional": 951077.0231999998,
+      "final_equity": 11132.111367233614,
+      "funding_pnl": -210.76671652638396,
+      "ledger_max_drawdown": 0.049870790751465166,
+      "scenario": "latency_1",
+      "seed": 3,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 665.7539162399997,
+      "total_return": 0.11321113672336611,
+      "turnover": 90.5301785784435,
+      "year_returns": {
+        "2023": 0.0560145029508004,
+        "2024": 0.05416273508814725
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.06275868586467626,
+      "factor": "btc_relative",
+      "fill_event_count": 1059,
+      "filled_notional": 926677.8449200013,
+      "final_equity": 10552.741477981064,
+      "funding_pnl": -214.85505057501217,
+      "ledger_max_drawdown": 0.06277849293964521,
+      "scenario": "latency_1",
+      "seed": 3,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 648.6744914439994,
+      "total_return": 0.05527414779810194,
+      "turnover": 90.43714070750049,
+      "year_returns": {
+        "2023": 0.02250343847017932,
+        "2024": 0.03204948569850541
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.09341707012538114,
+      "factor": "btc_relative",
+      "fill_event_count": 3033,
+      "filled_notional": 2489057.2115999935,
+      "final_equity": 9336.279072714196,
+      "funding_pnl": -49.841679165845,
+      "ledger_max_drawdown": 0.0934214761113239,
+      "scenario": "latency_1",
+      "seed": 3,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1742.3400481199997,
+      "total_return": -0.06637209272858156,
+      "turnover": 258.7697321647587,
+      "year_returns": {
+        "2023": -0.05573749801571445,
+        "2024": -0.011262328738586413
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.14322334444564955,
+      "factor": "btc_relative",
+      "fill_event_count": 2567,
+      "filled_notional": 705903.0445500006,
+      "final_equity": 9715.882702574594,
+      "funding_pnl": -154.74231624051015,
+      "ledger_max_drawdown": 0.1432573942224451,
+      "scenario": "latency_1",
+      "seed": 3,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 494.13213118500005,
+      "total_return": -0.02841172974252653,
+      "turnover": 73.7775289651775,
+      "year_returns": {
+        "2023": -0.07287164940675549,
+        "2024": 0.04795443870935481
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.13765156060791783,
+      "factor": "btc_relative",
+      "fill_event_count": 3442,
+      "filled_notional": 729032.8464000002,
+      "final_equity": 9728.202126722932,
+      "funding_pnl": -141.88868079710383,
+      "ledger_max_drawdown": 0.1376608286946739,
+      "scenario": "latency_1",
+      "seed": 3,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 510.32299247999833,
+      "total_return": -0.02717978732770453,
+      "turnover": 76.55538942326268,
+      "year_returns": {
+        "2023": -0.039172139657329255,
+        "2024": 0.012481270396705362
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1497887352078625,
+      "factor": "btc_relative",
+      "fill_event_count": 1869,
+      "filled_notional": 1679125.868200003,
+      "final_equity": 8551.952659572487,
+      "funding_pnl": 79.03356731249505,
+      "ledger_max_drawdown": 0.1497887352078625,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1175.3881077399985,
+      "total_return": -0.14480473404275296,
+      "turnover": 181.21992638023704,
+      "year_returns": {
+        "2023": -0.09270720786936786,
+        "2024": -0.057420853141621896
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0995127819976972,
+      "factor": "btc_relative",
+      "fill_event_count": 1833,
+      "filled_notional": 2003272.225170001,
+      "final_equity": 9333.696489715932,
+      "funding_pnl": 106.91003733491911,
+      "ledger_max_drawdown": 0.0995127819976972,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1402.2905576189994,
+      "total_return": -0.06663035102840427,
+      "turnover": 202.2999503829137,
+      "year_returns": {
+        "2023": -0.01702060953535914,
+        "2024": -0.050468750387121855
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1929931046473573,
+      "factor": "btc_relative",
+      "fill_event_count": 4206,
+      "filled_notional": 2237626.311699998,
+      "final_equity": 8085.048906274476,
+      "funding_pnl": 28.584024464516997,
+      "ledger_max_drawdown": 0.1929931046473573,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1566.3384181900105,
+      "total_return": -0.191495109372556,
+      "turnover": 245.61525216833707,
+      "year_returns": {
+        "2023": -0.14472966127877318,
+        "2024": -0.05467914175967454
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17831297142572178,
+      "factor": "btc_relative",
+      "fill_event_count": 2546,
+      "filled_notional": 1626697.9314100025,
+      "final_equity": 8261.79023877047,
+      "funding_pnl": 114.05582075749213,
+      "ledger_max_drawdown": 0.17831297142572178,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1138.6885519870002,
+      "total_return": -0.1738209761229578,
+      "turnover": 172.43994896145352,
+      "year_returns": {
+        "2023": -0.061080908090430625,
+        "2024": -0.12007431631114981
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1697750314137665,
+      "factor": "btc_relative",
+      "fill_event_count": 3247,
+      "filled_notional": 1354597.0699999996,
+      "final_equity": 8466.416837740837,
+      "funding_pnl": 64.48618674083117,
+      "ledger_max_drawdown": 0.16980881435867456,
+      "scenario": "base",
+      "seed": 4,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 948.2179489999982,
+      "total_return": -0.1533583162259063,
+      "turnover": 149.66911768911027,
+      "year_returns": {
+        "2023": -0.13291261276141003,
+        "2024": -0.02357974959087989
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.184264932929756,
+      "factor": "btc_relative",
+      "fill_event_count": 1870,
+      "filled_notional": 1187817.0467999985,
+      "final_equity": 8169.023007522644,
+      "funding_pnl": 39.66827304260902,
+      "ledger_max_drawdown": 0.184264932929756,
+      "scenario": "cost_2x",
+      "seed": 4,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1662.9438655199995,
+      "total_return": -0.1830976992477244,
+      "turnover": 131.22120772741258,
+      "year_returns": {
+        "2023": -0.1478998080731293,
+        "2024": -0.04130722127288978
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.16623093547931733,
+      "factor": "btc_relative",
+      "fill_event_count": 1835,
+      "filled_notional": 1535151.962209999,
+      "final_equity": 8486.239461828585,
+      "funding_pnl": 69.80625892260463,
+      "ledger_max_drawdown": 0.16623093547931733,
+      "scenario": "cost_2x",
+      "seed": 4,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 2149.212747093999,
+      "total_return": -0.1513760538171498,
+      "turnover": 163.9910206934258,
+      "year_returns": {
+        "2023": -0.09518637250465473,
+        "2024": -0.06210083447575411
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19914846590881308,
+      "factor": "btc_relative",
+      "fill_event_count": 4011,
+      "filled_notional": 1331228.248999999,
+      "final_equity": 8018.396545184788,
+      "funding_pnl": 14.202093784772988,
+      "ledger_max_drawdown": 0.1991484758965626,
+      "scenario": "cost_2x",
+      "seed": 4,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1863.7195485999996,
+      "total_return": -0.19816034548152137,
+      "turnover": 147.89641880312502,
+      "year_returns": {
+        "2023": -0.18363654181809114,
+        "2024": -0.017790854695744998
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19167178843820865,
+      "factor": "btc_relative",
+      "fill_event_count": 2611,
+      "filled_notional": 1220147.5256299975,
+      "final_equity": 8101.92058702734,
+      "funding_pnl": 70.95541290930319,
+      "ledger_max_drawdown": 0.19167178843820865,
+      "scenario": "cost_2x",
+      "seed": 4,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1708.2065358819975,
+      "total_return": -0.18980794129726516,
+      "turnover": 133.6177942296383,
+      "year_returns": {
+        "2023": -0.12615022926508504,
+        "2024": -0.07284743232082497
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.18892520236684351,
+      "factor": "btc_relative",
+      "fill_event_count": 2475,
+      "filled_notional": 941796.7261000017,
+      "final_equity": 8168.77369111276,
+      "funding_pnl": 37.37720765272499,
+      "ledger_max_drawdown": 0.18895820837605692,
+      "scenario": "cost_2x",
+      "seed": 4,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1318.5154165400018,
+      "total_return": -0.18312263088871503,
+      "turnover": 106.74254650461071,
+      "year_returns": {
+        "2023": -0.16205146647298338,
+        "2024": -0.025146131979061733
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1497887352078625,
+      "factor": "btc_relative",
+      "fill_event_count": 1869,
+      "filled_notional": 1679127.517000003,
+      "final_equity": 8550.302705412487,
+      "funding_pnl": 79.03356731249505,
+      "ledger_max_drawdown": 0.1497887352078625,
+      "scenario": "latency_1",
+      "seed": 4,
+      "symbol": "BTCUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1175.3892618999985,
+      "total_return": -0.14496972945875294,
+      "turnover": 181.2201276394905,
+      "year_returns": {
+        "2023": -0.09270720786936786,
+        "2024": -0.05760270779475161
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.0995127819976972,
+      "factor": "btc_relative",
+      "fill_event_count": 1833,
+      "filled_notional": 2003275.765230001,
+      "final_equity": 9330.153951673932,
+      "funding_pnl": 106.91003733491911,
+      "ledger_max_drawdown": 0.0995127819976972,
+      "scenario": "latency_1",
+      "seed": 4,
+      "symbol": "ETHUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1402.2930356609993,
+      "total_return": -0.06698460483260435,
+      "turnover": 202.30036734053712,
+      "year_returns": {
+        "2023": -0.01702060953535914,
+        "2024": -0.05082913821176649
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.19299107367432278,
+      "factor": "btc_relative",
+      "fill_event_count": 4204,
+      "filled_notional": 2237514.027699998,
+      "final_equity": 8085.277105074476,
+      "funding_pnl": 28.584024464516997,
+      "ledger_max_drawdown": 0.19299115352609897,
+      "scenario": "latency_1",
+      "seed": 4,
+      "symbol": "BNBUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1566.2598193900105,
+      "total_return": -0.19147228949255607,
+      "turnover": 245.60136454093708,
+      "year_returns": {
+        "2023": -0.14472966127877318,
+        "2024": -0.05465246027784734
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.17831297142572178,
+      "factor": "btc_relative",
+      "fill_event_count": 2546,
+      "filled_notional": 1626699.5629500025,
+      "final_equity": 8260.157556692471,
+      "funding_pnl": 114.05582075749213,
+      "ledger_max_drawdown": 0.17831297142572178,
+      "scenario": "latency_1",
+      "seed": 4,
+      "symbol": "XRPUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 1138.6896940650001,
+      "total_return": -0.17398424433075782,
+      "turnover": 172.44015067803105,
+      "year_returns": {
+        "2023": -0.061080908090430625,
+        "2024": -0.12024820584988308
+      }
+    },
+    {
+      "active_order_remainders": [],
+      "borrow_cost": 0.0,
+      "endpoint_drawdown": 0.1697750314137665,
+      "factor": "btc_relative",
+      "fill_event_count": 3247,
+      "filled_notional": 1354599.3979999996,
+      "final_equity": 8464.087208140836,
+      "funding_pnl": 64.48618674083117,
+      "ledger_max_drawdown": 0.16980881435867456,
+      "scenario": "latency_1",
+      "seed": 4,
+      "symbol": "ADAUSDT",
+      "terminal_flat": true,
+      "termination_reason": null,
+      "total_cost": 948.2195785999982,
+      "total_return": -0.15359127918590634,
+      "turnover": 149.66940060668549,
+      "year_returns": {
+        "2023": -0.13291261276141003,
+        "2024": -0.02384842257981815
+      }
+    }
+  ],
+  "evidence_checks": {
+    "annual_return_recomputation": "PASS",
+    "arm_cell_result_equality": "PASS",
+    "drawdown_trace_and_endpoint_lower_bound": "PASS",
+    "evaluator_interval_end_year_metric": "diagnostic_only",
+    "fit_count": 10,
+    "fit_timesteps_each": 262144,
+    "ledger_return_and_equity_chains": "PASS",
+    "ledger_rows_per_cell": 17544,
+    "receipt_and_protocol_identity": "PASS",
+    "replay_cell_count": 100,
+    "source_comparison_recomputation": "MATCH",
+    "terminal_quantities_and_active_order_checks": "PASS"
+  },
+  "gates": {
+    "absolute_base_profitability": "FAIL",
+    "candidate_all_cell_hard_guards": "PASS",
+    "common_symbols_at_least_four": "FAIL",
+    "development_decision": "KEEP_BASELINE",
+    "doubled_cost_and_latency_stress": "FAIL",
+    "g5_unused_future": "NOT ESTABLISHED",
+    "paired_relative_screen": "FAIL",
+    "production_or_live_eligibility": "NOT ESTABLISHED"
+  },
+  "identity": {
+    "artifact_id": 10614569766,
+    "artifact_sha256": "3997d64142c9143085ea954ef340905c4764ce58d264e21ade791b8d41f7120f",
+    "artifact_size_bytes": 589319909,
+    "audit_script_path": "C:\\dev\\trade_rl\\.tmp\\g4-audit-10614569766-20260922\\audit_g4.py",
+    "audit_script_sha256": "1dc742dd479617e1aacca5251fd3c9e5a46951e8e284c562e877b52f40d86e9e",
+    "checkpoint_protocol_digest": "e04d0146fea39bdbb95e1b78ed5b94b2fead296f67774f1007f0496236e9b5d2",
+    "core_protocol_digest": "e37701b92ddfb93f3bc6d528e1affebcd692db929415fa1b27ff65ea94dbd475",
+    "frozen_head": "b876f1c5b5a7b3b350b625f853dc72a48f3c1530",
+    "g3_audit_record_sha256": "3a2b8d353aa4e176e0dacb1bf9963cfb2995e905d51611b37641f96d5fbf8e5a",
+    "repository": "shuntatsu/trade_rl",
+    "run_attempt": 1,
+    "run_id": 35542548393,
+    "source_comparison_sha256": "cef3a52a478e358ab9355464e735ce6e0128165919da48836b75e5b2ae6f0408"
+  },
+  "limitations": [
+    "P&L is independently reaggregated from the per-interval portfolio-value snapshots already present in the exact artifact ledgers; raw exchange bars and a second execution-price/P&L simulator were not available inside this artifact and were not fetched, so this is not an independent market-data-to-fill economic oracle.",
+    "Intrainterval maximum drawdown is checked through the persisted full ledger maximum trace and bounded below by independently recomputed interval-end equity drawdown; this audit cannot reconstruct every bar-path mark without the source Dataset. The cell year_returns field is the interval-end-year evaluator diagnostic; the preregistered start-year slices are the admission oracle.",
+    "The evaluation reuses 2023-2024 development data. Even PROSPECTIVE_PAPER_REQUIRED would require a separate prospective paper stage and would never imply live authorization."
+  ],
+  "method": {
+    "drawdown": "ledger maximum trace cross-checked for monotonicity and against recomputed interval-end equity drawdown; admission uses recorded full ledger maximum",
+    "economic_source": "100 compressed replay ledgers inside the exact artifact",
+    "full_and_year_returns": "log-compounded ledger-derived interval returns using protocol-bound index slices",
+    "gate_recomputation": "independent Python logic, no import of the frozen evaluator or simulator",
+    "independent_of_trade_rl_imports": true,
+    "per_interval_return": "portfolio_value_after / portfolio_value_before - 1, cross-checked against ledger and cell returns"
+  },
+  "schema": "independent_ppo_feature_g4_audit_v1",
+  "status": "PASS",
+  "symbol_results": {
+    "ADAUSDT": {
+      "absolute_median_full_return": -0.1533583162259063,
+      "absolute_median_year_returns": {
+        "2023": -0.12525820388781617,
+        "2024": -0.02357974959087989
+      },
+      "absolute_pass": false,
+      "absolute_passing_seeds": [],
+      "base_and_both_stress_passing_seeds": [],
+      "baseline_median_full_return": -0.1528847987751772,
+      "baseline_median_year_returns": {
+        "2023": -0.11950909432608539,
+        "2024": -0.037905791228526685
+      },
+      "candidate_base_max_drawdown": 0.1863753680011757,
+      "candidate_base_median_cost": 669.0760500899995,
+      "candidate_base_median_turnover": 104.02306172513434,
+      "candidate_median_full_return": -0.1533583162259063,
+      "candidate_median_year_returns": {
+        "2023": -0.12525820388781617,
+        "2024": -0.02357974959087989
+      },
+      "paired_median_full_delta": 0.01333970722418476,
+      "paired_median_year_deltas": {
+        "2023": 0.019141628636544283,
+        "2024": -0.0037058647673886558
+      },
+      "paired_positive_delta_seeds": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "relative_pass": false,
+      "stress": {
+        "cost_2x": {
+          "median_full_return": -0.18312263088871503,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.15130388723490154,
+            "2024": -0.017520146027288956
+          },
+          "passing_seeds": []
+        },
+        "latency_1": {
+          "median_full_return": -0.15359127918590634,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.12525820388781617,
+            "2024": -0.02384842257981815
+          },
+          "passing_seeds": []
+        }
+      },
+      "stress_pass": false,
+      "stress_seed_pass_both": []
+    },
+    "BNBUSDT": {
+      "absolute_median_full_return": -0.1781993545040163,
+      "absolute_median_year_returns": {
+        "2023": -0.11622874731205217,
+        "2024": -0.050061979011736986
+      },
+      "absolute_pass": false,
+      "absolute_passing_seeds": [],
+      "base_and_both_stress_passing_seeds": [],
+      "baseline_median_full_return": -0.12062231751939897,
+      "baseline_median_year_returns": {
+        "2023": -0.09086299301049872,
+        "2024": -0.05236451483295871
+      },
+      "candidate_base_max_drawdown": 0.1929931046473573,
+      "candidate_base_median_cost": 1566.3384181900105,
+      "candidate_base_median_turnover": 244.01625887658992,
+      "candidate_median_full_return": -0.1781993545040163,
+      "candidate_median_year_returns": {
+        "2023": -0.11622874731205217,
+        "2024": -0.050061979011736986
+      },
+      "paired_median_full_delta": -0.004505443069067638,
+      "paired_median_year_deltas": {
+        "2023": -0.0026653827900892657,
+        "2024": -0.0023146269267158293
+      },
+      "paired_positive_delta_seeds": [
+        0,
+        2
+      ],
+      "relative_pass": false,
+      "stress": {
+        "cost_2x": {
+          "median_full_return": -0.19442229723502788,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.15900482526001283,
+            "2024": -0.021777746820249293
+          },
+          "passing_seeds": []
+        },
+        "latency_1": {
+          "median_full_return": -0.17823678068401622,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.11622874731205217,
+            "2024": -0.05010524078277246
+          },
+          "passing_seeds": []
+        }
+      },
+      "stress_pass": false,
+      "stress_seed_pass_both": []
+    },
+    "BTCUSDT": {
+      "absolute_median_full_return": -0.14480473404275296,
+      "absolute_median_year_returns": {
+        "2023": -0.09270720786936786,
+        "2024": -0.050842486639061345
+      },
+      "absolute_pass": false,
+      "absolute_passing_seeds": [
+        3
+      ],
+      "base_and_both_stress_passing_seeds": [
+        3
+      ],
+      "baseline_median_full_return": -0.1410815148151054,
+      "baseline_median_year_returns": {
+        "2023": -0.11294661185356097,
+        "2024": -0.024467897330238183
+      },
+      "candidate_base_max_drawdown": 0.18569572941370993,
+      "candidate_base_median_cost": 665.7507422999997,
+      "candidate_base_median_turnover": 95.56761974076626,
+      "candidate_median_full_return": -0.14480473404275296,
+      "candidate_median_year_returns": {
+        "2023": -0.09270720786936786,
+        "2024": -0.050842486639061345
+      },
+      "paired_median_full_delta": 0.018222240331925627,
+      "paired_median_year_deltas": {
+        "2023": 0.02023940398419312,
+        "2024": -0.0013947896907906612
+      },
+      "paired_positive_delta_seeds": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "relative_pass": false,
+      "stress": {
+        "cost_2x": {
+          "median_full_return": -0.1830976992477244,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.1451394963609674,
+            "2024": -0.018023978034668323
+          },
+          "passing_seeds": [
+            3
+          ]
+        },
+        "latency_1": {
+          "median_full_return": -0.14496972945875294,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.09270720786936786,
+            "2024": -0.05089051276628565
+          },
+          "passing_seeds": [
+            3
+          ]
+        }
+      },
+      "stress_pass": false,
+      "stress_seed_pass_both": [
+        3
+      ]
+    },
+    "ETHUSDT": {
+      "absolute_median_full_return": -0.06663035102840427,
+      "absolute_median_year_returns": {
+        "2023": -0.01702060953535914,
+        "2024": -0.04272662665899182
+      },
+      "absolute_pass": false,
+      "absolute_passing_seeds": [
+        3
+      ],
+      "base_and_both_stress_passing_seeds": [],
+      "baseline_median_full_return": -0.13182525611342485,
+      "baseline_median_year_returns": {
+        "2023": -0.0824294596654348,
+        "2024": -0.05383324145299971
+      },
+      "candidate_base_max_drawdown": 0.1883448269469593,
+      "candidate_base_median_cost": 663.8696963849999,
+      "candidate_base_median_turnover": 103.00875901645382,
+      "candidate_median_full_return": -0.06663035102840427,
+      "candidate_median_year_returns": {
+        "2023": -0.01702060953535914,
+        "2024": -0.04272662665899182
+      },
+      "paired_median_full_delta": 0.03507285026023166,
+      "paired_median_year_deltas": {
+        "2023": 0.05237173593766159,
+        "2024": 0.01075011049846504
+      },
+      "paired_positive_delta_seeds": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "relative_pass": true,
+      "stress": {
+        "cost_2x": {
+          "median_full_return": -0.1513760538171498,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.09518637250465473,
+            "2024": -0.016453782074210364
+          },
+          "passing_seeds": []
+        },
+        "latency_1": {
+          "median_full_return": -0.06698460483260435,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.01702060953535914,
+            "2024": -0.042768738224834894
+          },
+          "passing_seeds": [
+            3
+          ]
+        }
+      },
+      "stress_pass": false,
+      "stress_seed_pass_both": []
+    },
+    "XRPUSDT": {
+      "absolute_median_full_return": -0.1738209761229578,
+      "absolute_median_year_returns": {
+        "2023": -0.07287164940675549,
+        "2024": -0.05339965194391331
+      },
+      "absolute_pass": false,
+      "absolute_passing_seeds": [],
+      "base_and_both_stress_passing_seeds": [],
+      "baseline_median_full_return": -0.050882319114643845,
+      "baseline_median_year_returns": {
+        "2023": -0.04120474198066181,
+        "2024": -0.010093476217199691
+      },
+      "candidate_base_max_drawdown": 0.1889631895964936,
+      "candidate_base_median_cost": 701.8504343619999,
+      "candidate_base_median_turnover": 108.7142543555772,
+      "candidate_median_full_return": -0.1738209761229578,
+      "candidate_median_year_returns": {
+        "2023": -0.07287164940675549,
+        "2024": -0.05339965194391331
+      },
+      "paired_median_full_delta": 0.013472942364161078,
+      "paired_median_year_deltas": {
+        "2023": 0.039645596340667215,
+        "2024": -0.04062752650622862
+      },
+      "paired_positive_delta_seeds": [
+        0,
+        2,
+        4
+      ],
+      "relative_pass": false,
+      "stress": {
+        "cost_2x": {
+          "median_full_return": -0.18682407623163058,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.12615022926508504,
+            "2024": -0.020164019232428734
+          },
+          "passing_seeds": []
+        },
+        "latency_1": {
+          "median_full_return": -0.17398424433075782,
+          "median_pass": false,
+          "median_year_returns": {
+            "2023": -0.07287164940675549,
+            "2024": -0.05349667866393427
+          },
+          "passing_seeds": []
+        }
+      },
+      "stress_pass": false,
+      "stress_seed_pass_both": []
+    }
+  }
+}

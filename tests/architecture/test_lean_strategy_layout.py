@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 STRATEGIES = ROOT / "trade_rl" / "strategies"
 
 EXPECTED_PUBLIC_API = {
+    "A2CFitMetadata",
+    "A2CIntentStrategy",
     "CausalForecastTrainingSet",
     "ConstantIntentStrategy",
     "ForecastIntentConfig",
@@ -30,6 +32,7 @@ EXPECTED_PUBLIC_API = {
     "TrendIntentStrategy",
     "build_causal_forecast_training_set",
     "fit_lightgbm_forecast",
+    "fit_a2c_strategy",
     "fit_ppo_strategy",
     "fit_ridge_forecast",
     "target_weight_for_intent",
@@ -61,6 +64,9 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/ridge.py",
         "forecasts/lightgbm.py",
         "rl/__init__.py",
+        "rl/intent.py",
+        "rl/a2c.py",
+        "rl/a2c_artifact.py",
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
@@ -85,6 +91,23 @@ def test_strategy_package_preserves_public_api() -> None:
     assert set(strategies.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(strategies, name), name
+
+
+def test_ppo_and_a2c_use_the_shared_three_action_intent_adapter() -> None:
+    from trade_rl.strategies import A2CIntentStrategy, PPOIntentStrategy
+    from trade_rl.strategies.rl.intent import _ThreeActionIntentStrategy
+
+    assert issubclass(PPOIntentStrategy, _ThreeActionIntentStrategy)
+    assert issubclass(A2CIntentStrategy, _ThreeActionIntentStrategy)
+
+
+def test_a2c_artifact_module_owns_its_inference_bundle_api() -> None:
+    from trade_rl.strategies.rl import a2c_artifact
+
+    assert set(a2c_artifact.__all__) == {
+        "load_a2c_inference_bundle",
+        "save_a2c_inference_bundle",
+    }
 
 
 def test_supervised_module_preserves_dataset_scope_exports() -> None:

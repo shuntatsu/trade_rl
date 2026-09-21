@@ -11,9 +11,15 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.risk import PreTradeRiskConfig
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.intent import _encode_observation
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
@@ -249,17 +255,130 @@ def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
         execution_cost=ExecutionCostConfig.zero(),
     )
     env.reset(seed=7)
+    return_history = env.book.returns_history
     rewards: list[float] = []
     for action in (2, 2, 1):
         _, reward, terminated, truncated, _ = env.step(action)
         rewards.append(reward)
+        assert env.book.returns_history is return_history
         assert truncated is False
     assert terminated is True
 
     expected_rewards = [math.log1p(value) for value in replay.returns.values]
     np.testing.assert_allclose(rewards, expected_rewards)
+    np.testing.assert_array_equal(return_history, replay.returns.values)
     assert env.book.quantities == replay.book.quantities
     assert env.book.portfolio_value == replay.book.portfolio_value
+
+
+def test_env_encodes_observation_without_constructing_strategy_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    env.reset(seed=7)
+    expected = _encode_observation(
+        env._strategy_observation(),
+        env.feature_indices,
+        env.feature_normalizer,
+    )
+
+    def reject_strategy_record() -> StrategyObservation:
+        pytest.fail("training observation should use the prevalidated fast path")
+
+    monkeypatch.setattr(env, "_strategy_observation", reject_strategy_record)
+
+    actual = env._encoded_observation()
+
+    np.testing.assert_array_equal(actual, expected)
+    assert actual.dtype == np.float32
+    assert actual.flags.writeable
+
+
+def test_env_preserves_history_without_copying_it_into_each_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    env.reset(seed=7)
+    history_lengths: list[int] = []
+    original_execute_interval = MarketExecutor.execute_interval
+
+    def record_history_length(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        history_lengths.append(len(book.returns_history))
+        return original_execute_interval(
+            executor,
+            book,
+            target,
+            start_index=start_index,
+            bars=bars,
+        )
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", record_history_length)
+    for action in (2, 1, 0):
+        env.step(action)
+
+    assert history_lengths == [0, 0, 0]
+    assert len(env.book.returns_history) == 3
+
+
+def test_env_restores_return_history_when_execution_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    env.reset(seed=7)
+    env.step(2)
+    history = env.book.returns_history
+    history_lengths: list[int] = []
+
+    def fail_execution(
+        executor: MarketExecutor,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        del executor, target, start_index, bars
+        history_lengths.append(len(book.returns_history))
+        raise RuntimeError("synthetic execution failure")
+
+    monkeypatch.setattr(MarketExecutor, "execute_interval", fail_execution)
+    with pytest.raises(RuntimeError, match="synthetic execution failure"):
+        env.step(1)
+
+    assert history_lengths == [0]
+    assert env.book.returns_history is history
+    assert len(env.book.returns_history) == 1
 
 
 def test_pooled_env_cycles_symbols_without_symbol_identity_in_observation() -> None:

@@ -124,6 +124,31 @@ def test_lot_intersection_and_stress_bind_execution_identity():
     )
 
 
+def test_executor_digest_cache_invalidates_replaced_market_profile(monkeypatch):
+    import trade_rl.simulation.execution as execution_module
+
+    dataset = _dataset()
+    executor = _executor(dataset)
+    original_content_digest = execution_module.content_digest
+    digest_calls = 0
+
+    def count_digest(payload):
+        nonlocal digest_calls
+        digest_calls += 1
+        return original_content_digest(payload)
+
+    monkeypatch.setattr(execution_module, "content_digest", count_digest)
+
+    first = executor.execution_policy_digest
+    assert executor.execution_policy_digest == first
+    assert digest_calls == 1
+
+    executor.market_order_profile = _profile(dataset, reduce_only_exits=False)
+    changed_profile = executor.execution_policy_digest
+    assert changed_profile != first
+    assert digest_calls == 2
+
+
 def test_profile_burden_reports_actual_common_grid_stress_ratio():
     def mutate(payload):
         payload["symbols"][0]["filters"][2]["stepSize"] = "0.003"

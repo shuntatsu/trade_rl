@@ -392,12 +392,14 @@ counterexample failed before the forwarding fix; the real SB3 roundtrip also
 checks that loaded and replayed policies retain the fitted schema. This is an
 identity-preservation repair and does not change the registered feature roster.
 
-The separate follow-on order is algorithm comparison before ensembling: first
-compare PPO with A2C on the same `Discrete(3)` environment and fixed data,
-features, fit scope, account, and execution contract; test DQN only as a later,
-separate factor because it adds replay-buffer and exploration settings. The
-repository currently has a PPO adapter only. Its pinned SB3 2.3.2 dependency
-supports A2C and DQN for discrete actions, but neither is implemented here.
+The repository now has an A2C intent adapter and sequential CPU fitter over the
+same `Discrete(3)` environment. A synthetic unit fit and real SB3 CPU smoke test
+check the explicit config, rollout rounding, and nominal fit-budget metadata.
+This is software validation only: no research A2C candidate fit, replay,
+PPO-versus-A2C comparison, or economic evidence exists. The next research step
+remains an algorithm comparison before ensembling, using fixed data, features,
+fit scope, account, and execution contract. Test DQN only as a later, separate
+factor because it adds replay-buffer and exploration settings.
 Do not combine policies unless independent candidates first pass the same
 out-of-sample gates and their errors show useful complementarity.
 

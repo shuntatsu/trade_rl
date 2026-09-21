@@ -69,7 +69,7 @@ trade_rl/
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
-│   └── rl/{intent.py,ppo.py,ppo_normalization.py,ppo_artifact.py}
+│   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py}
 └── evaluation/
     ├── replay.py
     ├── metrics.py
@@ -187,7 +187,10 @@ from the existing absolute qualification gate.
 standardization and its immutable metadata. `ppo.py` applies one shared fitted
 transform in training and inference while keeping the raw v2 default unchanged.
 `intent.py` owns the private deterministic three-action observation/intent
-adapter used by PPO and available for future maintained RL strategies.
+adapter shared by PPO and A2C. `a2c.py` owns explicit sequential CPU fitting,
+rollout rounding, and fit-scope metadata over the shared `PPOTradingEnv`.
+Its nominal episode coverage describes budget capacity, not observed transitions
+or economic performance.
 
 `ppo_artifact.py` owns durable PPO inference bundles. The current bundle binds
 raw or normalized policy bytes, Observation v2, selected feature semantics and

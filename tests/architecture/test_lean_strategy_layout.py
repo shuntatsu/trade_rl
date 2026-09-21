@@ -66,6 +66,7 @@ def test_strategy_family_packages_exist() -> None:
         "rl/__init__.py",
         "rl/intent.py",
         "rl/a2c.py",
+        "rl/a2c_artifact.py",
         "rl/ppo.py",
         "rl/ppo_normalization.py",
         "rl/ppo_artifact.py",
@@ -98,6 +99,15 @@ def test_ppo_and_a2c_use_the_shared_three_action_intent_adapter() -> None:
 
     assert issubclass(PPOIntentStrategy, _ThreeActionIntentStrategy)
     assert issubclass(A2CIntentStrategy, _ThreeActionIntentStrategy)
+
+
+def test_a2c_artifact_module_owns_its_inference_bundle_api() -> None:
+    from trade_rl.strategies.rl import a2c_artifact
+
+    assert set(a2c_artifact.__all__) == {
+        "load_a2c_inference_bundle",
+        "save_a2c_inference_bundle",
+    }
 
 
 def test_supervised_module_preserves_dataset_scope_exports() -> None:

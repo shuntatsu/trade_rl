@@ -161,7 +161,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Real SB3 PPO integration
-        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_adapter.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py
+        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py
 
   guide:
     name: Human Guide

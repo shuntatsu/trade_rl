@@ -26,8 +26,8 @@ const LEGACY_STEP_HEADINGS: Record<string, Record<string, string>> = {
     "env-risk": "4-hard-riskを通す",
     "env-execute": "5-約定-会計を通す",
     "env-reward": "6-net-returnからrewardを作る",
-    "fit-strategy": "学習後も同じ観測契約を使う",
-    "runtime-decide": "学習後も同じ観測契約を使う",
+    "fit-strategy": "学習時と実行時で同じ観測契約を使う",
+    "runtime-decide": "学習時と実行時で同じ観測契約を使う",
   },
 };
 

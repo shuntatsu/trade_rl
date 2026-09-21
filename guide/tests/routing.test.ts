@@ -26,6 +26,17 @@ describe("guide hash routing", () => {
     });
   });
 
+  it("keeps legacy PPO observation links on the updated contract section", () => {
+    for (const step of ["fit-strategy", "runtime-decide"]) {
+      expect(
+        normalizeHashRoute(`#implementation-ppo?step=${step}`, ids, "overview"),
+      ).toEqual({
+        topicId: "implementation-ppo",
+        heading: "学習時と実行時で同じ観測契約を使う",
+      });
+    }
+  });
+
   it("prefers canonical heading over symbol when both are present", () => {
     expect(
       normalizeHashRoute(

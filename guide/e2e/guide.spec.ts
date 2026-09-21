@@ -39,7 +39,9 @@ test("overview, replay, and PPO are readable without selecting visualization ste
   ]) {
     await expect(table.getByText(new RegExp(segment))).toBeVisible();
   }
-  await expect(page.getByRole("heading", { name: "学習後も同じ観測契約を使う" })).toBeAttached();
+  await expect(
+    page.getByRole("heading", { name: "学習時と実行時で同じ観測契約を使う" }),
+  ).toBeAttached();
 });
 
 

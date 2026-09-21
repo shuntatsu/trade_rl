@@ -25,7 +25,7 @@ from trade_rl.strategies.position_intent import (
     target_weight_for_intent,
 )
 from trade_rl.strategies.rl.intent import (
-    _encode_observation,
+    _encode_observation_fields,
     _intent_from_action,
     _PredictPolicy,
     _ThreeActionIntentStrategy,
@@ -244,6 +244,9 @@ class PPOTradingEnv(gym.Env):
             feature_indices=feature_indices,
             fit_symbol_indices=information_scope,
         )
+        self._feature_index_array = np.asarray(self.feature_indices, dtype=np.intp)
+        self._feature_index_array.setflags(write=False)
+        self._feature_staleness = dataset.resolved_array("feature_staleness")
         if not set(self.symbol_indices).issubset(self.information_symbol_indices):
             raise ValueError(
                 "symbol_indices must be contained in information_symbol_indices"
@@ -335,9 +338,19 @@ class PPOTradingEnv(gym.Env):
         )
 
     def _encoded_observation(self) -> np.ndarray:
-        return _encode_observation(
-            self._strategy_observation(),
-            self.feature_indices,
+        symbol_index = self.active_symbol_index
+        if symbol_index < 0:
+            raise RuntimeError("PPOTradingEnv must be reset before observation")
+        return _encode_observation_fields(
+            self.dataset.features[self.index, symbol_index, self._feature_index_array],
+            self.dataset.feature_available[
+                self.index, symbol_index, self._feature_index_array
+            ],
+            self._feature_staleness[
+                self.index, symbol_index, self._feature_index_array
+            ],
+            self.current_intent,
+            float(self.book.weights[symbol_index]),
             self.feature_normalizer,
         ).copy()
 
@@ -497,14 +510,26 @@ class PPOTradingEnv(gym.Env):
                 symbol_index=symbol_index,
             )
 
-        execution = self.executor.execute_interval(
-            self.book,
-            constrained.weights,
-            start_index=self.index,
-            bars=1,
-        )
-        if execution.next_index <= self.index:
-            raise RuntimeError("execution did not advance PPO environment index")
+        # The environment owns this history; avoid copying its full prefix into
+        # the transactional execution clone on every one-bar training step.
+        return_history = self.book.returns_history
+        self.book.returns_history = []
+        try:
+            execution = self.executor.execute_interval(
+                self.book,
+                constrained.weights,
+                start_index=self.index,
+                bars=1,
+            )
+            if execution.next_index <= self.index:
+                raise RuntimeError("execution did not advance PPO environment index")
+        except BaseException:
+            self.book.returns_history = return_history
+            raise
+
+        interval_returns = execution.book.returns_history
+        execution.book.returns_history = return_history
+        return_history.extend(interval_returns)
 
         self.book = execution.book
         self.current_intent = intent

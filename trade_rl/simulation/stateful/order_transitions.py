@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.admission import OrderAdmissionPolicy
 from trade_rl.simulation.orders.model import OrderStatus, PendingOrder, TimeInForce
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarContext
@@ -11,6 +15,72 @@ from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 if TYPE_CHECKING:
     from trade_rl.simulation.execution import MarketExecutor
+
+
+@dataclass(slots=True)
+class _AdmissionBookProjection:
+    """Small mutable book view for sequential same-bar admission checks."""
+
+    quantities: np.ndarray
+    cash: float
+    mark_prices: np.ndarray
+    contract_multipliers: np.ndarray
+    insolvent: bool
+
+    @classmethod
+    def from_book(
+        cls,
+        book: BookState,
+        *,
+        mark_prices: np.ndarray,
+    ) -> _AdmissionBookProjection:
+        multipliers = book.contract_multipliers
+        if multipliers is None:
+            raise ValueError("projected order book requires contract multipliers")
+        quantities = book.quantities.copy()
+        resolved_prices = np.asarray(mark_prices, dtype=np.float64).reshape(-1).copy()
+        resolved_multipliers = (
+            np.asarray(
+                multipliers,
+                dtype=np.float64,
+            )
+            .reshape(-1)
+            .copy()
+        )
+        equity = float(
+            book.cash + (quantities * resolved_prices * resolved_multipliers).sum()
+        )
+        if not np.isfinite(equity):
+            raise ValueError("portfolio value became non-finite")
+        return cls(
+            quantities=quantities,
+            cash=book.cash,
+            mark_prices=resolved_prices,
+            contract_multipliers=resolved_multipliers,
+            insolvent=book.insolvent or equity <= 0.0,
+        )
+
+    @property
+    def portfolio_value(self) -> float:
+        return float(
+            self.cash
+            + (self.quantities * self.mark_prices * self.contract_multipliers).sum()
+        )
+
+    def apply_admitted_order(
+        self,
+        *,
+        symbol_index: int,
+        quantity: float,
+        price: float,
+    ) -> None:
+        self.quantities[symbol_index] += quantity
+        self.cash -= quantity * price * float(self.contract_multipliers[symbol_index])
+        equity = self.portfolio_value
+        if not np.isfinite(equity):
+            raise ValueError("portfolio value became non-finite")
+        if not self.insolvent and equity <= 0.0:
+            self.insolvent = True
 
 
 class StatefulOrderTransitionProcessor:
@@ -34,7 +104,11 @@ class StatefulOrderTransitionProcessor:
         executor = runtime.executor
         dataset = executor.dataset
         processing_index = context.processing_index
-        projected_book = runtime.book.clone()
+        actual_positions = runtime.book.exact_quantities
+        projected_book = _AdmissionBookProjection.from_book(
+            runtime.book,
+            mark_prices=context.open_prices,
+        )
         accepted: list[PendingOrder] = []
         for order in tuple(
             sorted(
@@ -101,7 +175,7 @@ class StatefulOrderTransitionProcessor:
                 maximum_quantity=None if rule is None else rule.maximum_quantity,
                 market_only=rule is not None,
                 reference_prices=context.open_prices,
-                actual_position=runtime.book.exact_quantities[symbol],
+                actual_position=actual_positions[symbol],
             )
             if not decision.accepted:
                 reason = decision.reason or "admission_rejected"
@@ -144,14 +218,11 @@ class StatefulOrderTransitionProcessor:
                 )
             accepted.append(current)
             admitted = decision.admitted_quantity
-            projected_book.quantities[symbol] += admitted
-            multipliers = projected_book.contract_multipliers
-            if multipliers is None:
-                raise ValueError("projected order book requires contract multipliers")
-            projected_book.cash -= (
-                admitted * context.open_prices[symbol] * float(multipliers[symbol])
+            projected_book.apply_admitted_order(
+                symbol_index=symbol,
+                quantity=admitted,
+                price=float(context.open_prices[symbol]),
             )
-            projected_book.revalue(context.open_prices)
         return accepted
 
     def expire_attempted_remainders(

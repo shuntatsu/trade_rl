@@ -177,6 +177,8 @@ P&Lの正本は `MarketExecutor + BookState` の一経路である。
 - partial fill後のpositionはrealized fill quantityで更新する。
 - `fill_ratio` と `unfilled_turnover` は注文の消化状態を表すため、requested側と同じsubmission reference priceでfilled quantityを評価する。adverse/favorableな実約定価格の変化だけで注文残量が消えたように見せない。`filled_turnover` は実際に売買した金額を表すためactual fill notional / starting equityを維持し、このcompletion指標とはprice basisを分ける。
 - lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
+- 数量のcanonical文字列解析とFractionからfloatへの射影は、入力の意味を変えずに反復計算を省くため、標準型かつサイズ上限内の値だけを保持する2,048-entry LRU cachesを使う。型サブクラスや大きな入力はcacheを迂回し、canonical判定・有限範囲判定・保守的射影は従来どおり実行する。
+- per-barのcorporate-action処理は、すべてのsplit factorが厳密に`1.0`のときだけ`BookState.apply_split`を省略する。1.0と異なる係数は、注文cancel閾値より小さい差でも正確に適用し、order-cancellation toleranceは従来どおり注文をcancelするかの判定だけに使う。
 - signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
 - capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
 - PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。

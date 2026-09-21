@@ -215,6 +215,9 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
     for required in (
         "quantity-preserving hold",
         "MarketExecutor + BookState",
+        "2,048-entry LRU caches",
+        "すべてのsplit factorが厳密に`1.0`のときだけ",
+        "order-cancellation tolerance",
         "feature_available_time <= decision_time",
         "SHORT",
         "FLAT",

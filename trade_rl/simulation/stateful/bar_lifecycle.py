@@ -76,14 +76,15 @@ class StatefulBarLifecycle:
             runtime.book.refresh_drawdown()
 
         split = dataset.resolved_array("split_factor")[processing_index]
-        split_mask = np.abs(split - 1.0) > _TOLERANCE
-        if np.any(split_mask):
-            runtime.cancel_active_orders(
-                processing_index=processing_index,
-                reason="split_adjustment_required",
-                symbol_mask=split_mask,
-            )
-        runtime.book.apply_split(split)
+        if np.any(split != 1.0):
+            split_mask = np.abs(split - 1.0) > _TOLERANCE
+            if np.any(split_mask):
+                runtime.cancel_active_orders(
+                    processing_index=processing_index,
+                    reason="split_adjustment_required",
+                    symbol_mask=split_mask,
+                )
+            runtime.book.apply_split(split)
 
         inactive = ~dataset.resolved_array("asset_active")[processing_index]
         if np.any(inactive):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -253,6 +254,74 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "Production/live order routing",
     ):
         assert required in research
+
+
+def test_ppo_feature_ablation_g4_decision_is_bound_to_independent_audit() -> None:
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    for required in (
+        "PPO BTC-relative feature ablationはG3/G4まで独立監査済み",
+        "absolute base profitabilityは0 / 5 symbols",
+        "doubled-cost / one-bar-latency stressは0 / 5 symbols",
+        "development decisionは`KEEP_BASELINE`",
+        "G5とProduction/live eligibilityは未判定",
+    ):
+        assert required in research
+
+    report_path = ROOT / "report" / "ppo-btc-relative-feature-ablation-g4-20260922.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    assert (
+        report_sha256
+        == "cd01a193ca2a6fa34355873fdf21b62f5f425977b2d05a388259f69cf753f481"
+    )
+    assert report_sha256 in research
+
+    audit_script_path = report_path.with_name("independent_ppo_feature_g4_audit.py")
+    audit_script_sha256 = hashlib.sha256(audit_script_path.read_bytes()).hexdigest()
+    assert (
+        audit_script_sha256
+        == "1dc742dd479617e1aacca5251fd3c9e5a46951e8e284c562e877b52f40d86e9e"
+    )
+    assert audit_script_sha256 == report["identity"]["audit_script_sha256"]
+    assert audit_script_sha256 in research
+
+    assert report["status"] == "PASS"
+    assert report["identity"]["artifact_id"] == 10614569766
+    assert (
+        report["identity"]["artifact_sha256"]
+        == "3997d64142c9143085ea954ef340905c4764ce58d264e21ade791b8d41f7120f"
+    )
+    assert report["evidence_checks"]["replay_cell_count"] == 100
+    assert report["evidence_checks"]["source_comparison_recomputation"] == "MATCH"
+    assert report["gates"]["candidate_all_cell_hard_guards"] == "PASS"
+    assert report["gates"]["absolute_base_profitability"] == "FAIL"
+    assert report["gates"]["paired_relative_screen"] == "FAIL"
+    assert report["gates"]["doubled_cost_and_latency_stress"] == "FAIL"
+    assert report["gates"]["common_symbols_at_least_four"] == "FAIL"
+    assert report["gates"]["development_decision"] == "KEEP_BASELINE"
+    assert report["gates"]["g5_unused_future"] == "NOT ESTABLISHED"
+    assert report["gates"]["production_or_live_eligibility"] == "NOT ESTABLISHED"
+    assert report["aggregate"]["relative_symbols"] == ["ETHUSDT"]
+    assert report["aggregate"]["stress_symbols"] == []
+    assert (
+        round(
+            report["aggregate"]["candidate_all_scenario_max_ledger_drawdown"] * 100, 5
+        )
+        == 19.91485
+    )
+    assert all(
+        result["candidate_median_full_return"] < 0
+        for result in report["symbol_results"].values()
+    )
+    assert all(
+        result["baseline_median_full_return"] < 0
+        for result in report["symbol_results"].values()
+    )
+    assert all(
+        not result["stress"][scenario]["median_pass"]
+        for result in report["symbol_results"].values()
+        for scenario in ("cost_2x", "latency_1")
+    )
 
 
 def test_controlled_experiment_loop_is_durable_current_architecture() -> None:

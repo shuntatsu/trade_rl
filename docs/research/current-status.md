@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-18 (JST)
+更新基準: 2026-09-22 (JST)
 
 ## 結論
 
@@ -217,7 +217,11 @@ remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
 
-### Active result-blind PPO BTC-relative feature ablation
+### PPO BTC-relative feature ablation: G4 completed, KEEP_BASELINE
+
+PPO BTC-relative feature ablationはG3/G4まで独立監査済み。
+absolute base profitabilityは0 / 5 symbols。doubled-cost / one-bar-latency stressは0 / 5 symbolsでfailし、
+development decisionは`KEEP_BASELINE`。G5とProduction/live eligibilityは未判定である。
 
 A dedicated private runner, `trade_rl.evaluation.ppo_feature_study`, and its
 result-blind protocol are implemented. The first preregistered attempt was
@@ -361,10 +365,55 @@ an independent 10,000 USDT per-symbol account, and every candidate cell remains
 subject to the 20% drawdown hard veto. The shared-portfolio, stress, and
 development-only limits above remain in force.
 
-The review clears only generation of evidence under this exact protocol. No
-current-run G3 evidence-validity or G4 economic verdict is complete, and no
-current-run model, ledger, comparison, or economic result has been inspected.
-This is not held-out validation or a paper/live-profitability claim.
+The exact hosted run completed on 2026-09-21 as run `35542548393`, attempt 1,
+and published artifact `10614569766`. Its ZIP is 589,319,909 bytes with
+SHA-256 `3997d64142c9143085ea954ef340905c4764ce58d264e21ade791b8d41f7120f`.
+The frozen source head is `b876f1c5b5a7`; checkpoint protocol digest is
+`e04d0146fea39bdbb95e1b78ed5b94b2fead296f67774f1007f0496236e9b5d2`, and the
+canonical core-protocol digest is
+`e37701b92ddfb93f3bc6d528e1affebcd692db929415fa1b27ff65ea94dbd475`. The
+independent G3 audit passed: its record SHA-256 is
+`3a2b8d353aa4e176e0dacb1bf9963cfb2995e905d51611b37641f96d5fbf8e5a`. It
+validated the exact archive roster, source provenance, ten completed 262,144-
+step fits, 100 replay ledgers, and their checkpoint-to-arm identity before any
+economic payload was opened.
+
+An independent G4 audit then reaggregated all 100 cells and 17,544 intervals
+per cell from the exact artifact. It checked ledger equity/return chains,
+preregistered start-year slices, recorded drawdown traces, terminal quantities,
+active orders, and arm-cell equality without importing the frozen evaluator or
+simulator. Its source-comparison recomputation is `MATCH`; both report
+`KEEP_BASELINE`. The committed [G4 audit record](../../report/ppo-btc-relative-feature-ablation-g4-20260922.json)
+has SHA-256 `cd01a193ca2a6fa34355873fdf21b62f5f425977b2d05a388259f69cf753f481`;
+the [exact audit script](../../report/independent_ppo_feature_g4_audit.py) has
+SHA-256 `1dc742dd479617e1aacca5251fd3c9e5a46951e8e284c562e877b52f40d86e9e`.
+
+| G4 gate | Result |
+|---|---|
+| Candidate hard guards: drawdown at most 20%, no termination, terminal flat, no active remainder | PASS; zero violations; maximum across candidate base and stress cells 19.91485% |
+| Absolute base profitability | FAIL; 0 / 5 symbols qualify |
+| Paired relative screen | FAIL overall; ETHUSDT alone qualifies |
+| Doubled-cost and one-bar-latency stresses | FAIL; 0 / 5 symbols qualify |
+| At least four common symbols | FAIL; 0 qualify |
+| G5 unused-future and production/live eligibility | NOT ESTABLISHED |
+
+Median full-period returns (baseline → candidate) were BTC −14.11% → −14.48%,
+ETH −13.18% → −6.66%, BNB −12.06% → −17.82%, XRP −5.09% → −17.38%, and ADA
+−15.29% → −15.34%. Every candidate median and every baseline median was
+negative. ETH showed relative improvement, but not positive absolute returns
+or passing stress results. `KEEP_BASELINE` therefore means no feature-augmented
+candidate qualified; it does **not** establish that the baseline is profitable.
+The study reuses 2023–2024 development data and does not qualify a prospective
+paper stage, a winner, or live trading.
+
+The audit reaggregated P&L from portfolio-value snapshots persisted in these
+ledgers. It did not fetch raw market bars or independently replay source fills,
+so it does not establish a second market-data-to-execution oracle. The audit
+used the persisted full-ledger maximum-drawdown trace and cross-checked it
+against independently recomputed interval-end equity drawdown; it cannot
+rebuild every intrainterval mark without the frozen Dataset. Annual returns
+were grouped by registered interval-start year; the artifact's interval-end
+year diagnostic is not the admission oracle.
 
 The checkpoint implementation passed the full Linux repository, PPO runtime,
 distribution, clean-install, and Guide browser checks at the implementation

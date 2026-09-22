@@ -441,6 +441,36 @@ counterexample failed before the forwarding fix; the real SB3 roundtrip also
 checks that loaded and replayed policies retain the fitted schema. This is an
 identity-preservation repair and does not change the registered feature roster.
 
+### PPO 4h indicator smoke: preregistered, not yet executed
+
+A new development-only smoke is preregistered for the single-symbol PPO path.
+The user's shorthand is fixed before results as **MACD + ATR + DI± + Ichimoku
+on the native 4h feature clock**. The selected observation roster is exactly
+ten local features: three 4h MACD values, 4h ATR%, 4h +DI/-DI, and four 4h
+Ichimoku distances/cloud descriptors. No symbol ID, cross-sectional feature,
+normalization change, shared-cash training, reward change, threshold search, or
+PPO hyperparameter change is part of this smoke.
+
+The decision clock remains the maintained 1h clock. Only the selected input
+features come from the causal 4h-native feature stream; changing the trading
+clock to one action every four hours would be a separate factor and is not
+mixed into this test. One common policy is fit across the full five-symbol
+pre-2023 roster, while every 2023-2024 replay uses an independent 10,000 USDT
+single-symbol account. The fixed seed is 0 and the requested training budget is
+100,000 PPO steps. Base execution is accompanied by doubled-cost and one-bar
+latency stresses under the maintained hard-risk contract.
+
+This is intentionally a one-seed screening experiment on already-used
+development data. It can only promote the hypothesis to a new preregistered
+five-seed study. Promotion requires all hard guards in all 15 replay cells,
+positive base return on at least four of five symbols, positive cross-symbol
+base median, positive 2023 and 2024 base medians, and positive medians under
+both fixed stresses. Otherwise the lineage stops after the smoke. Even a pass
+does not establish general profitability, unused-data evidence, production
+eligibility, or live-trading readiness. Economic execution remains blocked
+until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
+fixed contract.
+
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.
 Synthetic CPU fit/save/load tests check the explicit config, rollout rounding,

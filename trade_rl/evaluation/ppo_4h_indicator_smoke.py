@@ -66,6 +66,50 @@ INITIAL_CAPITAL = 10_000.0
 GROSS_BUDGET = 0.1
 
 
+def static_protocol_contract() -> dict[str, object]:
+    """Return the result-blind contract that can be reviewed without source bytes."""
+    static_contract = static_protocol_contract()
+    return {
+        **static_contract,
+        "static_contract_digest": content_digest(static_contract),
+        "source_dataset_id": SOURCE_DATASET_ID,
+        "source_artifact_digest": SOURCE_ARTIFACT_DIGEST,
+        "source_study_digest": SOURCE_STUDY_DIGEST,
+        "symbols": list(SYMBOLS),
+        "feature_names": list(FEATURE_NAMES),
+        "observation_width": OBSERVATION_WIDTH,
+        "training": {
+            "seed": SEED,
+            "requested_timesteps": REQUESTED_TIMESTEPS,
+            "layout": "sequential",
+            "normalize_features": False,
+            "initial_capital": INITIAL_CAPITAL,
+            "gross_budget": GROSS_BUDGET,
+            "risk": asdict(RISK_CONFIG),
+        },
+        "evaluation": {
+            "development_window": ["2023-01-01T00", "2025-01-01T00"],
+            "one_independent_account_per_symbol": True,
+            "initial_capital": INITIAL_CAPITAL,
+            "gross_budget": GROSS_BUDGET,
+            "scenarios": SCENARIOS,
+            "terminal_flat_required": True,
+            "drawdown_limit": 0.2,
+        },
+        "promotion": {
+            "hard_guards_all_cells": True,
+            "positive_base_symbols_min": 4,
+            "base_median_total_return_gt": 0.0,
+            "base_year_medians_gt": 0.0,
+            "stress_median_total_returns_gt": 0.0,
+            "next_stage_only": "full_preregistered_5_seed_study",
+        },
+        "development_only": True,
+        "unused_data": False,
+        "production_eligible": False,
+    }
+
+
 def _write_once(path: Path, payload: object) -> bytes:
     raw = canonical_json_bytes(payload)
     with path.open("xb") as stream:

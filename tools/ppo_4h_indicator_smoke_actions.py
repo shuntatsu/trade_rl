@@ -156,8 +156,9 @@ def validate_review_gate(
         or hashlib.sha256(body.encode("utf-8")).hexdigest() != review_sha
     ):
         raise ValueError("source review comment identity or bytes differ")
-    required_text = (reviewed, "result-blind", "G0", "G1", "G2")
-    if any(value not in body for value in required_text):
+    normalized_body = body.lower()
+    required_text = (reviewed.lower(), "result-blind", "g0", "g1", "g2")
+    if any(value not in normalized_body for value in required_text):
         raise ValueError("source review comment does not bind the reviewed contract")
 
 

@@ -100,7 +100,9 @@ def validate_review_gate(
         if line
     )
     if changed != (REVIEW_PATH.as_posix(),):
-        raise ValueError("smoke trigger commit may change only the review evidence file")
+        raise ValueError(
+            "smoke trigger commit may change only the review evidence file"
+        )
     expected_static = content_digest(smoke.static_protocol_contract())
     if review.get("static_contract_digest") != expected_static:
         raise ValueError("smoke review binds a different static protocol")

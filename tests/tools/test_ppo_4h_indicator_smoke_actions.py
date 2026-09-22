@@ -223,7 +223,6 @@ def test_review_gate_rejects_noncanonical_trailing_source_review_text(
 
 
 
-
 def test_review_gate_rejects_review_from_pr_author(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

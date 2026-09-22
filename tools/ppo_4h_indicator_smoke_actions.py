@@ -131,7 +131,9 @@ def _github_principal_id(record: object, *, field: str) -> int:
     user = record.get("user")
     if not isinstance(user, dict):
         raise ValueError(f"{field} GitHub principal is missing")
-    return transport._strict_positive_int(user.get("id"), field=f"{field} GitHub user id")
+    return transport._strict_positive_int(
+        user.get("id"), field=f"{field} GitHub user id"
+    )
 
 
 def validate_review_gate(
@@ -215,7 +217,9 @@ def validate_review_gate(
     reviewer_id = _github_principal_id(record, field="source review")
     author_id = _github_principal_id(pull, field="pull request author")
     if reviewer_id == author_id:
-        raise ValueError("source review is not independent from the pull request author")
+        raise ValueError(
+            "source review is not independent from the pull request author"
+        )
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed:

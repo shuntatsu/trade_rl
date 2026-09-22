@@ -6,7 +6,7 @@ import argparse
 from dataclasses import asdict, replace
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -140,6 +140,12 @@ def _finite_float(value: object, *, field: str) -> float:
     return result
 
 
+def _string_mapping(value: object, *, field: str) -> dict[str, object]:
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise ValueError(f"{field} must be a string-keyed object")
+    return cast(dict[str, object], value)
+
+
 def _median(values: list[float]) -> float:
     if len(values) != len(SYMBOLS) or any(not np.isfinite(value) for value in values):
         raise ValueError("smoke comparison requires five finite symbol values")
@@ -184,10 +190,9 @@ def promotion_decision(
         year: _median(
             [
                 _finite_float(
-                    (
-                        results[symbol]["base"].get("year_returns", {})
-                        if isinstance(results[symbol]["base"].get("year_returns"), dict)
-                        else {}
+                    _string_mapping(
+                        results[symbol]["base"].get("year_returns"),
+                        field=f"{symbol} base year_returns",
                     ).get(year),
                     field=f"{symbol} base {year} return",
                 )

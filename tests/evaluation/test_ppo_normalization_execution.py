@@ -675,6 +675,9 @@ def test_comparison_requires_all_ten_durable_verifications(
     assert report["all_slots_independently_verified"] is True
     assert report["verified_slots"] == [spec.slot for spec in specs]
     assert report["decision"] == "RELATIVE_IMPROVEMENT_ONLY"
+    paired = report["paired_return_deltas"]
+    assert isinstance(paired, dict)
+    assert set(paired) == {"0", "1", "2", "3", "4"}
     assert (root / "comparison.json").exists()
 
     with pytest.raises(Exception, match="already exists"):

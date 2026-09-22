@@ -16,7 +16,10 @@ REVIEWED_SHA = "a" * 40
 TRIGGER_SHA = "b" * 40
 REVIEW_URL = "https://github.com/owner/repo/pull/758#issuecomment-12345"
 REVIEW_BODY = (
-    f"Exact HEAD: {REVIEWED_SHA}. Fresh Result-blind review: G0 PASS, G1 PASS, G2 PASS."
+    "<!-- hourly-agent-review -->\n"
+    f"Exact HEAD: {REVIEWED_SHA}. Fresh result-blind review: "
+    "G0 PASS, G1 PASS, G2 PASS.\n"
+    "Disposition: G0_G1_CLEAR_G2_EVIDENCE_BOUND."
 )
 
 
@@ -29,6 +32,7 @@ def _review() -> dict[str, object]:
         "source_review_body_sha256": hashlib.sha256(
             REVIEW_BODY.encode("utf-8")
         ).hexdigest(),
+        "reviewer_surface": "hourly_agent_review_v1",
         "result_blind": True,
         "g0": "PASS",
         "g1": "PASS",
@@ -130,6 +134,59 @@ def test_review_gate_rejects_edited_source_review_comment(
     with pytest.raises(ValueError, match="comment"):
         actions.validate_review_gate(
             _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_rejects_non_hourly_reviewer_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(
+        actions.transport,
+        "_api_json",
+        lambda *_args, **_kwargs: {
+            "html_url": REVIEW_URL,
+            "body": REVIEW_BODY.removeprefix("<!-- hourly-agent-review -->\n"),
+        },
+    )
+    review = _review()
+    review["source_review_body_sha256"] = hashlib.sha256(
+        REVIEW_BODY.removeprefix("<!-- hourly-agent-review -->\n").encode("utf-8")
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="hourly-agent-review"):
+        actions.validate_review_gate(
+            review,
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_rejects_blocking_hourly_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = REVIEW_BODY + "\nBLOCKING before economic execution."
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(
+        actions.transport,
+        "_api_json",
+        lambda *_args, **_kwargs: {
+            "html_url": REVIEW_URL,
+            "body": body,
+        },
+    )
+    review = _review()
+    review["source_review_body_sha256"] = hashlib.sha256(
+        body.encode("utf-8")
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="authorize"):
+        actions.validate_review_gate(
+            review,
             repository="owner/repo",
             token="token",
             deadline=999999999.0,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
+import trade_rl.evaluation.ppo_4h_indicator_smoke as smoke
 
 
 EXPECTED_FEATURES = (

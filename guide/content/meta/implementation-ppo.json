@@ -37,9 +37,9 @@
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation",
       "kind": "function",
-      "source_sha256": "f7166159d8798d804f6a78e05d86e6e61317ac07fdaca05d9976fd97eac93b80",
+      "source_sha256": "90ea85bd5588759c5445fcd30b7ad2ef9e9efd17e8f199bde5d60bf60ad3fe2c",
       "label_ja": "PPO観測 v2を符号化",
-      "description_ja": "選択したローカル特徴量、その利用可能性と有限性、鮮度遅延、現在の売買意図、現在ウェイトを固定順序で1本のベクトルへ連結します。",
+      "description_ja": "StrategyObservationから選択feature値、availability、stalenessを抽出し、共通のObservation v2フィールドencoderへ渡します。",
       "variables": [
         {
           "name": "selected",
@@ -47,14 +47,52 @@
           "description_ja": "feature_indicesで選んだ現在時点のローカルfeature値です。"
         },
         {
-          "name": "usable",
-          "label_ja": "利用可能かつ有限のマスク",
-          "description_ja": "availabilityとfinite判定をANDした、値をpolicyへ渡してよいかのマスクです。"
+          "name": "available",
+          "label_ja": "利用可能性",
+          "description_ja": "選択したfeatureが利用可能かを示すmaskです。"
         },
         {
           "name": "staleness",
           "label_ja": "鮮度遅延",
           "description_ja": "選択featureと同じ順序で並ぶ現在時点のstalenessです。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "encode-observation-fields",
+      "symbol": "trade_rl.strategies.rl.intent._encode_observation_fields",
+      "kind": "function",
+      "source_sha256": "aaa6eaddc8e9458900575af0fc4cfada8493e0b9136fa4efc692a0f814e2318f",
+      "label_ja": "選択済みPPO観測フィールドを符号化",
+      "description_ja": "同じ入力フィールドから有限性・availability mask・normalizerを適用し、Observation v2の固定順序ベクトルを作ります。学習時と実行時の共通encoderです。",
+      "variables": [
+        {
+          "name": "selected",
+          "label_ja": "選択済みローカル特徴量",
+          "description_ja": "現在時点の選択feature値です。"
+        },
+        {
+          "name": "available",
+          "label_ja": "利用可能性",
+          "description_ja": "選択featureのavailability maskです。"
+        },
+        {
+          "name": "finite",
+          "label_ja": "有限値mask",
+          "description_ja": "feature値が有限かを示します。"
+        },
+        {
+          "name": "usable",
+          "label_ja": "利用可能かつ有限のmask",
+          "description_ja": "availabilityとfinite判定をANDしたmaskです。"
+        },
+        {
+          "name": "values",
+          "label_ja": "policyへ渡す特徴量",
+          "description_ja": "利用できない値を0に置換し、必要ならfit済みnormalizerを適用します。"
         },
         {
           "name": "state",
@@ -75,7 +113,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "cd6beb7e0d45cad571e84a1f100e99c77d80e067da1c5df96faf2f1acc6e04a8",
+      "source_sha256": "8f8e19e8fcc42ab521252cdf375fb11ecfd8b3f4505276a07bdb5e84b7043a49",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換し、hard riskと約定を通します。max_turnover/drawdownのtransient projectionはproposalへ再注入せず、terminal settlement有効時は最後のagent interval後にFLAT proposalを同じrisk/execution経路で処理し、そのlog wealth changeをterminal rewardへ加算します。",
       "variables": [
@@ -148,12 +186,12 @@
       "kind": "method",
       "source_sha256": "b072b6bd9c39f1732841b5f7aca48380c5d94d43347b7bcd13542124a8ba48dc",
       "label_ja": "学習済みPPOで売買意図を決める",
-      "description_ja": "実行時も同じencoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
+      "description_ja": "実行時も共通のObservation v2 field encoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
       "variables": [
         {
           "name": "encoded",
           "label_ja": "実行時のPPO観測",
-          "description_ja": "学習時と同じ_encode_observationで作る観測ベクトルです。"
+          "description_ja": "学習時と同じObservation v2 schemaを持つ観測ベクトルです。"
         },
         {
           "name": "action",

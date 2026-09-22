@@ -344,6 +344,16 @@ class MarketExecutor:
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
         self._execution_observer = execution_observer
+        self._execution_policy_digest_cache: str | None = None
+        self._execution_policy_digest_cache_inputs: (
+            tuple[
+                ExecutionCostConfig,
+                ExecutionRuleStress,
+                MarketOrderProfile | None,
+                tuple[str, ...],
+            ]
+            | None
+        ) = None
         if market_order_profile is not None:
             if type(market_order_profile) is not MarketOrderProfile:
                 raise ValueError(
@@ -864,8 +874,30 @@ class MarketExecutor:
 
     @property
     def execution_policy_digest(self) -> str:
+        trigger_fraction_snapshot = tuple(
+            f"{type(value).__module__}.{type(value).__qualname__}:{value!r}"
+            for value in self.cost.trigger_volume_fractions
+        )
+        cache_inputs = (
+            self.cost,
+            self.rule_stress,
+            self.market_order_profile,
+            trigger_fraction_snapshot,
+        )
+        previous_inputs = self._execution_policy_digest_cache_inputs
+        cached_digest = self._execution_policy_digest_cache
+        if (
+            cached_digest is not None
+            and previous_inputs is not None
+            and previous_inputs[0] is self.cost
+            and previous_inputs[1] is self.rule_stress
+            and previous_inputs[2] is self.market_order_profile
+            and previous_inputs[3] == trigger_fraction_snapshot
+        ):
+            return cached_digest
+
         if self.market_order_profile is not None:
-            return content_digest(
+            digest = content_digest(
                 {
                     "schema_version": "profile_market_execution_v1",
                     "base_policy_digest": self.cost.execution_policy_digest,
@@ -873,15 +905,20 @@ class MarketExecutor:
                     "rule_stress": self.rule_stress.digest_payload(),
                 }
             )
-        if self.rule_stress.enabled:
-            return content_digest(
+        elif self.rule_stress.enabled:
+            digest = content_digest(
                 {
                     "schema_version": "stressed_execution_policy_v1",
                     "base_policy_digest": self.cost.execution_policy_digest,
                     "rule_stress": self.rule_stress.digest_payload(),
                 }
             )
-        return self.cost.execution_policy_digest
+        else:
+            digest = self.cost.execution_policy_digest
+
+        self._execution_policy_digest_cache_inputs = cache_inputs
+        self._execution_policy_digest_cache = digest
+        return digest
 
     def execute_orders(
         self,

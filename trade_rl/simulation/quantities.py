@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from functools import lru_cache
+
+_QUANTITY_CACHE_SIZE = 2048
+_MAX_CACHEABLE_QUANTITY_TEXT_LENGTH = 512
+_MAX_CACHEABLE_FRACTION_BITS = 1024
 
 
+@lru_cache(maxsize=2048)
 def exact_quantity(value: float) -> Fraction:
     if not math.isfinite(value):
         raise ValueError("quantity must be finite")
     return Fraction(str(float(value)))
 
 
-def parse_quantity(value: str) -> Fraction:
-    if not isinstance(value, str):
-        raise ValueError("exact quantity must be a canonical rational string")
+def _parse_quantity(value: str) -> Fraction:
     try:
         parsed = Fraction(value)
     except (ValueError, ZeroDivisionError) as error:
@@ -25,7 +29,20 @@ def parse_quantity(value: str) -> Fraction:
     return parsed
 
 
-def project_quantity(value: Fraction) -> float:
+@lru_cache(maxsize=_QUANTITY_CACHE_SIZE)
+def _parse_quantity_cached(value: str) -> Fraction:
+    return _parse_quantity(value)
+
+
+def parse_quantity(value: str) -> Fraction:
+    if not isinstance(value, str):
+        raise ValueError("exact quantity must be a canonical rational string")
+    if type(value) is str and len(value) <= _MAX_CACHEABLE_QUANTITY_TEXT_LENGTH:
+        return _parse_quantity_cached(value)
+    return _parse_quantity(value)
+
+
+def _project_quantity(value: Fraction) -> float:
     try:
         result = float(value)
     except OverflowError as error:
@@ -35,6 +52,24 @@ def project_quantity(value: Fraction) -> float:
     while abs(exact_quantity(result)) > abs(value):
         result = math.nextafter(result, 0.0)
     return result
+
+
+def _fraction_is_cacheable(value: Fraction) -> bool:
+    return (
+        value.numerator.bit_length() <= _MAX_CACHEABLE_FRACTION_BITS
+        and value.denominator.bit_length() <= _MAX_CACHEABLE_FRACTION_BITS
+    )
+
+
+@lru_cache(maxsize=_QUANTITY_CACHE_SIZE)
+def _project_fraction_quantity(value: Fraction) -> float:
+    return _project_quantity(value)
+
+
+def project_quantity(value: Fraction) -> float:
+    if type(value) is Fraction and _fraction_is_cacheable(value):
+        return _project_fraction_quantity(value)
+    return _project_quantity(value)
 
 
 def quantize_quantity(value: float, lot_size: float) -> tuple[float, int | None]:

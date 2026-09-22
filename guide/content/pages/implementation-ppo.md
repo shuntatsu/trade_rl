@@ -136,16 +136,16 @@ reward = log1p(interval_net_return)
 
 したがって、取引コストを無視したpolicy scoreを別経路で最大化しているわけではありません。
 
-## 学習後も同じ観測契約を使う
+## 学習時と実行時で同じ観測契約を使う
 
-`fit_ppo_strategy`が返す`PPOIntentStrategy`は、実行時にも共有private baseの`decide`と同じ`_encode_observation`を使用します。
+`PPOIntentStrategy`の実行時は`StrategyObservation`を`_encode_observation`へ渡します。学習時の`PPOTradingEnv`は、同じObservation v2の入力フィールドをデータセットから直接読み、`_encode_observation_fields`で符号化します。学習中は公開レコードの生成を省きますが、policyへ渡すベクトルの意味と順序は実行時と一致します。
 
 ```text
-学習時: StrategyObservation → _encode_observation → PPO
+学習時: feature slices + availability + staleness + current intent/weight → _encode_observation_fields → PPO
 実行時: StrategyObservation → _encode_observation → deterministic predict
 ```
 
-学習時と実行時で観測schemaを変えないことが重要です。
+学習時と実行時で観測schemaを変えないことが重要です。テストでは学習用fast pathの出力を`StrategyObservation`経由の符号化と比較しています。
 
 ## 不変条件
 

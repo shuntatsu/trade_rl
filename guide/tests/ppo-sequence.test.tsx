@@ -37,13 +37,13 @@ describe("PPO implementation sequence", () => {
     expect(execution).toBeLessThan(reward);
   });
 
-  it("states that fitting and runtime decisions share the same encoder", () => {
+  it("keeps the observation contract while using the training fast path", () => {
     render(<MarkdownArticle topic={ppoTopic()} />);
 
     expect(
-      screen.getByRole("heading", { name: "学習後も同じ観測契約を使う" }),
+      screen.getByRole("heading", { name: "学習時と実行時で同じ観測契約を使う" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText(/_encode_observation/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/実行時も学習時と同じencoderを使う/)).toBeInTheDocument();
+    expect(screen.getByText(/学習中は公開レコードの生成を省きます/)).toBeInTheDocument();
   });
 });

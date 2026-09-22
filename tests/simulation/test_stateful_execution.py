@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ from trade_rl.simulation.orders.model import (
     OrderType,
     TimeInForce,
 )
+from trade_rl.simulation.quantities import exact_quantity
 from trade_rl.simulation.targets.execution import execute_target_statefully
 
 
@@ -99,6 +101,156 @@ def _zero_book(dataset: MarketDataset) -> BookState:
         dataset.close[0],
         dataset.resolved_array("contract_multipliers"),
     )
+
+
+def test_identity_split_row_skips_book_split_and_preserves_fill_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market()
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = _intent(executor, 1.0)
+    split_calls: list[np.ndarray] = []
+    original_apply_split = BookState.apply_split
+
+    def record_split(book: BookState, split_factor: np.ndarray) -> None:
+        split_calls.append(np.asarray(split_factor).copy())
+        original_apply_split(book, split_factor)
+
+    monkeypatch.setattr(BookState, "apply_split", record_split)
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert split_calls == []
+    assert [event.event_type for event in result.order_events] == [
+        "submitted",
+        "eligible",
+        "filled",
+    ]
+    assert result.book.quantities.tolist() == pytest.approx([1.0])
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+
+
+def test_non_identity_split_still_applies_exact_book_adjustment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prices = np.full((6, 1), 100.0)
+    prices[1:, 0] = 50.0
+    split_factor = np.ones((6, 1), dtype=np.float64)
+    split_factor[1, 0] = 2.0
+    dataset = _market(
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        split_factor=split_factor,
+    )
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.asarray([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    split_calls: list[np.ndarray] = []
+    original_apply_split = BookState.apply_split
+
+    def record_split(current: BookState, value: np.ndarray) -> None:
+        split_calls.append(np.asarray(value).copy())
+        original_apply_split(current, value)
+
+    monkeypatch.setattr(BookState, "apply_split", record_split)
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert len(split_calls) == 1
+    np.testing.assert_array_equal(split_calls[0], np.asarray([2.0]))
+    assert result.order_events == ()
+    assert result.book.exact_quantities == (Fraction(10),)
+    assert result.book.quantities.tolist() == pytest.approx([10.0])
+    assert result.book.mark_prices.tolist() == pytest.approx([50.0])
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+
+
+@pytest.mark.parametrize(
+    ("factor", "order_is_cancelled"),
+    (
+        pytest.param(np.nextafter(1.0, 2.0), False, id="below-cancel-tolerance"),
+        pytest.param(1.0 + 2e-12, True, id="above-cancel-tolerance"),
+    ),
+)
+def test_nonidentity_split_keeps_exact_adjustment_and_cancel_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+    factor: float,
+    order_is_cancelled: bool,
+) -> None:
+    prices = np.full((6, 1), 100.0)
+    prices[1:, 0] = 100.0 / factor
+    split_factor = np.ones((6, 1), dtype=np.float64)
+    split_factor[1, 0] = factor
+    dataset = _market(
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        split_factor=split_factor,
+    )
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.asarray([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    intent = _intent(
+        executor,
+        1.0,
+        order_type=OrderType.LIMIT,
+        limit_price=80.0,
+    )
+    split_calls: list[np.ndarray] = []
+    original_apply_split = BookState.apply_split
+
+    def record_split(current: BookState, value: np.ndarray) -> None:
+        split_calls.append(np.asarray(value).copy())
+        original_apply_split(current, value)
+
+    monkeypatch.setattr(BookState, "apply_split", record_split)
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert len(split_calls) == 1
+    assert result.book.exact_quantities == (Fraction(5) * exact_quantity(factor),)
+    assert result.book.mark_prices.tolist() == pytest.approx(prices[1].tolist())
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+    if order_is_cancelled:
+        assert result.order_book.active_orders == ()
+        assert (
+            result.order_book.terminal_orders[-1].terminal_reason
+            == "split_adjustment_required"
+        )
+    else:
+        assert len(result.order_book.active_orders) == 1
+        assert result.order_book.active_orders[0].remaining_quantity == pytest.approx(
+            1.0
+        )
 
 
 def test_partial_limit_fill_carries_to_next_processing_bar() -> None:

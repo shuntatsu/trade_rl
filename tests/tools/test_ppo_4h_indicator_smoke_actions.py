@@ -308,3 +308,21 @@ def test_review_gate_rejects_issue_comment_as_authorization_surface(
             token="token",
             deadline=999999999.0,
         )
+
+
+def test_review_gate_rejects_review_from_another_pull_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    review = _review()
+    review["source_review_url"] = (
+        "https://github.com/owner/repo/pull/759#pullrequestreview-12345"
+    )
+
+    with pytest.raises(ValueError, match="pull request"):
+        actions.validate_review_gate(
+            review,
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )

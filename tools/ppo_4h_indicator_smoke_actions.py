@@ -11,9 +11,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from tools import ppo_checkpoint_actions as transport
 from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
-from tools import ppo_checkpoint_actions as transport
 
 SOURCE_ARTIFACT_ID = 10_331_899_302
 SOURCE_ARTIFACT_RUN_ID = 34_803_217_815

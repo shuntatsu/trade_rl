@@ -221,6 +221,7 @@ def test_review_gate_rejects_noncanonical_trailing_source_review_text(
             deadline=999999999.0,
         )
 
+
 def test_review_gate_rejects_review_from_pr_author(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -643,9 +643,7 @@ def recompute_replication_decision(
         decision = "PROSPECTIVE_PAPER_REQUIRED"
     return {
         "schema": COMPARISON_SCHEMA,
-        "paired_return_deltas": {
-            str(seed): paired[seed] for seed in range(5)
-        },
+        "paired_return_deltas": {str(seed): paired[seed] for seed in range(5)},
         "paired_win_count": paired_win_count,
         "median_paired_total_return_delta": median_delta,
         "relative_improvement": relative,

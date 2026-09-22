@@ -17,11 +17,11 @@ jobs:
     timeout-minutes: 340
     steps:
       - name: Non-trigger push is a no-op
-        if: github.event.head_commit.message != 'run: execute 4h PPO indicator smoke'
+        if: "github.event.head_commit.message != 'run: execute 4h PPO indicator smoke'"
         run: echo "Economic smoke is gated; ordinary branch push does not execute it."
 
       - name: Checkout exact trigger head
-        if: github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned uv and Python
-        if: github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
         with:
           version: "0.10.0"
@@ -37,11 +37,11 @@ jobs:
           enable-cache: false
 
       - name: Install frozen PPO runtime
-        if: github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         run: uv sync --locked --extra train-sb3
 
       - name: Execute authenticated one-seed smoke
-        if: github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         id: smoke
         continue-on-error: true
         env:
@@ -50,7 +50,7 @@ jobs:
         run: uv run --no-sync python -m tools.ppo_4h_indicator_smoke_actions
 
       - name: Upload smoke evidence
-        if: always() && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "always() && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ppo-4h-indicator-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -62,7 +62,7 @@ jobs:
           overwrite: false
 
       - name: Propagate smoke failure after evidence upload
-        if: always() && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'
+        if: "always() && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         env:
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
         run: |

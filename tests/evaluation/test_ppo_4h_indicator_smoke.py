@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
-from trade_rl.evaluation import ppo_4h_indicator_smoke
+ppo_4h_indicator_smoke = importlib.import_module(
+    "trade_rl.evaluation.ppo_4h_indicator_smoke"
+)
 
 
 EXPECTED_FEATURES = (

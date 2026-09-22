@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
+from trade_rl.evaluation import ppo_4h_indicator_smoke
 
 
 EXPECTED_FEATURES = (
@@ -25,11 +25,11 @@ class FeatureDataset:
 
 
 def test_smoke_feature_roster_is_exactly_four_hour_indicator_set() -> None:
-    assert smoke.FEATURE_NAMES == EXPECTED_FEATURES
-    assert smoke.SEED == 0
-    assert smoke.REQUESTED_TIMESTEPS == 100_000
-    assert smoke.OBSERVATION_WIDTH == 32
-    assert smoke.SCENARIOS == {
+    assert ppo_4h_indicator_smoke.FEATURE_NAMES == EXPECTED_FEATURES
+    assert ppo_4h_indicator_smoke.SEED == 0
+    assert ppo_4h_indicator_smoke.REQUESTED_TIMESTEPS == 100_000
+    assert ppo_4h_indicator_smoke.OBSERVATION_WIDTH == 32
+    assert ppo_4h_indicator_smoke.SCENARIOS == {
         "base": {"cost_multiplier": 1.0, "latency_bars": 0},
         "cost_2x": {"cost_multiplier": 2.0, "latency_bars": 0},
         "latency_1": {"cost_multiplier": 1.0, "latency_bars": 1},
@@ -40,11 +40,11 @@ def test_feature_indices_require_exact_names_and_preserve_order() -> None:
     names = ("unused", *EXPECTED_FEATURES, "other")
     dataset = FeatureDataset(names)
 
-    assert smoke.resolve_feature_indices(dataset) == tuple(range(1, 11))
+    assert ppo_4h_indicator_smoke.resolve_feature_indices(dataset) == tuple(range(1, 11))
 
     missing = FeatureDataset(names[:-2] + ("other",))
     with pytest.raises(ValueError, match="4h indicator"):
-        smoke.resolve_feature_indices(missing)
+        ppo_4h_indicator_smoke.resolve_feature_indices(missing)
 
 
 def _cell(
@@ -90,18 +90,18 @@ def test_promotion_requires_robust_positive_cross_symbol_smoke() -> None:
         cost=(0.04, 0.03, 0.01, 0.005, -0.02),
         latency=(0.03, 0.02, 0.01, 0.002, -0.02),
     )
-    decision = smoke.promotion_decision(passing)
+    decision = ppo_4h_indicator_smoke.promotion_decision(passing)
     assert decision["decision"] == "PROMOTE_TO_FULL_5_SEED_STUDY"
     assert decision["positive_base_symbols"] == 4
 
     too_few = _result((0.08, 0.05, -0.01, -0.02, -0.03))
-    assert smoke.promotion_decision(too_few)["decision"] == "STOP_AFTER_SMOKE"
+    assert ppo_4h_indicator_smoke.promotion_decision(too_few)["decision"] == "STOP_AFTER_SMOKE"
 
     weak_stress = _result(
         (0.08, 0.05, 0.02, 0.01, -0.01),
         cost=(-0.03, -0.02, -0.01, 0.001, 0.002),
     )
-    assert smoke.promotion_decision(weak_stress)["decision"] == "STOP_AFTER_SMOKE"
+    assert ppo_4h_indicator_smoke.promotion_decision(weak_stress)["decision"] == "STOP_AFTER_SMOKE"
 
 
 @pytest.mark.parametrize(
@@ -116,7 +116,7 @@ def test_any_hard_guard_failure_blocks_promotion(mutation: dict[str, object]) ->
     result = _result((0.08, 0.05, 0.02, 0.01, -0.01))
     result["BTCUSDT"]["base"] = _cell(0.08, **mutation)
 
-    decision = smoke.promotion_decision(result)
+    decision = ppo_4h_indicator_smoke.promotion_decision(result)
 
     assert decision["decision"] == "STOP_AFTER_SMOKE"
     assert decision["hard_guards_pass"] is False

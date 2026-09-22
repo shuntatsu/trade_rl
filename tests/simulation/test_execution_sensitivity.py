@@ -98,6 +98,71 @@ def test_enabled_rule_stress_changes_execution_policy_identity() -> None:
     assert stressed.execution_policy_digest != nominal.execution_policy_digest
 
 
+def test_executor_digest_cache_tracks_input_identity_and_trigger_fraction_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.simulation.execution as execution_module
+
+    trigger_fractions = [1.0, 0.5, 0.25, 0.0]
+    cost = ExecutionCostConfig(trigger_volume_fractions=trigger_fractions)  # type: ignore[arg-type]
+    executor = MarketExecutor(_market(), cost)
+    original_digest = execution_module.calculate_execution_policy_digest
+    digest_calls = 0
+
+    def count_digest(payload: dict[str, object]) -> str:
+        nonlocal digest_calls
+        digest_calls += 1
+        return original_digest(payload)
+
+    monkeypatch.setattr(
+        execution_module, "calculate_execution_policy_digest", count_digest
+    )
+
+    first = executor.execution_policy_digest
+    assert executor.execution_policy_digest == first
+    assert digest_calls == 1
+
+    trigger_fractions[0] = 0.9
+    changed_fractions = executor.execution_policy_digest
+    assert changed_fractions != first
+    assert digest_calls == 2
+
+    executor.cost = ExecutionCostConfig.zero()
+    changed_cost = executor.execution_policy_digest
+    assert changed_cost != changed_fractions
+    assert digest_calls == 3
+
+
+def test_executor_digest_cache_invalidates_replaced_rule_stress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.simulation.execution as execution_module
+
+    executor = MarketExecutor(
+        _market(),
+        ExecutionCostConfig.zero(),
+        rule_stress=ExecutionRuleStress(name="tick_2x", tick_size_factor=2.0),
+    )
+    original_content_digest = execution_module.content_digest
+    digest_calls = 0
+
+    def count_digest(payload: dict[str, object]) -> str:
+        nonlocal digest_calls
+        digest_calls += 1
+        return original_content_digest(payload)
+
+    monkeypatch.setattr(execution_module, "content_digest", count_digest)
+
+    first = executor.execution_policy_digest
+    assert executor.execution_policy_digest == first
+    assert digest_calls == 1
+
+    executor.rule_stress = ExecutionRuleStress(name="tick_3x", tick_size_factor=3.0)
+    changed_stress = executor.execution_policy_digest
+    assert changed_stress != first
+    assert digest_calls == 2
+
+
 def test_rule_stress_identity_is_semantic_and_deterministic() -> None:
     dataset = _market()
     cost = ExecutionCostConfig.zero()

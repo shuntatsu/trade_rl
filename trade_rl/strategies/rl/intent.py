@@ -53,16 +53,36 @@ def _encode_observation(
         observation.feature_staleness[list(indices)],
         dtype=np.float64,
     )
+    return _encode_observation_fields(
+        selected,
+        available,
+        staleness,
+        observation.current_intent,
+        observation.current_weight,
+        feature_normalizer,
+    )
+
+
+def _encode_observation_fields(
+    selected: np.ndarray,
+    available: np.ndarray,
+    staleness: np.ndarray,
+    current_intent: PositionIntent,
+    current_weight: float,
+    feature_normalizer: PPOFeatureNormalizer | None = None,
+) -> np.ndarray:
+    """Encode validated local fields without constructing a public observation."""
+
+    selected = np.asarray(selected, dtype=np.float64)
+    available = np.asarray(available, dtype=np.bool_)
+    staleness = np.asarray(staleness, dtype=np.float64)
     finite = np.isfinite(selected)
     usable = available & finite
     values = np.where(usable, selected, 0.0)
     if feature_normalizer is not None:
         values = feature_normalizer.transform(selected, usable)
 
-    state = np.asarray(
-        [float(observation.current_intent), observation.current_weight],
-        dtype=np.float64,
-    )
+    state = np.asarray([float(current_intent), current_weight], dtype=np.float64)
     encoded = np.concatenate(
         (
             values,

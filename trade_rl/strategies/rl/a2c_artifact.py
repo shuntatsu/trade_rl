@@ -18,7 +18,7 @@ from trade_rl.artifacts.verified_file import (
     verified_private_copy,
 )
 from trade_rl.strategies.rl.a2c import A2CFitMetadata, A2CIntentStrategy
-from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
+from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
 from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
 _SCHEMA = "a2c_inference_bundle_v1"

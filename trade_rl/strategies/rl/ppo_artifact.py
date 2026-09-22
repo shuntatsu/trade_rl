@@ -17,10 +17,8 @@ from trade_rl.artifacts.verified_file import (
     open_regular_binary,
     verified_private_copy,
 )
-from trade_rl.strategies.rl.ppo import (
-    PPOIntentStrategy,
-    ppo_observation_contract_payload,
-)
+from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
+from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
 _SCHEMA = "ppo_normalized_model_v1"

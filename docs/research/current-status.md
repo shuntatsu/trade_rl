@@ -469,7 +469,11 @@ both fixed stresses. Otherwise the lineage stops after the smoke. Even a pass
 does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
-fixed contract.
+fixed contract. This smoke does not accept a same-session author review as that
+fresh review: the trigger gate requires the repository's read-only
+`hourly-agent-review` evidence surface, exact review-body hash, exact reviewed
+HEAD, G0/G1/G2 outcome, and a non-blocking disposition before source download or
+PPO fitting may start.
 
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.

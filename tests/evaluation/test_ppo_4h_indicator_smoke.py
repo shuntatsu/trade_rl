@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke

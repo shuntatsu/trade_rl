@@ -160,7 +160,9 @@ def validate_review_gate(
         raise ValueError("source review comment identity or bytes differ")
     normalized_body = body.lower()
     if not body.startswith("<!-- hourly-agent-review -->\n"):
-        raise ValueError(\n            "source review is not from the fresh hourly-agent-review surface"\n        )
+        raise ValueError(
+            "source review is not from the fresh hourly-agent-review surface"
+        )
     required_text = (
         reviewed.lower(),
         "result-blind",

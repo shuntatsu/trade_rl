@@ -11,6 +11,26 @@ from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
+PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
+PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
+
+
+def ppo_observation_contract_payload() -> dict[str, object]:
+    """Return the frozen shared RL observation contract used by PPO and A2C."""
+
+    return {
+        "schema_version": PPO_OBSERVATION_SCHEMA,
+        "global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
+        "includes_local_feature_staleness": True,
+        "layout": [
+            "local_values",
+            "local_available",
+            "local_staleness",
+            "current_intent",
+            "current_weight",
+        ],
+    }
+
 
 class _PredictPolicy(Protocol):
     def predict(
@@ -171,4 +191,9 @@ class _ThreeActionIntentStrategy:
         return _intent_from_action(action, family=self._family_name)
 
 
-__all__ = ["_ThreeActionIntentStrategy"]
+__all__ = [
+    "PPO_GLOBAL_FEATURE_NAMES",
+    "PPO_OBSERVATION_SCHEMA",
+    "_ThreeActionIntentStrategy",
+    "ppo_observation_contract_payload",
+]

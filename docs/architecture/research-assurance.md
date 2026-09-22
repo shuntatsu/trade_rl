@@ -126,9 +126,15 @@ review-evidence record. The source artifact is downloaded by immutable
 artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
 
 A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
-G1 and G2 status before the trigger commit is created. The machine gate binds
-that review's exact comment bytes but does not by itself prove reviewer
-independence or semantic quality.
+G1 and G2 status before the trigger commit is created. For this smoke, the
+accepted reviewer surface is the repository's read-only `hourly-agent-review`
+path; same-session author reviews are not authorization evidence. The committed
+review record declares `reviewer_surface=hourly_agent_review_v1`, and the
+machine gate requires the exact GitHub review body to carry the
+`<!-- hourly-agent-review -->` marker, bind the reviewed HEAD, contain G0/G1/G2
+and a disposition, and contain no blocking disposition. The gate binds that
+review's exact comment bytes; it still does not prove the semantic quality of
+the review itself.
 
 ## Research-specific contract: PPO BTC-relative feature ablation
 

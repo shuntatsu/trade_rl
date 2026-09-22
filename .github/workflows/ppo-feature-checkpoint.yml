@@ -26,7 +26,12 @@ on:
         required: false
         default: ""
       review_reference:
-        description: Operator-supplied review reference; not independently authenticated
+        description: Exact GitHub PR issue-comment URL for the sealed review evidence
+        type: string
+        required: false
+        default: ""
+      review_record_sha256:
+        description: SHA-256 of the exact sealed review comment body
         type: string
         required: false
         default: ""
@@ -46,6 +51,8 @@ on:
 permissions:
   actions: read
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   checkpoint:
@@ -78,6 +85,7 @@ jobs:
           CHECKPOINT_ARTIFACTS_JSON: ${{ inputs.checkpoint_artifacts_json }}
           CHECKPOINT_APPROVED_PROTOCOL_DIGEST: ${{ inputs.approved_protocol_digest }}
           CHECKPOINT_REVIEW_REFERENCE: ${{ inputs.review_reference }}
+          CHECKPOINT_REVIEW_RECORD_SHA256: ${{ inputs.review_record_sha256 }}
           CHECKPOINT_FACTOR: ${{ inputs.factor }}
           CHECKPOINT_SEED: ${{ inputs.seed }}
           CHECKPOINT_OUTPUT: output

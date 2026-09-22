@@ -74,6 +74,15 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Temporary 4h smoke format diff
+        continue-on-error: true
+        run: |
+          uv run ruff format --diff \
+            trade_rl/evaluation/ppo_4h_indicator_smoke.py \
+            tools/ppo_4h_indicator_smoke_actions.py \
+            tests/evaluation/test_ppo_4h_indicator_smoke.py \
+            tests/tools/test_ppo_4h_indicator_smoke_actions.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

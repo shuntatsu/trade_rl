@@ -68,10 +68,8 @@ GROSS_BUDGET = 0.1
 
 def static_protocol_contract() -> dict[str, object]:
     """Return the result-blind contract that can be reviewed without source bytes."""
-    static_contract = static_protocol_contract()
     return {
-        **static_contract,
-        "static_contract_digest": content_digest(static_contract),
+        "schema": SCHEMA,
         "source_dataset_id": SOURCE_DATASET_ID,
         "source_artifact_digest": SOURCE_ARTIFACT_DIGEST,
         "source_study_digest": SOURCE_STUDY_DIGEST,
@@ -224,6 +222,7 @@ def expected_protocol(source: Path) -> dict[str, Any]:
         raise ValueError("smoke fit cutoff overlaps development evaluation")
     return {
         "schema": SCHEMA,
+        "static_contract_digest": content_digest(static_protocol_contract()),
         "source_dataset_id": SOURCE_DATASET_ID,
         "source_artifact_digest": SOURCE_ARTIFACT_DIGEST,
         "source_study_digest": SOURCE_STUDY_DIGEST,

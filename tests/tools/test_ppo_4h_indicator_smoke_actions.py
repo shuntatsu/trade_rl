@@ -168,7 +168,7 @@ def test_review_gate_rejects_edited_source_review_comment(
         _github_api(body=REVIEW_BODY + " edited"),
     )
 
-    with pytest.raises(ValueError, match="comment"):
+    with pytest.raises(ValueError, match="identity or bytes"):
         actions.validate_review_gate(
             _review(),
             repository="owner/repo",
@@ -213,7 +213,7 @@ def test_review_gate_rejects_noncanonical_trailing_source_review_text(
         body.encode("utf-8")
     ).hexdigest()
 
-    with pytest.raises(ValueError, match="canonical"):
+    with pytest.raises(ValueError, match="invalid JSON"):
         actions.validate_review_gate(
             review,
             repository="owner/repo",

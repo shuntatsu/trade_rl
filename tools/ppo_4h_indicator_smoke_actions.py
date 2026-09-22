@@ -26,6 +26,7 @@ REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
 SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v2"
+REVIEW_PULL_NUMBER = 758
 TRIGGER_MESSAGE = "run: execute 4h PPO indicator smoke"
 MINIMUM_AVAILABLE_BYTES = 4 * 1024**3
 DEADLINE_SECONDS = 300 * 60
@@ -189,6 +190,8 @@ def validate_review_gate(
     if match.group("owner") != owner or match.group("repo") != name:
         raise ValueError("source review belongs to another repository")
     pull_number = int(match.group("pull"))
+    if pull_number != REVIEW_PULL_NUMBER:
+        raise ValueError("source review belongs to another pull request")
     review_id = match.group("review")
     record = transport._api_json(
         "https://api.github.com/repos/"

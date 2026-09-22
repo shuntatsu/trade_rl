@@ -135,3 +135,31 @@ def test_strategy_families_do_not_depend_on_evaluation() -> None:
             assert not any(
                 name.startswith("trade_rl.evaluation") for name in imports
             ), path
+
+
+
+def test_shared_rl_observation_contract_has_one_owner() -> None:
+    intent = STRATEGIES / "rl" / "intent.py"
+    ppo = STRATEGIES / "rl" / "ppo.py"
+    a2c_artifact = STRATEGIES / "rl" / "a2c_artifact.py"
+    ppo_artifact = STRATEGIES / "rl" / "ppo_artifact.py"
+
+    intent_source = intent.read_text(encoding="utf-8")
+    ppo_source = ppo.read_text(encoding="utf-8")
+
+    assert "def ppo_observation_contract_payload" in intent_source
+    assert 'PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"' in intent_source
+    assert "PPO_GLOBAL_FEATURE_NAMES" in intent_source
+
+    # PPO keeps the historical public names only as imports/re-exports.
+    assert "def ppo_observation_contract_payload" not in ppo_source
+    assert 'PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"' not in ppo_source
+
+    for path in (a2c_artifact, ppo_artifact):
+        imports = _imports(path)
+        assert "trade_rl.strategies.rl.intent" in imports
+        assert "trade_rl.strategies.rl.ppo" not in {
+            name
+            for name in imports
+            if name.endswith(".ppo")
+        }

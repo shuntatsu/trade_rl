@@ -191,3 +191,30 @@ def test_review_gate_rejects_blocking_hourly_review(
             token="token",
             deadline=999999999.0,
         )
+
+
+def test_review_gate_rejects_hourly_review_that_disclaims_independence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = REVIEW_BODY + "\nReviewer independence: NOT ESTABLISHED."
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(
+        actions.transport,
+        "_api_json",
+        lambda *_args, **_kwargs: {
+            "html_url": REVIEW_URL,
+            "body": body,
+        },
+    )
+    review = _review()
+    review["source_review_body_sha256"] = hashlib.sha256(
+        body.encode("utf-8")
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="authorize"):
+        actions.validate_review_gate(
+            review,
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )

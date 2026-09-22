@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -25,6 +26,12 @@ REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
 TRIGGER_MESSAGE = "run: execute 4h PPO indicator smoke"
 MINIMUM_AVAILABLE_BYTES = 4 * 1024**3
 DEADLINE_SECONDS = 300 * 60
+_REVIEW_URL_RE = re.compile(
+    r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/"
+    r"(?P<repo>[A-Za-z0-9_.-]+)/pull/(?P<pull>[1-9][0-9]*)#"
+    r"(?:(?:issuecomment-(?P<comment>[1-9][0-9]*))|"
+    r"(?:pullrequestreview-(?P<review>[1-9][0-9]*)))$"
+)
 
 
 def _git(*args: str) -> str:
@@ -114,14 +121,29 @@ def validate_review_gate(
     )
     if not isinstance(review_url, str):
         raise ValueError("source review URL is malformed")
-    pull, comment = transport.parse_review_reference(
-        review_url,
-        repository=repository,
-    )
-    del pull
+    match = _REVIEW_URL_RE.fullmatch(review_url)
+    if match is None:
+        raise ValueError("source review URL is not an exact GitHub PR review reference")
+    owner, name = transport._repo_path(repository).split("/", 1)
+    if match.group("owner") != owner or match.group("repo") != name:
+        raise ValueError("source review belongs to another repository")
+    pull_number = int(match.group("pull"))
+    comment_id = match.group("comment")
+    review_id = match.group("review")
+    if comment_id is not None:
+        endpoint = (
+            "https://api.github.com/repos/"
+            f"{transport._repo_path(repository)}/issues/comments/{comment_id}"
+        )
+    elif review_id is not None:
+        endpoint = (
+            "https://api.github.com/repos/"
+            f"{transport._repo_path(repository)}/pulls/{pull_number}/reviews/{review_id}"
+        )
+    else:
+        raise ValueError("source review URL has no GitHub review identifier")
     record = transport._api_json(
-        "https://api.github.com/repos/"
-        f"{transport._repo_path(repository)}/issues/comments/{comment}",
+        endpoint,
         token=token,
         deadline=deadline,
     )

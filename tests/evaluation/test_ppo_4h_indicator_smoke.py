@@ -12,7 +12,8 @@ EXPECTED_FEATURES = (
     "4h__macd_signal_12_26_9",
     "4h__macd_histogram_12_26_9",
     "4h__atr_pct_14bar",
-    "4h__cci_20bar",
+    "4h__plus_di_14bar",
+    "4h__minus_di_14bar",
     "4h__ichimoku_tenkan_distance_9bar",
     "4h__ichimoku_kijun_distance_26bar",
     "4h__ichimoku_cloud_position_9_26_52",
@@ -24,7 +25,7 @@ def test_smoke_feature_roster_is_exactly_four_hour_indicator_set() -> None:
     assert smoke.FEATURE_NAMES == EXPECTED_FEATURES
     assert smoke.SEED == 0
     assert smoke.REQUESTED_TIMESTEPS == 100_000
-    assert smoke.OBSERVATION_WIDTH == 29
+    assert smoke.OBSERVATION_WIDTH == 32
     assert smoke.SCENARIOS == {
         "base": {"cost_multiplier": 1.0, "latency_bars": 0},
         "cost_2x": {"cost_multiplier": 2.0, "latency_bars": 0},
@@ -36,7 +37,7 @@ def test_feature_indices_require_exact_names_and_preserve_order() -> None:
     names = ("unused", *EXPECTED_FEATURES, "other")
     dataset = SimpleNamespace(feature_names=names)
 
-    assert smoke.resolve_feature_indices(dataset) == tuple(range(1, 10))
+    assert smoke.resolve_feature_indices(dataset) == tuple(range(1, 11))
 
     missing = SimpleNamespace(feature_names=names[:-2] + ("other",))
     with pytest.raises(ValueError, match="4h indicator"):

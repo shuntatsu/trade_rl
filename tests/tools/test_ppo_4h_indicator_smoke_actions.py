@@ -5,9 +5,9 @@ from copy import deepcopy
 
 import pytest
 
+from tools import ppo_4h_indicator_smoke_actions as actions
 from trade_rl.artifacts import content_digest
 from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
-from tools import ppo_4h_indicator_smoke_actions as actions
 
 
 REVIEWED_SHA = "a" * 40

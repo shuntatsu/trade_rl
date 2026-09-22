@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 from copy import deepcopy
 
 import pytest
 
-from tools import ppo_4h_indicator_smoke_actions as actions
 from trade_rl.artifacts import content_digest
-from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
+
+actions = importlib.import_module("tools.ppo_4h_indicator_smoke_actions")
+smoke = importlib.import_module("trade_rl.evaluation.ppo_4h_indicator_smoke")
 
 
 REVIEWED_SHA = "a" * 40

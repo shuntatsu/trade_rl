@@ -16,7 +16,7 @@ REVIEWED_SHA = "a" * 40
 TRIGGER_SHA = "b" * 40
 REVIEW_URL = "https://github.com/owner/repo/pull/758#issuecomment-12345"
 REVIEW_BODY = (
-    f"Exact HEAD: {REVIEWED_SHA}. Fresh result-blind review: G0 PASS, G1 PASS, G2 PASS."
+    f"Exact HEAD: {REVIEWED_SHA}. Fresh Result-blind review: G0 PASS, G1 PASS, G2 PASS."
 )
 
 

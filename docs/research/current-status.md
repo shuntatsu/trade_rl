@@ -470,8 +470,9 @@ does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
 fixed contract. This smoke does not accept a same-author review as that fresh review. The
-trigger gate requires a formal GitHub PR review on PR #758 from a distinct
-GitHub principal, exact review `commit_id`, exact review-body hash, and a
+trigger gate requires a formal GitHub PR review on the smoke's owning pull
+request from a distinct GitHub principal, exact review `commit_id`, exact
+review-body hash, and a
 canonical `ppo_4h_indicator_source_review_v2` payload whose code/contract
 identity, reviewer-independence status, G0/G1/G2 outcomes, blocking findings and
 development-only authorization all agree with the trigger record before source

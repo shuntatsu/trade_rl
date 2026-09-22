@@ -26,7 +26,7 @@ from trade_rl.evaluation.metrics import PerformanceMetrics
 from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
-from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
+from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
 
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"

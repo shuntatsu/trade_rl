@@ -127,8 +127,9 @@ artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
 
 A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
 G1 and G2 status before the trigger commit is created. For this smoke,
-authorization evidence must be a formal GitHub PR review on PR #758 from a
-GitHub principal distinct from that PR's author, and the review's `commit_id`
+authorization evidence must be a formal GitHub PR review on the smoke's owning
+pull request from a GitHub principal distinct from that pull request's author,
+and the review's `commit_id`
 must equal the exact reviewed code HEAD. The committed trigger record declares
 `reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
 SHA-256. The review body must end in one canonical

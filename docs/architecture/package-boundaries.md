@@ -187,8 +187,12 @@ from the existing absolute qualification gate.
 standardization and its immutable metadata. `ppo.py` applies one shared fitted
 transform in training and inference while keeping the raw v2 default unchanged.
 `intent.py` owns the private deterministic three-action observation/intent
-adapter shared by PPO and A2C. `a2c.py` owns explicit sequential CPU fitting,
-rollout rounding, and fit-scope metadata over the shared `PPOTradingEnv`.
+adapter shared by PPO and A2C, and the shared `ppo_observation_v2` semantic
+contract (`PPO_OBSERVATION_SCHEMA`, `PPO_GLOBAL_FEATURE_NAMES`, and
+`ppo_observation_contract_payload()`). `ppo.py` keeps the historical public
+names as compatibility re-exports, but is not the semantic contract owner.
+`a2c.py` owns explicit sequential CPU fitting, rollout rounding, and fit-scope
+metadata over the shared `PPOTradingEnv`.
 Its nominal episode coverage describes budget capacity, not observed transitions
 or economic performance.
 

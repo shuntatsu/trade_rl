@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from trade_rl.evaluation import ppo_4h_indicator_smoke as smoke
@@ -21,6 +19,11 @@ EXPECTED_FEATURES = (
 )
 
 
+class FeatureDataset:
+    def __init__(self, feature_names: tuple[str, ...]) -> None:
+        self.feature_names = feature_names
+
+
 def test_smoke_feature_roster_is_exactly_four_hour_indicator_set() -> None:
     assert smoke.FEATURE_NAMES == EXPECTED_FEATURES
     assert smoke.SEED == 0
@@ -35,11 +38,11 @@ def test_smoke_feature_roster_is_exactly_four_hour_indicator_set() -> None:
 
 def test_feature_indices_require_exact_names_and_preserve_order() -> None:
     names = ("unused", *EXPECTED_FEATURES, "other")
-    dataset = SimpleNamespace(feature_names=names)
+    dataset = FeatureDataset(names)
 
     assert smoke.resolve_feature_indices(dataset) == tuple(range(1, 11))
 
-    missing = SimpleNamespace(feature_names=names[:-2] + ("other",))
+    missing = FeatureDataset(names[:-2] + ("other",))
     with pytest.raises(ValueError, match="4h indicator"):
         smoke.resolve_feature_indices(missing)
 

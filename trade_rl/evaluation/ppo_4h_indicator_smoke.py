@@ -131,6 +131,15 @@ def resolve_feature_indices(dataset: Any) -> tuple[int, ...]:
     return indices
 
 
+def _finite_float(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
 def _median(values: list[float]) -> float:
     if len(values) != len(SYMBOLS) or any(not np.isfinite(value) for value in values):
         raise ValueError("smoke comparison requires five finite symbol values")
@@ -149,7 +158,10 @@ def promotion_decision(
         if tuple(scenarios) != tuple(SCENARIOS):
             raise ValueError("smoke scenario roster differs from preregistration")
         for cell in scenarios.values():
-            drawdown = float(cell["ledger_max_drawdown"])
+            drawdown = _finite_float(
+                cell.get("ledger_max_drawdown"),
+                field="ledger_max_drawdown",
+            )
             if (
                 not np.isfinite(drawdown)
                 or drawdown > 0.2
@@ -160,14 +172,25 @@ def promotion_decision(
                 hard_guards_pass = False
 
     base_returns = [
-        float(results[symbol]["base"]["total_return"]) for symbol in SYMBOLS
+        _finite_float(
+            results[symbol]["base"].get("total_return"),
+            field=f"{symbol} base total_return",
+        )
+        for symbol in SYMBOLS
     ]
     positive_base_symbols = sum(value > 0.0 for value in base_returns)
     base_median = _median(base_returns)
     year_medians = {
         year: _median(
             [
-                float(results[symbol]["base"]["year_returns"][year])  # type: ignore[index]
+                _finite_float(
+                    (
+                        results[symbol]["base"].get("year_returns", {})
+                        if isinstance(results[symbol]["base"].get("year_returns"), dict)
+                        else {}
+                    ).get(year),
+                    field=f"{symbol} base {year} return",
+                )
                 for symbol in SYMBOLS
             ]
         )
@@ -175,7 +198,13 @@ def promotion_decision(
     }
     stress_medians = {
         scenario: _median(
-            [float(results[symbol][scenario]["total_return"]) for symbol in SYMBOLS]
+            [
+                _finite_float(
+                    results[symbol][scenario].get("total_return"),
+                    field=f"{symbol} {scenario} total_return",
+                )
+                for symbol in SYMBOLS
+            ]
         )
         for scenario in ("cost_2x", "latency_1")
     }

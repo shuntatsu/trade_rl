@@ -123,7 +123,9 @@ def resolve_feature_indices(dataset: Any) -> tuple[int, ...]:
     try:
         indices = tuple(names.index(name) for name in FEATURE_NAMES)
     except ValueError as error:
-        raise ValueError("a preregistered 4h indicator feature is unavailable") from error
+        raise ValueError(
+            "a preregistered 4h indicator feature is unavailable"
+        ) from error
     if tuple(names[index] for index in indices) != FEATURE_NAMES:
         raise ValueError("4h indicator feature order differs from preregistration")
     return indices
@@ -157,7 +159,9 @@ def promotion_decision(
             ):
                 hard_guards_pass = False
 
-    base_returns = [float(results[symbol]["base"]["total_return"]) for symbol in SYMBOLS]
+    base_returns = [
+        float(results[symbol]["base"]["total_return"]) for symbol in SYMBOLS
+    ]
     positive_base_symbols = sum(value > 0.0 for value in base_returns)
     base_median = _median(base_returns)
     year_medians = {
@@ -183,9 +187,7 @@ def promotion_decision(
         and all(value > 0.0 for value in stress_medians.values())
     )
     return {
-        "decision": (
-            "PROMOTE_TO_FULL_5_SEED_STUDY" if promote else "STOP_AFTER_SMOKE"
-        ),
+        "decision": ("PROMOTE_TO_FULL_5_SEED_STUDY" if promote else "STOP_AFTER_SMOKE"),
         "hard_guards_pass": hard_guards_pass,
         "positive_base_symbols": positive_base_symbols,
         "base_median_total_return": base_median,
@@ -391,7 +393,9 @@ def run_smoke(source: Path, output: Path) -> dict[str, Any]:
     indices = tuple(protocol["feature_indices"])
     plan = inspect_study(source / "study").plan
     config = plan.baseline_config
-    cutoff = int(np.searchsorted(dataset.timestamps, np.datetime64(config.fit_cutoff))) - 1
+    cutoff = (
+        int(np.searchsorted(dataset.timestamps, np.datetime64(config.fit_cutoff))) - 1
+    )
     strategy = fit_ppo_strategy(
         dataset,
         feature_indices=indices,

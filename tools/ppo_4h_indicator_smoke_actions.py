@@ -117,9 +117,8 @@ def _canonical_source_review(body: str) -> dict[str, Any]:
     ):
         raise ValueError("source review structured payload is not canonical")
     findings = value.get("blocking_findings")
-    if (
-        not isinstance(findings, list)
-        or any(not isinstance(item, str) or not item for item in findings)
+    if not isinstance(findings, list) or any(
+        not isinstance(item, str) or not item for item in findings
     ):
         raise ValueError("source review blocking findings are malformed")
     return value

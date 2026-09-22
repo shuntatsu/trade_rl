@@ -126,15 +126,17 @@ review-evidence record. The source artifact is downloaded by immutable
 artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
 
 A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
-G1 and G2 status before the trigger commit is created. For this smoke, the
-accepted reviewer surface is the repository's read-only `hourly-agent-review`
-path; same-session author reviews are not authorization evidence. The committed
-review record declares `reviewer_surface=hourly_agent_review_v1`, and the
-machine gate requires the exact GitHub review body to carry the
-`<!-- hourly-agent-review -->` marker, bind the reviewed HEAD, contain G0/G1/G2
-and a disposition, and contain no blocking disposition. The gate binds that
-review's exact comment bytes; it still does not prove the semantic quality of
-the review itself.
+G1 and G2 status before the trigger commit is created. For this smoke,
+authorization evidence must be a formal GitHub PR review on PR #758 from a
+GitHub principal distinct from that PR's author, and the review's `commit_id`
+must equal the exact reviewed code HEAD. The committed trigger record declares
+`reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
+SHA-256. The review body must end in one canonical
+`ppo_4h_indicator_source_review_v2` payload that binds the same code HEAD and
+static contract, records reviewer independence and result blindness, carries the
+actual G0/G1/G2 outcomes, has no blocking findings, and explicitly authorizes
+only this development smoke. Author-controlled trigger JSON cannot override a
+FAIL, NOT_ESTABLISHED, blocking disposition, different PR, or changed source-review bytes.
 
 ## Research-specific contract: PPO BTC-relative feature ablation
 

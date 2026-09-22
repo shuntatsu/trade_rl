@@ -25,18 +25,19 @@ from trade_rl.strategies.position_intent import (
     target_weight_for_intent,
 )
 from trade_rl.strategies.rl.intent import (
+    PPO_GLOBAL_FEATURE_NAMES,
+    PPO_OBSERVATION_SCHEMA,
     _encode_observation_fields,
     _intent_from_action,
     _PredictPolicy,
     _ThreeActionIntentStrategy,
+    ppo_observation_contract_payload,
 )
 from trade_rl.strategies.rl.ppo_normalization import (
     PPOFeatureNormalizer,
     fit_ppo_feature_normalizer,
 )
 
-PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
-PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
 _PPO_LEARNING_RATE = 3e-4
@@ -54,23 +55,6 @@ _PPO_MAX_GRAD_NORM = 0.5
 _PPO_USE_SDE = False
 _PPO_SDE_SAMPLE_FREQ = -1
 _PPO_TARGET_KL: float | None = None
-
-
-def ppo_observation_contract_payload() -> dict[str, object]:
-    """Return the frozen semantic PPO observation contract for persisted evidence."""
-
-    return {
-        "schema_version": PPO_OBSERVATION_SCHEMA,
-        "global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
-        "includes_local_feature_staleness": True,
-        "layout": [
-            "local_values",
-            "local_available",
-            "local_staleness",
-            "current_intent",
-            "current_weight",
-        ],
-    }
 
 
 def _validated_training_layout(

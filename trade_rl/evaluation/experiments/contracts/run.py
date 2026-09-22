@@ -14,7 +14,7 @@ from trade_rl.evaluation.experiments.contracts._common import (
     contract_unique_texts,
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
-from trade_rl.strategies.rl.ppo import (
+from trade_rl.strategies.rl.intent import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA,
 )

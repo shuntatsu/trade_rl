@@ -44,7 +44,9 @@ def test_feature_indices_require_exact_names_and_preserve_order() -> None:
     names = ("unused", *EXPECTED_FEATURES, "other")
     dataset = FeatureDataset(names)
 
-    assert ppo_4h_indicator_smoke.resolve_feature_indices(dataset) == tuple(range(1, 11))
+    assert ppo_4h_indicator_smoke.resolve_feature_indices(dataset) == tuple(
+        range(1, 11)
+    )
 
     missing = FeatureDataset(names[:-2] + ("other",))
     with pytest.raises(ValueError, match="4h indicator"):
@@ -99,13 +101,19 @@ def test_promotion_requires_robust_positive_cross_symbol_smoke() -> None:
     assert decision["positive_base_symbols"] == 4
 
     too_few = _result((0.08, 0.05, -0.01, -0.02, -0.03))
-    assert ppo_4h_indicator_smoke.promotion_decision(too_few)["decision"] == "STOP_AFTER_SMOKE"
+    assert (
+        ppo_4h_indicator_smoke.promotion_decision(too_few)["decision"]
+        == "STOP_AFTER_SMOKE"
+    )
 
     weak_stress = _result(
         (0.08, 0.05, 0.02, 0.01, -0.01),
         cost=(-0.03, -0.02, -0.01, 0.001, 0.002),
     )
-    assert ppo_4h_indicator_smoke.promotion_decision(weak_stress)["decision"] == "STOP_AFTER_SMOKE"
+    assert (
+        ppo_4h_indicator_smoke.promotion_decision(weak_stress)["decision"]
+        == "STOP_AFTER_SMOKE"
+    )
 
 
 @pytest.mark.parametrize(

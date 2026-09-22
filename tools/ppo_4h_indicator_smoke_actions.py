@@ -64,6 +64,7 @@ def _canonical_review(path: Path) -> dict[str, Any]:
         "static_contract_digest",
         "source_review_url",
         "source_review_body_sha256",
+        "reviewer_surface",
         "result_blind",
         "g0",
         "g1",
@@ -107,7 +108,8 @@ def validate_review_gate(
     if review.get("static_contract_digest") != expected_static:
         raise ValueError("smoke review binds a different static protocol")
     if (
-        review.get("result_blind") is not True
+        review.get("reviewer_surface") != "hourly_agent_review_v1"
+        or review.get("result_blind") is not True
         or review.get("g0") != "PASS"
         or review.get("g1") != "PASS"
         or review.get("g2") not in {"PASS", "EVIDENCE_BOUND"}
@@ -157,9 +159,22 @@ def validate_review_gate(
     ):
         raise ValueError("source review comment identity or bytes differ")
     normalized_body = body.lower()
-    required_text = (reviewed.lower(), "result-blind", "g0", "g1", "g2")
-    if any(value not in normalized_body for value in required_text):
-        raise ValueError("source review comment does not bind the reviewed contract")
+    if not body.startswith("<!-- hourly-agent-review -->\n"):
+        raise ValueError("source review is not from the fresh hourly-agent-review surface")
+    required_text = (
+        reviewed.lower(),
+        "result-blind",
+        "g0",
+        "g1",
+        "g2",
+        "disposition:",
+    )
+    if (
+        any(value not in normalized_body for value in required_text)
+        or "blocking before" in normalized_body
+        or "disposition: block" in normalized_body
+    ):
+        raise ValueError("source review comment does not authorize the reviewed contract")
 
 
 def _download_source(

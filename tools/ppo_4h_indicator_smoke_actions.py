@@ -160,7 +160,7 @@ def validate_review_gate(
         raise ValueError("source review comment identity or bytes differ")
     normalized_body = body.lower()
     if not body.startswith("<!-- hourly-agent-review -->\n"):
-        raise ValueError("source review is not from the fresh hourly-agent-review surface")
+        raise ValueError(\n            "source review is not from the fresh hourly-agent-review surface"\n        )
     required_text = (
         reviewed.lower(),
         "result-blind",
@@ -173,8 +173,11 @@ def validate_review_gate(
         any(value not in normalized_body for value in required_text)
         or "blocking before" in normalized_body
         or "disposition: block" in normalized_body
+        or "reviewer independence: not established" in normalized_body
     ):
-        raise ValueError("source review comment does not authorize the reviewed contract")
+        raise ValueError(
+            "source review comment does not authorize the reviewed contract"
+        )
 
 
 def _download_source(

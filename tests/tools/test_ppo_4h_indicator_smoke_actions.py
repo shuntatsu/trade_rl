@@ -63,11 +63,11 @@ def _review() -> dict[str, object]:
         "source_review_body_sha256": hashlib.sha256(
             REVIEW_BODY.encode("utf-8")
         ).hexdigest(),
-        "reviewer_surface": "hourly_agent_review_v1",
+        "reviewer_surface": "github_pr_review_v2",
         "result_blind": True,
         "g0": "PASS",
         "g1": "PASS",
-        "g2": "PASS",
+        "g2": "EVIDENCE_BOUND",
         "authorized_development_smoke": True,
         "unused_data_accessed": False,
         "final_data_accessed": False,
@@ -100,6 +100,7 @@ def _github_api(
                 "body": body,
                 "commit_id": review_commit,
                 "user": {"id": reviewer_id, "login": "reviewer"},
+                "state": "COMMENTED",
             }
         if url.endswith("/pulls/758"):
             return {"user": {"id": author_id, "login": "author"}}
@@ -176,10 +177,15 @@ def test_review_gate_rejects_edited_source_review_comment(
         )
 
 
-def test_review_gate_rejects_non_hourly_reviewer_surface(
+def test_review_gate_rejects_missing_structured_source_review_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    body = REVIEW_BODY.removeprefix("<!-- hourly-agent-review -->\n")
+    body = (
+        "<!-- hourly-agent-review -->\n"
+        "Result-blind review.\n"
+        "G0 PASS, G1 PASS, G2 PASS.\n"
+        "Disposition: G0_G1_CLEAR_G2_EVIDENCE_BOUND.\n"
+    )
     monkeypatch.setattr(actions, "_git", _fake_git)
     monkeypatch.setattr(actions.transport, "_api_json", _github_api(body=body))
     review = _review()
@@ -187,7 +193,7 @@ def test_review_gate_rejects_non_hourly_reviewer_surface(
         body.encode("utf-8")
     ).hexdigest()
 
-    with pytest.raises(ValueError, match="hourly-agent-review"):
+    with pytest.raises(ValueError, match="structured"):
         actions.validate_review_gate(
             review,
             repository="owner/repo",
@@ -196,10 +202,10 @@ def test_review_gate_rejects_non_hourly_reviewer_surface(
         )
 
 
-def test_review_gate_rejects_blocking_hourly_review(
+def test_review_gate_rejects_noncanonical_trailing_source_review_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    body = REVIEW_BODY + "\nBLOCKING before economic execution."
+    body = REVIEW_BODY + "BLOCKING before economic execution.\n"
     monkeypatch.setattr(actions, "_git", _fake_git)
     monkeypatch.setattr(actions.transport, "_api_json", _github_api(body=body))
     review = _review()
@@ -207,7 +213,7 @@ def test_review_gate_rejects_blocking_hourly_review(
         body.encode("utf-8")
     ).hexdigest()
 
-    with pytest.raises(ValueError, match="authorize"):
+    with pytest.raises(ValueError, match="canonical"):
         actions.validate_review_gate(
             review,
             repository="owner/repo",
@@ -216,24 +222,6 @@ def test_review_gate_rejects_blocking_hourly_review(
         )
 
 
-def test_review_gate_rejects_hourly_review_that_disclaims_independence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    body = REVIEW_BODY + "\nReviewer independence: NOT ESTABLISHED."
-    monkeypatch.setattr(actions, "_git", _fake_git)
-    monkeypatch.setattr(actions.transport, "_api_json", _github_api(body=body))
-    review = _review()
-    review["source_review_body_sha256"] = hashlib.sha256(
-        body.encode("utf-8")
-    ).hexdigest()
-
-    with pytest.raises(ValueError, match="authorize"):
-        actions.validate_review_gate(
-            review,
-            repository="owner/repo",
-            token="token",
-            deadline=999999999.0,
-        )
 
 
 def test_review_gate_rejects_review_from_pr_author(
@@ -299,6 +287,24 @@ def test_review_gate_derives_authorization_from_source_review_payload(
     ).hexdigest()
 
     with pytest.raises(ValueError, match=match):
+        actions.validate_review_gate(
+            review,
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_rejects_issue_comment_as_authorization_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    review = _review()
+    review["source_review_url"] = (
+        "https://github.com/owner/repo/pull/758#issuecomment-12345"
+    )
+
+    with pytest.raises(ValueError, match="review reference"):
         actions.validate_review_gate(
             review,
             repository="owner/repo",

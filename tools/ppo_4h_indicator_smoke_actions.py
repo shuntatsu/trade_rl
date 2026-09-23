@@ -138,6 +138,52 @@ def _github_principal_id(record: object, *, field: str) -> int:
     )
 
 
+def _require_current_main_contained(
+    *,
+    repository: str,
+    reviewed_code_sha: str,
+    token: str,
+    deadline: float,
+) -> str:
+    """Require reviewed code to contain the repository's current main commit."""
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    _require_current_main_contained(
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
+    )
+    path = transport._repo_path(repository)
+    branch = transport._api_json(
+        f"https://api.github.com/repos/{path}/branches/{EXECUTION_BASE_BRANCH}",
+        token=token,
+        deadline=deadline,
+    )
+    commit = branch.get("commit")
+    if not isinstance(commit, dict):
+        raise ValueError("current main branch record is malformed")
+    current_main = transport._require_commit_sha(
+        commit.get("sha"), field="current main SHA"
+    )
+    comparison = transport._api_json(
+        f"https://api.github.com/repos/{path}/compare/{current_main}...{reviewed}",
+        token=token,
+        deadline=deadline,
+    )
+    behind_by = comparison.get("behind_by")
+    if (
+        isinstance(behind_by, bool)
+        or not isinstance(behind_by, int)
+        or behind_by < 0
+    ):
+        raise ValueError("current main comparison is malformed")
+    if comparison.get("status") not in {"ahead", "identical"} or behind_by != 0:
+        raise ValueError("reviewed code does not contain current main")
+    return current_main
+
+
 def _validate_execution_pull(
     pull: object,
     *,
@@ -476,6 +522,12 @@ def validate_review_gate(
         expected_pull_head_sha=head,
         expected_url=review_url,
         expected_body_sha256=review_sha,
+    )
+    _require_current_main_contained(
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
     )
 
     for field in (

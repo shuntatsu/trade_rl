@@ -59,6 +59,12 @@ def _canonical_ns_timestamp(value: object, *, field: str) -> str:
     return value
 
 
+def _payload_text(value: object, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ContractViolationError(f"{field} must be a string")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ConsumedEvidence:
     """One development-evidence identity that informed a later Study."""
@@ -68,6 +74,7 @@ class ConsumedEvidence:
     development_start: str
     development_stop_exclusive: str
     uses: tuple[EvidenceUse, ...]
+
     def __post_init__(self) -> None:
         if not isinstance(self.evidence_kind, EvidenceKind):
             raise ContractViolationError("evidence_kind is unsupported")
@@ -96,6 +103,7 @@ class ConsumedEvidence:
             ),
         )
         uses = tuple(sorted(uses, key=lambda item: item.value))
+
         object.__setattr__(self, "evidence_digest", evidence_digest)
         object.__setattr__(self, "development_start", start)
         object.__setattr__(self, "development_stop_exclusive", stop)
@@ -126,23 +134,36 @@ class ConsumedEvidence:
         if set(value) != expected:
             raise ContractViolationError("consumed evidence keys differ from contract")
         try:
-            kind = EvidenceKind(value["evidence_kind"])
-        except (TypeError, ValueError) as error:
+            kind = EvidenceKind(
+                _payload_text(value["evidence_kind"], field="evidence_kind")
+            )
+        except ValueError as error:
             raise ContractViolationError("evidence_kind is unsupported") from error
         raw_uses = value["uses"]
         if not isinstance(raw_uses, list):
             raise ContractViolationError("uses must be an array")
         try:
-            uses = tuple(EvidenceUse(item) for item in raw_uses)
-        except (TypeError, ValueError) as error:
+            uses = tuple(
+                EvidenceUse(_payload_text(item, field="uses")) for item in raw_uses
+            )
+        except ValueError as error:
             raise ContractViolationError(
                 "uses contains an unsupported value"
             ) from error
         return cls(
             evidence_kind=kind,
-            evidence_digest=value["evidence_digest"],
-            development_start=value["development_start"],
-            development_stop_exclusive=value["development_stop_exclusive"],
+            evidence_digest=_payload_text(
+                value["evidence_digest"],
+                field="evidence_digest",
+            ),
+            development_start=_payload_text(
+                value["development_start"],
+                field="development_start",
+            ),
+            development_stop_exclusive=_payload_text(
+                value["development_stop_exclusive"],
+                field="development_stop_exclusive",
+            ),
             uses=uses,
         )
 
@@ -212,11 +233,17 @@ class StudyResearchContext:
         if not isinstance(raw_consumed, list):
             raise ContractViolationError("consumed_evidence must be an array")
         return cls(
-            parent_context_digests=tuple(raw_parents),
+            parent_context_digests=tuple(
+                _payload_text(item, field="parent_context_digests")
+                for item in raw_parents
+            ),
             consumed_evidence=tuple(
                 ConsumedEvidence.from_payload(item) for item in raw_consumed
             ),
-            schema_version=value["schema_version"],
+            schema_version=_payload_text(
+                value["schema_version"],
+                field="schema_version",
+            ),
         )
 
     @property

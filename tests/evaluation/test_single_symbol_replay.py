@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -143,11 +143,9 @@ def test_replay_exposes_terminal_active_order_remainders() -> None:
         stop_index=1,
         gross_budget=0.5,
         initial_capital=1_000.0,
-        execution_cost=ExecutionCostConfig.zero().__class__(
-            **{
-                **ExecutionCostConfig.zero().__dict__,
-                "order_latency_bars": 2,
-            }
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            order_latency_bars=2,
         ),
     )
 

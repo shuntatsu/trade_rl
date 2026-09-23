@@ -154,6 +154,20 @@ def test_study_plan_v3_requires_context_and_rejects_consumed_final_overlap() -> 
     with pytest.raises(ContractViolationError, match="final.*consumed|consumed.*final"):
         _study_v3(overlapping)
 
+    later_evidence = StudyResearchContext(
+        parent_context_digests=(),
+        consumed_evidence=(
+            _evidence(
+                "b" * 64,
+                start="2026-04-15T00:00:00.000000000",
+                stop="2026-05-15T00:00:00.000000000",
+                uses=(EvidenceUse.HYPOTHESIS_FORMATION,),
+            ),
+        ),
+    )
+    with pytest.raises(ContractViolationError, match="final.*consumed|consumed.*final"):
+        _study_v3(later_evidence)
+
 
 def test_legacy_study_schemas_forbid_research_context() -> None:
     context = _context()

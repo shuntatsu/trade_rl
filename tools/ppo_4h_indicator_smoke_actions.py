@@ -143,7 +143,7 @@ def _validate_execution_pull(
     *,
     repository: str,
     pull_number: int,
-    reviewed_code_sha: str,
+    expected_head_sha: str,
 ) -> int:
     if not isinstance(pull, dict):
         raise ValueError("source review pull request record is malformed")
@@ -158,10 +158,8 @@ def _validate_execution_pull(
         raise ValueError("source review pull request refs are malformed")
     if head.get("ref") != EXECUTION_BRANCH:
         raise ValueError("source review pull request is not the execution branch")
-    if head.get("sha") != reviewed_code_sha:
-        raise ValueError(
-            "source review pull request head differs from reviewed code SHA"
-        )
+    if head.get("sha") != expected_head_sha:
+        raise ValueError("source review pull request head differs from expected exact head")
     head_repo = head.get("repo")
     if not isinstance(head_repo, dict) or head_repo.get("full_name") != repository:
         raise ValueError("source review pull request belongs to another repository")
@@ -178,6 +176,7 @@ def _validate_source_review_record(
     pull_number: int,
     reviewed_code_sha: str,
     expected_static_digest: str,
+    expected_pull_head_sha: str | None = None,
     expected_url: str | None = None,
     expected_body_sha256: str | None = None,
 ) -> dict[str, Any]:
@@ -213,7 +212,11 @@ def _validate_source_review_record(
         pull,
         repository=repository,
         pull_number=pull_number,
-        reviewed_code_sha=reviewed_code_sha,
+        expected_head_sha=(
+            reviewed_code_sha
+            if expected_pull_head_sha is None
+            else expected_pull_head_sha
+        ),
     )
     if reviewer_id == author_id:
         raise ValueError(
@@ -292,7 +295,7 @@ def find_authorizing_source_review(
         pull,
         repository=repository,
         pull_number=pull_number,
-        reviewed_code_sha=reviewed,
+        expected_head_sha=reviewed,
     )
     page = 1
     while True:
@@ -466,6 +469,7 @@ def validate_review_gate(
         pull_number=pull_number,
         reviewed_code_sha=reviewed,
         expected_static_digest=expected_static,
+        expected_pull_head_sha=head,
         expected_url=review_url,
         expected_body_sha256=review_sha,
     )

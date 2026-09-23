@@ -149,11 +149,11 @@ class ConsumedEvidence:
             ) from error
         return cls(
             evidence_kind=kind,
-            evidence_digest=value["evidence_digest"],  # type: ignore[arg-type]
-            development_start=value["development_start"],  # type: ignore[arg-type]
-            development_stop_exclusive=value["development_stop_exclusive"],  # type: ignore[arg-type]
+            evidence_digest=value["evidence_digest"],
+            development_start=value["development_start"],
+            development_stop_exclusive=value["development_stop_exclusive"],
             uses=uses,
-            schema_version=value["schema_version"],  # type: ignore[arg-type]
+            schema_version=value["schema_version"],
         )
 
 
@@ -222,11 +222,11 @@ class StudyResearchContext:
         if not isinstance(raw_consumed, list):
             raise ContractViolationError("consumed_evidence must be an array")
         return cls(
-            parent_context_digests=tuple(raw_parents),  # type: ignore[arg-type]
+            parent_context_digests=tuple(raw_parents),
             consumed_evidence=tuple(
                 ConsumedEvidence.from_payload(item) for item in raw_consumed
             ),
-            schema_version=value["schema_version"],  # type: ignore[arg-type]
+            schema_version=value["schema_version"],
         )
 
     @property

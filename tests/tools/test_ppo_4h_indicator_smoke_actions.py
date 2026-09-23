@@ -109,7 +109,7 @@ def _github_api(
                 "user": {"id": author_id, "login": "author"},
                 "head": {
                     "ref": actions.EXECUTION_BRANCH,
-                    "sha": REVIEWED_SHA,
+                    "sha": TRIGGER_SHA,
                     "repo": {"full_name": "owner/repo"},
                 },
                 "base": {"ref": "main"},
@@ -143,6 +143,31 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
         "unused_data_accessed",
     ),
 )
+def test_review_gate_rejects_execution_pr_head_other_than_trigger_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+
+    def wrong_head(url: str, **_kwargs: object) -> dict[str, object]:
+        record = _github_api()(url)
+        if url.endswith("/pulls/900"):
+            head = dict(record["head"])
+            head["sha"] = "d" * 40
+            record = dict(record)
+            record["head"] = head
+        return record
+
+    monkeypatch.setattr(actions.transport, "_api_json", wrong_head)
+
+    with pytest.raises(ValueError, match="head"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
 def test_review_gate_rejects_unbound_or_non_authorizing_evidence(
     monkeypatch: pytest.MonkeyPatch,
     field: str,

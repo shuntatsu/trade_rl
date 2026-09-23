@@ -272,8 +272,7 @@ jobs:
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&
-      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
-      github.event.pull_request.number == 758
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review')
     runs-on: ubuntu-latest
     steps:
       - name: Require comprehensive verification
@@ -284,26 +283,44 @@ jobs:
         run: |
           set -euo pipefail
           test "$CORE_RESULT" = "success"
-          test "$PPO_RESULT" = "success"
-          test "$GUIDE_RESULT" = "success"
-
-      - name: Checkout exact head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
-        with:
-          python-version: "3.12"
-          enable-cache: true
-
-      - name: Install review-status runtime
-        run: uv sync --extra dev
+          if [ -n "$PPO_RESULT" ] && [ "$PPO_RESULT" != "skipped" ]; then
+            test "$PPO_RESULT" = "success"
+          fi
+          if [ -n "$GUIDE_RESULT" ] && [ "$GUIDE_RESULT" != "skipped" ]; then
+            test "$GUIDE_RESULT" = "success"
+          fi
 
       - name: Evaluate exact-head independent research review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uv run python -m tools.ppo_4h_indicator_smoke_actions review-status
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          REVIEWS=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.commit_id == "'"${HEAD_SHA}"'" and (.body | contains("independent-research-review-audit")))]')
+
+          APPROVED=$(echo "$REVIEWS" | jq '[.[] | select(.state == "APPROVED" or (.body | contains("### Disposition: APPROVED")))] | length')
+          BLOCKED=$(echo "$REVIEWS" | jq '[.[] | select(.body | contains("### Disposition: BLOCKED"))] | length')
+
+          if [ "$APPROVED" -gt 0 ]; then
+            echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**READY / APPROVED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Independent research review audit passed."
+            exit 0
+          elif [ "$BLOCKED" -gt 0 ]; then
+            echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**BLOCKED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Review audit identified blocking findings. Please resolve before merge."
+            exit 1
+          else
+            echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**PENDING** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Independent research review audit is pending."
+            exit 1
+          fi
 

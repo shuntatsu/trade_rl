@@ -104,7 +104,6 @@ def test_v4_rejects_consumed_evidence_overlapping_preregistered_final(
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
 
 
-
 def test_v4_bootstrap_binds_context_into_study_and_reconstructs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -149,5 +148,8 @@ def test_v4_bootstrap_manifest_rejects_research_context_tamper(
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="Study digest|bootstrap manifest|research context"):
+    with pytest.raises(
+        ValueError,
+        match="Study digest|bootstrap manifest|research context",
+    ):
         inspect_canonical_m2_bootstrap(output)

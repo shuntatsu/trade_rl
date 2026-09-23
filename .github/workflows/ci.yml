@@ -268,7 +268,7 @@ jobs:
           retention-days: 14
 
   independent-review:
-    name: Independent Research Review
+    name: Generic Independent Research Review
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&

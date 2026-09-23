@@ -14,7 +14,7 @@ smoke = importlib.import_module("trade_rl.evaluation.ppo_4h_indicator_smoke")
 
 REVIEWED_SHA = "a" * 40
 TRIGGER_SHA = "b" * 40
-REVIEW_URL = "https://github.com/owner/repo/pull/758#pullrequestreview-12345"
+REVIEW_URL = "https://github.com/owner/repo/pull/900#pullrequestreview-12345"
 SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
 
@@ -94,7 +94,7 @@ def _github_api(
     author_id: int = 1,
 ):
     def fake(url: str, **_kwargs: object) -> dict[str, object]:
-        if url.endswith("/pulls/758/reviews/12345"):
+        if url.endswith("/pulls/900/reviews/12345"):
             return {
                 "html_url": REVIEW_URL,
                 "body": body,
@@ -102,8 +102,18 @@ def _github_api(
                 "user": {"id": reviewer_id, "login": "reviewer"},
                 "state": "COMMENTED",
             }
-        if url.endswith("/pulls/758"):
-            return {"user": {"id": author_id, "login": "author"}}
+        if url.endswith("/pulls/900"):
+            return {
+                "number": 900,
+                "state": "open",
+                "user": {"id": author_id, "login": "author"},
+                "head": {
+                    "ref": actions.EXECUTION_BRANCH,
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "owner/repo"},
+                },
+                "base": {"ref": "main"},
+            }
         raise AssertionError(url)
 
     return fake
@@ -311,16 +321,41 @@ def test_review_gate_rejects_issue_comment_as_authorization_surface(
         )
 
 
-def test_review_gate_rejects_review_from_another_pull_request(
+def test_review_gate_rejects_review_from_nonexecution_pull_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(actions, "_git", _fake_git)
     review = _review()
     review["source_review_url"] = (
-        "https://github.com/owner/repo/pull/759#pullrequestreview-12345"
+        "https://github.com/owner/repo/pull/901#pullrequestreview-12345"
     )
 
-    with pytest.raises(ValueError, match="pull request"):
+    def wrong_pull_api(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/pulls/901/reviews/12345"):
+            return {
+                "html_url": review["source_review_url"],
+                "body": REVIEW_BODY,
+                "commit_id": REVIEWED_SHA,
+                "user": {"id": 2, "login": "reviewer"},
+                "state": "COMMENTED",
+            }
+        if url.endswith("/pulls/901"):
+            return {
+                "number": 901,
+                "state": "open",
+                "user": {"id": 1, "login": "author"},
+                "head": {
+                    "ref": "other-branch",
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "owner/repo"},
+                },
+                "base": {"ref": "main"},
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", wrong_pull_api)
+
+    with pytest.raises(ValueError, match="execution"):
         actions.validate_review_gate(
             review,
             repository="owner/repo",
@@ -328,6 +363,43 @@ def test_review_gate_rejects_review_from_another_pull_request(
             deadline=999999999.0,
         )
 
+
+
+@pytest.mark.parametrize(
+    ("pull_updates", "match"),
+    (
+        ({"state": "closed"}, "open"),
+        ({"head": {"ref": "wrong", "sha": REVIEWED_SHA, "repo": {"full_name": "owner/repo"}}}, "execution"),
+        ({"head": {"ref": "research/ppo-4h-indicator-smoke-execution", "sha": "c" * 40, "repo": {"full_name": "owner/repo"}}}, "head"),
+        ({"head": {"ref": "research/ppo-4h-indicator-smoke-execution", "sha": REVIEWED_SHA, "repo": {"full_name": "other/repo"}}}, "repository"),
+        ({"base": {"ref": "develop"}}, "base"),
+    ),
+)
+def test_independent_review_rejects_wrong_execution_pr_identity(
+    pull_updates: dict[str, object],
+    match: str,
+) -> None:
+    pull: dict[str, object] = {
+        "number": 900,
+        "state": "open",
+        "user": {"id": 1, "login": "author"},
+        "head": {
+            "ref": actions.EXECUTION_BRANCH,
+            "sha": REVIEWED_SHA,
+            "repo": {"full_name": "owner/repo"},
+        },
+        "base": {"ref": "main"},
+    }
+    pull.update(pull_updates)
+
+    with pytest.raises(ValueError, match=match):
+        actions.validate_independent_review_status(
+            _status_review(),
+            pull,
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+        )
 
 def _status_review(
     *,
@@ -353,12 +425,22 @@ def _review_inventory_api(
     author_id: int = 1,
 ):
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
-        if url.endswith("/pulls/758"):
-            return {"user": {"id": author_id, "login": "author"}}
+        if url.endswith("/pulls/900"):
+            return {
+                "number": 900,
+                "state": "open",
+                "user": {"id": author_id, "login": "author"},
+                "head": {
+                    "ref": actions.EXECUTION_BRANCH,
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "owner/repo"},
+                },
+                "base": {"ref": "main"},
+            }
         raise AssertionError(url)
 
     def fake_array(url: str, **_kwargs: object) -> list[object]:
-        if "/pulls/758/reviews?" not in url:
+        if "/pulls/900/reviews?" not in url:
             raise AssertionError(url)
         if "&page=1" in url:
             return list(reviews)
@@ -376,7 +458,7 @@ def test_independent_review_status_accepts_exact_result_blind_review(
 
     record = actions.find_authorizing_source_review(
         repository="owner/repo",
-        pull_number=758,
+        pull_number=900,
         reviewed_code_sha=REVIEWED_SHA,
         token="token",
         deadline=999999999.0,
@@ -414,7 +496,7 @@ def test_independent_review_status_rejects_non_authorizing_reviews(
     with pytest.raises(ValueError, match="independent research review is pending"):
         actions.find_authorizing_source_review(
             repository="owner/repo",
-            pull_number=758,
+            pull_number=900,
             reviewed_code_sha=REVIEWED_SHA,
             token="token",
             deadline=999999999.0,
@@ -429,13 +511,13 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     ]
     for index, review in enumerate(invalid, start=1):
         review["html_url"] = (
-            "https://github.com/owner/repo/pull/758#pullrequestreview-" + str(index)
+            "https://github.com/owner/repo/pull/900#pullrequestreview-" + str(index)
         )
     valid = _status_review(review_id=101)
-    valid["html_url"] = "https://github.com/owner/repo/pull/758#pullrequestreview-101"
+    valid["html_url"] = "https://github.com/owner/repo/pull/900#pullrequestreview-101"
 
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
-        if url.endswith("/pulls/758"):
+        if url.endswith("/pulls/900"):
             return {"user": {"id": 1, "login": "author"}}
         raise AssertionError(url)
 
@@ -451,7 +533,7 @@ def test_independent_review_status_scans_later_review_inventory_pages(
 
     record = actions.find_authorizing_source_review(
         repository="owner/repo",
-        pull_number=758,
+        pull_number=900,
         reviewed_code_sha=REVIEWED_SHA,
         token="token",
         deadline=999999999.0,
@@ -466,7 +548,7 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
     valid = _status_review(review_id=12345)
     later_author_review = _status_review(review_id=12346, reviewer_id=1)
     later_author_review["html_url"] = (
-        "https://github.com/owner/repo/pull/758#pullrequestreview-12346"
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
     )
     object_api, array_api = _review_inventory_api(reviews=[valid, later_author_review])
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
@@ -474,7 +556,7 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
 
     record = actions.find_authorizing_source_review(
         repository="owner/repo",
-        pull_number=758,
+        pull_number=900,
         reviewed_code_sha=REVIEWED_SHA,
         token="token",
         deadline=999999999.0,
@@ -489,7 +571,7 @@ def test_review_status_environment_is_pending_without_authorizing_review(
 ) -> None:
     event = tmp_path / "event.json"
     event.write_text(
-        '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
+        '{"pull_request":{"number":900,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"
@@ -517,7 +599,7 @@ def test_review_status_environment_writes_ready_summary_after_validation(
 ) -> None:
     event = tmp_path / "event.json"
     event.write_text(
-        '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
+        '{"pull_request":{"number":900,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"

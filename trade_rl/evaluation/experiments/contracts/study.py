@@ -225,7 +225,10 @@ class StudyPlan:
                         evidence.development_stop_exclusive,
                         "ns",
                     )
-                    if evidence_start < final_stop_ns and evidence_stop > final_start_ns:
+                    if (
+                        evidence_start < final_stop_ns
+                        and evidence_stop > final_start_ns
+                    ):
                         raise ContractViolationError(
                             "final evaluation window overlaps consumed development evidence"
                         )

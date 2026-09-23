@@ -167,11 +167,7 @@ def _require_current_main_contained(
         deadline=deadline,
     )
     behind_by = comparison.get("behind_by")
-    if (
-        isinstance(behind_by, bool)
-        or not isinstance(behind_by, int)
-        or behind_by < 0
-    ):
+    if isinstance(behind_by, bool) or not isinstance(behind_by, int) or behind_by < 0:
         raise ValueError("current main comparison is malformed")
     if comparison.get("status") not in {"ahead", "identical"} or behind_by != 0:
         raise ValueError("reviewed code does not contain current main")

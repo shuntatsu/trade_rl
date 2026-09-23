@@ -36,27 +36,36 @@ def test_smoke_trigger_uses_pinned_runtime_and_uploads_evidence() -> None:
 
 def test_independent_review_status_runs_only_after_full_verification() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    generic_start = text.index("  independent-review:\n")
+    smoke_start = text.index("  ppo-4h-independent-review:\n")
+    generic = text[generic_start:smoke_start]
+    smoke = text[smoke_start:]
 
     assert "pull_request_review:" in text
     assert "submitted" in text
     assert "edited" in text
     assert "dismissed" in text
-    assert "name: Independent Research Review" in text
-    assert "needs: [core, ppo-runtime, guide]" in text
-    assert "review-status" in text
-    assert "CORE_RESULT: ${{ needs.core.result }}" in text
-    assert "PPO_RESULT: ${{ needs.ppo-runtime.result }}" in text
-    assert "GUIDE_RESULT: ${{ needs.guide.result }}" in text
-    assert 'test "$CORE_RESULT" = "success"' in text
-    assert 'test "$PPO_RESULT" = "success"' in text
-    assert 'test "$GUIDE_RESULT" = "success"' in text
-    assert "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in text
-    assert "gh api --paginate" not in text
-    assert "independent-research-review-audit" not in text
+    assert "name: Independent Research Review" in smoke
+    assert "needs: [core, ppo-runtime, guide]" in smoke
+    assert "CORE_RESULT: ${{ needs.core.result }}" in smoke
+    assert "PPO_RESULT: ${{ needs.ppo-runtime.result }}" in smoke
+    assert "GUIDE_RESULT: ${{ needs.guide.result }}" in smoke
+    assert 'test "$CORE_RESULT" = "success"' in smoke
+    assert 'test "$PPO_RESULT" = "success"' in smoke
+    assert 'test "$GUIDE_RESULT" = "success"' in smoke
+    assert "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in smoke
+    assert "gh api --paginate" not in smoke
+    assert "independent-research-review-audit" not in smoke
     assert (
         "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'"
-        in text
+        in smoke
     )
+    assert (
+        "github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'"
+        in generic
+    )
+    assert "gh api --paginate" in generic
+    assert "independent-research-review-audit" in generic
 
 
 def test_review_events_repeat_full_software_verification_before_status() -> None:

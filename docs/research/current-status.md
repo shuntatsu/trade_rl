@@ -470,12 +470,15 @@ does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
 fixed contract. This smoke does not accept a same-author review as that fresh review. The
-trigger gate requires a formal GitHub PR review on the smoke's owning pull
-request from a distinct GitHub principal, exact review `commit_id`, exact
-review-body hash, and a
-canonical `ppo_4h_indicator_source_review_v2` payload whose code/contract
-identity, reviewer-independence status, G0/G1/G2 outcomes, blocking findings and
-development-only authorization all agree with the trigger record before source
+preregistration/code PR has been integrated without economic authorization, so
+the remaining authorization lifecycle is carried by a dedicated **open
+execution PR** on `research/ppo-4h-indicator-smoke-execution`. The trigger gate
+requires that PR to target `main`, belong to this repository, have its head
+equal the exact reviewed code SHA, and carry a formal GitHub review from a
+distinct GitHub principal. The exact review `commit_id`, exact review-body
+hash, and canonical `ppo_4h_indicator_source_review_v2` payload must have
+matching code/contract identity, reviewer-independence status, G0/G1/G2
+outcomes, blocking findings and development-only authorization before source
 download or PPO fitting may start. GitHub now exposes the waiting state through
 an `Independent Research Review` check that runs only after Lean Core, real-SB3
 PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss

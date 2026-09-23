@@ -117,7 +117,7 @@ def _validated_manifest(
     tuple[int, ...],
     tuple[str, ...],
     PPOFeatureNormalizer | None,
-    A2CFitMetadata | None,
+    A2CFitMetadata,
     str,
 ]:
     require_sha256(expected_digest, field="expected_digest")

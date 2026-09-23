@@ -47,6 +47,13 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert "CORE_RESULT: ${{ needs.core.result }}" in text
     assert "PPO_RESULT: ${{ needs.ppo-runtime.result }}" in text
     assert "GUIDE_RESULT: ${{ needs.guide.result }}" in text
+    assert 'test "$CORE_RESULT" = "success"' in text
+    assert 'test "$PPO_RESULT" = "success"' in text
+    assert 'test "$GUIDE_RESULT" = "success"' in text
+    assert "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in text
+    assert "gh api --paginate" not in text
+    assert "independent-research-review-audit" not in text
+    assert "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'" in text
 
 
 def test_review_events_repeat_full_software_verification_before_status() -> None:

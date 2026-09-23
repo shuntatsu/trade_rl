@@ -151,6 +151,8 @@ def _validate_execution_pull(
         raise ValueError("source review pull request number differs")
     if pull.get("state") != "open":
         raise ValueError("source review pull request must remain open")
+    if pull.get("draft") is not True:
+        raise ValueError("source review execution pull request must remain draft")
 
     head = pull.get("head")
     base = pull.get("base")

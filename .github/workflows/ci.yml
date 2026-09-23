@@ -58,11 +58,11 @@ jobs:
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py
 
       - name: Install gated 4h smoke PPO runtime
-        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke-execution' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         run: uv sync --locked --extra train-sb3
 
       - name: Execute authenticated 4h PPO smoke
-        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke-execution' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         id: indicator-smoke
         continue-on-error: true
         env:
@@ -71,7 +71,7 @@ jobs:
         run: uv run --no-sync python -m tools.ppo_4h_indicator_smoke_actions
 
       - name: Upload 4h smoke evidence
-        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke-execution' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ppo-4h-indicator-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -83,7 +83,7 @@ jobs:
           overwrite: false
 
       - name: Propagate 4h smoke failure after evidence upload
-        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke-execution' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
         env:
           SMOKE_OUTCOME: ${{ steps.indicator-smoke.outcome }}
         run: |
@@ -273,7 +273,7 @@ jobs:
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
-      github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'
+      github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke-execution'
     runs-on: ubuntu-latest
     steps:
       - name: Require comprehensive verification
@@ -332,7 +332,7 @@ jobs:
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
-      github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'
+      github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke-execution'
     runs-on: ubuntu-latest
     steps:
       - name: Require comprehensive verification

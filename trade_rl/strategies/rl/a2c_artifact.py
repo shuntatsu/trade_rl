@@ -116,11 +116,7 @@ def _validate_policy_seed(
         seed = getattr(policy, "seed")
     except AttributeError as error:
         raise ValueError("A2C policy seed differs from fit metadata") from error
-    if (
-        isinstance(seed, bool)
-        or not isinstance(seed, int)
-        or seed != fit_metadata.seed
-    ):
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed != fit_metadata.seed:
         raise ValueError("A2C policy seed differs from fit metadata")
 
 

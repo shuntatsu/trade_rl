@@ -218,19 +218,14 @@ class StudyPlan:
                 )
             if research_context is not None:
                 final_start_ns = np.datetime64(final_start, "ns")
-                final_stop_ns = np.datetime64(final_stop, "ns")
                 for evidence in research_context.consumed_evidence:
-                    evidence_start = np.datetime64(evidence.development_start, "ns")
                     evidence_stop = np.datetime64(
                         evidence.development_stop_exclusive,
                         "ns",
                     )
-                    if (
-                        evidence_start < final_stop_ns
-                        and evidence_stop > final_start_ns
-                    ):
+                    if evidence_stop > final_start_ns:
                         raise ContractViolationError(
-                            "final evaluation window overlaps consumed development evidence"
+                            "final evaluation start must not precede consumed development evidence"
                         )
 
         object.__setattr__(self, "research_question", research_question)

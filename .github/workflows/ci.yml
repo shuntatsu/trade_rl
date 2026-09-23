@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Set up uv
@@ -54,7 +55,42 @@ jobs:
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
 
       - name: Checkpoint transport types
-        run: uv run mypy tools/ppo_checkpoint_actions.py
+        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py
+
+      - name: Install gated 4h smoke PPO runtime
+        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        run: uv sync --locked --extra train-sb3
+
+      - name: Execute authenticated 4h PPO smoke
+        if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        id: indicator-smoke
+        continue-on-error: true
+        env:
+          SMOKE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMOKE_OUTPUT: output/smoke
+        run: uv run --no-sync python -m tools.ppo_4h_indicator_smoke_actions
+
+      - name: Upload 4h smoke evidence
+        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-4h-indicator-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/smoke
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+      - name: Propagate 4h smoke failure after evidence upload
+        if: "always() && github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"
+        env:
+          SMOKE_OUTCOME: ${{ steps.indicator-smoke.outcome }}
+        run: |
+          if [[ "$SMOKE_OUTCOME" != "success" ]]; then
+            echo "4h PPO smoke failed; inspect the uploaded evidence."
+            exit 1
+          fi
 
   core:
     name: Lean Core
@@ -89,7 +125,7 @@ jobs:
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
 
       - name: Checkpoint transport types
-        run: uv run mypy tools/ppo_checkpoint_actions.py
+        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py
 
       - name: Core tests
         run: uv run pytest -q tests
@@ -232,11 +268,12 @@ jobs:
           retention-days: 14
 
   independent-review:
-    name: Independent Research Review
+    name: Generic Independent Research Review
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&
-      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review')
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'
     runs-on: ubuntu-latest
     steps:
       - name: Require comprehensive verification
@@ -288,3 +325,43 @@ jobs:
             echo "Independent research review audit is pending."
             exit 1
           fi
+
+  ppo-4h-independent-review:
+    name: Independent Research Review
+    needs: [core, ppo-runtime, guide]
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require comprehensive verification
+        env:
+          CORE_RESULT: ${{ needs.core.result }}
+          PPO_RESULT: ${{ needs.ppo-runtime.result }}
+          GUIDE_RESULT: ${{ needs.guide.result }}
+        run: |
+          set -euo pipefail
+          test "$CORE_RESULT" = "success"
+          test "$PPO_RESULT" = "success"
+          test "$GUIDE_RESULT" = "success"
+
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install review-status runtime
+        run: uv sync --extra dev
+
+      - name: Evaluate exact-head independent research review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run python -m tools.ppo_4h_indicator_smoke_actions review-status

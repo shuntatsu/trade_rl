@@ -528,7 +528,7 @@ def _repo_path(repository: str) -> str:
     return "/".join(urllib.parse.quote(part, safe="") for part in parts)
 
 
-def _api_json(url: str, *, token: str, deadline: float) -> dict[str, Any]:
+def _api_json_value(url: str, *, token: str, deadline: float) -> object:
     request = urllib.request.Request(
         url,
         headers={
@@ -556,11 +556,22 @@ def _api_json(url: str, *, token: str, deadline: float) -> dict[str, Any]:
     if len(raw) > 2 * 1024 * 1024:
         raise TransportError("GitHub API response exceeds the metadata limit")
     try:
-        value = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError:
         raise TransportError("GitHub API returned malformed JSON") from None
+
+
+def _api_json(url: str, *, token: str, deadline: float) -> dict[str, Any]:
+    value = _api_json_value(url, token=token, deadline=deadline)
     if not isinstance(value, dict):
         raise TransportError("GitHub API response is not an object")
+    return value
+
+
+def _api_json_array(url: str, *, token: str, deadline: float) -> list[Any]:
+    value = _api_json_value(url, token=token, deadline=deadline)
+    if not isinstance(value, list):
+        raise TransportError("GitHub API response is not an array")
     return value
 
 

@@ -80,6 +80,77 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: PPO 4h indicator smoke
+
+This contract applies only to the development-only one-seed smoke implemented
+by `trade_rl.evaluation.ppo_4h_indicator_smoke`.
+
+### G0 — narrow question and falsifier
+
+The question is whether a deliberately small 4h trend/state observation set is
+strong enough to justify a full five-seed study. The fixed roster is MACD line,
+signal and histogram; ATR%; +DI and -DI; and Ichimoku Tenkan distance, Kijun
+distance, cloud position and cloud thickness. The hypothesis is that slower
+trend/volatility/state descriptors may reduce noisy reaction to hourly
+micro-movements while preserving enough regime information for the existing
+LONG/FLAT/SHORT PPO controller.
+
+The hypothesis is rejected at the smoke stage if the fixed promotion rule
+fails. A pass means only that a five-seed preregistered follow-up is warranted.
+The 2023-2024 window has already been used by prior research and therefore
+cannot establish confirmation, unused-data performance or general
+profitability.
+
+### G1 — fixed mechanism
+
+The decision/execution clock stays hourly. Selected features are native 4h
+features aligned causally onto that clock. Training remains sequential over the
+full five-symbol fit roster with no symbol ID and one common policy.
+Evaluation remains one independent 10,000 USDT account per symbol, gross budget
+0.1, the maintained discrete LONG/FLAT/SHORT action contract, log-return reward,
+execution/accounting authority, and hard risk (max gross 0.5, max absolute
+weight 0.1, deleveraging at 10% drawdown and stop at 20%).
+
+The only research factor is the selected local feature roster. Seed 0 and
+100,000 requested PPO steps are fixed. Base, doubled-cost, and +1-bar-latency
+evaluation scenarios are fixed before results.
+
+### G2 — required checks before economics
+
+Before economic execution, machine checks must prove the exact feature roster,
+feature-name resolution, full fit-symbol scope, fixed seed/budget/scenarios,
+single-symbol replay path, hard promotion rule, and exact trigger workflow.
+The economic runner must be reachable only from a trigger commit whose parent
+is the reviewed code HEAD and whose sole content change is an authenticated
+review-evidence record. The source artifact is downloaded by immutable
+artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
+
+A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
+G1 and G2 status before the trigger commit is created. For this smoke,
+authorization evidence must be a formal GitHub PR review on the smoke's owning
+pull request from a GitHub principal distinct from that pull request's author,
+and the review's `commit_id`
+must equal the exact reviewed code HEAD. The committed trigger record declares
+`reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
+SHA-256. The review body must end in one canonical
+`ppo_4h_indicator_source_review_v2` payload that binds the same code HEAD and
+static contract, records reviewer independence and result blindness, carries the
+actual G0/G1/G2 outcomes, has no blocking findings, and explicitly authorizes
+only this development smoke. Author-controlled trigger JSON cannot override a
+FAIL, NOT_ESTABLISHED, blocking disposition, different PR, or changed source-review bytes.
+
+The owning pull request exposes this dependency as a dedicated
+`Independent Research Review` GitHub check. That check is evaluated only after
+the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guide
+build/browser checks all succeed. A pull-request review submission, edit, or
+dismissal repeats those software checks before reevaluating review status. The
+status check refetches the current formal-review inventory and accepts only a
+review that passes the same distinct-principal, exact-`commit_id`, canonical
+payload, result-blind G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
+`READY` only means the review-evidence transition may be created. It does not
+itself authorize economic execution or replace the authenticated one-shot
+trigger.
+
 ## Research-specific contract: PPO BTC-relative feature ablation
 
 This contract applies only to the dedicated development comparison in

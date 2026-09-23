@@ -299,17 +299,22 @@ def _validate_study_against_config(
 
     expected_final_start = _study_final_timestamp(config.final_evaluation_start)
     expected_final_stop = _study_final_timestamp(config.final_evaluation_stop_exclusive)
-    expected_plan_schema = (
-        "controlled_study_plan_v2"
-        if expected_final_start is not None or expected_final_stop is not None
-        else "controlled_study_plan_v1"
-    )
+    if config.research_context is not None:
+        expected_plan_schema = "controlled_study_plan_v3"
+    else:
+        expected_plan_schema = (
+            "controlled_study_plan_v2"
+            if expected_final_start is not None or expected_final_stop is not None
+            else "controlled_study_plan_v1"
+        )
     if plan.schema_version != expected_plan_schema:
         raise ValueError("Study final-window schema differs from bootstrap config")
     if plan.final_evaluation_start != expected_final_start:
         raise ValueError("Study final evaluation start differs from bootstrap config")
     if plan.final_evaluation_stop_exclusive != expected_final_stop:
         raise ValueError("Study final evaluation stop differs from bootstrap config")
+    if plan.research_context != config.research_context:
+        raise ValueError("Study research context differs from bootstrap config")
 
     _validate_dataset_range(config, dataset)
     _validate_execution_economics(config, dataset)
@@ -625,6 +630,7 @@ def bootstrap_canonical_m2_study(
             final_evaluation_stop_exclusive=_study_final_timestamp(
                 config.final_evaluation_stop_exclusive
             ),
+            research_context=config.research_context,
         )
         study_digest, plan_implementation, plan_runtime = (
             _validate_study_against_config(

@@ -70,9 +70,9 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert "name: Independent Research Review" in smoke
     assert "gh api --paginate" in generic
     assert "independent-research-review-audit" in generic
-    action_source = (
-        ROOT / "tools" / "ppo_4h_indicator_smoke_actions.py"
-    ).read_text(encoding="utf-8")
+    action_source = (ROOT / "tools" / "ppo_4h_indicator_smoke_actions.py").read_text(
+        encoding="utf-8"
+    )
     assert "REVIEW_PULL_NUMBER = 758" not in action_source
 
 

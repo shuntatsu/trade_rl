@@ -378,16 +378,14 @@ class CanonicalM2BootstrapConfig:
             assert final_start is not None
             assert final_stop is not None
             final_start_ns = _utc_np(final_start)
-            final_stop_ns = _utc_np(final_stop)
             for evidence in research_context.consumed_evidence:
-                evidence_start = np.datetime64(evidence.development_start, "ns")
                 evidence_stop = np.datetime64(
                     evidence.development_stop_exclusive,
                     "ns",
                 )
-                if evidence_start < final_stop_ns and evidence_stop > final_start_ns:
+                if evidence_stop > final_start_ns:
                     raise ValueError(
-                        "final evaluation window overlaps consumed development evidence"
+                        "final evaluation start must not precede consumed development evidence"
                     )
 
         if not set(self.baseline.fit_symbol_names).issubset(symbols):

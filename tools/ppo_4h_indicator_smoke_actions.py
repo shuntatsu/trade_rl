@@ -159,7 +159,9 @@ def _validate_execution_pull(
     if head.get("ref") != EXECUTION_BRANCH:
         raise ValueError("source review pull request is not the execution branch")
     if head.get("sha") != expected_head_sha:
-        raise ValueError("source review pull request head differs from expected exact head")
+        raise ValueError(
+            "source review pull request head differs from expected exact head"
+        )
     head_repo = head.get("repo")
     if not isinstance(head_repo, dict) or head_repo.get("full_name") != repository:
         raise ValueError("source review pull request belongs to another repository")

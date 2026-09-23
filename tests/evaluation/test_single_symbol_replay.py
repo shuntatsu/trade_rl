@@ -156,7 +156,6 @@ def test_replay_exposes_terminal_active_order_remainders() -> None:
     assert remaining_quantity > 0.0
 
 
-
 def test_reversal_keeps_short_proposal_after_hard_override() -> None:
     close = np.asarray(
         [[100.0], [100.0], [100.0], [100.0], [100.0], [200.0], [200.0], [200.0]]

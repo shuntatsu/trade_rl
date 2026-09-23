@@ -570,7 +570,17 @@ def test_independent_review_status_scans_later_review_inventory_pages(
 
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/pulls/900"):
-            return {"user": {"id": 1, "login": "author"}}
+            return {
+                "number": 900,
+                "state": "open",
+                "user": {"id": 1, "login": "author"},
+                "head": {
+                    "ref": actions.EXECUTION_BRANCH,
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "owner/repo"},
+                },
+                "base": {"ref": "main"},
+            }
         raise AssertionError(url)
 
     def fake_array(url: str, **_kwargs: object) -> list[object]:

@@ -129,7 +129,7 @@ A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
 G1 and G2 status before the trigger commit is created. The preregistration/code
 PR may already be merged; economic authorization therefore uses a dedicated
 **open draft execution PR** whose head is the exact reviewed code commit on
-`research/ppo-4h-indicator-smoke-execution` and whose base is `main`. The PR must remain Draft through review authorization and the evidence-only trigger transition so an unprotected repository cannot merge it before the independent-review gate is satisfied.
+`research/ppo-4h-indicator-smoke-execution` and whose base is `main`. The PR must remain Draft through review authorization and the evidence-only trigger transition so an unprotected repository cannot merge it before the independent-review gate is satisfied. Both the visible review-status check and the authenticated trigger also refetch current `main` and require the reviewed code SHA to contain it; a main advance therefore makes earlier CI/review evidence stale and blocks execution until the execution branch is resynchronized and re-reviewed.
 Authorization evidence must be a formal GitHub PR review on that execution PR
 from a GitHub principal distinct from its author, and the review's `commit_id`
 must equal the exact reviewed code HEAD. The committed trigger record declares

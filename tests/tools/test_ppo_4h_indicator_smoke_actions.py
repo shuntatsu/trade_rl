@@ -132,7 +132,6 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
         deadline=999999999.0,
     )
 
-
 @pytest.mark.parametrize(
     "field",
     (
@@ -369,9 +368,36 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
     ("pull_updates", "match"),
     (
         ({"state": "closed"}, "open"),
-        ({"head": {"ref": "wrong", "sha": REVIEWED_SHA, "repo": {"full_name": "owner/repo"}}}, "execution"),
-        ({"head": {"ref": "research/ppo-4h-indicator-smoke-execution", "sha": "c" * 40, "repo": {"full_name": "owner/repo"}}}, "head"),
-        ({"head": {"ref": "research/ppo-4h-indicator-smoke-execution", "sha": REVIEWED_SHA, "repo": {"full_name": "other/repo"}}}, "repository"),
+        (
+            {
+                "head": {
+                    "ref": "wrong",
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "owner/repo"},
+                }
+            },
+            "execution",
+        ),
+        (
+            {
+                "head": {
+                    "ref": "research/ppo-4h-indicator-smoke-execution",
+                    "sha": "c" * 40,
+                    "repo": {"full_name": "owner/repo"},
+                }
+            },
+            "head",
+        ),
+        (
+            {
+                "head": {
+                    "ref": "research/ppo-4h-indicator-smoke-execution",
+                    "sha": REVIEWED_SHA,
+                    "repo": {"full_name": "other/repo"},
+                }
+            },
+            "repository",
+        ),
         ({"base": {"ref": "develop"}}, "base"),
     ),
 )

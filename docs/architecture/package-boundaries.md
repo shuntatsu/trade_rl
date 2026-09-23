@@ -197,11 +197,12 @@ Its nominal episode coverage describes budget capacity, not observed transitions
 or economic performance.
 
 `a2c_artifact.py` owns the separate A2C inference-bundle schema. Save validates
-the A2C policy family, spaces, and realized `num_timesteps` against fit metadata
-before publication. Load requires fit metadata, binds the feature feed and policy
-digest in a canonical manifest, and verifies the manifest, feed, metadata, and
-private policy copy before deserialization; it checks the loaded policy spaces
-and realized timesteps before returning the strategy.
+the A2C policy family, spaces, realized `num_timesteps`, and policy `seed`
+against fit metadata before publication. Load requires fit metadata, binds the
+feature feed and policy digest in a canonical manifest, and verifies the
+manifest, feed, metadata, and private policy copy before deserialization; it
+checks the loaded policy spaces, realized timesteps, and seed before returning
+the strategy.
 
 `ppo_artifact.py` owns durable PPO inference bundles. Both publishers treat any
 existing destination filesystem entry, including a dangling symlink, as occupied

@@ -66,6 +66,8 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
         "github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'"
         in generic
     )
+    assert "name: Generic Independent Research Review" in generic
+    assert "name: Independent Research Review" in smoke
     assert "gh api --paginate" in generic
     assert "independent-research-review-audit" in generic
 

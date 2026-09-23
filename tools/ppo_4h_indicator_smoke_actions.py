@@ -210,54 +210,28 @@ def _validate_source_review_record(
     return source
 
 
-def find_authorizing_source_review(
+def validate_independent_review_status(
+    record: object,
+    pull: object,
     *,
     repository: str,
     pull_number: int,
     reviewed_code_sha: str,
-    token: str,
-    deadline: float,
 ) -> dict[str, Any]:
-    """Return one formal independent review authorizing the exact code HEAD."""
+    """Validate one GitHub review event as exact-head independent authorization."""
     if pull_number != REVIEW_PULL_NUMBER:
         raise ValueError("independent review status is scoped to another pull request")
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )
-    path = transport._repo_path(repository)
-    pull = transport._api_json(
-        f"https://api.github.com/repos/{path}/pulls/{pull_number}",
-        token=token,
-        deadline=deadline,
+    return _validate_source_review_record(
+        record,
+        pull,
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed,
+        expected_static_digest=content_digest(smoke.static_protocol_contract()),
     )
-    expected_static = content_digest(smoke.static_protocol_contract())
-    page = 1
-    while True:
-        records = transport._api_json(
-            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
-            f"?per_page=100&page={page}",
-            token=token,
-            deadline=deadline,
-        )
-        if not isinstance(records, list):
-            raise ValueError("pull request review inventory is malformed")
-        for record in reversed(records):
-            try:
-                _validate_source_review_record(
-                    record,
-                    pull,
-                    repository=repository,
-                    pull_number=pull_number,
-                    reviewed_code_sha=reviewed,
-                    expected_static_digest=expected_static,
-                )
-            except ValueError:
-                continue
-            return record
-        if len(records) < 100:
-            break
-        page += 1
-    raise ValueError("independent research review is pending")
 
 
 def execute_review_status_from_environment(
@@ -267,10 +241,16 @@ def execute_review_status_from_environment(
     env = dict(os.environ if environment is None else environment)
     repository = env.get("GITHUB_REPOSITORY", "")
     token = env.get("GITHUB_TOKEN", "")
-    event_path = Path(env.get("GITHUB_EVENT_PATH", ""))
-    summary_path = Path(env.get("GITHUB_STEP_SUMMARY", ""))
+    event_raw = env.get("GITHUB_EVENT_PATH", "")
+    summary_raw = env.get("GITHUB_STEP_SUMMARY", "")
     if not token:
         raise ValueError("GITHUB_TOKEN is required")
+    if not event_raw:
+        raise ValueError("GITHUB_EVENT_PATH is required")
+    if not summary_raw:
+        raise ValueError("GITHUB_STEP_SUMMARY is required")
+    event_path = Path(event_raw)
+    summary_path = Path(summary_raw)
     if not event_path.is_file():
         raise ValueError("GITHUB_EVENT_PATH is required")
     try:
@@ -291,14 +271,31 @@ def execute_review_status_from_environment(
     reviewed = transport._require_commit_sha(
         head.get("sha"), field="pull request head SHA"
     )
+    review_event = event.get("review")
     deadline = time.monotonic() + 60.0
     try:
-        record = find_authorizing_source_review(
+        if not isinstance(review_event, dict):
+            raise ValueError("no formal review event is bound to this check run")
+        review_id = transport._strict_positive_int(
+            review_event.get("id"), field="review id"
+        )
+        path = transport._repo_path(repository)
+        record = transport._api_json(
+            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews/{review_id}",
+            token=token,
+            deadline=deadline,
+        )
+        pull_record = transport._api_json(
+            f"https://api.github.com/repos/{path}/pulls/{pull_number}",
+            token=token,
+            deadline=deadline,
+        )
+        validate_independent_review_status(
+            record,
+            pull_record,
             repository=repository,
             pull_number=pull_number,
             reviewed_code_sha=reviewed,
-            token=token,
-            deadline=deadline,
         )
     except ValueError as error:
         message = (
@@ -306,8 +303,7 @@ def execute_review_status_from_environment(
             f"**PENDING** for exact HEAD `{reviewed}`.\n\n"
             f"{error}. Economic execution remains blocked.\n"
         )
-        if summary_path:
-            summary_path.write_text(message, encoding="utf-8")
+        summary_path.write_text(message, encoding="utf-8")
         print(message)
         return 1
 
@@ -321,8 +317,7 @@ def execute_review_status_from_environment(
         "This authorizes only the review-evidence transition; "
         "economic execution still requires the authenticated one-shot trigger.\n"
     )
-    if summary_path:
-        summary_path.write_text(message, encoding="utf-8")
+    summary_path.write_text(message, encoding="utf-8")
     print(message)
     return 0
 

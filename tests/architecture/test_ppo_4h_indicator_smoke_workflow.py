@@ -53,7 +53,10 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in text
     assert "gh api --paginate" not in text
     assert "independent-research-review-audit" not in text
-    assert "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'" in text
+    assert (
+        "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'"
+        in text
+    )
 
 
 def test_review_events_repeat_full_software_verification_before_status() -> None:

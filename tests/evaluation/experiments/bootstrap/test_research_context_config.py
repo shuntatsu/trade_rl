@@ -75,7 +75,7 @@ def _workflow_v4_payload() -> dict[str, object]:
         _config(),
         schema_version="canonical_m2_bootstrap_config_v4",
         execution_economics=_profile(),
-        final_evaluation_start=datetime(2024, 3, 1, tzinfo=UTC),
+        final_evaluation_start=datetime(2024, 3, 1, 4, tzinfo=UTC),
         final_evaluation_stop_exclusive=datetime(2024, 4, 1, tzinfo=UTC),
         research_context=StudyResearchContext.from_payload(context),
     )

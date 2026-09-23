@@ -92,6 +92,22 @@ def _require_a2c_policy_family(policy: object) -> None:
         raise ValueError("A2C policy family does not match the A2C bundle schema")
 
 
+def _validate_policy_timesteps(
+    policy: object,
+    fit_metadata: A2CFitMetadata,
+) -> None:
+    try:
+        timesteps = getattr(policy, "num_timesteps")
+    except AttributeError as error:
+        raise ValueError("A2C policy timesteps differ from fit metadata") from error
+    if (
+        isinstance(timesteps, bool)
+        or not isinstance(timesteps, int)
+        or timesteps != fit_metadata.effective_timesteps
+    ):
+        raise ValueError("A2C policy timesteps differ from fit metadata")
+
+
 def _validated_manifest(
     root: Path,
     *,
@@ -204,6 +220,7 @@ def save_a2c_inference_bundle(
             f"A2C inference bundle destination already exists: {root}"
         )
     _validate_policy_spaces(strategy.policy, feature_count=len(indices))
+    _validate_policy_timesteps(strategy.policy, strategy.fit_metadata)
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))
@@ -260,6 +277,7 @@ def load_a2c_inference_bundle(
         filename="policy.zip",
     ) as verified_policy:
         model = _load_a2c_policy(verified_policy, feature_count=len(indices))
+    _validate_policy_timesteps(model, metadata)
     return A2CIntentStrategy(
         model,
         feature_indices=indices,

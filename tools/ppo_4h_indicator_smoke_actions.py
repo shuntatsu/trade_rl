@@ -27,7 +27,8 @@ REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
 SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v2"
-REVIEW_PULL_NUMBER = 758
+EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
+EXECUTION_BASE_BRANCH = "main"
 TRIGGER_MESSAGE = "run: execute 4h PPO indicator smoke"
 MINIMUM_AVAILABLE_BYTES = 4 * 1024**3
 DEADLINE_SECONDS = 300 * 60
@@ -137,6 +138,36 @@ def _github_principal_id(record: object, *, field: str) -> int:
     )
 
 
+def _validate_execution_pull(
+    pull: object,
+    *,
+    repository: str,
+    pull_number: int,
+    reviewed_code_sha: str,
+) -> int:
+    if not isinstance(pull, dict):
+        raise ValueError("source review pull request record is malformed")
+    if pull.get("number") != pull_number:
+        raise ValueError("source review pull request number differs")
+    if pull.get("state") != "open":
+        raise ValueError("source review pull request must remain open")
+
+    head = pull.get("head")
+    base = pull.get("base")
+    if not isinstance(head, dict) or not isinstance(base, dict):
+        raise ValueError("source review pull request refs are malformed")
+    if head.get("ref") != EXECUTION_BRANCH:
+        raise ValueError("source review pull request is not the execution branch")
+    if head.get("sha") != reviewed_code_sha:
+        raise ValueError("source review pull request head differs from reviewed code SHA")
+    head_repo = head.get("repo")
+    if not isinstance(head_repo, dict) or head_repo.get("full_name") != repository:
+        raise ValueError("source review pull request belongs to another repository")
+    if base.get("ref") != EXECUTION_BASE_BRANCH:
+        raise ValueError("source review pull request base differs from main")
+    return _github_principal_id(pull, field="pull request author")
+
+
 def _validate_source_review_record(
     record: object,
     pull: object,
@@ -176,7 +207,12 @@ def _validate_source_review_record(
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
     reviewer_id = _github_principal_id(record, field="source review")
-    author_id = _github_principal_id(pull, field="pull request author")
+    author_id = _validate_execution_pull(
+        pull,
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed_code_sha,
+    )
     if reviewer_id == author_id:
         raise ValueError(
             "source review is not independent from the pull request author"
@@ -219,8 +255,6 @@ def validate_independent_review_status(
     reviewed_code_sha: str,
 ) -> dict[str, Any]:
     """Validate one GitHub review event as exact-head independent authorization."""
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("independent review status is scoped to another pull request")
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )
@@ -253,6 +287,12 @@ def find_authorizing_source_review(
         f"https://api.github.com/repos/{path}/pulls/{pull_number}",
         token=token,
         deadline=deadline,
+    )
+    _validate_execution_pull(
+        pull,
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed,
     )
     page = 1
     while True:
@@ -406,8 +446,6 @@ def validate_review_gate(
     if match.group("owner") != owner or match.group("repo") != name:
         raise ValueError("source review belongs to another repository")
     pull_number = int(match.group("pull"))
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("source review belongs to another pull request")
     review_id = match.group("review")
     record = transport._api_json(
         "https://api.github.com/repos/"

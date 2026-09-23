@@ -90,7 +90,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 - `max_experiments`
 - bootstrap count/seed
 - implementation/runtime provenance digest
-- 新規context-bound Studyは `controlled_study_plan_v3` を使い、`StudyResearchContext` をStudy digestへbindする。final-eligibleな場合はpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive` も持ち、final startはdevelopment Datasetに含まれる全timestampより厳密に後で、かつ申告済みconsumed-evidence scopeと重なってはならない。replay未使用でもDataset内または既知evidenceとして消費済みの期間をunusedとして再分類しない。
+- 新規context-bound Studyは `controlled_study_plan_v3` を使い、`StudyResearchContext` をStudy digestへbindする。final-eligibleな場合はpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive` も持ち、final startはdevelopment Datasetに含まれる全timestampより厳密に後で、かつ申告済みconsumed-evidence scopeはすべてfinal start以前に終了していなければならない。replay未使用でもDataset内または既知evidenceとして消費済みの期間をunusedとして再分類しない。
 
 `controlled_study_plan_v1` / `controlled_study_plan_v2` はhistorical Studyのread/inspection互換として維持し、後から `research_context` を追加して新しい意味へ再分類しない。bootstrap v1/v2からはv1 Plan、historical bootstrap v3からはv2 Plan、新規bootstrap v4からはcontext-bound v3 Planを作る。v3 Planは直接のdevelopment-only Studyではfinal windowなしでもよいが、bootstrap v4はfinal-eligible contractとしてfinal windowを必須にする。
 

@@ -40,7 +40,7 @@ evaluation/experiments/bootstrap
   immutable StudyPlan creation
 ```
 
-`evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。frozen WINNERの後にunused-futureを開く資格は、逆向きのread-only consumerである [`evaluation/final_test`](final-evaluation-authorization.md) が別rootへone-shotで発行する。ただしfinal-eligibleなのは結果前にwindowをbindしたStudyPlan v2だけであり、legacy v1 Planへauthorization用windowを後付けしない。Controlled Experiment側へauthorization mutationを追加しない。
+`evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。frozen WINNERの後にunused-futureを開く資格は、逆向きのread-only consumerである [`evaluation/final_test`](final-evaluation-authorization.md) が別rootへone-shotで発行する。新規final-eligible research lineは結果前にwindowと `StudyResearchContext` をbindしたStudyPlan v3を正本とする。historical StudyPlan v2は当時のpreregistered final-window authorityとしてread/authorization互換を維持し、legacy v1 Planへauthorization用windowを後付けしない。Controlled Experiment側へauthorization mutationを追加しない。
 
 `evaluation/experiments` 内部では、`codec.py` がpersisted payloadのdecode/semantic identity、`inspection.py` がread-only filesystem reconstructionとtamper validation、`workflow.py` がmutation commandを所有する。read sideからmutation workflowへの逆依存は作らない。既存の `workflow.StudySnapshot` / `workflow.inspect_study` は明示export契約としてinspection ownerの同一objectをre-exportする。
 
@@ -50,7 +50,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `bootstrap_canonical_m2_study` は次の順序を固定する。
 
-1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。 final-eligibleな新規Studyでは `canonical_m2_bootstrap_config_v3` を使い、execution economicsに加えて `final_evaluation_start` / `final_evaluation_stop_exclusive` をdevelopment結果前に固定する。
+1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。final-eligibleな**新規research line**では `canonical_m2_bootstrap_config_v4` を使い、execution economicsと `final_evaluation_start` / `final_evaluation_stop_exclusive` に加えて、既に消費したdevelopment evidenceを表す `StudyResearchContext` をresult前に固定する。historical v1-v3 configは既存artifactのread/inspection semanticsを維持する。
 2. Binance exchange-infoのraw bytesと、そのsource URI・retrieval time・SHA-256をfreezeする。
 3. pre-registrationから決まる`vision-plan.json`をprimary source planとして固定する。primary monthly kline archiveのtimestamp coverageに欠損がある場合だけ、欠損UTC dayのofficial daily archiveをdeterministic repairとして取得し、`vision-resolution.json`へsymbol/timeframe・missing open timestamp・repair URLを記録する。repair判断にprice/return/P&Lを使わず、補間・synthetic OHLC・REST kline repairは禁止する。primary + repairの実使用raw archiveをURL・SHA-256・sizeのordered rosterとしてfreezeする。
 4. source同期後はmarket-data transportを`allow_network=False`で再構成し、dataset buildをcache-onlyへ切る。cache missやREST fallbackによるnetwork accessは失敗とする。
@@ -90,9 +90,9 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 - `max_experiments`
 - bootstrap count/seed
 - implementation/runtime provenance digest
-- final-eligibleな `controlled_study_plan_v2` ではpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive`。さらにfinal startはdevelopment Datasetに含まれる全timestampより厳密に後でなければならず、replay未使用でもDataset内に既にある期間をunusedとして再分類しない。
+- 新規context-bound Studyは `controlled_study_plan_v3` を使い、`StudyResearchContext` をStudy digestへbindする。final-eligibleな場合はpreregistered `final_evaluation_start` / `final_evaluation_stop_exclusive` も持ち、final startはdevelopment Datasetに含まれる全timestampより厳密に後で、かつ申告済みconsumed-evidence scopeと重なってはならない。replay未使用でもDataset内または既知evidenceとして消費済みの期間をunusedとして再分類しない。
 
-`controlled_study_plan_v1` はhistorical development Studyのread/inspection互換として維持するがfinal windowを持たず、後付けでfinal authorization eligibleへ変更しない。bootstrap v1/v2からはv1 Plan、bootstrap v3からはv2 Planを作る。
+`controlled_study_plan_v1` / `controlled_study_plan_v2` はhistorical Studyのread/inspection互換として維持し、後から `research_context` を追加して新しい意味へ再分類しない。bootstrap v1/v2からはv1 Plan、historical bootstrap v3からはv2 Plan、新規bootstrap v4からはcontext-bound v3 Planを作る。v3 Planは直接のdevelopment-only Studyではfinal windowなしでもよいが、bootstrap v4はfinal-eligible contractとしてfinal windowを必須にする。
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 

@@ -136,41 +136,6 @@ def _github_principal_id(record: object, *, field: str) -> int:
     )
 
 
-def _canonical_source_review(body: str) -> dict[str, Any]:
-    """Parse the authenticated source review; prose markers carry no authority."""
-    prefix = "<!-- hourly-agent-review -->\n" + SOURCE_REVIEW_MARKER
-    if not body.startswith(prefix) or not body.endswith("\n"):
-        raise ValueError("source review does not use the canonical review envelope")
-    raw = body[len(prefix) : -1].encode("utf-8")
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError("source review payload is invalid JSON") from None
-    expected = {
-        "schema",
-        "reviewed_code_sha",
-        "static_contract_digest",
-        "reviewer_independence",
-        "result_blind",
-        "g0",
-        "g1",
-        "g2",
-        "disposition",
-        "blocking_findings",
-        "authorized_development_smoke",
-        "unused_data_accessed",
-        "final_data_accessed",
-    }
-    if (
-        not isinstance(value, dict)
-        or set(value) != expected
-        or value.get("schema") != SOURCE_REVIEW_SCHEMA
-        or canonical_json_bytes(value) != raw
-    ):
-        raise ValueError("source review payload is not canonical or has an unsupported shape")
-    return value
-
-
 def validate_review_gate(
     review: dict[str, Any],
     *,
@@ -178,7 +143,7 @@ def validate_review_gate(
     token: str,
     deadline: float,
 ) -> None:
-    """Bind one trigger commit to an authenticated, independent source review."""
+    """Bind the trigger commit to one exact reviewed code parent and review comment."""
     head = _git("rev-parse", "HEAD")
     parent = _git("rev-parse", "HEAD^")
     if _git("log", "-1", "--pretty=%s") != TRIGGER_MESSAGE:
@@ -200,9 +165,17 @@ def validate_review_gate(
     expected_static = content_digest(smoke.static_protocol_contract())
     if review.get("static_contract_digest") != expected_static:
         raise ValueError("smoke review binds a different static protocol")
-    if review.get("reviewer_surface") != "hourly_agent_review_v1":
-        raise ValueError("smoke review does not use the required reviewer surface")
-
+    if (
+        review.get("reviewer_surface") != REVIEWER_SURFACE
+        or review.get("result_blind") is not True
+        or review.get("g0") != "PASS"
+        or review.get("g1") != "PASS"
+        or review.get("g2") not in {"PASS", "EVIDENCE_BOUND"}
+        or review.get("authorized_development_smoke") is not True
+        or review.get("unused_data_accessed") is not False
+        or review.get("final_data_accessed") is not False
+    ):
+        raise ValueError("smoke review does not authorize the development run")
     review_url = review.get("source_review_url")
     review_sha = transport._require_sha256(
         review.get("source_review_body_sha256"),
@@ -212,54 +185,49 @@ def validate_review_gate(
         raise ValueError("source review URL is malformed")
     match = _REVIEW_URL_RE.fullmatch(review_url)
     if match is None:
-        raise ValueError(
-            "source review URL must be an exact same-repository formal PR review"
-        )
+        raise ValueError("source review URL is not an exact GitHub PR review reference")
     owner, name = transport._repo_path(repository).split("/", 1)
     if match.group("owner") != owner or match.group("repo") != name:
         raise ValueError("source review belongs to another repository")
-
     pull_number = int(match.group("pull"))
-    review_id = int(match.group("review"))
-    repo_path = transport._repo_path(repository)
+    if pull_number != REVIEW_PULL_NUMBER:
+        raise ValueError("source review belongs to another pull request")
+    review_id = match.group("review")
     record = transport._api_json(
-        f"https://api.github.com/repos/{repo_path}/pulls/{pull_number}/reviews/{review_id}",
+        "https://api.github.com/repos/"
+        f"{transport._repo_path(repository)}/pulls/{pull_number}/reviews/{review_id}",
         token=token,
         deadline=deadline,
     )
     pull = transport._api_json(
-        f"https://api.github.com/repos/{repo_path}/pulls/{pull_number}",
+        "https://api.github.com/repos/"
+        f"{transport._repo_path(repository)}/pulls/{pull_number}",
         token=token,
         deadline=deadline,
     )
     body = record.get("body")
     if (
         record.get("html_url") != review_url
-        or record.get("commit_id") != reviewed
-        or record.get("state") not in {"COMMENTED", "APPROVED"}
         or not isinstance(body, str)
         or hashlib.sha256(body.encode("utf-8")).hexdigest() != review_sha
     ):
-        raise ValueError("source review identity, commit binding, state, or bytes differ")
-
-    review_user = record.get("user")
-    pull_user = pull.get("user")
-    if not isinstance(review_user, dict) or not isinstance(pull_user, dict):
-        raise ValueError("source review or pull author identity is malformed")
-    reviewer_id = transport._strict_positive_int(
-        review_user.get("id"), field="source reviewer id"
-    )
-    author_id = transport._strict_positive_int(
-        pull_user.get("id"), field="pull author id"
-    )
+        raise ValueError("source review identity or bytes differ")
+    if record.get("commit_id") != reviewed:
+        raise ValueError("source review commit differs from reviewed code SHA")
+    if record.get("state") not in {"COMMENTED", "APPROVED"}:
+        raise ValueError("source review state does not authorize execution")
+    reviewer_id = _github_principal_id(record, field="source review")
+    author_id = _github_principal_id(pull, field="pull request author")
     if reviewer_id == author_id:
-        raise ValueError("source review is not independent from the pull author")
+        raise ValueError(
+            "source review is not independent from the pull request author"
+        )
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed:
-        raise ValueError("source review binds a different reviewed code SHA")
+        raise ValueError("source review payload binds a different code SHA")
     if source.get("static_contract_digest") != expected_static:
-        raise ValueError("source review binds a different static protocol")
+        raise ValueError("source review payload binds a different static contract")
     if source.get("reviewer_independence") != "ESTABLISHED":
         raise ValueError("source review independence is not established")
     if source.get("result_blind") is not True:
@@ -273,13 +241,13 @@ def validate_review_gate(
     if source.get("disposition") != "G0_G1_CLEAR_G2_EVIDENCE_BOUND":
         raise ValueError("source review disposition does not authorize execution")
     if source.get("blocking_findings") != []:
-        raise ValueError("source review contains blocking findings")
+        raise ValueError("source review has blocking findings")
     if (
         source.get("authorized_development_smoke") is not True
         or source.get("unused_data_accessed") is not False
         or source.get("final_data_accessed") is not False
     ):
-        raise ValueError("source review does not authorize the bounded development run")
+        raise ValueError("source review does not authorize the development smoke")
 
     for field in (
         "result_blind",
@@ -292,7 +260,7 @@ def validate_review_gate(
     ):
         if review.get(field) != source.get(field):
             raise ValueError(
-                "trigger review summary differs from the authenticated source review"
+                "trigger review evidence differs from the authenticated source review"
             )
 
 

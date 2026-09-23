@@ -53,7 +53,9 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert 'test "$CORE_RESULT" = "success"' in smoke
     assert 'test "$PPO_RESULT" = "success"' in smoke
     assert 'test "$GUIDE_RESULT" = "success"' in smoke
-    assert "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in smoke
+    assert (
+        "uv run python -m tools.ppo_4h_indicator_smoke_actions review-status" in smoke
+    )
     assert "gh api --paginate" not in smoke
     assert "independent-research-review-audit" not in smoke
     assert (

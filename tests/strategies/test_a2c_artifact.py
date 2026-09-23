@@ -24,11 +24,13 @@ from trade_rl.strategies.rl.ppo_artifact import (
 class FakeA2C:
     load_calls: list[tuple[Path, str]] = []
     load_num_timesteps: object = 5
+    load_seed: object = 3
     observation_space = SimpleNamespace(shape=(5,))
     action_space = SimpleNamespace(n=3, start=0)
 
-    def __init__(self, num_timesteps: object = 5) -> None:
+    def __init__(self, num_timesteps: object = 5, seed: object = 3) -> None:
         self.num_timesteps = num_timesteps
+        self.seed = seed
 
     def save(self, path: str) -> None:
         Path(path).write_bytes(b"a2c policy bytes")
@@ -36,7 +38,7 @@ class FakeA2C:
     @classmethod
     def load(cls, path: str, *, device: str = "auto") -> FakeA2C:
         cls.load_calls.append((Path(path), device))
-        return cls(cls.load_num_timesteps)
+        return cls(cls.load_num_timesteps, cls.load_seed)
 
     def predict(self, observation: np.ndarray, *, deterministic: bool = True):
         return np.asarray(1), None
@@ -62,6 +64,7 @@ class FakePPO:
 def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeA2C.load_calls.clear()
     FakeA2C.load_num_timesteps = 5
+    FakeA2C.load_seed = 3
     FakePPO.load_calls.clear()
     monkeypatch.setitem(
         sys.modules,
@@ -293,6 +296,57 @@ def test_a2c_bundle_rejects_loaded_policy_timestep_mismatch(
     FakeA2C.load_num_timesteps = 10
 
     with pytest.raises(ValueError, match="timestep|fit metadata"):
+        load_a2c_inference_bundle(
+            root,
+            expected_digest=digest,
+            feature_names=("signal",),
+        )
+
+
+@pytest.mark.parametrize("bad_seed", (None, True, 3.0, 4))
+def test_a2c_bundle_rejects_policy_seed_different_from_fit_metadata_before_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_seed: object,
+) -> None:
+    install_fake_sb3(monkeypatch)
+    root = tmp_path / "bad-seed"
+    strategy = A2CIntentStrategy(
+        FakeA2C(seed=bad_seed),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        fit_metadata=fit_metadata(),
+    )
+
+    with pytest.raises(ValueError, match="seed|fit metadata"):
+        save_a2c_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()
+
+
+def test_a2c_bundle_rejects_loaded_policy_seed_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+    root = tmp_path / "load-seed-mismatch"
+    digest = save_a2c_inference_bundle(
+        root,
+        A2CIntentStrategy(
+            FakeA2C(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            fit_metadata=fit_metadata(),
+        ),
+        feature_names=("signal",),
+    )
+    FakeA2C.load_seed = 4
+
+    with pytest.raises(ValueError, match="seed|fit metadata"):
         load_a2c_inference_bundle(
             root,
             expected_digest=digest,

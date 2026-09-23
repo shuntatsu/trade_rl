@@ -10,6 +10,12 @@ from trade_rl.evaluation.experiments.contracts.experiment import (
     ExperimentDefinition,
     ExperimentFailure,
 )
+from trade_rl.evaluation.experiments.contracts.research import (
+    ConsumedEvidence,
+    EvidenceKind,
+    EvidenceUse,
+    StudyResearchContext,
+)
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,
@@ -22,7 +28,10 @@ from trade_rl.evaluation.experiments.contracts.study import (
 __all__ = [
     "CANDIDATE_STRATEGY_NAMES",
     "CONTROL_STRATEGY_NAMES",
+    "ConsumedEvidence",
     "ControlledFactor",
+    "EvidenceKind",
+    "EvidenceUse",
     "ExperimentComparison",
     "ExperimentDecision",
     "ExperimentDecisionKind",
@@ -32,4 +41,5 @@ __all__ = [
     "StudyFreeze",
     "StudyOutcome",
     "StudyPlan",
+    "StudyResearchContext",
 ]

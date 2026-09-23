@@ -126,10 +126,12 @@ review-evidence record. The source artifact is downloaded by immutable
 artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
 
 A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
-G1 and G2 status before the trigger commit is created. For this smoke,
-authorization evidence must be a formal GitHub PR review on the smoke's owning
-pull request from a GitHub principal distinct from that pull request's author,
-and the review's `commit_id`
+G1 and G2 status before the trigger commit is created. The preregistration/code
+PR may already be merged; economic authorization therefore uses a dedicated
+**open execution PR** whose head is the exact reviewed code commit on
+`research/ppo-4h-indicator-smoke-execution` and whose base is `main`.
+Authorization evidence must be a formal GitHub PR review on that execution PR
+from a GitHub principal distinct from its author, and the review's `commit_id`
 must equal the exact reviewed code HEAD. The committed trigger record declares
 `reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
 SHA-256. The review body must end in one canonical
@@ -139,7 +141,7 @@ actual G0/G1/G2 outcomes, has no blocking findings, and explicitly authorizes
 only this development smoke. Author-controlled trigger JSON cannot override a
 FAIL, NOT_ESTABLISHED, blocking disposition, different PR, or changed source-review bytes.
 
-The owning pull request exposes this dependency as a dedicated
+The open execution PR exposes this dependency as a dedicated
 `Independent Research Review` GitHub check. That check is evaluated only after
 the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guide
 build/browser checks all succeed. A pull-request review submission, edit, or

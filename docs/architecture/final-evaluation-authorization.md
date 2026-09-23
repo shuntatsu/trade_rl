@@ -42,7 +42,7 @@ historical `canonical_m2_bootstrap_config_v3` / `controlled_study_plan_v2` は�
 
 authorization時のcallerはwindowを選択できない。public authorization APIは `final_evaluation_start` / `final_evaluation_stop_exclusive` を引数に持たず、bound StudyPlanにpreregisterされたwindowだけからartifactを構築する。
 
-historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな研究を行う場合は、結果前に新しいv3 bootstrap / v2 StudyPlanを作る。
+historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな新規research lineでは、結果前にv4 bootstrap / context-bound v3 StudyPlanを作る。historical v3 bootstrap / v2 StudyPlanは当時のauthorityとしてのみ維持する。
 
 ## Non-goals / dependency boundary
 

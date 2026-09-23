@@ -133,16 +133,6 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
     )
 
 
-@pytest.mark.parametrize(
-    "field",
-    (
-        "reviewed_code_sha",
-        "static_contract_digest",
-        "result_blind",
-        "authorized_development_smoke",
-        "unused_data_accessed",
-    ),
-)
 def test_review_gate_rejects_execution_pr_head_other_than_trigger_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -168,6 +158,16 @@ def test_review_gate_rejects_execution_pr_head_other_than_trigger_commit(
         )
 
 
+@pytest.mark.parametrize(
+    "field",
+    (
+        "reviewed_code_sha",
+        "static_contract_digest",
+        "result_blind",
+        "authorized_development_smoke",
+        "unused_data_accessed",
+    ),
+)
 def test_review_gate_rejects_unbound_or_non_authorizing_evidence(
     monkeypatch: pytest.MonkeyPatch,
     field: str,

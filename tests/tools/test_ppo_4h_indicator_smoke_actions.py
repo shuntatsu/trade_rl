@@ -429,13 +429,10 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     ]
     for index, review in enumerate(invalid, start=1):
         review["html_url"] = (
-            "https://github.com/owner/repo/pull/758#pullrequestreview-"
-            + str(index)
+            "https://github.com/owner/repo/pull/758#pullrequestreview-" + str(index)
         )
     valid = _status_review(review_id=101)
-    valid["html_url"] = (
-        "https://github.com/owner/repo/pull/758#pullrequestreview-101"
-    )
+    valid["html_url"] = "https://github.com/owner/repo/pull/758#pullrequestreview-101"
 
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/pulls/758"):

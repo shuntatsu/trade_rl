@@ -15,7 +15,7 @@ Start from:
 - `docs/architecture/final-evaluation-authorization.md` — one-shot authorization boundary between frozen WINNER development evidence and sealed unused-future evaluation
 - `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
 
-Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
+Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes. Pull requests are gated by CI checks and an exact-HEAD Independent Research Review (audited by an external AI reviewer; findings trigger changes requested/BLOCKED, clean reviews allow automated squash-merge and close).
 
 ## Current status
 

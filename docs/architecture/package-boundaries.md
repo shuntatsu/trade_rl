@@ -416,6 +416,8 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
+PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、exact HEADにバインドされた外部レビュー（Gemini 3.8 Flash等の独立監査）をトリガーする。重大な指摘事項（Medium / High）が検出された場合は `### Disposition: BLOCKED` としてマージを差し戻し、指摘事項が解消され全必須CIがGreenであれば `### Disposition: APPROVED` として自動またはIntegratorによるマージ・クローズの対象となる。
+
 ## Public API policy
 
 Intentionally maintainedなpackage-level importは、内部private file移動より優先して安定させる。

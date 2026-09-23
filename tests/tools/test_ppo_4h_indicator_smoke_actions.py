@@ -347,7 +347,6 @@ def _status_review(
     }
 
 
-
 def _review_inventory_api(
     *,
     reviews: list[dict[str, object]],
@@ -392,8 +391,14 @@ def test_independent_review_status_accepts_exact_result_blind_review(
         _status_review(reviewer_id=1),
         _status_review(commit_id="c" * 40),
         _status_review(state="DISMISSED"),
+        _status_review(body=_source_review_body(reviewer_independence="NOT_ESTABLISHED")),
+        _status_review(body=_source_review_body(result_blind=False)),
         _status_review(body=_source_review_body(g0="FAIL")),
+        _status_review(body=_source_review_body(g1="NOT_ESTABLISHED")),
+        _status_review(body=_source_review_body(g2="FAIL")),
         _status_review(body=_source_review_body(blocking_findings=["block"])),
+        _status_review(body=_source_review_body(unused_data_accessed=True)),
+        _status_review(body=_source_review_body(final_data_accessed=True)),
     ),
 )
 def test_independent_review_status_rejects_non_authorizing_reviews(
@@ -422,9 +427,7 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
     later_author_review["html_url"] = (
         "https://github.com/owner/repo/pull/758#pullrequestreview-12346"
     )
-    object_api, array_api = _review_inventory_api(
-        reviews=[valid, later_author_review]
-    )
+    object_api, array_api = _review_inventory_api(reviews=[valid, later_author_review])
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
     monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 

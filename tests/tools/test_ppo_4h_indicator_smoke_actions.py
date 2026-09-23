@@ -391,7 +391,9 @@ def test_independent_review_status_accepts_exact_result_blind_review(
         _status_review(reviewer_id=1),
         _status_review(commit_id="c" * 40),
         _status_review(state="DISMISSED"),
-        _status_review(body=_source_review_body(reviewer_independence="NOT_ESTABLISHED")),
+        _status_review(
+            body=_source_review_body(reviewer_independence="NOT_ESTABLISHED")
+        ),
         _status_review(body=_source_review_body(result_blind=False)),
         _status_review(body=_source_review_body(g0="FAIL")),
         _status_review(body=_source_review_body(g1="NOT_ESTABLISHED")),

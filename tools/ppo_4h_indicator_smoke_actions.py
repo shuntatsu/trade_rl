@@ -234,6 +234,53 @@ def validate_independent_review_status(
     )
 
 
+def find_authorizing_source_review(
+    *,
+    repository: str,
+    pull_number: int,
+    reviewed_code_sha: str,
+    token: str,
+    deadline: float,
+) -> dict[str, Any]:
+    """Return any current formal review authorizing the exact code HEAD."""
+    if pull_number != REVIEW_PULL_NUMBER:
+        raise ValueError("independent review status is scoped to another pull request")
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    path = transport._repo_path(repository)
+    pull = transport._api_json(
+        f"https://api.github.com/repos/{path}/pulls/{pull_number}",
+        token=token,
+        deadline=deadline,
+    )
+    page = 1
+    while True:
+        records = transport._api_json_array(
+            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
+            f"?per_page=100&page={page}",
+            token=token,
+            deadline=deadline,
+        )
+        for record in reversed(records):
+            try:
+                validate_independent_review_status(
+                    record,
+                    pull,
+                    repository=repository,
+                    pull_number=pull_number,
+                    reviewed_code_sha=reviewed,
+                )
+            except ValueError:
+                continue
+            if isinstance(record, dict):
+                return record
+        if len(records) < 100:
+            break
+        page += 1
+    raise ValueError("independent research review is pending")
+
+
 def execute_review_status_from_environment(
     environment: dict[str, str] | None = None,
 ) -> int:
@@ -271,31 +318,14 @@ def execute_review_status_from_environment(
     reviewed = transport._require_commit_sha(
         head.get("sha"), field="pull request head SHA"
     )
-    review_event = event.get("review")
     deadline = time.monotonic() + 60.0
     try:
-        if not isinstance(review_event, dict):
-            raise ValueError("no formal review event is bound to this check run")
-        review_id = transport._strict_positive_int(
-            review_event.get("id"), field="review id"
-        )
-        path = transport._repo_path(repository)
-        record = transport._api_json(
-            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews/{review_id}",
-            token=token,
-            deadline=deadline,
-        )
-        pull_record = transport._api_json(
-            f"https://api.github.com/repos/{path}/pulls/{pull_number}",
-            token=token,
-            deadline=deadline,
-        )
-        validate_independent_review_status(
-            record,
-            pull_record,
+        record = find_authorizing_source_review(
             repository=repository,
             pull_number=pull_number,
             reviewed_code_sha=reviewed,
+            token=token,
+            deadline=deadline,
         )
     except ValueError as error:
         message = (

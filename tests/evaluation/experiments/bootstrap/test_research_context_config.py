@@ -9,12 +9,16 @@ import pytest
 from tests.evaluation.experiments.bootstrap.test_final_window_config import (
     _v3_payload,
 )
+from tests.evaluation.experiments.bootstrap.test_workflow import _install_fakes
+from trade_rl.evaluation.experiments import inspect_study
 from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
-from trade_rl.evaluation.experiments.contracts.research import (
-    EvidenceUse,
+from trade_rl.evaluation.experiments.bootstrap.workflow import (
+    bootstrap_canonical_m2_study,
+    inspect_canonical_m2_bootstrap,
 )
+from trade_rl.evaluation.experiments.contracts.research import EvidenceUse
 
 
 def _write(tmp_path: Path, payload: object, name: str = "bootstrap.json") -> Path:
@@ -98,3 +102,52 @@ def test_v4_rejects_consumed_evidence_overlapping_preregistered_final(
 
     with pytest.raises(ValueError, match="final.*consumed|consumed.*final"):
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+
+
+def test_v4_bootstrap_binds_context_into_study_and_reconstructs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    config_path = _write(tmp_path, _v4_payload(), "v4-bootstrap.json")
+    output = tmp_path / "canonical-m2-v4"
+
+    result = bootstrap_canonical_m2_study(config_path, output)
+    config = load_canonical_m2_bootstrap_config(config_path)
+    snapshot = inspect_study(output / "study")
+
+    assert snapshot.plan.schema_version == "controlled_study_plan_v3"
+    assert snapshot.plan.research_context == config.research_context
+    assert snapshot.plan.digest == result.study_digest
+    assert inspect_canonical_m2_bootstrap(output) == result
+
+
+def test_v4_bootstrap_manifest_rejects_research_context_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    output = tmp_path / "canonical-m2-v4"
+    bootstrap_canonical_m2_study(
+        _write(tmp_path, _v4_payload(), "v4-bootstrap.json"),
+        output,
+    )
+
+    plan_path = output / "study" / "plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert isinstance(plan, dict)
+    context = plan["research_context"]
+    assert isinstance(context, dict)
+    consumed = context["consumed_evidence"]
+    assert isinstance(consumed, list)
+    first = consumed[0]
+    assert isinstance(first, dict)
+    first["uses"] = [EvidenceUse.RESULT_INTERPRETATION.value]
+    plan_path.write_text(
+        json.dumps(plan, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Study digest|bootstrap manifest|research context"):
+        inspect_canonical_m2_bootstrap(output)

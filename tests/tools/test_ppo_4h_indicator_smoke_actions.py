@@ -364,7 +364,6 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
         )
 
 
-
 @pytest.mark.parametrize(
     ("pull_updates", "match"),
     (

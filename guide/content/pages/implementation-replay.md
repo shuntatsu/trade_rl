@@ -109,7 +109,9 @@ target_weight
 
 ## 7. 結果を確定する
 
-全区間を処理した後、raw interval returns、decisions、execution diagnosticsを`SingleSymbolReplayResult`へまとめます。
+全区間を処理した後、raw interval returns、decisions、execution diagnosticsに加えて、最後のstateful executionが持つactive order remainderとterminal order reasonを`SingleSymbolReplayResult`へまとめます。
+
+このためposition数量が0でも未約定orderが残っている状態を「完全にflat」と誤認せず、research hard guard側でterminal execution stateを検査できます。order evidenceは同じ`MarketExecutor`のobserverから取得し、別のexecutionを再計算しません。
 
 比較に使うのはこの共通経路を通った結果です。
 

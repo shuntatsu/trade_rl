@@ -36,7 +36,7 @@ StudyFreeze(WINNER)
 FinalEvaluationAuthorization
 ```
 
-新規final-eligible research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext` を結果前configへbindする。bootstrapはそのcontextとwindowを `controlled_study_plan_v3` へ移し、inspection時にもconfigとPlanの一致を再計算する。StudyPlan v3は `final_evaluation_start` がdevelopment Datasetに含まれる全timestampより厳密に後であることに加え、preregistered final windowが申告済みconsumed-development-evidence scopeと重ならないことを要求する。development replayで未使用でもDataset内または既知evidenceとして既に消費した期間はunused/finalとは扱わない。
+新規final-eligible research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext` を結果前configへbindする。bootstrapはそのcontextとwindowを `controlled_study_plan_v3` へ移し、inspection時にもconfigとPlanの一致を再計算する。StudyPlan v3は `final_evaluation_start` がdevelopment Datasetに含まれる全timestampより厳密に後であることに加え、申告済みconsumed-development-evidence scopeがすべてpreregistered final start以前に終了していることを要求する。development replayで未使用でもDataset内または既知evidenceとして既に消費した期間はunused/finalとは扱わない。
 
 historical `canonical_m2_bootstrap_config_v3` / `controlled_study_plan_v2` は当時のpreregistered final-window authorityとしてread/authorization互換を維持する。contextを後付けしてhistorical Studyの意味を変更しない。
 

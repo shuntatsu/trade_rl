@@ -14,6 +14,7 @@ smoke = importlib.import_module("trade_rl.evaluation.ppo_4h_indicator_smoke")
 
 REVIEWED_SHA = "a" * 40
 TRIGGER_SHA = "b" * 40
+CURRENT_MAIN_SHA = "d" * 40
 REVIEW_URL = "https://github.com/owner/repo/pull/900#pullrequestreview-12345"
 SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
@@ -102,6 +103,10 @@ def _github_api(
                 "user": {"id": reviewer_id, "login": "reviewer"},
                 "state": "COMMENTED",
             }
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": CURRENT_MAIN_SHA}}
+        if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
+            return {"status": "ahead", "behind_by": 0}
         if url.endswith("/pulls/900"):
             return {
                 "number": 900,
@@ -457,6 +462,59 @@ def test_independent_review_rejects_wrong_execution_pr_identity(
         )
 
 
+@pytest.mark.parametrize(
+    ("status", "behind_by"),
+    (
+        ("diverged", 1),
+        ("behind", 1),
+    ),
+)
+def test_review_authorization_rejects_code_not_containing_current_main(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    behind_by: int,
+) -> None:
+    def fake(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": CURRENT_MAIN_SHA}}
+        if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
+            return {"status": status, "behind_by": behind_by}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", fake)
+
+    with pytest.raises(ValueError, match="current main"):
+        actions._require_current_main_contained(
+            repository="owner/repo",
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_authorization_accepts_code_containing_current_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": CURRENT_MAIN_SHA}}
+        if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
+            return {"status": "ahead", "behind_by": 0}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", fake)
+
+    assert (
+        actions._require_current_main_contained(
+            repository="owner/repo",
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+        == CURRENT_MAIN_SHA
+    )
+
+
 def _status_review(
     *,
     body: str = REVIEW_BODY,
@@ -481,6 +539,10 @@ def _review_inventory_api(
     author_id: int = 1,
 ):
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": CURRENT_MAIN_SHA}}
+        if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
+            return {"status": "ahead", "behind_by": 0}
         if url.endswith("/pulls/900"):
             return {
                 "number": 900,
@@ -574,6 +636,10 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     valid["html_url"] = "https://github.com/owner/repo/pull/900#pullrequestreview-101"
 
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": CURRENT_MAIN_SHA}}
+        if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
+            return {"status": "ahead", "behind_by": 0}
         if url.endswith("/pulls/900"):
             return {
                 "number": 900,

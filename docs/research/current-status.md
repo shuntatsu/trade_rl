@@ -476,7 +476,14 @@ review-body hash, and a
 canonical `ppo_4h_indicator_source_review_v2` payload whose code/contract
 identity, reviewer-independence status, G0/G1/G2 outcomes, blocking findings and
 development-only authorization all agree with the trigger record before source
-download or PPO fitting may start.
+download or PPO fitting may start. GitHub now exposes the waiting state through
+an `Independent Research Review` check that runs only after Lean Core, real-SB3
+PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
+events repeat those checks and then refetch the exact formal review by id.
+`PENDING` therefore means software verification completed but the exact-head
+independent result-blind review is still absent or invalid; `READY` means only
+that the authenticated review-evidence transition may proceed, not that PPO
+economics may run directly.
 
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.

@@ -159,6 +159,21 @@ def test_a2c_adapter_rejects_unhashable_feature_names_as_value_error(
         )
 
 
+@pytest.mark.parametrize("feature_index", ([0], {"index": 0}))
+def test_a2c_adapter_rejects_unhashable_feature_indices_as_value_error(
+    feature_index: object,
+) -> None:
+    class Policy:
+        def predict(self, observation: np.ndarray, *, deterministic: bool = True):
+            return np.asarray(1), None
+
+    with pytest.raises(ValueError, match="feature_indices"):
+        A2CIntentStrategy(
+            Policy(),
+            feature_indices=(feature_index,),  # type: ignore[arg-type]
+        )
+
+
 def test_a2c_fit_uses_explicit_cpu_config_and_five_step_rounding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

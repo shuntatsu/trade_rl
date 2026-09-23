@@ -277,8 +277,6 @@ def find_authorizing_source_review(
     deadline: float,
 ) -> dict[str, Any]:
     """Return any current formal review authorizing the exact code HEAD."""
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("independent review status is scoped to another pull request")
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )

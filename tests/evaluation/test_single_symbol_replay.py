@@ -154,6 +154,7 @@ def test_replay_exposes_terminal_active_order_remainders() -> None:
     order_id, remaining_quantity = result.active_order_remainders[0]
     assert isinstance(order_id, str) and order_id
     assert remaining_quantity > 0.0
+    assert isinstance(result.terminal_order_reasons, tuple)
 
 
 def test_reversal_keeps_short_proposal_after_hard_override() -> None:

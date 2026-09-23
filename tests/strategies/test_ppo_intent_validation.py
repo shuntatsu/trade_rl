@@ -25,3 +25,23 @@ def test_ppo_adapter_rejects_unhashable_feature_names_as_value_error(
             feature_indices=(0,),
             feature_names=(feature_name,),  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize("feature_index", ([0], {"index": 0}))
+def test_ppo_adapter_rejects_unhashable_feature_indices_as_value_error(
+    feature_index: object,
+) -> None:
+    class Policy:
+        def predict(
+            self,
+            observation: np.ndarray,
+            *,
+            deterministic: bool = True,
+        ) -> tuple[np.ndarray, None]:
+            return np.asarray(1), None
+
+    with pytest.raises(ValueError, match="feature_indices"):
+        PPOIntentStrategy(
+            Policy(),
+            feature_indices=(feature_index,),  # type: ignore[arg-type]
+        )

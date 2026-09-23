@@ -893,9 +893,9 @@ Stress結果を見てから合格thresholdを変更しない。
 
 Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
 
-現行codeには、その別境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityのGreenをfinal evidenceとして数えない。
+research-governance側では `RESEARCH-001` の機械可読化として、`StudyResearchContext` / `ConsumedEvidence` と `controlled_study_plan_v3` を追加した。新規Studyは、仮説・observation/model/hyperparameter/evaluation design/result interpretationへ使った既知development evidenceのdigest、canonical time scope、利用目的とparent context digestをStudy identityへbindできる。新規final-eligible research lineは `canonical_m2_bootstrap_config_v4` でfinal windowとresearch contextをresult前に固定し、final startがdevelopment Datasetまたは申告済みconsumed-evidence scopeの終了以前にある場合はfail closedにする。historical `canonical_m2_bootstrap_config_v3` / `controlled_study_plan_v2` を含む既存artifactは当時の意味を維持し、contextを後付けして再分類しない。この機構は申告済みconsumptionを固定するもので、研究者やAIが閲覧した全情報の完全な申告を自動証明するものではない。
 
-final-eligibleな新規research lineでは、unused windowをdevelopment結果後に選ばない。`canonical_m2_bootstrap_config_v3` でfinal windowを事前登録し、その値を `controlled_study_plan_v2` のdigestへbindしたStudyだけをauthorization対象にする。 StudyPlan v2作成時にもfinal startがdevelopment Datasetの最終timestampより後であることを要求し、Datasetに既に含まれている期間をreplay未使用という理由だけでfinal扱いしない。historical bootstrap v1/v2 / StudyPlan v1はread/inspection互換とdevelopment evidenceを維持するが、final windowを後付けしてeligible化しない。authorization APIはwindow overrideを受け取らず、StudyPlan v2にpreregisterされたwindowだけを使用する。
+現行codeには、final境界として `trade_rl.evaluation.final_test` の**authorization capabilityだけ**がある。frozen `WINNER` のStudyPlan/StudyFreeze/winner evidence/winner strategyと未使用windowをcanonical one-shot artifactへbindするが、final Datasetを読まず、P&L/stressを実行しない。したがってM3 final economic evaluation自体は未実行であり、authorization capabilityやresearch-context infrastructureのGreenをfinal evidenceとして数えない。
 
 ## Superseded evidenceの扱い
 

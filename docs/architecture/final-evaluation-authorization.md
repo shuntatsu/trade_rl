@@ -36,11 +36,13 @@ StudyFreeze(WINNER)
 FinalEvaluationAuthorization
 ```
 
-`canonical_m2_bootstrap_config_v3` はexecution economicsに加えてfinal windowを結果前configへbindする。bootstrapはそのwindowを `controlled_study_plan_v2` へcanonical nanosecond表現で移し、inspection時にもconfigとPlanの一致を再計算する。 `controlled_study_plan_v2` を作る時点でも、`final_evaluation_start` はdevelopment Datasetに含まれる全timestampより厳密に後でなければならない。development replayで未使用でもDataset内に既に存在する期間はunused/finalとは扱わない。
+新規final-eligible research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext` を結果前configへbindする。bootstrapはそのcontextとwindowを `controlled_study_plan_v3` へ移し、inspection時にもconfigとPlanの一致を再計算する。StudyPlan v3は `final_evaluation_start` がdevelopment Datasetに含まれる全timestampより厳密に後であることに加え、申告済みconsumed-development-evidence scopeがすべてpreregistered final start以前に終了していることを要求する。development replayで未使用でもDataset内または既知evidenceとして既に消費した期間はunused/finalとは扱わない。
 
-authorization時のcallerはwindowを選択できない。public authorization APIは `final_evaluation_start` / `final_evaluation_stop_exclusive` を引数に持たず、StudyPlan v2にpreregisterされたwindowだけからartifactを構築する。
+historical `canonical_m2_bootstrap_config_v3` / `controlled_study_plan_v2` は当時のpreregistered final-window authorityとしてread/authorization互換を維持する。contextを後付けしてhistorical Studyの意味を変更しない。
 
-historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな研究を行う場合は、結果前に新しいv3 bootstrap / v2 StudyPlanを作る。
+authorization時のcallerはwindowを選択できない。public authorization APIは `final_evaluation_start` / `final_evaluation_stop_exclusive` を引数に持たず、bound StudyPlanにpreregisterされたwindowだけからartifactを構築する。
+
+historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな新規research lineでは、結果前にv4 bootstrap / context-bound v3 StudyPlanを作る。historical v3 bootstrap / v2 StudyPlanは当時のauthorityとしてのみ維持する。
 
 ## Non-goals / dependency boundary
 

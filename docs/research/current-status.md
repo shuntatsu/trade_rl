@@ -471,8 +471,8 @@ eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
 fixed contract. This smoke does not accept a same-author review as that fresh review. The
 preregistration/code PR has been integrated without economic authorization, so
-the remaining authorization lifecycle is carried by a dedicated **open
-execution PR** on `research/ppo-4h-indicator-smoke-execution`. The trigger gate
+the remaining authorization lifecycle is carried by a dedicated **open draft
+execution PR** on `research/ppo-4h-indicator-smoke-execution`. Draft state is a required machine invariant through review authorization and the evidence-only trigger transition, preventing the merge-before-review failure mode even while repository branch protection is unavailable. The trigger gate
 requires that PR to target `main`, belong to this repository, have its head
 equal the exact reviewed code SHA, and carry a formal GitHub review from a
 distinct GitHub principal. The exact review `commit_id`, exact review-body

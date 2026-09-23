@@ -424,7 +424,9 @@ def test_independent_review_status_rejects_non_authorizing_reviews(
 def test_independent_review_status_scans_later_review_inventory_pages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    invalid = [_status_review(reviewer_id=1, review_id=index + 1) for index in range(100)]
+    invalid = [
+        _status_review(reviewer_id=1, review_id=index + 1) for index in range(100)
+    ]
     for index, review in enumerate(invalid, start=1):
         review["html_url"] = (
             "https://github.com/owner/repo/pull/758#pullrequestreview-"

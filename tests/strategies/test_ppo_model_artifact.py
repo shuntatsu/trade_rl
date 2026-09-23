@@ -579,3 +579,36 @@ def test_inference_manifest_rejects_nested_feature_indices_as_validation_error(
 
     assert Policy.loaded is False
     assert Policy.load_path is None
+
+
+@pytest.mark.parametrize("publisher", ("normalized", "inference"))
+def test_ppo_artifact_publish_rejects_dangling_symlink_destination(
+    tmp_path,
+    publisher,
+) -> None:
+    root = tmp_path / f"{publisher}-bundle"
+    root.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+
+    if publisher == "normalized":
+        strategy = PPOIntentStrategy(
+            Policy(),
+            feature_indices=(0,),
+            feature_normalizer=_fit(),
+        )
+        with pytest.raises(FileExistsError):
+            save_normalized_ppo(root, strategy)
+    else:
+        strategy = PPOIntentStrategy(
+            Policy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+        )
+        with pytest.raises(FileExistsError):
+            save_ppo_inference_bundle(
+                root,
+                strategy,
+                feature_names=("signal",),
+            )
+
+    assert root.is_symlink()
+    assert not root.exists()

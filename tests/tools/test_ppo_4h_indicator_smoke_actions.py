@@ -360,7 +360,7 @@ def _review_inventory_api(
     def fake_array(url: str, **_kwargs: object) -> list[object]:
         if "/pulls/758/reviews?" not in url:
             raise AssertionError(url)
-        if "page=1" in url:
+        if "&page=1" in url:
             return list(reviews)
         return []
 
@@ -419,6 +419,46 @@ def test_independent_review_status_rejects_non_authorizing_reviews(
             token="token",
             deadline=999999999.0,
         )
+
+
+def test_independent_review_status_scans_later_review_inventory_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid = [_status_review(reviewer_id=1, review_id=index + 1) for index in range(100)]
+    for index, review in enumerate(invalid, start=1):
+        review["html_url"] = (
+            "https://github.com/owner/repo/pull/758#pullrequestreview-"
+            + str(index)
+        )
+    valid = _status_review(review_id=101)
+    valid["html_url"] = (
+        "https://github.com/owner/repo/pull/758#pullrequestreview-101"
+    )
+
+    def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/pulls/758"):
+            return {"user": {"id": 1, "login": "author"}}
+        raise AssertionError(url)
+
+    def fake_array(url: str, **_kwargs: object) -> list[object]:
+        if "&page=1" in url:
+            return list(invalid)
+        if "&page=2" in url:
+            return [valid]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json", fake_object)
+    monkeypatch.setattr(actions.transport, "_api_json_array", fake_array)
+
+    record = actions.find_authorizing_source_review(
+        repository="owner/repo",
+        pull_number=758,
+        reviewed_code_sha=REVIEWED_SHA,
+        token="token",
+        deadline=999999999.0,
+    )
+
+    assert record["id"] == 101
 
 
 def test_independent_review_status_keeps_valid_review_when_later_review_is_invalid(

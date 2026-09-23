@@ -144,7 +144,9 @@ class ConsumedEvidence:
         try:
             uses = tuple(EvidenceUse(item) for item in raw_uses)
         except (TypeError, ValueError) as error:
-            raise ContractViolationError("uses contains an unsupported value") from error
+            raise ContractViolationError(
+                "uses contains an unsupported value"
+            ) from error
         return cls(
             evidence_kind=kind,
             evidence_digest=value["evidence_digest"],  # type: ignore[arg-type]

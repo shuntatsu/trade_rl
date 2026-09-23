@@ -92,6 +92,7 @@ def static_protocol_contract() -> dict[str, object]:
             "gross_budget": GROSS_BUDGET,
             "scenarios": SCENARIOS,
             "terminal_flat_required": True,
+            "no_active_order_remainder_required": True,
             "drawdown_limit": 0.2,
         },
         "promotion": {
@@ -173,6 +174,7 @@ def promotion_decision(
                 or drawdown > 0.2
                 or cell.get("terminal_flat") is not True
                 or bool(cell.get("termination_reasons"))
+                or cell.get("active_order_remainders") != []
                 or cell.get("complete", True) is not True
             ):
                 hard_guards_pass = False
@@ -294,6 +296,7 @@ def expected_protocol(source: Path) -> dict[str, Any]:
             "gross_budget": GROSS_BUDGET,
             "scenarios": SCENARIOS,
             "terminal_flat_required": True,
+            "no_active_order_remainder_required": True,
             "drawdown_limit": 0.2,
         },
         "promotion": {
@@ -401,6 +404,14 @@ def _cell_result(
         "ledger_max_drawdown": float(replay.book.max_drawdown),
         "terminal_flat": terminal_flat,
         "termination_reasons": list(replay.diagnostics.termination_reasons),
+        "active_order_remainders": [
+            [order_id, remaining_quantity]
+            for order_id, remaining_quantity in replay.active_order_remainders
+        ],
+        "terminal_order_reasons": [
+            [order_id, reason]
+            for order_id, reason in replay.terminal_order_reasons
+        ],
         "complete": complete,
         "turnover_total": float(replay.diagnostics.turnover_total),
         "total_cost": float(replay.diagnostics.total_cost),

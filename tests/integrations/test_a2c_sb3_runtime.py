@@ -82,6 +82,8 @@ def test_real_cpu_a2c_fit_bundle_load_roundtrip(tmp_path) -> None:
     assert loaded.policy.num_timesteps == strategy.policy.num_timesteps
     assert loaded.policy.seed == loaded.fit_metadata.seed
     assert loaded.policy.seed == strategy.policy.seed
+    assert loaded.policy.n_steps == loaded.fit_metadata.rollout_steps
+    assert loaded.policy.n_steps == strategy.policy.n_steps
     assert loaded.decide(observation) is strategy.decide(observation)
 
 

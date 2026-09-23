@@ -148,7 +148,12 @@ build/browser checks all succeed. A pull-request review submission, edit, or
 dismissal repeats those software checks before reevaluating review status. The
 status check refetches the current formal-review inventory and accepts only a
 review that passes the same distinct-principal, exact-`commit_id`, canonical
-payload, result-blind G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
+payload, result-blind G0/G1/G2 semantics used by the execution gate. Before the
+evidence transition the open PR head must equal that reviewed code SHA. The
+one allowed transition then appends only the canonical review-evidence file;
+during the trigger run the PR head is that evidence-only trigger commit while
+the formal review `commit_id` remains bound to its exact code parent.
+`PENDING` blocks the workflow;
 `READY` only means the review-evidence transition may be created. It does not
 itself authorize economic execution or replace the authenticated one-shot
 trigger.

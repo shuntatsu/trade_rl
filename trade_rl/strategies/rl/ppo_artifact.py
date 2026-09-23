@@ -66,7 +66,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     if normalizer is None:
         raise ValueError("a normalized model must include its fitted normalizer")
     normalizer.validate_features(strategy.feature_indices)
-    if root.exists():
+    if root.exists() or root.is_symlink():
         raise FileExistsError(f"normalized PPO destination already exists: {root}")
     _validate_policy_spaces(
         strategy.policy,
@@ -205,7 +205,7 @@ def save_ppo_inference_bundle(
             raise ValueError(
                 "normalizer feature schema differs from the inference feed schema"
             )
-    if root.exists():
+    if root.exists() or root.is_symlink():
         raise FileExistsError(
             f"PPO inference bundle destination already exists: {root}"
         )

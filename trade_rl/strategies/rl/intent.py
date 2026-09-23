@@ -43,13 +43,15 @@ class _PredictPolicy(Protocol):
 
 def _validated_indices(feature_indices: tuple[int, ...]) -> tuple[int, ...]:
     indices = tuple(feature_indices)
-    if not indices or len(set(indices)) != len(indices):
+    if not indices:
         raise ValueError("feature_indices must be non-empty and unique")
     if any(
         isinstance(index, bool) or not isinstance(index, int) or index < 0
         for index in indices
     ):
         raise ValueError("feature_indices must contain non-negative integers")
+    if len(set(indices)) != len(indices):
+        raise ValueError("feature_indices must be non-empty and unique")
     return indices
 
 

@@ -45,6 +45,8 @@ class SingleSymbolReplayResult:
     returns: ReturnSeries
     diagnostics: ExecutionDiagnostics
     decisions: tuple[ReplayDecision, ...]
+    active_order_remainders: tuple[tuple[str, float], ...] = ()
+    terminal_order_reasons: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,7 +297,17 @@ def run_single_symbol_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
-    executor = MarketExecutor(dataset, execution_cost or ExecutionCostConfig.zero())
+    latest_execution_observation: StatefulExecutionObservation | None = None
+
+    def observe_execution(observation: StatefulExecutionObservation) -> None:
+        nonlocal latest_execution_observation
+        latest_execution_observation = observation
+
+    executor = MarketExecutor(
+        dataset,
+        execution_cost or ExecutionCostConfig.zero(),
+        execution_observer=observe_execution,
+    )
     risk_controller = risk or PreTradeRisk.default_for_execution(
         max_leverage=executor.cost.max_leverage
     )
@@ -395,6 +407,16 @@ def run_single_symbol_replay(
         ),
         diagnostics=diagnostics,
         decisions=tuple(decisions),
+        active_order_remainders=(
+            ()
+            if latest_execution_observation is None
+            else latest_execution_observation.active_order_remainders
+        ),
+        terminal_order_reasons=(
+            ()
+            if latest_execution_observation is None
+            else latest_execution_observation.terminal_order_reasons
+        ),
     )
 
 

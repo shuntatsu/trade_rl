@@ -409,8 +409,7 @@ def _cell_result(
             for order_id, remaining_quantity in replay.active_order_remainders
         ],
         "terminal_order_reasons": [
-            [order_id, reason]
-            for order_id, reason in replay.terminal_order_reasons
+            [order_id, reason] for order_id, reason in replay.terminal_order_reasons
         ],
         "complete": complete,
         "turnover_total": float(replay.diagnostics.turnover_total),

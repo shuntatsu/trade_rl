@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from tests.evaluation.experiments.bootstrap.test_binance import _config
+from tests.evaluation.experiments.bootstrap.test_execution_economics_fullpath import (
+    _priced_synthetic_dataset,
+    _profile,
+)
 from tests.evaluation.experiments.bootstrap.test_final_window_config import (
     _v3_payload,
 )
@@ -18,7 +25,11 @@ from trade_rl.evaluation.experiments.bootstrap.workflow import (
     bootstrap_canonical_m2_study,
     inspect_canonical_m2_bootstrap,
 )
-from trade_rl.evaluation.experiments.contracts.research import EvidenceUse
+from trade_rl.evaluation.experiments.contracts.research import (
+    EvidenceUse,
+    StudyResearchContext,
+)
+from trade_rl.integrations.binance import BinanceDatasetBuildResult
 
 
 def _write(tmp_path: Path, payload: object, name: str = "bootstrap.json") -> Path:
@@ -51,6 +62,43 @@ def _v4_payload() -> dict[str, object]:
     payload["schema_version"] = "canonical_m2_bootstrap_config_v4"
     payload["research_context"] = _context_payload()
     return payload
+
+
+def _workflow_v4_payload() -> dict[str, object]:
+    context = _context_payload()
+    consumed = context["consumed_evidence"]
+    assert isinstance(consumed, list)
+    first = consumed[0]
+    assert isinstance(first, dict)
+    first["development_stop_exclusive"] = "2024-02-01T00:00:00.000000000"
+    config = replace(
+        _config(),
+        schema_version="canonical_m2_bootstrap_config_v4",
+        execution_economics=_profile(),
+        final_evaluation_start=datetime(2024, 3, 1, tzinfo=UTC),
+        final_evaluation_stop_exclusive=datetime(2024, 4, 1, tzinfo=UTC),
+        research_context=StudyResearchContext.from_payload(context),
+    )
+    return config.to_payload()
+
+
+def _install_v4_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
+
+    _install_fakes(monkeypatch)
+    profile = _profile()
+
+    def build(**kwargs: object) -> BinanceDatasetBuildResult:
+        assert kwargs.get("execution_economics") == profile
+        dataset = _priced_synthetic_dataset(kwargs["metadata_evidence"], profile)
+        return BinanceDatasetBuildResult(
+            dataset=dataset,
+            metadata=(),
+            sources_used=("frozen:exchange-info", "vision"),
+            feature_timeframes=("1h",),
+        )
+
+    monkeypatch.setattr(workflow_module, "build_binance_market_dataset", build)
 
 
 def test_v4_binds_research_context_into_config_digest(tmp_path: Path) -> None:
@@ -125,8 +173,8 @@ def test_v4_bootstrap_binds_context_into_study_and_reconstructs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_fakes(monkeypatch)
-    config_path = _write(tmp_path, _v4_payload(), "v4-bootstrap.json")
+    _install_v4_fakes(monkeypatch)
+    config_path = _write(tmp_path, _workflow_v4_payload(), "v4-bootstrap.json")
     output = tmp_path / "canonical-m2-v4"
 
     result = bootstrap_canonical_m2_study(config_path, output)
@@ -143,10 +191,10 @@ def test_v4_bootstrap_manifest_rejects_research_context_tamper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_fakes(monkeypatch)
+    _install_v4_fakes(monkeypatch)
     output = tmp_path / "canonical-m2-v4"
     bootstrap_canonical_m2_study(
-        _write(tmp_path, _v4_payload(), "v4-bootstrap.json"),
+        _write(tmp_path, _workflow_v4_payload(), "v4-bootstrap.json"),
         output,
     )
 

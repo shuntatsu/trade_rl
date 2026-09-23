@@ -1183,3 +1183,31 @@ def test_operator_approval_rejects_free_text_review_reference() -> None:
             repository="owner/repo",
             review_record_sha256="e" * 64,
         )
+
+
+def test_api_json_array_accepts_only_array_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        transport,
+        "_api_json_value",
+        lambda _url, *, token, deadline: [{"id": 1}],
+    )
+
+    assert transport._api_json_array(
+        "https://api.github.com/example",
+        token="token",
+        deadline=999999999.0,
+    ) == [{"id": 1}]
+
+    monkeypatch.setattr(
+        transport,
+        "_api_json_value",
+        lambda _url, *, token, deadline: {"id": 1},
+    )
+    with pytest.raises(transport.TransportError, match="not an array"):
+        transport._api_json_array(
+            "https://api.github.com/example",
+            token="token",
+            deadline=999999999.0,
+        )

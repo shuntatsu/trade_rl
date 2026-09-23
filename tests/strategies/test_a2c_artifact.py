@@ -23,8 +23,12 @@ from trade_rl.strategies.rl.ppo_artifact import (
 
 class FakeA2C:
     load_calls: list[tuple[Path, str]] = []
+    load_num_timesteps: object = 5
     observation_space = SimpleNamespace(shape=(5,))
     action_space = SimpleNamespace(n=3, start=0)
+
+    def __init__(self, num_timesteps: object = 5) -> None:
+        self.num_timesteps = num_timesteps
 
     def save(self, path: str) -> None:
         Path(path).write_bytes(b"a2c policy bytes")
@@ -32,7 +36,7 @@ class FakeA2C:
     @classmethod
     def load(cls, path: str, *, device: str = "auto") -> FakeA2C:
         cls.load_calls.append((Path(path), device))
-        return cls()
+        return cls(cls.load_num_timesteps)
 
     def predict(self, observation: np.ndarray, *, deterministic: bool = True):
         return np.asarray(1), None
@@ -57,6 +61,7 @@ class FakePPO:
 
 def install_fake_sb3(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeA2C.load_calls.clear()
+    FakeA2C.load_num_timesteps = 5
     FakePPO.load_calls.clear()
     monkeypatch.setitem(
         sys.modules,
@@ -242,3 +247,54 @@ def test_a2c_bundle_requires_fit_metadata(
         )
 
     assert not root.exists()
+
+
+@pytest.mark.parametrize("bad_timesteps", (None, True, 5.0, 10))
+def test_a2c_bundle_rejects_policy_timesteps_different_from_fit_metadata_before_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_timesteps: object,
+) -> None:
+    install_fake_sb3(monkeypatch)
+    root = tmp_path / "bad-timesteps"
+    strategy = A2CIntentStrategy(
+        FakeA2C(bad_timesteps),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        fit_metadata=fit_metadata(),
+    )
+
+    with pytest.raises(ValueError, match="timestep|fit metadata"):
+        save_a2c_inference_bundle(
+            root,
+            strategy,
+            feature_names=("signal",),
+        )
+
+    assert not root.exists()
+
+
+def test_a2c_bundle_rejects_loaded_policy_timestep_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_sb3(monkeypatch)
+    root = tmp_path / "load-mismatch"
+    digest = save_a2c_inference_bundle(
+        root,
+        A2CIntentStrategy(
+            FakeA2C(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            fit_metadata=fit_metadata(),
+        ),
+        feature_names=("signal",),
+    )
+    FakeA2C.load_num_timesteps = 10
+
+    with pytest.raises(ValueError, match="timestep|fit metadata"):
+        load_a2c_inference_bundle(
+            root,
+            expected_digest=digest,
+            feature_names=("signal",),
+        )

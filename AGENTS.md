@@ -21,6 +21,15 @@ Agentによる実装作業は専用branchまたはworktreeで行い、PRを通�
 
 Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。Acceptance Criteriaと必要なverificationを満たし、current `main`を包含するfinal PR HEADのrequired checksがGreenなら、Integratorは追加のユーザー確認なしに通常のPR経路でmergeしてよい。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
 
+### Independent Research Review / PR lifecycle
+
+PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクルは次の通りとする。
+
+1. **レビューゲートの検知**: 先行CI（core, ppo-runtime, guide等）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
+2. **外部監査の実行**: 独立したAI（Gemini 3.8 Flash等）または外部レビュアーがPRのexact HEAD差分をresult-blindで監査する。
+3. **差し戻し（BLOCKED）**: 重大な懸念や脆弱性、契約違反（Medium / High severity）が検出された場合、レビュー本文に指摘事項を記載し `### Disposition: BLOCKED` を記録してPRに投稿する。マージはブロックされ、修正対応（差し戻し）となる。
+4. **承認（APPROVED）とマージ・クローズ**: 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。全必須CIチェックがGreenとなり、`tested PR head contains current main` が満たされた段階でPRをマージ（`gh pr merge`）してクローズする。
+
 ## Remote branch hygiene
 
 Remote branchは「作業履歴の保管庫」として増やさない。activeなwrite Task / PRごとにdurableなremote branchを原則1本だけ持ち、RED・format・verification・one-shot automationのための補助branchは可能な限りlocal branch/worktreeまたはGitHub Actionsのrun/artifactで扱う。remote補助branchが必要だった場合も、そのtipをdurable anchorへ取り込める形で終了し、孤立した一時refを恒久保存しない。

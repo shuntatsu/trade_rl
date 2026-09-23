@@ -113,6 +113,17 @@ Integration invariant: tested PR head contains current `main`. PRの成功証拠
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
 
+### Independent Research Review / PR lifecycle
+
+PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
+
+1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
+2. **外部監査の実行**: 独立したAI（Gemini 3.8 Flash等）または外部レビュアーがPR exact HEADの差分・契約整合性をresult-blindで監査する。
+3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
+4. **承認とマージ・クローズ (APPROVED)**:
+   - 指摘事項がゼロの場合、レビュー本文に `### Disposition: APPROVED` を記録して承認する。
+   - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
+
 ## 更新matrix
 
 | 変更 | 必ず確認・更新する場所 |

@@ -22,6 +22,7 @@ from trade_rl.evaluation.experiments.contracts._common import (
     contract_unique_texts,
 )
 from trade_rl.evaluation.experiments.contracts.experiment import ControlledFactor
+from trade_rl.evaluation.experiments.contracts.research import StudyResearchContext
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 
@@ -104,6 +105,7 @@ class StudyPlan:
     runtime_environment_digest: str
     final_evaluation_start: str | None = None
     final_evaluation_stop_exclusive: str | None = None
+    research_context: StudyResearchContext | None = None
     schema_version: str = "controlled_study_plan_v1"
 
     def __post_init__(self) -> None:
@@ -161,16 +163,39 @@ class StudyPlan:
         schema_version = contract_text(self.schema_version, field="schema_version")
         final_start = self.final_evaluation_start
         final_stop = self.final_evaluation_stop_exclusive
+        research_context = self.research_context
+
         if schema_version == "controlled_study_plan_v1":
             if final_start is not None or final_stop is not None:
                 raise ContractViolationError(
                     "controlled_study_plan_v1 forbids final evaluation fields"
                 )
+            if research_context is not None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v1 forbids research_context"
+                )
         elif schema_version == "controlled_study_plan_v2":
+            if research_context is not None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v2 forbids research_context"
+                )
             if final_start is None or final_stop is None:
                 raise ContractViolationError(
                     "controlled_study_plan_v2 requires both final evaluation fields"
                 )
+        elif schema_version == "controlled_study_plan_v3":
+            if not isinstance(research_context, StudyResearchContext):
+                raise ContractViolationError(
+                    "controlled_study_plan_v3 requires research_context"
+                )
+            if (final_start is None) != (final_stop is None):
+                raise ContractViolationError(
+                    "controlled_study_plan_v3 requires both final evaluation fields or neither"
+                )
+        else:
+            raise ContractViolationError("unsupported StudyPlan schema_version")
+
+        if final_start is not None and final_stop is not None:
             final_start = _canonical_ns_timestamp(
                 final_start,
                 field="final_evaluation_start",
@@ -191,8 +216,17 @@ class StudyPlan:
                 raise ContractViolationError(
                     "final evaluation stop must be strictly later than final evaluation start"
                 )
-        else:
-            raise ContractViolationError("unsupported StudyPlan schema_version")
+            if research_context is not None:
+                final_start_ns = np.datetime64(final_start, "ns")
+                for evidence in research_context.consumed_evidence:
+                    evidence_stop = np.datetime64(
+                        evidence.development_stop_exclusive,
+                        "ns",
+                    )
+                    if evidence_stop > final_start_ns:
+                        raise ContractViolationError(
+                            "final evaluation start must not precede consumed development evidence"
+                        )
 
         object.__setattr__(self, "research_question", research_question)
         object.__setattr__(self, "dataset_id", dataset_id)
@@ -214,6 +248,7 @@ class StudyPlan:
         )
         object.__setattr__(self, "final_evaluation_start", final_start)
         object.__setattr__(self, "final_evaluation_stop_exclusive", final_stop)
+        object.__setattr__(self, "research_context", research_context)
         object.__setattr__(self, "schema_version", schema_version)
 
     @property
@@ -245,7 +280,10 @@ class StudyPlan:
             "candidate_strategy_names": list(CANDIDATE_STRATEGY_NAMES),
             "control_strategy_names": list(CONTROL_STRATEGY_NAMES),
         }
-        if self.schema_version == "controlled_study_plan_v2":
+        if self.schema_version == "controlled_study_plan_v3":
+            assert self.research_context is not None
+            payload["research_context"] = self.research_context.to_payload()
+        if self.final_evaluation_start is not None:
             payload["final_evaluation_start"] = self.final_evaluation_start
             payload["final_evaluation_stop_exclusive"] = (
                 self.final_evaluation_stop_exclusive

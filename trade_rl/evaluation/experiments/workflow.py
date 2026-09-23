@@ -38,6 +38,7 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyResearchContext,
 )
 from trade_rl.evaluation.experiments.delta import (
     ControlledVerification,
@@ -180,6 +181,7 @@ def create_study(
     bootstrap_seed: int,
     final_evaluation_start: str | None = None,
     final_evaluation_stop_exclusive: str | None = None,
+    research_context: StudyResearchContext | None = None,
     execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY,
 ) -> StudySnapshot:
     """Create one immutable Study plan without executing development evidence."""
@@ -205,12 +207,15 @@ def create_study(
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
-        plan_schema = (
-            "controlled_study_plan_v1"
-            if final_evaluation_start is None
-            and final_evaluation_stop_exclusive is None
-            else "controlled_study_plan_v2"
-        )
+        if research_context is not None:
+            plan_schema = "controlled_study_plan_v3"
+        else:
+            plan_schema = (
+                "controlled_study_plan_v1"
+                if final_evaluation_start is None
+                and final_evaluation_stop_exclusive is None
+                else "controlled_study_plan_v2"
+            )
         plan = StudyPlan(
             research_question=research_question,
             dataset_id=dataset.dataset_id,
@@ -233,6 +238,7 @@ def create_study(
             ),
             final_evaluation_start=final_evaluation_start,
             final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
+            research_context=research_context,
             schema_version=plan_schema,
         )
         if plan.final_evaluation_start is not None:

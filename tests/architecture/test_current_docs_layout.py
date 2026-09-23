@@ -337,6 +337,9 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "NO_WINNER",
         "sealed unused-future",
         "freeze_study",
+        "StudyResearchContext",
+        "controlled_study_plan_v3",
+        "canonical_m2_bootstrap_config_v4",
     ):
         assert required in contract
 
@@ -359,6 +362,9 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         "symlink ancestor",
         "canonical_m2_bootstrap_config_v3",
         "controlled_study_plan_v2",
+        "canonical_m2_bootstrap_config_v4",
+        "controlled_study_plan_v3",
+        "StudyResearchContext",
         "authorization時のcallerはwindowを選択できない",
         "legacy Study",
         "development Dataset",
@@ -375,16 +381,17 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     ).read_text(encoding="utf-8")
     assert "final-evaluation-authorization.md" in controlled_loop
     assert "one-shot" in controlled_loop
-    assert "canonical_m2_bootstrap_config_v3" in controlled_loop
-    assert "controlled_study_plan_v2" in controlled_loop
-    assert "legacy v1 Plan" in controlled_loop
+    assert "canonical_m2_bootstrap_config_v4" in controlled_loop
+    assert "controlled_study_plan_v3" in controlled_loop
+    assert "historical bootstrap v3" in controlled_loop
 
     research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     assert "trade_rl.evaluation.final_test" in research
     assert "final economic evaluation自体は未実行" in research
-    assert "canonical_m2_bootstrap_config_v3" in research
-    assert "controlled_study_plan_v2" in research
-    assert "final windowを後付けしてeligible化しない" in research
+    assert "canonical_m2_bootstrap_config_v4" in research
+    assert "controlled_study_plan_v3" in research
+    assert "StudyResearchContext" in research
+    assert "既存artifactは当時の意味を維持" in research
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -447,6 +454,11 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "AI semantic review is mandatory",
         "AI owns G0/G1 semantic review",
         "G4 authorization is blocked",
+        "RESEARCH-001",
+        "StudyResearchContext",
+        "ConsumedEvidence",
+        "controlled_study_plan_v3",
+        "canonical_m2_bootstrap_config_v4",
     ):
         assert required in contract
 

@@ -7,6 +7,8 @@ on:
   pull_request:
     branches:
       - main
+  pull_request_review:
+    types: [submitted, edited, dismissed]
 
 permissions:
   actions: read
@@ -92,7 +94,7 @@ jobs:
 
   core:
     name: Lean Core
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -181,7 +183,7 @@ jobs:
 
   ppo-runtime:
     name: PPO Runtime
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -204,7 +206,7 @@ jobs:
 
   guide:
     name: Human Guide
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     env:
       GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -264,3 +266,44 @@ jobs:
             guide/playwright-report/
           if-no-files-found: ignore
           retention-days: 14
+
+  independent-review:
+    name: Independent Research Review
+    needs: [core, ppo-runtime, guide]
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      github.event.pull_request.number == 758
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require comprehensive verification
+        env:
+          CORE_RESULT: ${{ needs.core.result }}
+          PPO_RESULT: ${{ needs.ppo-runtime.result }}
+          GUIDE_RESULT: ${{ needs.guide.result }}
+        run: |
+          set -euo pipefail
+          test "$CORE_RESULT" = "success"
+          test "$PPO_RESULT" = "success"
+          test "$GUIDE_RESULT" = "success"
+
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install review-status runtime
+        run: uv sync --extra dev
+
+      - name: Evaluate exact-head independent research review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run python -m tools.ppo_4h_indicator_smoke_actions review-status
+

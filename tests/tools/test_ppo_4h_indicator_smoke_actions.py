@@ -347,33 +347,43 @@ def _status_review(
     }
 
 
-def _review_event_api(
+
+def _review_inventory_api(
     *,
-    review: dict[str, object] | None = None,
+    reviews: list[dict[str, object]],
     author_id: int = 1,
 ):
-    record = _status_review() if review is None else review
-
-    def fake(url: str, **_kwargs: object) -> dict[str, object]:
-        if url.endswith("/pulls/758/reviews/12345"):
-            return record
+    def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/pulls/758"):
             return {"user": {"id": author_id, "login": "author"}}
         raise AssertionError(url)
 
-    return fake
+    def fake_array(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/758/reviews?" not in url:
+            raise AssertionError(url)
+        if "page=1" in url:
+            return list(reviews)
+        return []
+
+    return fake_object, fake_array
 
 
-def test_independent_review_status_accepts_exact_result_blind_review() -> None:
-    record = actions.validate_independent_review_status(
-        _status_review(),
-        {"user": {"id": 1, "login": "author"}},
+def test_independent_review_status_accepts_exact_result_blind_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    object_api, array_api = _review_inventory_api(reviews=[_status_review()])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    record = actions.find_authorizing_source_review(
         repository="owner/repo",
         pull_number=758,
         reviewed_code_sha=REVIEWED_SHA,
+        token="token",
+        deadline=999999999.0,
     )
 
-    assert record["reviewed_code_sha"] == REVIEWED_SHA
+    assert record["id"] == 12345
 
 
 @pytest.mark.parametrize(
@@ -387,25 +397,61 @@ def test_independent_review_status_accepts_exact_result_blind_review() -> None:
     ),
 )
 def test_independent_review_status_rejects_non_authorizing_reviews(
+    monkeypatch: pytest.MonkeyPatch,
     review: dict[str, object],
 ) -> None:
-    with pytest.raises(ValueError):
-        actions.validate_independent_review_status(
-            review,
-            {"user": {"id": 1, "login": "author"}},
+    object_api, array_api = _review_inventory_api(reviews=[review])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
             repository="owner/repo",
             pull_number=758,
             reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
         )
 
 
-def test_review_status_environment_is_pending_without_review_event(tmp_path) -> None:
+def test_independent_review_status_keeps_valid_review_when_later_review_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = _status_review(review_id=12345)
+    later_author_review = _status_review(review_id=12346, reviewer_id=1)
+    later_author_review["html_url"] = (
+        "https://github.com/owner/repo/pull/758#pullrequestreview-12346"
+    )
+    object_api, array_api = _review_inventory_api(
+        reviews=[valid, later_author_review]
+    )
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    record = actions.find_authorizing_source_review(
+        repository="owner/repo",
+        pull_number=758,
+        reviewed_code_sha=REVIEWED_SHA,
+        token="token",
+        deadline=999999999.0,
+    )
+
+    assert record["id"] == 12345
+
+
+def test_review_status_environment_is_pending_without_authorizing_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
     event = tmp_path / "event.json"
     event.write_text(
         '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"
+    object_api, array_api = _review_inventory_api(reviews=[])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 
     result = actions.execute_review_status_from_environment(
         {
@@ -427,13 +473,13 @@ def test_review_status_environment_writes_ready_summary_after_validation(
 ) -> None:
     event = tmp_path / "event.json"
     event.write_text(
-        '{"pull_request":{"number":758,"head":{"sha":"'
-        + REVIEWED_SHA
-        + '"}},"review":{"id":12345}}',
+        '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"
-    monkeypatch.setattr(actions.transport, "_api_json", _review_event_api())
+    object_api, array_api = _review_inventory_api(reviews=[_status_review()])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 
     result = actions.execute_review_status_from_environment(
         {

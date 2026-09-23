@@ -32,3 +32,25 @@ def test_smoke_trigger_uses_pinned_runtime_and_uploads_evidence() -> None:
     assert "output/smoke" in text
     assert "always()" in text
     assert "fetch-depth: 2" in text
+
+
+def test_independent_review_status_runs_only_after_full_verification() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "pull_request_review:" in text
+    assert "submitted" in text
+    assert "edited" in text
+    assert "dismissed" in text
+    assert "name: Independent Research Review" in text
+    assert "needs: [core, ppo-runtime, guide]" in text
+    assert "review-status" in text
+    assert "CORE_RESULT: ${{ needs.core.result }}" in text
+    assert "PPO_RESULT: ${{ needs.ppo-runtime.result }}" in text
+    assert "GUIDE_RESULT: ${{ needs.guide.result }}" in text
+
+
+def test_review_events_repeat_full_software_verification_before_status() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    review_event_guard = "github.event_name == 'pull_request_review'"
+
+    assert text.count(review_event_guard) >= 4

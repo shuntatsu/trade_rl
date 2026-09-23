@@ -479,7 +479,8 @@ development-only authorization all agree with the trigger record before source
 download or PPO fitting may start. GitHub now exposes the waiting state through
 an `Independent Research Review` check that runs only after Lean Core, real-SB3
 PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
-events repeat those checks and then refetch the exact formal review by id.
+events repeat those checks and then refetch the current formal-review inventory;
+only reviews passing the execution gate's canonical validator can satisfy the check.
 `PENDING` therefore means software verification completed but the exact-head
 independent result-blind review is still absent or invalid; `READY` means only
 that the authenticated review-evidence transition may proceed, not that PPO

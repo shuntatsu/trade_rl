@@ -106,6 +106,7 @@ def _github_api(
             return {
                 "number": 900,
                 "state": "open",
+                "draft": True,
                 "user": {"id": author_id, "login": "author"},
                 "head": {
                     "ref": actions.EXECUTION_BRANCH,
@@ -368,6 +369,7 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
             return {
                 "number": 901,
                 "state": "open",
+                "draft": True,
                 "user": {"id": 1, "login": "author"},
                 "head": {
                     "ref": "other-branch",
@@ -393,6 +395,7 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
     ("pull_updates", "match"),
     (
         ({"state": "closed"}, "open"),
+        ({"draft": False}, "draft"),
         (
             {
                 "head": {
@@ -433,6 +436,7 @@ def test_independent_review_rejects_wrong_execution_pr_identity(
     pull: dict[str, object] = {
         "number": 900,
         "state": "open",
+        "draft": True,
         "user": {"id": 1, "login": "author"},
         "head": {
             "ref": actions.EXECUTION_BRANCH,
@@ -481,6 +485,7 @@ def _review_inventory_api(
             return {
                 "number": 900,
                 "state": "open",
+                "draft": True,
                 "user": {"id": author_id, "login": "author"},
                 "head": {
                     "ref": actions.EXECUTION_BRANCH,
@@ -573,6 +578,7 @@ def test_independent_review_status_scans_later_review_inventory_pages(
             return {
                 "number": 900,
                 "state": "open",
+                "draft": True,
                 "user": {"id": 1, "login": "author"},
                 "head": {
                     "ref": actions.EXECUTION_BRANCH,

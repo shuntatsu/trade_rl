@@ -40,6 +40,12 @@ def test_smoke_feature_roster_is_exactly_four_hour_indicator_set() -> None:
     }
 
 
+def test_static_contract_requires_no_active_order_remainder() -> None:
+    contract = ppo_4h_indicator_smoke.static_protocol_contract()
+
+    assert contract["evaluation"]["no_active_order_remainder_required"] is True
+
+
 def test_feature_indices_require_exact_names_and_preserve_order() -> None:
     names = ("unused", *EXPECTED_FEATURES, "other")
     dataset = FeatureDataset(names)
@@ -61,6 +67,7 @@ def _cell(
     drawdown: float = 0.10,
     flat: bool = True,
     terminated: bool = False,
+    active_order_remainders: list[list[object]] | None = None,
 ) -> dict[str, object]:
     return {
         "total_return": total_return,
@@ -68,6 +75,9 @@ def _cell(
         "ledger_max_drawdown": drawdown,
         "terminal_flat": flat,
         "termination_reasons": ["stop"] if terminated else [],
+        "active_order_remainders": (
+            [] if active_order_remainders is None else active_order_remainders
+        ),
     }
 
 
@@ -122,6 +132,7 @@ def test_promotion_requires_robust_positive_cross_symbol_smoke() -> None:
         {"drawdown": 0.2000001},
         {"flat": False},
         {"terminated": True},
+        {"active_order_remainders": [["order-1", 0.01]]},
     ),
 )
 def test_any_hard_guard_failure_blocks_promotion(mutation: dict[str, object]) -> None:

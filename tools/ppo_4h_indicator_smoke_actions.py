@@ -149,12 +149,6 @@ def _require_current_main_contained(
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )
-    _require_current_main_contained(
-        repository=repository,
-        reviewed_code_sha=reviewed,
-        token=token,
-        deadline=deadline,
-    )
     path = transport._repo_path(repository)
     branch = transport._api_json(
         f"https://api.github.com/repos/{path}/branches/{EXECUTION_BASE_BRANCH}",
@@ -334,6 +328,12 @@ def find_authorizing_source_review(
     """Return any current formal review authorizing the exact code HEAD."""
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
+    )
+    _require_current_main_contained(
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
     )
     path = transport._repo_path(repository)
     pull = transport._api_json(

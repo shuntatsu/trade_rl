@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -8,6 +8,7 @@ import pytest
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.position_intent import PositionIntent
 
 
@@ -132,6 +133,28 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert getattr(first_observation, "index") == 0
     features = getattr(first_observation, "features")
     assert features.flags.writeable is False
+
+
+def test_replay_exposes_terminal_active_order_remainders() -> None:
+    result = evaluation.run_single_symbol_replay(
+        _rising_market(),
+        AlwaysLong(),
+        start_index=0,
+        stop_index=1,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            order_latency_bars=2,
+        ),
+    )
+
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(1))
+    assert len(result.active_order_remainders) == 1
+    order_id, remaining_quantity = result.active_order_remainders[0]
+    assert isinstance(order_id, str) and order_id
+    assert remaining_quantity > 0.0
+    assert isinstance(result.terminal_order_reasons, tuple)
 
 
 def test_reversal_keeps_short_proposal_after_hard_override() -> None:

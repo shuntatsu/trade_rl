@@ -27,7 +27,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "0d4d035a6b88cdc9a396f8f57038e244f8b8f2ce7c143d04a2eb3a5377bc2b19",
+      "source_sha256": "9a4a65912487638effff0c36414fc44929a726a9c00bdbd2a3a9794cae64eb68",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と区間収益を更新する統括処理です。",
       "variables": [

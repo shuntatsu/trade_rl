@@ -329,7 +329,6 @@ def test_review_gate_rejects_review_from_another_pull_request(
         )
 
 
-
 def _status_review(
     *,
     body: str = REVIEW_BODY,
@@ -400,9 +399,7 @@ def test_independent_review_status_rejects_non_authorizing_reviews(
         )
 
 
-def test_review_status_environment_is_pending_without_review_event(
-    tmp_path,
-) -> None:
+def test_review_status_environment_is_pending_without_review_event(tmp_path) -> None:
     event = tmp_path / "event.json"
     event.write_text(
         '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
@@ -436,11 +433,7 @@ def test_review_status_environment_writes_ready_summary_after_validation(
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"
-    monkeypatch.setattr(
-        actions.transport,
-        "_api_json",
-        _review_event_api(),
-    )
+    monkeypatch.setattr(actions.transport, "_api_json", _review_event_api())
 
     result = actions.execute_review_status_from_environment(
         {

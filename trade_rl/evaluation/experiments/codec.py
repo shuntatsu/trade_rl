@@ -23,6 +23,7 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyResearchContext,
 )
 from trade_rl.evaluation.experiments.delta import (
     ControlledVerification,
@@ -253,6 +254,18 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 "final_evaluation_stop_exclusive",
             }
         )
+    elif schema_version == "controlled_study_plan_v3":
+        expected.add("research_context")
+        if (
+            "final_evaluation_start" in payload
+            or "final_evaluation_stop_exclusive" in payload
+        ):
+            expected.update(
+                {
+                    "final_evaluation_start",
+                    "final_evaluation_stop_exclusive",
+                }
+            )
     elif schema_version != "controlled_study_plan_v1":
         raise ArtifactIntegrityError("unsupported StudyPlan schema_version")
     _expect_keys(payload, expected, label="plan.json")
@@ -273,6 +286,18 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
             raise ArtifactIntegrityError(
                 "Study contains unsupported controlled factor"
             ) from error
+
+    research_context: StudyResearchContext | None = None
+    if schema_version == "controlled_study_plan_v3":
+        try:
+            research_context = StudyResearchContext.from_payload(
+                _as_dict(payload["research_context"], field="research_context")
+            )
+        except ContractViolationError as error:
+            raise ArtifactIntegrityError(
+                "plan.json research_context violates contract"
+            ) from error
+
     try:
         return StudyPlan(
             research_question=_as_string(
@@ -304,21 +329,22 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 field="runtime_environment_digest",
             ),
             final_evaluation_start=(
-                None
-                if schema_version == "controlled_study_plan_v1"
-                else _as_string(
+                _as_string(
                     payload["final_evaluation_start"],
                     field="final_evaluation_start",
                 )
+                if "final_evaluation_start" in payload
+                else None
             ),
             final_evaluation_stop_exclusive=(
-                None
-                if schema_version == "controlled_study_plan_v1"
-                else _as_string(
+                _as_string(
                     payload["final_evaluation_stop_exclusive"],
                     field="final_evaluation_stop_exclusive",
                 )
+                if "final_evaluation_stop_exclusive" in payload
+                else None
             ),
+            research_context=research_context,
             schema_version=schema_version,
         )
     except ContractViolationError as error:

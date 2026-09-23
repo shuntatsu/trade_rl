@@ -132,6 +132,7 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
         deadline=999999999.0,
     )
 
+
 @pytest.mark.parametrize(
     "field",
     (
@@ -374,7 +375,7 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
                     "ref": "wrong",
                     "sha": REVIEWED_SHA,
                     "repo": {"full_name": "owner/repo"},
-                }
+                },
             },
             "execution",
         ),
@@ -384,7 +385,7 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
                     "ref": "research/ppo-4h-indicator-smoke-execution",
                     "sha": "c" * 40,
                     "repo": {"full_name": "owner/repo"},
-                }
+                },
             },
             "head",
         ),
@@ -394,7 +395,7 @@ def test_review_gate_rejects_review_from_nonexecution_pull_request(
                     "ref": "research/ppo-4h-indicator-smoke-execution",
                     "sha": REVIEWED_SHA,
                     "repo": {"full_name": "other/repo"},
-                }
+                },
             },
             "repository",
         ),
@@ -426,6 +427,7 @@ def test_independent_review_rejects_wrong_execution_pr_identity(
             pull_number=900,
             reviewed_code_sha=REVIEWED_SHA,
         )
+
 
 def _status_review(
     *,

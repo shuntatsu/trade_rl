@@ -68,8 +68,6 @@ class ConsumedEvidence:
     development_start: str
     development_stop_exclusive: str
     uses: tuple[EvidenceUse, ...]
-    schema_version: str = "consumed_research_evidence_v1"
-
     def __post_init__(self) -> None:
         if not isinstance(self.evidence_kind, EvidenceKind):
             raise ContractViolationError("evidence_kind is unsupported")
@@ -98,19 +96,13 @@ class ConsumedEvidence:
             ),
         )
         uses = tuple(sorted(uses, key=lambda item: item.value))
-        schema_version = contract_text(self.schema_version, field="schema_version")
-        if schema_version != "consumed_research_evidence_v1":
-            raise ContractViolationError("unsupported consumed evidence schema_version")
-
         object.__setattr__(self, "evidence_digest", evidence_digest)
         object.__setattr__(self, "development_start", start)
         object.__setattr__(self, "development_stop_exclusive", stop)
         object.__setattr__(self, "uses", uses)
-        object.__setattr__(self, "schema_version", schema_version)
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "schema_version": self.schema_version,
             "evidence_kind": self.evidence_kind.value,
             "evidence_digest": self.evidence_digest,
             "development_start": self.development_start,
@@ -125,7 +117,6 @@ class ConsumedEvidence:
         ):
             raise ContractViolationError("consumed evidence must be a JSON object")
         expected = {
-            "schema_version",
             "evidence_kind",
             "evidence_digest",
             "development_start",
@@ -153,7 +144,6 @@ class ConsumedEvidence:
             development_start=value["development_start"],
             development_stop_exclusive=value["development_stop_exclusive"],
             uses=uses,
-            schema_version=value["schema_version"],
         )
 
 

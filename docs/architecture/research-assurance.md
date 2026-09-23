@@ -139,6 +139,18 @@ actual G0/G1/G2 outcomes, has no blocking findings, and explicitly authorizes
 only this development smoke. Author-controlled trigger JSON cannot override a
 FAIL, NOT_ESTABLISHED, blocking disposition, different PR, or changed source-review bytes.
 
+The owning pull request exposes this dependency as a dedicated
+`Independent Research Review` GitHub check. That check is evaluated only after
+the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guide
+build/browser checks all succeed. A pull-request review submission, edit, or
+dismissal repeats those software checks before reevaluating review status. The
+status check refetches the exact formal review by GitHub review id and requires
+the same distinct-principal, exact-`commit_id`, canonical payload, result-blind
+G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
+`READY` only means the review-evidence transition may be created. It does not
+itself authorize economic execution or replace the authenticated one-shot
+trigger.
+
 ## Research-specific contract: PPO BTC-relative feature ablation
 
 This contract applies only to the dedicated development comparison in

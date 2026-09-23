@@ -108,6 +108,22 @@ def _validate_policy_timesteps(
         raise ValueError("A2C policy timesteps differ from fit metadata")
 
 
+def _validate_policy_seed(
+    policy: object,
+    fit_metadata: A2CFitMetadata,
+) -> None:
+    try:
+        seed = getattr(policy, "seed")
+    except AttributeError as error:
+        raise ValueError("A2C policy seed differs from fit metadata") from error
+    if (
+        isinstance(seed, bool)
+        or not isinstance(seed, int)
+        or seed != fit_metadata.seed
+    ):
+        raise ValueError("A2C policy seed differs from fit metadata")
+
+
 def _validated_manifest(
     root: Path,
     *,
@@ -221,6 +237,7 @@ def save_a2c_inference_bundle(
         )
     _validate_policy_spaces(strategy.policy, feature_count=len(indices))
     _validate_policy_timesteps(strategy.policy, strategy.fit_metadata)
+    _validate_policy_seed(strategy.policy, strategy.fit_metadata)
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))
@@ -278,6 +295,7 @@ def load_a2c_inference_bundle(
     ) as verified_policy:
         model = _load_a2c_policy(verified_policy, feature_count=len(indices))
     _validate_policy_timesteps(model, metadata)
+    _validate_policy_seed(model, metadata)
     return A2CIntentStrategy(
         model,
         feature_indices=indices,

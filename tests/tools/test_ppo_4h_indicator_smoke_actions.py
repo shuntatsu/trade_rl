@@ -445,7 +445,7 @@ def test_review_status_environment_writes_ready_summary_after_validation(
 ) -> None:
     event = tmp_path / "event.json"
     event.write_text(
-        '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}',
+        '{"pull_request":{"number":758,"head":{"sha":"' + REVIEWED_SHA + '"}}}',
         encoding="utf-8",
     )
     summary = tmp_path / "summary.md"

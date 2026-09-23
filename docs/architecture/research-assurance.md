@@ -144,9 +144,9 @@ The owning pull request exposes this dependency as a dedicated
 the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guide
 build/browser checks all succeed. A pull-request review submission, edit, or
 dismissal repeats those software checks before reevaluating review status. The
-status check refetches the exact formal review by GitHub review id and requires
-the same distinct-principal, exact-`commit_id`, canonical payload, result-blind
-G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
+status check refetches the current formal-review inventory and accepts only a
+review that passes the same distinct-principal, exact-`commit_id`, canonical
+payload, result-blind G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
 `READY` only means the review-evidence transition may be created. It does not
 itself authorize economic execution or replace the authenticated one-shot
 trigger.

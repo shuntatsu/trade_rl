@@ -104,6 +104,23 @@ def test_v4_rejects_consumed_evidence_overlapping_preregistered_final(
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
 
 
+def test_v4_rejects_consumed_evidence_after_preregistered_final(
+    tmp_path: Path,
+) -> None:
+    payload = _v4_payload()
+    context = payload["research_context"]
+    assert isinstance(context, dict)
+    consumed = context["consumed_evidence"]
+    assert isinstance(consumed, list)
+    first = consumed[0]
+    assert isinstance(first, dict)
+    first["development_start"] = "2025-05-01T00:00:00.000000000"
+    first["development_stop_exclusive"] = "2025-06-01T00:00:00.000000000"
+
+    with pytest.raises(ValueError, match="final.*consumed|consumed.*final"):
+        load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+
 def test_v4_bootstrap_binds_context_into_study_and_reconstructs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

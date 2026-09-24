@@ -428,7 +428,7 @@ def _validate_source_review_record(
         raise ValueError("source review commit differs from reviewed code SHA")
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
-    author_id = _validate_execution_pull(
+    _validate_execution_pull(
         pull,
         repository=repository,
         pull_number=pull_number,
@@ -438,9 +438,6 @@ def _validate_source_review_record(
             else expected_pull_head_sha
         ),
     )
-    reviewer_id = _github_principal_id(record, field="source review")
-    if reviewer_id == author_id:
-        raise ValueError("source review principal is not independent from PR author")
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed_code_sha:

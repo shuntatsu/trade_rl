@@ -69,6 +69,16 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
 
 
+def test_parse_candidate_run_config_accepts_null_switch_cost() -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = None
+
+    config = parse_candidate_run_config(raw)
+
+    assert config.forecast_switch_cost is None
+    assert "forecast_switch_cost" not in config.to_json_payload()
+
+
 def test_parse_candidate_run_config_accepts_explicit_forecast_switch_cost() -> None:
     raw = raw_config()
     raw["forecast_switch_cost"] = 0.0007

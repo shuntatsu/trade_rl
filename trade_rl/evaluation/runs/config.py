@@ -313,7 +313,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         initial_capital=_required_float(raw, "initial_capital"),
         forecast_switch_cost=(
             None
-            if "forecast_switch_cost" not in raw
+            if raw.get("forecast_switch_cost") is None
             else _require_forecast_switch_cost(raw.get("forecast_switch_cost"))
         ),
     )

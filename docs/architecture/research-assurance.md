@@ -185,11 +185,11 @@ the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guid
 build/browser checks all succeed. A pull-request review submission, edit, or
 dismissal repeats those software checks before reevaluating review status. The
 status check refetches the current formal-review inventory and accepts only a
-review that passes the same external-AI provenance, exact-`commit_id`, canonical
-payload, result-blind G0/G1/G2 semantics used by the execution gate. The posting
-GitHub principal may equal the PR author, but must currently have repository
-`write` or `admin` permission; an arbitrary public GitHub principal is not an
-authorization authority. GitHub's review-list
+review that passes the same distinct-principal, external-AI provenance,
+exact-`commit_id`, canonical payload, and result-blind G0/G1/G2 semantics used by
+the execution gate. The posting GitHub principal must be different from the PR
+author and must currently have repository `write` or `admin` permission; an
+arbitrary public GitHub principal is not an authorization authority. GitHub's review-list
 API is chronological, so the gate evaluates only the latest review from each
 GitHub principal: a later `CHANGES_REQUESTED`, dismissed, or otherwise
 non-authorizing review from that same principal supersedes their earlier

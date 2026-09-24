@@ -484,10 +484,18 @@ an `Independent Research Review` check that runs only after Lean Core, real-SB3
 PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
 events repeat those checks and then refetch the current formal-review inventory;
 only reviews passing the execution gate's canonical validator can satisfy the check.
-Before review authorization the open execution PR head equals the reviewed code
-SHA; the only subsequent source transition is the review-evidence-only trigger
-commit, which becomes the PR head while the formal review stays bound to its
-parent code SHA. `PENDING` therefore means software verification completed but the exact-head
+The reviewer must currently have repository `write` or `admin` permission; a
+public GitHub account without write authority cannot authorize the smoke. The
+inventory is chronological and only each GitHub principal's latest review is
+eligible, so a later blocking or otherwise non-authorizing review from the same
+reviewer supersedes that reviewer's earlier authorization while another
+principal's later review does not rewrite it. Before review authorization the
+open execution PR head equals the reviewed code SHA; the only subsequent source
+transition is the review-evidence-only trigger commit, which becomes the PR head
+while the formal review stays bound to its parent code SHA. The trigger gate
+refetches the bound review, current reviewer permission, and full review
+inventory immediately before accepting the evidence transition; a superseded or
+permission-revoked review is rejected. `PENDING` therefore means software verification completed but the exact-head
 independent result-blind review is still absent or invalid; `READY` means only
 that the authenticated review-evidence transition may proceed, not that PPO
 economics may run directly.

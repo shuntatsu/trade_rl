@@ -148,11 +148,21 @@ build/browser checks all succeed. A pull-request review submission, edit, or
 dismissal repeats those software checks before reevaluating review status. The
 status check refetches the current formal-review inventory and accepts only a
 review that passes the same distinct-principal, exact-`commit_id`, canonical
-payload, result-blind G0/G1/G2 semantics used by the execution gate. Before the
-evidence transition the open PR head must equal that reviewed code SHA. The
-one allowed transition then appends only the canonical review-evidence file;
-during the trigger run the PR head is that evidence-only trigger commit while
-the formal review `commit_id` remains bound to its exact code parent.
+payload, result-blind G0/G1/G2 semantics used by the execution gate. The reviewer
+must also currently have repository `write` or `admin` permission; an arbitrary
+public GitHub principal is not an authorization authority. GitHub's review-list
+API is chronological, so the gate evaluates only the latest review from each
+GitHub principal: a later `CHANGES_REQUESTED`, dismissed, or otherwise
+non-authorizing review from that same principal supersedes their earlier
+authorization. A later review from a different principal does not silently
+rewrite another reviewer's decision. Before the evidence transition the open PR
+head must equal that reviewed code SHA. The one allowed transition then appends
+only the canonical review-evidence file; during the trigger run the PR head is
+that evidence-only trigger commit while the formal review `commit_id` remains
+bound to its exact code parent. Before economic execution, the trigger gate
+refetches the source review, the reviewer's current repository permission, and
+the chronological review inventory; the bound source review must still be that
+reviewer's latest review.
 `PENDING` blocks the workflow;
 `READY` only means the review-evidence transition may be created. It does not
 itself authorize economic execution or replace the authenticated one-shot

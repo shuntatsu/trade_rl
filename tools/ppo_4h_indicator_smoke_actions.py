@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +137,94 @@ def _github_principal_id(record: object, *, field: str) -> int:
     return transport._strict_positive_int(
         user.get("id"), field=f"{field} GitHub user id"
     )
+
+
+def _github_principal_login(record: object, *, field: str) -> str:
+    if not isinstance(record, dict):
+        raise ValueError(f"{field} GitHub record is malformed")
+    user = record.get("user")
+    if not isinstance(user, dict):
+        raise ValueError(f"{field} GitHub principal is missing")
+    login = user.get("login")
+    if not isinstance(login, str) or not login:
+        raise ValueError(f"{field} GitHub login is malformed")
+    return login
+
+
+def _require_reviewer_write_permission(
+    record: object,
+    *,
+    repository: str,
+    token: str,
+    deadline: float,
+) -> None:
+    login = urllib.parse.quote(
+        _github_principal_login(record, field="source review"), safe=""
+    )
+    permission = transport._api_json(
+        "https://api.github.com/repos/"
+        f"{transport._repo_path(repository)}/collaborators/{login}/permission",
+        token=token,
+        deadline=deadline,
+    ).get("permission")
+    if permission not in {"write", "admin"}:
+        raise ValueError("source reviewer lacks repository write permission")
+
+
+def _review_inventory(
+    *,
+    repository: str,
+    pull_number: int,
+    token: str,
+    deadline: float,
+) -> list[object]:
+    path = transport._repo_path(repository)
+    inventory: list[object] = []
+    page = 1
+    while True:
+        records = transport._api_json_array(
+            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
+            f"?per_page=100&page={page}",
+            token=token,
+            deadline=deadline,
+        )
+        inventory.extend(records)
+        if len(records) < 100:
+            return inventory
+        page += 1
+
+
+def _require_review_not_superseded(
+    record: object,
+    inventory: list[object],
+) -> None:
+    reviewer_id = _github_principal_id(record, field="source review")
+    if not isinstance(record, dict):
+        raise ValueError("source review GitHub record is malformed")
+    review_id = transport._strict_positive_int(
+        record.get("id"), field="source review id"
+    )
+    for candidate in reversed(inventory):
+        try:
+            candidate_reviewer_id = _github_principal_id(
+                candidate, field="source review"
+            )
+        except ValueError:
+            continue
+        if candidate_reviewer_id != reviewer_id:
+            continue
+        if not isinstance(candidate, dict):
+            raise ValueError("source review authorization was superseded")
+        try:
+            candidate_id = transport._strict_positive_int(
+                candidate.get("id"), field="source review id"
+            )
+        except ValueError:
+            raise ValueError("source review authorization was superseded") from None
+        if candidate_id != review_id:
+            raise ValueError("source review authorization was superseded")
+        return
+    raise ValueError("source review is missing from current review inventory")
 
 
 def _require_current_main_contained(
@@ -321,7 +410,7 @@ def find_authorizing_source_review(
     token: str,
     deadline: float,
 ) -> dict[str, Any]:
-    """Return any current formal review authorizing the exact code HEAD."""
+    """Return an authorizing latest-per-reviewer review for the exact code HEAD."""
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )
@@ -343,30 +432,40 @@ def find_authorizing_source_review(
         pull_number=pull_number,
         expected_head_sha=reviewed,
     )
-    page = 1
-    while True:
-        records = transport._api_json_array(
-            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
-            f"?per_page=100&page={page}",
-            token=token,
-            deadline=deadline,
-        )
-        for record in reversed(records):
-            try:
-                validate_independent_review_status(
-                    record,
-                    pull,
-                    repository=repository,
-                    pull_number=pull_number,
-                    reviewed_code_sha=reviewed,
-                )
-            except ValueError:
-                continue
-            if isinstance(record, dict):
-                return record
-        if len(records) < 100:
-            break
-        page += 1
+    inventory = _review_inventory(
+        repository=repository,
+        pull_number=pull_number,
+        token=token,
+        deadline=deadline,
+    )
+
+    seen_reviewers: set[int] = set()
+    for record in reversed(inventory):
+        try:
+            reviewer_id = _github_principal_id(record, field="source review")
+        except ValueError:
+            continue
+        if reviewer_id in seen_reviewers:
+            continue
+        seen_reviewers.add(reviewer_id)
+        try:
+            validate_independent_review_status(
+                record,
+                pull,
+                repository=repository,
+                pull_number=pull_number,
+                reviewed_code_sha=reviewed,
+            )
+            _require_reviewer_write_permission(
+                record,
+                repository=repository,
+                token=token,
+                deadline=deadline,
+            )
+        except ValueError:
+            continue
+        if isinstance(record, dict):
+            return record
     raise ValueError("independent research review is pending")
 
 
@@ -519,6 +618,19 @@ def validate_review_gate(
         expected_url=review_url,
         expected_body_sha256=review_sha,
     )
+    _require_reviewer_write_permission(
+        record,
+        repository=repository,
+        token=token,
+        deadline=deadline,
+    )
+    inventory = _review_inventory(
+        repository=repository,
+        pull_number=pull_number,
+        token=token,
+        deadline=deadline,
+    )
+    _require_review_not_superseded(record, inventory)
     _require_current_main_contained(
         repository=repository,
         reviewed_code_sha=reviewed,
@@ -608,6 +720,12 @@ def execute_from_environment(environment: dict[str, str] | None = None) -> int:
             root=Path(temp),
         )
         smoke.prepare_smoke(source, output)
+        validate_review_gate(
+            review,
+            repository=repository,
+            token=token,
+            deadline=deadline,
+        )
         smoke.run_smoke(source, output)
     return 0
 

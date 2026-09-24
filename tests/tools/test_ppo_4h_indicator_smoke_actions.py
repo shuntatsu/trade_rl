@@ -92,17 +92,22 @@ def _github_api(
     body: str = REVIEW_BODY,
     review_commit: str = REVIEWED_SHA,
     reviewer_id: int = 2,
+    reviewer_login: str = "reviewer",
     author_id: int = 1,
+    reviewer_permission: str = "write",
 ):
     def fake(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/pulls/900/reviews/12345"):
             return {
+                "id": 12345,
                 "html_url": REVIEW_URL,
                 "body": body,
                 "commit_id": review_commit,
-                "user": {"id": reviewer_id, "login": "reviewer"},
+                "user": {"id": reviewer_id, "login": reviewer_login},
                 "state": "COMMENTED",
             }
+        if "/collaborators/" in url and url.endswith("/permission"):
+            return {"permission": reviewer_permission}
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -129,7 +134,19 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(actions, "_git", _fake_git)
-    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
+    api = _github_api()
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [
+                api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
 
     actions.validate_review_gate(
         _review(),
@@ -137,6 +154,50 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
         token="token",
         deadline=999999999.0,
     )
+
+
+def test_execute_rechecks_review_gate_immediately_before_smoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        actions.transport,
+        "available_memory_bytes",
+        lambda: actions.MINIMUM_AVAILABLE_BYTES + 1,
+    )
+    monkeypatch.setattr(actions, "_canonical_review", lambda _path: _review())
+    monkeypatch.setattr(
+        actions,
+        "validate_review_gate",
+        lambda *_args, **_kwargs: events.append("gate"),
+    )
+    monkeypatch.setattr(
+        actions,
+        "_download_source",
+        lambda **kwargs: kwargs["root"],
+    )
+
+    def prepare(_source, output) -> None:
+        events.append("prepare")
+        output.mkdir(parents=True, exist_ok=False)
+
+    def run(_source, _output) -> None:
+        events.append("run")
+
+    monkeypatch.setattr(actions.smoke, "prepare_smoke", prepare)
+    monkeypatch.setattr(actions.smoke, "run_smoke", run)
+
+    result = actions.execute_from_environment(
+        {
+            "GITHUB_REPOSITORY": "owner/repo",
+            "SMOKE_GITHUB_TOKEN": "token",
+            "SMOKE_OUTPUT": str(tmp_path / "smoke"),
+        }
+    )
+
+    assert result == 0
+    assert events == ["gate", "prepare", "gate", "run"]
 
 
 def test_review_gate_rejects_execution_pr_head_other_than_trigger_commit(
@@ -280,6 +341,111 @@ def test_review_gate_rejects_review_from_pr_author(
             token="token",
             deadline=999999999.0,
         )
+
+
+def test_review_gate_rejects_reviewer_without_write_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(
+        actions.transport,
+        "_api_json",
+        _github_api(reviewer_permission="read"),
+    )
+
+    with pytest.raises(ValueError, match="write permission"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_accepts_write_authorized_bot_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    api = _github_api(reviewer_login="research-reviewer[bot]")
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [
+                api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+    actions.validate_review_gate(
+        _review(),
+        repository="owner/repo",
+        token="token",
+        deadline=999999999.0,
+    )
+
+
+def test_review_gate_rejects_superseded_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
+    valid = _status_review(review_id=12345)
+    later_blocking = _status_review(review_id=12346, state="CHANGES_REQUESTED")
+    later_blocking["html_url"] = (
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
+    )
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [valid, later_blocking]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    with pytest.raises(ValueError, match="superseded"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_keeps_authorization_when_other_reviewer_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
+    valid = _status_review(review_id=12345)
+    later_other_reviewer = _status_review(
+        review_id=12346,
+        reviewer_id=3,
+        state="CHANGES_REQUESTED",
+    )
+    later_other_reviewer["html_url"] = (
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
+    )
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [valid, later_other_reviewer]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    actions.validate_review_gate(
+        _review(),
+        repository="owner/repo",
+        token="token",
+        deadline=999999999.0,
+    )
 
 
 def test_review_gate_rejects_review_bound_to_another_commit(
@@ -537,8 +703,11 @@ def _review_inventory_api(
     *,
     reviews: list[dict[str, object]],
     author_id: int = 1,
+    reviewer_permission: str = "write",
 ):
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/collaborators/" in url and url.endswith("/permission"):
+            return {"permission": reviewer_permission}
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -584,6 +753,25 @@ def test_independent_review_status_accepts_exact_result_blind_review(
     )
 
     assert record["id"] == 12345
+
+
+def test_independent_review_status_rejects_reviewer_without_write_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    object_api, array_api = _review_inventory_api(
+        reviews=[_status_review()], reviewer_permission="read"
+    )
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
 
 
 @pytest.mark.parametrize(
@@ -636,6 +824,8 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     valid["html_url"] = "https://github.com/owner/repo/pull/900#pullrequestreview-101"
 
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
+        if url.endswith("/collaborators/reviewer/permission"):
+            return {"permission": "write"}
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -685,6 +875,80 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
         "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
     )
     object_api, array_api = _review_inventory_api(reviews=[valid, later_author_review])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    record = actions.find_authorizing_source_review(
+        repository="owner/repo",
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+        token="token",
+        deadline=999999999.0,
+    )
+
+    assert record["id"] == 12345
+
+
+def test_independent_review_status_rejects_superseded_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = _status_review(review_id=12345)
+    later_blocking = _status_review(review_id=12346, state="CHANGES_REQUESTED")
+    later_blocking["html_url"] = (
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
+    )
+    object_api, array_api = _review_inventory_api(reviews=[valid, later_blocking])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_independent_review_status_rejects_later_non_authorizing_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = _status_review(review_id=12345)
+    later_blocking = _status_review(
+        review_id=12346,
+        body=_source_review_body(g0="FAIL"),
+    )
+    later_blocking["html_url"] = (
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
+    )
+    object_api, array_api = _review_inventory_api(reviews=[valid, later_blocking])
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_independent_review_status_keeps_other_reviewers_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = _status_review(review_id=12345)
+    later_blocking = _status_review(
+        review_id=12346,
+        reviewer_id=3,
+        body=_source_review_body(g0="FAIL"),
+    )
+    later_blocking["html_url"] = (
+        "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
+    )
+    object_api, array_api = _review_inventory_api(reviews=[valid, later_blocking])
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
     monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 

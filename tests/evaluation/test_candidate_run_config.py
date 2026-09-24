@@ -64,7 +64,26 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.feature_names == ("signal", "f1")
     assert config.fit_symbol_names == ("BTCUSDT", "ETHUSDT")
     assert config.ppo_seed == 7
+    assert config.forecast_switch_cost is None
+    assert "forecast_switch_cost" not in config.to_json_payload()
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+
+
+def test_parse_candidate_run_config_accepts_explicit_forecast_switch_cost() -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = 0.0007
+
+    config = parse_candidate_run_config(raw)
+    spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
+    )
+
+    assert config.forecast_switch_cost == pytest.approx(0.0007)
+    assert config.to_json_payload()["forecast_switch_cost"] == pytest.approx(0.0007)
+    assert spec.lean_config.forecast_switch_cost == pytest.approx(0.0007)
 
 
 @pytest.mark.parametrize(
@@ -98,6 +117,14 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
         (
             lambda raw: raw.__setitem__("ppo_seed", -1),
             "ppo_seed must be a non-negative integer",
+        ),
+        (
+            lambda raw: raw.__setitem__("forecast_switch_cost", -0.0001),
+            "forecast_switch_cost must be finite and non-negative",
+        ),
+        (
+            lambda raw: raw.__setitem__("forecast_switch_cost", True),
+            "forecast_switch_cost must be finite and non-negative",
         ),
     ],
 )

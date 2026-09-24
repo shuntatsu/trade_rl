@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-22 (JST)
+更新基準: 2026-09-24 (JST)
 
 ## 結論
 
@@ -720,8 +720,9 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
 - fit-scope-safe PPO Observation v2（local values + availability/finite mask + normalized staleness + portfolio state、global policy rosterは空）
-- `lean_candidate_result_v2`によるObservation contractのRun evidence bindingとhistorical v1 reader互換
-- `resolved_run_config_v2`によるStudy identity binding、historical v1 read互換、v1 Studyへのv2 mutation拒否
+- `lean_candidate_result_v3`によるObservation contract + `forecast_switch_cost` のRun evidence binding。historical v1/v2 reader互換を維持し、v2 artifactへswitch-cost fieldを後付けしない
+- `resolved_run_config_v3`によるStudy identity binding。historical v1/v2 read互換を維持し、旧Studyへv3 semantic fieldを暗黙migrationしない
+- opt-in `CostAwareForecastIntentController` とControlled Factor `FORECAST_SWITCH_COST`。Ridge / LightGBMのfrozen forecastと既存thresholdを維持し、片道cost floorを上回らないintent changeだけを抑制する。次のfactor値は現canonical market-order assumptionの5bp fee + 2bp spreadから`0.0007`に結果前固定し、threshold探索しない。これは**未評価capability**であり、fresh/read-only独立AIのG0-G2 review未完了なのでeconomic runはまだ認可しない
 - 全symbol独立comparison
 - shared candidate config resolution
 - in-memory candidate execution seam
@@ -867,11 +868,12 @@ Inspectionは保存されたconfig、source roster、dataset artifact、StudyPla
   "ppo_total_timesteps": 100000,
   "ppo_seed": 0,
   "gross_budget": 0.5,
-  "initial_capital": 100000.0
+  "initial_capital": 100000.0,
+  "forecast_switch_cost": null
 }
 ```
 
-`evaluation_start` と `evaluation_stop_exclusive` はdataset timestampへexact matchする必要がある。Evaluation startはfit cutoffより前にできない。
+`evaluation_start` と `evaluation_stop_exclusive` はdataset timestampへexact matchする必要がある。Evaluation startはfit cutoffより前にできない。`forecast_switch_cost` は省略または`null`なら従来controllerを維持し、非負finite値を明示した場合だけRidge / LightGBMのintent変更へcost gateを適用する。PPO、rule、controlsには適用しない。
 
 Standalone実行:
 

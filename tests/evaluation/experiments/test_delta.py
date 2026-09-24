@@ -82,6 +82,19 @@ EXPECTED_RULES = {
             }
         ),
     ),
+    ControlledFactor.FORECAST_SWITCH_COST: (
+        frozenset({("forecast_switch_cost",)}),
+        frozenset(
+            {
+                "cash",
+                "constant_long",
+                "constant_short",
+                "trend",
+                "mean_reversion",
+                "ppo",
+            }
+        ),
+    ),
     ControlledFactor.FIT_SYMBOL_SCOPE: (
         frozenset({("fit_symbol_names",), ("fit_symbol_indices",)}),
         frozenset(
@@ -126,12 +139,13 @@ def _resolved(**overrides: object) -> ResolvedRunConfig:
         "ppo_seed": 2,
         "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,
         "ppo_global_feature_names": PPO_GLOBAL_FEATURE_NAMES,
+        "forecast_switch_cost": None,
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 100_000.0,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
-        "schema_version": "resolved_run_config_v2",
+        "schema_version": "resolved_run_config_v3",
     }
     values.update(overrides)
     return ResolvedRunConfig(**values)  # type: ignore[arg-type]
@@ -292,6 +306,8 @@ def _candidate_for_factor(
         return replace(base, rule_entry_threshold=0.20)
     if factor is ControlledFactor.FORECAST_THRESHOLDS:
         return replace(base, forecast_entry_threshold=0.02)
+    if factor is ControlledFactor.FORECAST_SWITCH_COST:
+        return replace(base, forecast_switch_cost=0.0007)
     if factor is ControlledFactor.FIT_SYMBOL_SCOPE:
         return replace(
             base,

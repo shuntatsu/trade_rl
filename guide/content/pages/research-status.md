@@ -33,6 +33,8 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
+次の候補mechanismとして、Ridge / LightGBMだけに明示opt-inできるforecast switching-cost gateを実装しました。既存forecastとthresholdを変えず、片道cost floorを上回らないintent変更を抑制するものです。factor値は現行research assumptionの5bp fee + 2bp spreadから **0.0007** に結果前固定し、複数値を試して選びません。`FORECAST_SWITCH_COST` は一因子としてidentityへbindできますが、独立したresult-blind G0-G2 reviewが未完了なので、このmechanismのeconomic runはまだ行いません。
+
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
 
 ## まだ主張しないこと

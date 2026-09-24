@@ -59,4 +59,40 @@ class ForecastIntentController:
         return PositionIntent.SHORT
 
 
-__all__ = ["ForecastIntentConfig", "ForecastIntentController"]
+class CostAwareForecastIntentController:
+    """Veto forecast-intent changes whose expected improvement does not pay cost."""
+
+    def __init__(
+        self,
+        config: ForecastIntentConfig,
+        *,
+        one_way_switch_cost: float,
+    ) -> None:
+        if (
+            isinstance(one_way_switch_cost, bool)
+            or not math.isfinite(one_way_switch_cost)
+            or one_way_switch_cost < 0.0
+        ):
+            raise ValueError("one-way switch cost must be finite and non-negative")
+        self.config = config
+        self.one_way_switch_cost = float(one_way_switch_cost)
+        self._baseline = ForecastIntentController(config)
+
+    def decide(self, forecast: float, *, current: PositionIntent) -> PositionIntent:
+        proposed = self._baseline.decide(forecast, current=current)
+        if not math.isfinite(forecast):
+            return proposed
+        if proposed is current:
+            return current
+
+        intent_distance = abs(int(proposed) - int(current))
+        expected_improvement = float(int(proposed) - int(current)) * forecast
+        switching_cost = intent_distance * self.one_way_switch_cost
+        return proposed if expected_improvement > switching_cost else current
+
+
+__all__ = [
+    "CostAwareForecastIntentController",
+    "ForecastIntentConfig",
+    "ForecastIntentController",
+]

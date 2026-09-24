@@ -40,11 +40,84 @@ class ReplayDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class ReplayPnlAttribution:
+    """Observed-path P&L decomposition without rerunning a zero-cost strategy."""
+
+    initial_equity: float
+    final_equity: float
+    observed_path_price_pnl: float
+    execution_cost: float
+    funding_pnl: float
+    borrow_cost: float
+    dividend_pnl: float
+    cash_interest_pnl: float
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("initial_equity", self.initial_equity),
+            ("final_equity", self.final_equity),
+            ("observed_path_price_pnl", self.observed_path_price_pnl),
+            ("execution_cost", self.execution_cost),
+            ("funding_pnl", self.funding_pnl),
+            ("borrow_cost", self.borrow_cost),
+            ("dividend_pnl", self.dividend_pnl),
+            ("cash_interest_pnl", self.cash_interest_pnl),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if self.initial_equity <= 0.0:
+            raise ValueError("initial_equity must be positive")
+        if self.final_equity < 0.0:
+            raise ValueError("final_equity must be non-negative")
+        if self.execution_cost < 0.0 or self.borrow_cost < 0.0:
+            raise ValueError("execution_cost and borrow_cost must be non-negative")
+        expected_net_pnl = (
+            self.observed_path_price_pnl
+            - self.execution_cost
+            + self.funding_pnl
+            - self.borrow_cost
+            + self.dividend_pnl
+            + self.cash_interest_pnl
+        )
+        scale = max(
+            1.0,
+            abs(self.initial_equity),
+            abs(self.final_equity),
+            abs(expected_net_pnl),
+        )
+        if not math.isclose(
+            self.net_pnl,
+            expected_net_pnl,
+            rel_tol=1e-10,
+            abs_tol=scale * 1e-10,
+        ):
+            raise ValueError("replay P&L attribution does not reconcile to equity")
+
+    @property
+    def net_pnl(self) -> float:
+        return self.final_equity - self.initial_equity
+
+    def to_mapping(self) -> dict[str, float]:
+        return {
+            "borrow_cost": self.borrow_cost,
+            "cash_interest_pnl": self.cash_interest_pnl,
+            "dividend_pnl": self.dividend_pnl,
+            "execution_cost": self.execution_cost,
+            "final_equity": self.final_equity,
+            "funding_pnl": self.funding_pnl,
+            "initial_equity": self.initial_equity,
+            "net_pnl": self.net_pnl,
+            "observed_path_price_pnl": self.observed_path_price_pnl,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SingleSymbolReplayResult:
     book: BookState
     returns: ReturnSeries
     diagnostics: ExecutionDiagnostics
     decisions: tuple[ReplayDecision, ...]
+    pnl_attribution: ReplayPnlAttribution | None = None
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     terminal_order_reasons: tuple[tuple[str, str], ...] = ()
 
@@ -183,6 +256,7 @@ class SharedCashReplayResult:
     returns: ReturnSeries
     diagnostics: ExecutionDiagnostics
     decisions: tuple[SharedCashReplayDecision, ...]
+    pnl_attribution: ReplayPnlAttribution | None = None
     ledger_evidence: SharedCashReplayLedgerEvidence | None = None
 
 
@@ -316,6 +390,13 @@ def run_single_symbol_replay(
     desired_quantity = 0.0
     decisions: list[ReplayDecision] = []
     returns: list[float] = []
+    price_pnl_parts: list[float] = []
+    execution_cost_parts: list[float] = []
+    funding_pnl_parts: list[float] = []
+    borrow_cost_parts: list[float] = []
+    dividend_pnl_parts: list[float] = []
+    cash_interest_pnl_parts: list[float] = []
+    initial_equity = float(book.portfolio_value)
     index = start_index
 
     while index < stop_index:
@@ -367,6 +448,7 @@ def run_single_symbol_replay(
                 target_weight=target_weight,
             )
         )
+        period_start_equity = float(book.portfolio_value)
         execution = executor.execute_interval(
             book,
             constrained.weights,
@@ -375,6 +457,14 @@ def run_single_symbol_replay(
         )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
+        price_pnl_parts.append(
+            period_start_equity * float(execution.interval_gross_return)
+        )
+        execution_cost_parts.append(float(execution.interval_cost))
+        funding_pnl_parts.append(float(execution.interval_funding))
+        borrow_cost_parts.append(float(execution.interval_borrow_cost))
+        dividend_pnl_parts.append(float(execution.interval_dividend))
+        cash_interest_pnl_parts.append(float(execution.interval_cash_interest))
         book = execution.book
         returns.append(execution.interval_net_return)
         current_intent = intent
@@ -398,6 +488,16 @@ def run_single_symbol_replay(
         rebalance_events=book.rebalance_events,
         termination_reasons=termination_reasons,
     )
+    pnl_attribution = ReplayPnlAttribution(
+        initial_equity=initial_equity,
+        final_equity=float(book.portfolio_value),
+        observed_path_price_pnl=math.fsum(price_pnl_parts),
+        execution_cost=math.fsum(execution_cost_parts),
+        funding_pnl=math.fsum(funding_pnl_parts),
+        borrow_cost=math.fsum(borrow_cost_parts),
+        dividend_pnl=math.fsum(dividend_pnl_parts),
+        cash_interest_pnl=math.fsum(cash_interest_pnl_parts),
+    )
     return SingleSymbolReplayResult(
         book=book.clone(),
         returns=ReturnSeries(
@@ -406,6 +506,7 @@ def run_single_symbol_replay(
             periods_per_year=dataset.periods_per_year,
         ),
         diagnostics=diagnostics,
+        pnl_attribution=pnl_attribution,
         decisions=tuple(decisions),
         active_order_remainders=(
             ()
@@ -494,6 +595,13 @@ def run_shared_cash_replay(
     desired_quantities = np.zeros(dataset.n_symbols, dtype=np.float64)
     decisions: list[SharedCashReplayDecision] = []
     returns: list[float] = []
+    price_pnl_parts: list[float] = []
+    execution_cost_parts: list[float] = []
+    funding_pnl_parts: list[float] = []
+    borrow_cost_parts: list[float] = []
+    dividend_pnl_parts: list[float] = []
+    cash_interest_pnl_parts: list[float] = []
+    initial_equity = float(book.portfolio_value)
     ledger_intervals: list[SharedCashLedgerIntervalEvidence] = []
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     terminal_order_reasons: tuple[tuple[str, str], ...] = ()
@@ -582,6 +690,14 @@ def run_shared_cash_replay(
         )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
+        price_pnl_parts.append(
+            portfolio_value_before * float(execution.interval_gross_return)
+        )
+        execution_cost_parts.append(float(execution.interval_cost))
+        funding_pnl_parts.append(float(execution.interval_funding))
+        borrow_cost_parts.append(float(execution.interval_borrow_cost))
+        dividend_pnl_parts.append(float(execution.interval_dividend))
+        cash_interest_pnl_parts.append(float(execution.interval_cash_interest))
         if capture_ledger_evidence:
             if (
                 execution_observation_count != len(ledger_intervals) + 1
@@ -654,6 +770,16 @@ def run_shared_cash_replay(
         rebalance_events=book.rebalance_events,
         termination_reasons=termination_reasons,
     )
+    pnl_attribution = ReplayPnlAttribution(
+        initial_equity=initial_equity,
+        final_equity=float(book.portfolio_value),
+        observed_path_price_pnl=math.fsum(price_pnl_parts),
+        execution_cost=math.fsum(execution_cost_parts),
+        funding_pnl=math.fsum(funding_pnl_parts),
+        borrow_cost=math.fsum(borrow_cost_parts),
+        dividend_pnl=math.fsum(dividend_pnl_parts),
+        cash_interest_pnl=math.fsum(cash_interest_pnl_parts),
+    )
     ledger_evidence = None
     if capture_ledger_evidence:
         if not ledger_intervals:
@@ -695,6 +821,7 @@ def run_shared_cash_replay(
             periods_per_year=dataset.periods_per_year,
         ),
         diagnostics=diagnostics,
+        pnl_attribution=pnl_attribution,
         decisions=tuple(decisions),
         ledger_evidence=ledger_evidence,
     )
@@ -702,6 +829,7 @@ def run_shared_cash_replay(
 
 __all__ = [
     "ReplayDecision",
+    "ReplayPnlAttribution",
     "SharedCashLedgerIntervalEvidence",
     "SharedCashReplayDecision",
     "SharedCashReplayLedgerEvidence",

@@ -131,6 +131,7 @@ def test_one_symbol_shared_cash_is_single_symbol_equivalent() -> None:
     assert shared.book.cash == pytest.approx(single.book.cash)
     assert shared.book.portfolio_value == pytest.approx(single.book.portfolio_value)
     assert shared.diagnostics == single.diagnostics
+    assert shared.pnl_attribution == single.pnl_attribution
     assert [item.intents[0] for item in shared.decisions] == [
         item.intent for item in single.decisions
     ]
@@ -438,3 +439,8 @@ def test_portfolio_termination_stops_all_symbols() -> None:
     assert result.book.termination_reason is not None
     assert len(result.returns.values) < 5
     assert len(result.decisions) == len(result.returns.values)
+    attribution = result.pnl_attribution
+    assert attribution.final_equity == pytest.approx(result.book.portfolio_value)
+    assert attribution.net_pnl == pytest.approx(
+        result.book.portfolio_value - attribution.initial_equity
+    )

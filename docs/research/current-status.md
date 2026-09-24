@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-22 (JST)
+更新基準: 2026-09-24 (JST)
 
 ## 結論
 
@@ -14,6 +14,8 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+その前段のloss diagnosisとして、current replay resultは `ReplayPnlAttribution` を持つ。これはsingle-symbol / shared-cashの同一実約定pathについて、initial/final equity、observed-path price P&L、execution cost、signed funding、borrow、dividend、cash interestを分離し、会計恒等式へ照合する。costをゼロにしてstrategyを再実行するcounterfactualではないため、actionやquantityを変えずに「価格path自体が弱いのか、明示cost/carryがdragなのか」を診断できる。このcapabilityの追加自体は新しいprofitability evidenceではなく、既存結果のformal decisionも変更しない。診断結果を次のControlled Factor選択へ使う場合は、その利用をdevelopment evidenceとして記録し、同じ期間をunusedへ戻さない。
 
 ## 研究目的
 

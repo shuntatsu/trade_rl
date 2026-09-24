@@ -35,6 +35,7 @@ def _assert_same_economics(left, right) -> None:
     assert left.book.max_drawdown == right.book.max_drawdown
     assert left.book.termination_reason == right.book.termination_reason
     assert left.diagnostics == right.diagnostics
+    assert left.pnl_attribution == right.pnl_attribution
     assert left.decisions == right.decisions
 
 

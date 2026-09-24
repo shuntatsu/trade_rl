@@ -7,6 +7,7 @@ import pytest
 
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.replay import ReplayPnlAttribution
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.position_intent import PositionIntent
@@ -133,6 +134,114 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert getattr(first_observation, "index") == 0
     features = getattr(first_observation, "features")
     assert features.flags.writeable is False
+
+
+def test_single_symbol_replay_result_keeps_legacy_constructor_shape() -> None:
+    result = evaluation.run_single_symbol_replay(
+        _rising_market(),
+        AlwaysLong(),
+        start_index=0,
+        stop_index=2,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+
+    rebuilt = evaluation.SingleSymbolReplayResult(
+        result.book,
+        result.returns,
+        result.diagnostics,
+        result.decisions,
+    )
+
+    assert rebuilt.pnl_attribution is None
+
+
+def test_replay_exposes_observed_path_pnl_attribution() -> None:
+    result = evaluation.run_single_symbol_replay(
+        _rising_market(),
+        AlwaysLong(),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(ExecutionCostConfig.zero(), fee_rate=0.01),
+    )
+
+    attribution = result.pnl_attribution
+    assert attribution.initial_equity == pytest.approx(1_000.0)
+    assert attribution.final_equity == pytest.approx(1_195.0)
+    assert attribution.observed_path_price_pnl == pytest.approx(200.0)
+    assert attribution.execution_cost == pytest.approx(5.0)
+    assert attribution.funding_pnl == 0.0
+    assert attribution.borrow_cost == 0.0
+    assert attribution.dividend_pnl == 0.0
+    assert attribution.cash_interest_pnl == 0.0
+    assert attribution.net_pnl == pytest.approx(195.0)
+    assert attribution.to_mapping()["net_pnl"] == pytest.approx(195.0)
+
+
+def test_replay_pnl_attribution_preserves_signed_carry_channels() -> None:
+    close = np.asarray([[100.0], [100.0], [100.0]])
+    dataset = MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(3) * np.timedelta64(1, "h"),
+        features=np.zeros((3, 1, 1), dtype=np.float32),
+        global_features=np.zeros((3, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((3, 1), 1_000_000.0),
+        funding_rate=np.asarray([[0.0], [0.01], [0.0]]),
+        funding_due=np.asarray([[False], [True], [False]]),
+        tradable=np.ones((3, 1), dtype=np.bool_),
+        feature_available=np.ones((3, 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        borrow_available=np.ones((3, 1), dtype=np.bool_),
+        borrow_rate=np.asarray([[0.0], [0.0876], [0.0]]),
+        dividend=np.asarray([[0.0], [1.0], [0.0]]),
+        cash_rate=np.asarray([0.0, 0.0876, 0.0]),
+    )
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        AlwaysShort(),
+        start_index=0,
+        stop_index=1,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            borrow_rate_multiplier=1.0,
+        ),
+    )
+
+    attribution = result.pnl_attribution
+    assert attribution.observed_path_price_pnl == pytest.approx(0.0, abs=1e-12)
+    assert attribution.execution_cost == 0.0
+    assert attribution.funding_pnl == pytest.approx(5.0)
+    assert attribution.borrow_cost == pytest.approx(0.005)
+    assert attribution.dividend_pnl == pytest.approx(-5.0)
+    assert attribution.cash_interest_pnl == pytest.approx(0.01495)
+    assert attribution.net_pnl == pytest.approx(0.00995)
+    assert attribution.final_equity == pytest.approx(1_000.00995)
+
+
+def test_replay_pnl_attribution_rejects_nonreconciling_components() -> None:
+    with pytest.raises(ValueError, match="does not reconcile"):
+        ReplayPnlAttribution(
+            initial_equity=1_000.0,
+            final_equity=1_050.0,
+            observed_path_price_pnl=60.0,
+            execution_cost=5.0,
+            funding_pnl=0.0,
+            borrow_cost=0.0,
+            dividend_pnl=0.0,
+            cash_interest_pnl=0.0,
+        )
 
 
 def test_replay_exposes_terminal_active_order_remainders() -> None:

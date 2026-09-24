@@ -442,6 +442,8 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Known limitations:** 会計恒等式の一致は、入力price/fill自体が市場で実現可能だったことを証明しない。
 
+診断目的のP&L分解は、実際に通った同一execution pathからのみ作る。`ReplayPnlAttribution` は各intervalの既存 `interval_gross_return` と明示cash-flow channelを使い、`net P&L = observed-path price P&L - execution cost + funding - borrow + dividend + cash interest` をinitial/final equityへ照合する。costをゼロにしてstrategyを再実行した結果はaction/quantity自体が変わり得る別counterfactualなので、この原因分解の根拠には使わない。
+
 ### PORTFOLIO-001 — coherent shared state
 
 **Statement:** portfolio-wide制約を主張する経路は、一つの整合したpre-execution account stateに対して全proposalを評価し、shared cash/gross/margin/capacityを競合込みで適用する。

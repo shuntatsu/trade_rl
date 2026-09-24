@@ -26,6 +26,35 @@ def test_terminal_exit_is_a_real_next_open_fill_and_includes_both_fees() -> None
     assert result["metrics"]["total_cost"] > 1.9
 
 
+def test_directional_pnl_attribution_is_opt_in_and_policy_neutral() -> None:
+    from dataclasses import replace
+
+    dataset = _market(np.full((8, 1), 100.0))
+    dataset = replace(dataset, taker_fee_rate=np.full((8, 1), 0.001))
+    baseline = directional.evaluate_directional_arm(
+        dataset,
+        lambda: ConstantIntentStrategy(PositionIntent.LONG),
+        start_index=0,
+        stop_index=7,
+    )
+    observed = directional.evaluate_directional_arm(
+        dataset,
+        lambda: ConstantIntentStrategy(PositionIntent.LONG),
+        start_index=0,
+        stop_index=7,
+        capture_pnl_attribution=True,
+    )
+
+    attribution = observed.pop("pnl_attribution")
+    assert observed == baseline
+    assert "pnl_attribution" not in baseline
+    assert attribution["observed_path_price_pnl"] == pytest.approx(0.0, abs=1e-9)
+    assert attribution["execution_cost"] == pytest.approx(
+        baseline["metrics"]["total_cost"]
+    )
+    assert attribution["net_pnl"] < 0.0
+
+
 def test_delayed_orders_still_close_before_end_of_evidence() -> None:
     dataset = _market(np.full((9, 1), 100.0))
     result = directional.evaluate_directional_arm(

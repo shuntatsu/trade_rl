@@ -33,6 +33,8 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
+次のControlled Factorを選ぶ前に、既存replayの同じ実約定pathを `ReplayPnlAttribution` で分解し、observed-path price P&L、execution cost、funding、borrow、dividend、cash interestのどこが損益を支配しているかを診断できます。これはcostをゼロにしてstrategyを再実行する比較ではなく、actionやquantityを変えない会計診断です。この診断自体はprofitability evidenceを追加せず、診断結果を次の研究選択へ使った期間はdevelopment-usedとして扱います。
+
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
 
 ## まだ主張しないこと

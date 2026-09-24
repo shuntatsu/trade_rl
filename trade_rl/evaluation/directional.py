@@ -46,6 +46,7 @@ def evaluate_directional_arm(
     gross_budget: float = 0.1,
     market_order_profile: MarketOrderProfile | None = None,
     capture_ledger_evidence: bool = False,
+    capture_pnl_attribution: bool = False,
 ) -> dict[str, Any]:
     """Evaluate one fixed arm; a pass is a development screen only."""
     if (
@@ -172,6 +173,10 @@ def evaluate_directional_arm(
             market_order_profile=market_order_profile.canonical_payload(),
             terminal_exact_quantities=[str(q) for q in replay.book.exact_quantities],
         )
+    if capture_pnl_attribution:
+        if replay.pnl_attribution is None:
+            raise RuntimeError("P&L attribution was requested but not produced")
+        result["pnl_attribution"] = replay.pnl_attribution.to_mapping()
     if capture_ledger_evidence:
         if replay.ledger_evidence is None:
             raise RuntimeError("ledger evidence capture was requested but not produced")

@@ -31,6 +31,7 @@ metrics / comparison / robustness / immutable evidence
 | 検証済み | `market_build_v3` と `portable_feature_numerics_v1` を固定した実データDataset、PPO Observation v2、共通execution/accounting、結果前の事前登録からartifact後の独立検証までの研究経路 |
 | 観測したが不十分 | Portable Controlled Experiment 0001ではmean-reversionがbaseline比で5 / 5銘柄改善しturnoverも低下したが、candidate total returnが正だったのは1 / 5銘柄 |
 | 正式判断 | Experiment 0001は事前登録したruleに従い **KEEP_BASELINE** |
+| 損失診断 | 同じ実約定pathのprice P&Lとexecution cost / funding / borrow等を分離する `ReplayPnlAttribution` を追加。zero-cost再実行ではなく、既存の会計結果を分解する診断 |
 | 未証明 | 継続的なprofitability、winner strategy、unused future dataでの勝利、Production/live order authorization |
 
 **再現可能な研究基盤が成立したことと、儲かる戦略が見つかったことは別です。** 現時点では後者を主張しません。

@@ -107,6 +107,8 @@ trade_rl/
         └── bootstrap/{__init__.py,config.py,binance.py,workflow.py,cli.py}
 ```
 
+`evaluation/replay.py` はsingle-symbol / shared-cash replayのresult surfaceと、同じ実約定pathを使う `ReplayPnlAttribution` を所有する。attributionはexecutorが既に確定した interval gross return / execution cost / funding / borrow / dividend / cash interestだけを集計し、`net P&L = observed-path price P&L - execution cost + funding - borrow + dividend + cash interest` をfinal equityへ照合する。zero-cost戦略を再実行したcounterfactualや別ledgerは作らず、policy action、fill、quantity、risk、execution stateを変更しない。
+
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
 
 ## Provider evidence boundary

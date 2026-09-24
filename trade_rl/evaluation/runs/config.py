@@ -53,8 +53,8 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
+        "forecast_switch_cost",
     )
-    OPTIONAL_JSON_FIELDS: ClassVar[tuple[str, ...]] = ("forecast_switch_cost",)
 
     signal_name: str
     feature_names: tuple[str, ...]
@@ -147,6 +147,8 @@ class CandidateRunConfig:
 
         payload: dict[str, object] = {}
         for name in self.JSON_FIELDS:
+            if name == "forecast_switch_cost" and self.forecast_switch_cost is None:
+                continue
             value = getattr(self, name)
             if isinstance(value, np.datetime64):
                 payload[name] = str(np.datetime64(value, "ns"))
@@ -154,8 +156,6 @@ class CandidateRunConfig:
                 payload[name] = list(value)
             else:
                 payload[name] = value
-        if self.forecast_switch_cost is not None:
-            payload["forecast_switch_cost"] = self.forecast_switch_cost
         return payload
 
 
@@ -287,10 +287,7 @@ def _required_timestamp(raw: Mapping[str, object], name: str) -> np.datetime64:
 def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     """Validate one JSON-like candidate-run configuration."""
 
-    allowed = set(CandidateRunConfig.JSON_FIELDS) | set(
-        CandidateRunConfig.OPTIONAL_JSON_FIELDS
-    )
-    unknown = sorted(set(raw) - allowed)
+    unknown = sorted(set(raw) - set(CandidateRunConfig.JSON_FIELDS))
     if unknown:
         raise ValueError(f"unknown config keys: {', '.join(unknown)}")
     return CandidateRunConfig(

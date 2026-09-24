@@ -416,6 +416,50 @@ def test_review_gate_rejects_superseded_authorization(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("body", REVIEW_BODY + " edited"),
+        ("commit_id", "c" * 40),
+        ("state", "DISMISSED"),
+        (
+            "html_url",
+            "https://github.com/owner/repo/pull/900#pullrequestreview-54321",
+        ),
+        ("reviewer_login", "renamed-reviewer"),
+    ),
+)
+def test_review_gate_rejects_source_review_changed_during_inventory_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
+    changed = _status_review(review_id=12345)
+    if field == "reviewer_login":
+        changed["user"] = {"id": 2, "login": value}
+    else:
+        changed[field] = value
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [changed]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    with pytest.raises(ValueError, match="changed during authorization"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
 def test_review_gate_keeps_authorization_when_other_reviewer_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -223,6 +223,13 @@ def _require_review_not_superseded(
             raise ValueError("source review authorization was superseded") from None
         if candidate_id != review_id:
             raise ValueError("source review authorization was superseded")
+        for field in ("html_url", "body", "commit_id", "state"):
+            if candidate.get(field) != record.get(field):
+                raise ValueError("source review changed during authorization check")
+        if _github_principal_login(
+            candidate, field="source review"
+        ) != _github_principal_login(record, field="source review"):
+            raise ValueError("source review changed during authorization check")
         return
     raise ValueError("source review is missing from current review inventory")
 

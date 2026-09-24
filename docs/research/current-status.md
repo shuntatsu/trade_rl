@@ -494,8 +494,9 @@ open execution PR head equals the reviewed code SHA; the only subsequent source
 transition is the review-evidence-only trigger commit, which becomes the PR head
 while the formal review stays bound to its parent code SHA. The trigger gate
 refetches the bound review, current reviewer permission, and full review
-inventory immediately before accepting the evidence transition; a superseded or
-permission-revoked review is rejected. `PENDING` therefore means software verification completed but the exact-head
+inventory immediately before accepting the evidence transition; a superseded,
+permission-revoked, or same-ID review whose URL/body/commit/state/login changed
+between the individual fetch and inventory refresh is rejected. `PENDING` therefore means software verification completed but the exact-head
 independent result-blind review is still absent or invalid; `READY` means only
 that the authenticated review-evidence transition may proceed, not that PPO
 economics may run directly.

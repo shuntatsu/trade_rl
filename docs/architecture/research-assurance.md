@@ -162,7 +162,10 @@ that evidence-only trigger commit while the formal review `commit_id` remains
 bound to its exact code parent. Before economic execution, the trigger gate
 refetches the source review, the reviewer's current repository permission, and
 the chronological review inventory; the bound source review must still be that
-reviewer's latest review.
+reviewer's latest review. The inventory copy of that same review ID must also
+match the individually fetched authorization snapshot for review URL, body,
+commit, state, and reviewer login. Any mid-check edit or state drift therefore
+fails closed instead of reusing stale body-hash evidence.
 `PENDING` blocks the workflow;
 `READY` only means the review-evidence transition may be created. It does not
 itself authorize economic execution or replace the authenticated one-shot

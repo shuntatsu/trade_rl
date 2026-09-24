@@ -131,12 +131,17 @@ PR may already be merged; economic authorization therefore uses a dedicated
 **open draft execution PR** whose head is the exact reviewed code commit on
 `research/ppo-4h-indicator-smoke-execution` and whose base is `main`. The PR must remain Draft through review authorization and the evidence-only trigger transition so an unprotected repository cannot merge it before the independent-review gate is satisfied. Both the visible review-status check and the authenticated trigger also refetch current `main` and require the reviewed code SHA to contain it; a main advance therefore makes earlier CI/review evidence stale and blocks execution until the execution branch is resynchronized and re-reviewed.
 Authorization evidence must be a formal GitHub PR review on that execution PR,
-and the review's `commit_id` must equal the exact reviewed code HEAD. GitHub
-principal separation is not the independence oracle for this smoke: the review
-may be posted through the PR author's GitHub principal when its content was
-produced by a fresh external AI reviewer. The committed trigger record declares
-`reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
-SHA-256. The review body must end in one canonical
+and the review's `commit_id` must equal the exact reviewed code HEAD. The posting
+GitHub principal must be distinct from the execution PR author; a canonical body or
+annotated tag created through the author's own principal cannot establish reviewer
+independence by itself. The structured `reviewer_independence=ESTABLISHED` /
+`reviewer_kind=external_ai` / `reviewer_context=fresh_read_only` fields remain
+necessary semantic attestations, but they are not accepted as a substitute for this
+machine-checkable principal separation. The committed trigger record uses the versioned
+`ppo_4h_indicator_smoke_review_v2` schema, declares
+`reviewer_surface=github_pr_review_v2`, and binds the exact review URL and body
+SHA-256. The prior v1 trigger schema predates review-tag identity and is not
+accepted for this lifecycle. The review body must end in one canonical
 `ppo_4h_indicator_source_review_v3` payload that binds the same code HEAD and
 static contract, records `review_tag`, `review_tag_object_sha`,
 `reviewer_independence=ESTABLISHED`, `reviewer_kind=external_ai`, a non-empty

@@ -24,7 +24,7 @@ SOURCE_ARTIFACT_SHA256 = (
     "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
 REVIEW_PATH = Path("report/ppo-4h-indicator-smoke-review.json")
-REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
+REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v2"
 SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v3"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v3 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v2"
@@ -428,7 +428,7 @@ def _validate_source_review_record(
         raise ValueError("source review commit differs from reviewed code SHA")
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
-    _validate_execution_pull(
+    author_id = _validate_execution_pull(
         pull,
         repository=repository,
         pull_number=pull_number,
@@ -438,6 +438,9 @@ def _validate_source_review_record(
             else expected_pull_head_sha
         ),
     )
+    reviewer_id = _github_principal_id(record, field="source review")
+    if reviewer_id == author_id:
+        raise ValueError("source review principal is not independent from PR author")
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed_code_sha:

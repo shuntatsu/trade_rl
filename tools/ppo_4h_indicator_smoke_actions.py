@@ -25,8 +25,8 @@ SOURCE_ARTIFACT_SHA256 = (
 )
 REVIEW_PATH = Path("report/ppo-4h-indicator-smoke-review.json")
 REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
-SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
-SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
+SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v3"
+SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v3 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v2"
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
 EXECUTION_BASE_BRANCH = "main"
@@ -37,6 +37,9 @@ _REVIEW_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/"
     r"(?P<repo>[A-Za-z0-9_.-]+)/pull/(?P<pull>[1-9][0-9]*)#"
     r"pullrequestreview-(?P<review>[1-9][0-9]*)$"
+)
+_REVIEW_TAG_RE = re.compile(
+    r"^review/ppo-4h-indicator-smoke-v(?P<version>[1-9][0-9]*)$"
 )
 
 
@@ -68,6 +71,8 @@ def _canonical_review(path: Path) -> dict[str, Any]:
         "schema",
         "reviewed_code_sha",
         "static_contract_digest",
+        "review_tag",
+        "review_tag_object_sha",
         "source_review_url",
         "source_review_body_sha256",
         "reviewer_surface",
@@ -102,7 +107,12 @@ def _canonical_source_review(body: str) -> dict[str, Any]:
         "schema",
         "reviewed_code_sha",
         "static_contract_digest",
+        "review_tag",
+        "review_tag_object_sha",
         "reviewer_independence",
+        "reviewer_kind",
+        "reviewer_model",
+        "reviewer_context",
         "result_blind",
         "g0",
         "g1",
@@ -169,6 +179,81 @@ def _require_reviewer_write_permission(
     ).get("permission")
     if permission not in {"write", "admin"}:
         raise ValueError("source reviewer lacks repository write permission")
+
+
+def _require_review_tag_identity(
+    source: dict[str, Any],
+    *,
+    repository: str,
+    reviewed_code_sha: str,
+    token: str,
+    deadline: float,
+) -> None:
+    review_tag = source.get("review_tag")
+    if not isinstance(review_tag, str) or _REVIEW_TAG_RE.fullmatch(review_tag) is None:
+        raise ValueError("source review tag name is malformed")
+    expected_tag_object_sha = transport._require_commit_sha(
+        source.get("review_tag_object_sha"), field="review tag object SHA"
+    )
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    path = transport._repo_path(repository)
+    ref_name = urllib.parse.quote(f"tags/{review_tag}", safe="/")
+    try:
+        tag_ref = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/ref/{ref_name}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    if tag_ref.get("ref") != f"refs/tags/{review_tag}":
+        raise ValueError("review tag ref identity differs")
+    ref_object = tag_ref.get("object")
+    if not isinstance(ref_object, dict) or ref_object.get("type") != "tag":
+        raise ValueError("review tag must be annotated")
+    actual_tag_object_sha = transport._require_commit_sha(
+        ref_object.get("sha"), field="review tag object SHA"
+    )
+    if actual_tag_object_sha != expected_tag_object_sha:
+        raise ValueError("review tag object SHA differs from reviewed identity")
+
+    try:
+        tag_object = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/tags/{actual_tag_object_sha}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    if tag_object.get("tag") != review_tag:
+        raise ValueError("review tag object name differs from reviewed identity")
+    target = tag_object.get("object")
+    if not isinstance(target, dict) or target.get("type") != "commit":
+        raise ValueError("review tag object does not point to a commit")
+    tagged_commit_sha = transport._require_commit_sha(
+        target.get("sha"), field="review tag commit SHA"
+    )
+    if tagged_commit_sha != reviewed:
+        raise ValueError("review tag does not point to reviewed code commit")
+
+    try:
+        current_tag_ref = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/ref/{ref_name}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    current_ref_object = current_tag_ref.get("object")
+    if (
+        current_tag_ref.get("ref") != f"refs/tags/{review_tag}"
+        or not isinstance(current_ref_object, dict)
+        or current_ref_object.get("type") != "tag"
+        or current_ref_object.get("sha") != actual_tag_object_sha
+    ):
+        raise ValueError("review tag changed during identity check")
 
 
 def _review_inventory(
@@ -343,8 +428,7 @@ def _validate_source_review_record(
         raise ValueError("source review commit differs from reviewed code SHA")
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
-    reviewer_id = _github_principal_id(record, field="source review")
-    author_id = _validate_execution_pull(
+    _validate_execution_pull(
         pull,
         repository=repository,
         pull_number=pull_number,
@@ -354,10 +438,6 @@ def _validate_source_review_record(
             else expected_pull_head_sha
         ),
     )
-    if reviewer_id == author_id:
-        raise ValueError(
-            "source review is not independent from the pull request author"
-        )
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed_code_sha:
@@ -366,6 +446,13 @@ def _validate_source_review_record(
         raise ValueError("source review payload binds a different static contract")
     if source.get("reviewer_independence") != "ESTABLISHED":
         raise ValueError("source review independence is not established")
+    if source.get("reviewer_kind") != "external_ai":
+        raise ValueError("source review is not from an external AI reviewer")
+    reviewer_model = source.get("reviewer_model")
+    if not isinstance(reviewer_model, str) or not reviewer_model.strip():
+        raise ValueError("source review model provenance is missing")
+    if source.get("reviewer_context") != "fresh_read_only":
+        raise ValueError("source review did not use a fresh read-only context")
     if source.get("result_blind") is not True:
         raise ValueError("source review is not result-blind")
     if source.get("g0") != "PASS":
@@ -456,12 +543,19 @@ def find_authorizing_source_review(
             continue
         seen_reviewers.add(reviewer_id)
         try:
-            validate_independent_review_status(
+            source = validate_independent_review_status(
                 record,
                 pull,
                 repository=repository,
                 pull_number=pull_number,
                 reviewed_code_sha=reviewed,
+            )
+            _require_review_tag_identity(
+                source,
+                repository=repository,
+                reviewed_code_sha=reviewed,
+                token=token,
+                deadline=deadline,
             )
             _require_reviewer_write_permission(
                 record,
@@ -624,6 +718,19 @@ def validate_review_gate(
         expected_pull_head_sha=head,
         expected_url=review_url,
         expected_body_sha256=review_sha,
+    )
+    if review.get("review_tag") != source.get("review_tag") or review.get(
+        "review_tag_object_sha"
+    ) != source.get("review_tag_object_sha"):
+        raise ValueError(
+            "trigger review tag identity differs from the authenticated source review"
+        )
+    _require_review_tag_identity(
+        source,
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
     )
     _require_reviewer_write_permission(
         record,

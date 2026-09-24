@@ -15,9 +15,11 @@ smoke = importlib.import_module("trade_rl.evaluation.ppo_4h_indicator_smoke")
 REVIEWED_SHA = "a" * 40
 TRIGGER_SHA = "b" * 40
 CURRENT_MAIN_SHA = "d" * 40
+REVIEW_TAG = "review/ppo-4h-indicator-smoke-v1"
+REVIEW_TAG_OBJECT_SHA = "e" * 40
 REVIEW_URL = "https://github.com/owner/repo/pull/900#pullrequestreview-12345"
-SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
-SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
+SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v3"
+SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v3 -->\n"
 
 
 def _source_review_payload(**updates: object) -> dict[str, object]:
@@ -25,7 +27,12 @@ def _source_review_payload(**updates: object) -> dict[str, object]:
         "schema": SOURCE_REVIEW_SCHEMA,
         "reviewed_code_sha": REVIEWED_SHA,
         "static_contract_digest": content_digest(smoke.static_protocol_contract()),
+        "review_tag": REVIEW_TAG,
+        "review_tag_object_sha": REVIEW_TAG_OBJECT_SHA,
         "reviewer_independence": "ESTABLISHED",
+        "reviewer_kind": "external_ai",
+        "reviewer_model": "external-reviewer-v1",
+        "reviewer_context": "fresh_read_only",
         "result_blind": True,
         "g0": "PASS",
         "g1": "PASS",
@@ -60,6 +67,8 @@ def _review() -> dict[str, object]:
         "schema": actions.REVIEW_SCHEMA,
         "reviewed_code_sha": REVIEWED_SHA,
         "static_contract_digest": content_digest(smoke.static_protocol_contract()),
+        "review_tag": REVIEW_TAG,
+        "review_tag_object_sha": REVIEW_TAG_OBJECT_SHA,
         "source_review_url": REVIEW_URL,
         "source_review_body_sha256": hashlib.sha256(
             REVIEW_BODY.encode("utf-8")
@@ -95,6 +104,10 @@ def _github_api(
     reviewer_login: str = "reviewer",
     author_id: int = 1,
     reviewer_permission: str = "write",
+    tag_ref_type: str = "tag",
+    tag_ref_sha: str = REVIEW_TAG_OBJECT_SHA,
+    tag_target_sha: str = REVIEWED_SHA,
+    tag_exists: bool = True,
 ):
     def fake(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/pulls/900/reviews/12345"):
@@ -108,6 +121,20 @@ def _github_api(
             }
         if "/collaborators/" in url and url.endswith("/permission"):
             return {"permission": reviewer_permission}
+        if url.endswith(f"/git/ref/tags/{REVIEW_TAG}"):
+            if not tag_exists:
+                raise actions.transport.TransportError(
+                    "GitHub API request failed with HTTP 404"
+                )
+            return {
+                "ref": f"refs/tags/{REVIEW_TAG}",
+                "object": {"type": tag_ref_type, "sha": tag_ref_sha},
+            }
+        if url.endswith(f"/git/tags/{REVIEW_TAG_OBJECT_SHA}"):
+            return {
+                "tag": REVIEW_TAG,
+                "object": {"type": "commit", "sha": tag_target_sha},
+            }
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -154,6 +181,147 @@ def test_review_gate_binds_exact_parent_contract_and_review_comment(
         token="token",
         deadline=999999999.0,
     )
+
+
+@pytest.mark.parametrize(
+    ("tag_ref_type", "tag_ref_sha", "tag_target_sha", "tag_exists", "match"),
+    (
+        ("commit", REVIEW_TAG_OBJECT_SHA, REVIEWED_SHA, True, "annotated"),
+        ("tag", "c" * 40, REVIEWED_SHA, True, "object SHA"),
+        ("tag", REVIEW_TAG_OBJECT_SHA, "c" * 40, True, "reviewed code"),
+        (
+            "tag",
+            REVIEW_TAG_OBJECT_SHA,
+            REVIEWED_SHA,
+            False,
+            "identity could not be verified",
+        ),
+    ),
+)
+def test_review_gate_rejects_invalid_review_tag_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tag_ref_type: str,
+    tag_ref_sha: str,
+    tag_target_sha: str,
+    tag_exists: bool,
+    match: str,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    api = _github_api(
+        tag_ref_type=tag_ref_type,
+        tag_ref_sha=tag_ref_sha,
+        tag_target_sha=tag_target_sha,
+        tag_exists=tag_exists,
+    )
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "&page=1" in url:
+            return [
+                api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    with pytest.raises(ValueError, match=match):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_review_gate_rejects_review_tag_ref_changed_during_identity_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    stable_api = _github_api()
+    ref_reads = 0
+
+    def moving_ref_api(url: str, **kwargs: object) -> dict[str, object]:
+        nonlocal ref_reads
+        if url.endswith(f"/git/ref/tags/{REVIEW_TAG}"):
+            ref_reads += 1
+            if ref_reads == 2:
+                return {
+                    "ref": f"refs/tags/{REVIEW_TAG}",
+                    "object": {"type": "tag", "sha": "c" * 40},
+                }
+        return stable_api(url, **kwargs)
+
+    monkeypatch.setattr(actions.transport, "_api_json", moving_ref_api)
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "&page=1" in url:
+            return [
+                stable_api(
+                    "https://api.github.com/repos/owner/repo/pulls/900/reviews/12345"
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    with pytest.raises(ValueError, match="changed during identity"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("review_tag", "review/ppo-4h-indicator-smoke-v2"),
+        ("review_tag_object_sha", "c" * 40),
+    ),
+)
+def test_review_gate_rejects_trigger_tag_identity_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    monkeypatch.setattr(actions, "_git", _fake_git)
+    api = _github_api()
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "&page=1" in url:
+            return [
+                api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+    review = deepcopy(_review())
+    review[field] = value
+
+    with pytest.raises(ValueError, match="tag identity"):
+        actions.validate_review_gate(
+            review,
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
+
+
+def test_canonical_trigger_review_requires_review_tag_identity(tmp_path) -> None:
+    path = tmp_path / "review.json"
+    review = _review()
+    path.write_bytes(canonical_json_bytes(review))
+
+    assert actions._canonical_review(path) == review
+
+    for field in ("review_tag", "review_tag_object_sha"):
+        invalid = deepcopy(review)
+        del invalid[field]
+        path.write_bytes(canonical_json_bytes(invalid))
+        with pytest.raises(ValueError, match="shape"):
+            actions._canonical_review(path)
 
 
 def test_execute_rechecks_review_gate_immediately_before_smoke(
@@ -324,23 +492,30 @@ def test_review_gate_rejects_noncanonical_trailing_source_review_text(
         )
 
 
-def test_review_gate_rejects_review_from_pr_author(
+def test_review_gate_accepts_external_ai_review_posted_by_pr_author(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(actions, "_git", _fake_git)
-    monkeypatch.setattr(
-        actions.transport,
-        "_api_json",
-        _github_api(reviewer_id=1, author_id=1),
-    )
+    api = _github_api(reviewer_id=1, author_id=1)
+    monkeypatch.setattr(actions.transport, "_api_json", api)
 
-    with pytest.raises(ValueError, match="independent"):
-        actions.validate_review_gate(
-            _review(),
-            repository="owner/repo",
-            token="token",
-            deadline=999999999.0,
-        )
+    def review_inventory(url: str, **_kwargs: object) -> list[object]:
+        if "/pulls/900/reviews?" not in url:
+            raise AssertionError(url)
+        if "&page=1" in url:
+            return [
+                api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+            ]
+        return []
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
+    actions.validate_review_gate(
+        _review(),
+        repository="owner/repo",
+        token="token",
+        deadline=999999999.0,
+    )
 
 
 def test_review_gate_rejects_reviewer_without_write_permission(
@@ -515,6 +690,9 @@ def test_review_gate_rejects_review_bound_to_another_commit(
     ("updates", "match"),
     (
         ({"reviewer_independence": "NOT_ESTABLISHED"}, "independence"),
+        ({"reviewer_kind": "human"}, "external AI"),
+        ({"reviewer_model": "   "}, "model provenance"),
+        ({"reviewer_context": "worker_context"}, "fresh read-only"),
         ({"result_blind": False}, "result-blind"),
         ({"g0": "FAIL"}, "G0"),
         ({"g1": "NOT_ESTABLISHED"}, "G1"),
@@ -748,10 +926,28 @@ def _review_inventory_api(
     reviews: list[dict[str, object]],
     author_id: int = 1,
     reviewer_permission: str = "write",
+    tag_ref_type: str = "tag",
+    tag_ref_sha: str = REVIEW_TAG_OBJECT_SHA,
+    tag_target_sha: str = REVIEWED_SHA,
+    tag_exists: bool = True,
 ):
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
         if "/collaborators/" in url and url.endswith("/permission"):
             return {"permission": reviewer_permission}
+        if url.endswith(f"/git/ref/tags/{REVIEW_TAG}"):
+            if not tag_exists:
+                raise actions.transport.TransportError(
+                    "GitHub API request failed with HTTP 404"
+                )
+            return {
+                "ref": f"refs/tags/{REVIEW_TAG}",
+                "object": {"type": tag_ref_type, "sha": tag_ref_sha},
+            }
+        if url.endswith(f"/git/tags/{REVIEW_TAG_OBJECT_SHA}"):
+            return {
+                "tag": REVIEW_TAG,
+                "object": {"type": "commit", "sha": tag_target_sha},
+            }
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -799,6 +995,63 @@ def test_independent_review_status_accepts_exact_result_blind_review(
     assert record["id"] == 12345
 
 
+def test_independent_review_status_accepts_external_ai_review_posted_by_author(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    object_api, array_api = _review_inventory_api(
+        reviews=[_status_review(reviewer_id=1)],
+        author_id=1,
+    )
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    record = actions.find_authorizing_source_review(
+        repository="owner/repo",
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+        token="token",
+        deadline=999999999.0,
+    )
+
+    assert record["id"] == 12345
+
+
+@pytest.mark.parametrize(
+    ("tag_ref_type", "tag_ref_sha", "tag_target_sha", "tag_exists"),
+    (
+        ("commit", REVIEW_TAG_OBJECT_SHA, REVIEWED_SHA, True),
+        ("tag", "c" * 40, REVIEWED_SHA, True),
+        ("tag", REVIEW_TAG_OBJECT_SHA, "c" * 40, True),
+        ("tag", REVIEW_TAG_OBJECT_SHA, REVIEWED_SHA, False),
+    ),
+)
+def test_independent_review_status_rejects_invalid_review_tag(
+    monkeypatch: pytest.MonkeyPatch,
+    tag_ref_type: str,
+    tag_ref_sha: str,
+    tag_target_sha: str,
+    tag_exists: bool,
+) -> None:
+    object_api, array_api = _review_inventory_api(
+        reviews=[_status_review()],
+        tag_ref_type=tag_ref_type,
+        tag_ref_sha=tag_ref_sha,
+        tag_target_sha=tag_target_sha,
+        tag_exists=tag_exists,
+    )
+    monkeypatch.setattr(actions.transport, "_api_json", object_api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
+
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+
 def test_independent_review_status_rejects_reviewer_without_write_permission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -821,12 +1074,14 @@ def test_independent_review_status_rejects_reviewer_without_write_permission(
 @pytest.mark.parametrize(
     "review",
     (
-        _status_review(reviewer_id=1),
         _status_review(commit_id="c" * 40),
         _status_review(state="DISMISSED"),
         _status_review(
             body=_source_review_body(reviewer_independence="NOT_ESTABLISHED")
         ),
+        _status_review(body=_source_review_body(reviewer_kind="human")),
+        _status_review(body=_source_review_body(reviewer_model="   ")),
+        _status_review(body=_source_review_body(reviewer_context="worker_context")),
         _status_review(body=_source_review_body(result_blind=False)),
         _status_review(body=_source_review_body(g0="FAIL")),
         _status_review(body=_source_review_body(g1="NOT_ESTABLISHED")),
@@ -858,7 +1113,8 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invalid = [
-        _status_review(reviewer_id=1, review_id=index + 1) for index in range(100)
+        _status_review(reviewer_id=1, state="DISMISSED", review_id=index + 1)
+        for index in range(100)
     ]
     for index, review in enumerate(invalid, start=1):
         review["html_url"] = (
@@ -870,6 +1126,16 @@ def test_independent_review_status_scans_later_review_inventory_pages(
     def fake_object(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith("/collaborators/reviewer/permission"):
             return {"permission": "write"}
+        if url.endswith(f"/git/ref/tags/{REVIEW_TAG}"):
+            return {
+                "ref": f"refs/tags/{REVIEW_TAG}",
+                "object": {"type": "tag", "sha": REVIEW_TAG_OBJECT_SHA},
+            }
+        if url.endswith(f"/git/tags/{REVIEW_TAG_OBJECT_SHA}"):
+            return {
+                "tag": REVIEW_TAG,
+                "object": {"type": "commit", "sha": REVIEWED_SHA},
+            }
         if url.endswith("/branches/main"):
             return {"commit": {"sha": CURRENT_MAIN_SHA}}
         if f"/compare/{CURRENT_MAIN_SHA}...{REVIEWED_SHA}" in url:
@@ -914,7 +1180,11 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     valid = _status_review(review_id=12345)
-    later_author_review = _status_review(review_id=12346, reviewer_id=1)
+    later_author_review = _status_review(
+        review_id=12346,
+        reviewer_id=1,
+        state="DISMISSED",
+    )
     later_author_review["html_url"] = (
         "https://github.com/owner/repo/pull/900#pullrequestreview-12346"
     )

@@ -87,10 +87,18 @@ class CostAwareForecastIntentController:
 
         intent_delta = int(proposed) - int(current)
         if intent_delta > 0:
-            return proposed if forecast > math.log1p(self.one_way_switch_cost) else current
+            return (
+                proposed
+                if forecast > math.log1p(self.one_way_switch_cost)
+                else current
+            )
         if self.one_way_switch_cost >= 1.0:
             return current
-        return proposed if forecast < math.log1p(-self.one_way_switch_cost) else current
+        return (
+            proposed
+            if forecast < math.log1p(-self.one_way_switch_cost)
+            else current
+        )
 
 
 __all__ = [

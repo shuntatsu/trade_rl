@@ -60,7 +60,7 @@ class ForecastIntentController:
 
 
 class CostAwareForecastIntentController:
-    """Veto forecast-intent changes whose expected improvement does not pay cost."""
+    """Gate log-return forecast intent changes with a simple-return cost proxy."""
 
     def __init__(
         self,
@@ -85,10 +85,20 @@ class CostAwareForecastIntentController:
         if proposed is current:
             return current
 
-        intent_distance = abs(int(proposed) - int(current))
-        expected_improvement = float(int(proposed) - int(current)) * forecast
-        switching_cost = intent_distance * self.one_way_switch_cost
-        return proposed if expected_improvement > switching_cost else current
+        intent_delta = int(proposed) - int(current)
+        if intent_delta > 0:
+            return (
+                proposed
+                if forecast > math.log1p(self.one_way_switch_cost)
+                else current
+            )
+        if self.one_way_switch_cost >= 1.0:
+            return current
+        return (
+            proposed
+            if forecast < math.log1p(-self.one_way_switch_cost)
+            else current
+        )
 
 
 __all__ = [

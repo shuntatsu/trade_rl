@@ -44,12 +44,54 @@ def test_cost_aware_controller_vetoes_unprofitable_exit() -> None:
         one_way_switch_cost=0.005,
     )
 
-    assert model.decide(0.01, current=PositionIntent.LONG) is PositionIntent.LONG
-    assert model.decide(-0.006, current=PositionIntent.LONG) is PositionIntent.FLAT
-    assert model.decide(-0.005, current=PositionIntent.LONG) is PositionIntent.LONG
-    assert model.decide(-0.01, current=PositionIntent.SHORT) is PositionIntent.SHORT
-    assert model.decide(0.006, current=PositionIntent.SHORT) is PositionIntent.FLAT
-    assert model.decide(0.005, current=PositionIntent.SHORT) is PositionIntent.SHORT
+    assert (
+        model.decide(math.log1p(0.01), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.006), current=PositionIntent.LONG)
+        is PositionIntent.FLAT
+    )
+    assert (
+        model.decide(math.log1p(-0.005), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.01), current=PositionIntent.SHORT)
+        is PositionIntent.SHORT
+    )
+    assert (
+        model.decide(math.log1p(0.006), current=PositionIntent.SHORT)
+        is PositionIntent.FLAT
+    )
+    assert (
+        model.decide(math.log1p(0.005), current=PositionIntent.SHORT)
+        is PositionIntent.SHORT
+    )
+
+
+def test_cost_aware_controller_compares_log_forecast_as_simple_return() -> None:
+    model = CostAwareForecastIntentController(
+        ForecastIntentConfig(entry_threshold=0.005, exit_threshold=0.001),
+        one_way_switch_cost=0.01,
+    )
+
+    assert (
+        model.decide(math.log1p(0.01), current=PositionIntent.FLAT)
+        is PositionIntent.FLAT
+    )
+    assert (
+        model.decide(math.log1p(0.010000000000005), current=PositionIntent.FLAT)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.01), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.0101), current=PositionIntent.LONG)
+        is PositionIntent.SHORT
+    )
 
 
 def test_cost_aware_controller_prices_entry_and_reversal_by_intent_distance() -> None:
@@ -58,17 +100,35 @@ def test_cost_aware_controller_prices_entry_and_reversal_by_intent_distance() ->
         one_way_switch_cost=0.11,
     )
 
-    assert model.decide(0.20, current=PositionIntent.FLAT) is PositionIntent.LONG
-    assert model.decide(-0.20, current=PositionIntent.FLAT) is PositionIntent.SHORT
-    assert model.decide(-0.20, current=PositionIntent.LONG) is PositionIntent.SHORT
-    assert model.decide(0.20, current=PositionIntent.SHORT) is PositionIntent.LONG
+    assert (
+        model.decide(math.log1p(0.20), current=PositionIntent.FLAT)
+        is PositionIntent.LONG
+    )
+    assert (
+        model.decide(math.log1p(-0.20), current=PositionIntent.FLAT)
+        is PositionIntent.SHORT
+    )
+    assert (
+        model.decide(math.log1p(-0.20), current=PositionIntent.LONG)
+        is PositionIntent.SHORT
+    )
+    assert (
+        model.decide(math.log1p(0.20), current=PositionIntent.SHORT)
+        is PositionIntent.LONG
+    )
 
     exact_cost = CostAwareForecastIntentController(
         ForecastIntentConfig(entry_threshold=0.10, exit_threshold=0.02),
         one_way_switch_cost=0.20,
     )
-    assert exact_cost.decide(0.20, current=PositionIntent.FLAT) is PositionIntent.FLAT
-    assert exact_cost.decide(-0.20, current=PositionIntent.LONG) is PositionIntent.LONG
+    assert (
+        exact_cost.decide(math.log1p(0.20), current=PositionIntent.FLAT)
+        is PositionIntent.FLAT
+    )
+    assert (
+        exact_cost.decide(math.log1p(-0.20), current=PositionIntent.LONG)
+        is PositionIntent.LONG
+    )
 
 
 def test_cost_aware_controller_nonfinite_forecast_still_fails_closed() -> None:

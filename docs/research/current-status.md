@@ -469,10 +469,11 @@ both fixed stresses. Otherwise the lineage stops after the smoke. Even a pass
 does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
-fixed contract. For this smoke, reviewer independence is process-level rather
-than GitHub-account-level: a review posted by the PR author's GitHub principal
-is acceptable only when the canonical source review attests that a fresh
-read-only external-AI reviewer performed the result-blind review. The concrete
+fixed contract. For this smoke, the formal review must be posted by a GitHub
+principal distinct from the execution PR author. A same-principal canonical PASS
+payload plus a valid annotated tag is insufficient because the author could create
+both; the structured external-AI/fresh-read-only/independence fields remain required
+semantic attestations in addition to principal separation. The concrete
 `reviewer_model` value is recorded as non-empty provenance and is not hard-coded
 as a validator allow-list. The preregistration/code PR has been integrated
 without economic authorization, so the remaining authorization lifecycle is
@@ -495,9 +496,10 @@ mutation are rejected. Trigger evidence uses the versioned
 `ppo_4h_indicator_smoke_review_v2` schema and repeats the same tag
 name/object SHA; the pre-tag v1 trigger schema is not accepted for this
 lifecycle. The review-body SHA-256 freezes the full canonical body, including
-reviewer provenance. The GitHub principal is the authenticated posting transport;
-the v3 fields and live tag objects are the machine-checked review-process
-attestation. GitHub now exposes the waiting state through
+reviewer provenance. The gate also compares the authenticated review principal
+against the execution PR author and rejects equality; the v3 fields and live tag
+objects then provide the remaining machine-checked review-process attestation.
+GitHub now exposes the waiting state through
 an `Independent Research Review` check that runs only after Lean Core, real-SB3
 PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
 events repeat those checks and then refetch the current formal-review inventory;

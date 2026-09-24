@@ -546,7 +546,7 @@ def test_review_gate_rejects_noncanonical_trailing_source_review_text(
         )
 
 
-def test_review_gate_accepts_external_ai_review_posted_by_pr_author(
+def test_review_gate_rejects_external_ai_review_posted_by_pr_author(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(actions, "_git", _fake_git)
@@ -564,12 +564,13 @@ def test_review_gate_accepts_external_ai_review_posted_by_pr_author(
 
     monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
 
-    actions.validate_review_gate(
-        _review(),
-        repository="owner/repo",
-        token="token",
-        deadline=999999999.0,
-    )
+    with pytest.raises(ValueError, match="not independent"):
+        actions.validate_review_gate(
+            _review(),
+            repository="owner/repo",
+            token="token",
+            deadline=999999999.0,
+        )
 
 
 def test_review_gate_rejects_reviewer_without_write_permission(
@@ -1051,7 +1052,7 @@ def test_independent_review_status_accepts_exact_result_blind_review(
     assert record["id"] == 12345
 
 
-def test_independent_review_status_accepts_external_ai_review_posted_by_author(
+def test_independent_review_status_rejects_review_posted_by_pr_author(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     object_api, array_api = _review_inventory_api(
@@ -1061,15 +1062,14 @@ def test_independent_review_status_accepts_external_ai_review_posted_by_author(
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
     monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 
-    record = actions.find_authorizing_source_review(
-        repository="owner/repo",
-        pull_number=900,
-        reviewed_code_sha=REVIEWED_SHA,
-        token="token",
-        deadline=999999999.0,
-    )
-
-    assert record["id"] == 12345
+    with pytest.raises(ValueError, match="independent research review is pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
 
 
 @pytest.mark.parametrize(

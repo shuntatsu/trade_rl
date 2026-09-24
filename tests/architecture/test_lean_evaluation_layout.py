@@ -64,6 +64,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "directional_study.py",
         "ppo_feature_study.py",
         "ppo_feature_checkpoint.py",
+        "ppo_normalization_replication.py",
+        "ppo_normalization_execution.py",
         "ppo_risk_study.py",
         "paper/__init__.py",
         "paper/store.py",

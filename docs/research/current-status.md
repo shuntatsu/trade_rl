@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-22 (JST)
+更新基準: 2026-09-24 (JST)
 
 ## 結論
 
@@ -207,6 +207,23 @@ The final comparison SHA-256 is
 `fab5e1e13c35263533f3f36f62ce7a7017fe92e5413b58a56f61f84ba910df33`.
 The isolated comparison retained original default risk, source, budget and gates;
 it does not establish operational profit or reopen the sealed interleaved study.
+
+That historical normalization result remains bound to the economic implementation
+that produced it and is not a current-economics control. A separate corrected-
+economics normalization replication protocol is sealed result-blind. Its current
+software boundary requires ten fresh matched fits (`control_raw_seed0..4` and
+`candidate_normalized_seed0..4`), delegates both arms to the maintained
+`fit_ppo_strategy` / `DIRECTIONAL_BASE_EXECUTION_COST` / PPO inference bundle /
+shared-cash directional evaluator, and differs only by fit-only normalization. The
+sealed protocol keeps its preregistration-time source-blob provenance unchanged; the
+post-prereg feature-schema correctness fixes are part of the separately activation-bound
+current implementation identity rather than a rewrite of the protocol bytes.
+Each slot is write-once once fit/evaluation may begin, and fresh verification
+reloads the published bundle without refitting before recomputing the paired and
+absolute gates. The implementation deliberately leaves its economic activation
+digest unset, so no corrected-economics fit, replay, comparison result, unused
+future evaluation, production eligibility, or live authorization is established
+by this software work.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same

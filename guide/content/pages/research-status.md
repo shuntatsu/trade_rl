@@ -33,6 +33,8 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
+PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。各slotはfit/evaluation開始後に再利用できず、published inference bundleをfresh verifierが再読込して再fitせずにreplayを再構成します。現時点ではeconomic activation digestを意図的に未設定としているため、この境界の実装完了はcorrected-economicsのP&L、profitability、unused-data validation、production/live適格性を意味しません。
+
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
 
 ## まだ主張しないこと

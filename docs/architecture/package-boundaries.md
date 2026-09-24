@@ -319,6 +319,25 @@ protocol, source, runtime, feature schema, and artifact digests are verified.
 Interrupted work is not a completed checkpoint. Legacy partial study roots
 cannot be imported into this runner. The evaluation public facade is unchanged.
 
+`evaluation/ppo_normalization_replication.py` owns the sealed, result-blind
+corrected-economics PPO fit-only feature-standardization protocol. It freezes the
+five matched seeds, raw/normalized arms, common current directional execution
+contract, 2023-2024 development window, runtime/artifact identity, relative gate,
+absolute family gate, and no-rescue boundary. It does not fit a model or publish
+P&L.
+
+`evaluation/ppo_normalization_execution.py` owns only the later software/evidence
+boundary for that protocol: the exact ten fresh-fit slots, write-once claim state,
+PPO fit delegation, inference-bundle publication/reload, current shared-cash
+directional replay, no-refit verification, and comparison recomputation. It does
+not implement a second PPO trainer, normalizer, executor, accounting path, or
+selection oracle. The sealed protocol's `source_blobs` remain historical preregistration
+provenance; later correctness fixes to the maintained PPO/artifact path are not rewritten
+into those bytes. The exact current execution implementation/runtime is instead bound by
+the separately reviewed activation provenance and rechecked before every slot. Economic
+execution remains fail-closed while that activation digest is unset, and these modules
+remain private evaluation surfaces that do not expand `trade_rl.evaluation.__all__`.
+
 Its private CLI provides `prepare`, `fit`, `replay-cell`, `assemble-arm`, and
 `finalize`, each with `--source` and `--output`. `prepare` requires a fresh root
 and writes `checkpoint-protocol.json`, which embeds the unchanged economic

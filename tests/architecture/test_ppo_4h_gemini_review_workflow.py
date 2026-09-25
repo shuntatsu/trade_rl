@@ -13,7 +13,9 @@ def test_gemini_review_workflow_is_default_branch_tag_triggered_and_read_only() 
     assert re.search(r"(?m)^on:\s*\n\s+create:", text)
     assert "github.ref_type == 'tag'" in text
     assert "review/ppo-4h-indicator-smoke-v" in text
-    assert "permissions:\n  actions: read\n  contents: read\n  pull-requests: read" in text
+    assert (
+        "permissions:\n  actions: read\n  contents: read\n  pull-requests: read" in text
+    )
     assert "contents: write" not in text
     assert "pull-requests: write" not in text
     assert "actions: write" not in text
@@ -22,7 +24,9 @@ def test_gemini_review_workflow_is_default_branch_tag_triggered_and_read_only() 
     assert "timeout-minutes: 20" in text
 
 
-def test_gemini_review_workflow_separates_trusted_runner_from_untrusted_target() -> None:
+def test_gemini_review_workflow_separates_trusted_runner_from_untrusted_target() -> (
+    None
+):
     text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "ref: ${{ github.workflow_sha }}" in text
@@ -36,7 +40,9 @@ def test_gemini_review_workflow_separates_trusted_runner_from_untrusted_target()
     assert "pip install" not in text
 
 
-def test_gemini_review_workflow_binds_runtime_identity_and_uploads_attestation() -> None:
+def test_gemini_review_workflow_binds_runtime_identity_and_uploads_attestation() -> (
+    None
+):
     text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}" in text

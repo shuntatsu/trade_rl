@@ -9,7 +9,6 @@ import pytest
 from tools import ppo_4h_gemini_review as review
 from trade_rl.artifacts import canonical_json_bytes
 
-
 REVIEWED_SHA = "a" * 40
 TAG_OBJECT_SHA = "b" * 40
 WORKFLOW_SHA = "c" * 40

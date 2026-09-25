@@ -55,7 +55,7 @@ jobs:
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
 
       - name: Checkpoint transport types
-        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py
+        run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py
 
       - name: Install gated 4h smoke PPO runtime
         if: "github.ref == 'refs/heads/research/ppo-4h-indicator-smoke' && github.event.head_commit.message == 'run: execute 4h PPO indicator smoke'"

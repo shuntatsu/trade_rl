@@ -1,0 +1,72 @@
+name: PPO 4h Gemini Review
+
+on:
+  create:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    if: >-
+      github.ref_type == 'tag' &&
+      startsWith(github.ref_name, 'review/ppo-4h-indicator-smoke-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted reviewer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout untrusted review target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run trusted result-blind Gemini reviewer
+        id: reviewer
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.PPO_GEMINI_REVIEW_MODEL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEWED_SHA: ${{ github.sha }}
+          REVIEW_TAG: ${{ github.ref_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TARGET_ROOT: target
+          REVIEW_OUTPUT: output
+        run: python3 trusted/tools/ppo_4h_gemini_review.py
+
+      - name: Upload immutable Gemini review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-4h-gemini-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+      - name: Propagate reviewer disposition
+        if: always()
+        env:
+          REVIEWER_OUTCOME: ${{ steps.reviewer.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$REVIEWER_OUTCOME" != "success" ]]; then
+            echo "Gemini reviewer blocked or failed; inspect the uploaded evidence."
+            exit 1
+          fi

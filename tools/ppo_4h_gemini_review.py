@@ -342,7 +342,7 @@ def _api_json(
         "User-Agent": "trade-rl-ppo-gemini-reviewer",
     }
     if token:
-        request_headers["Authorization"] = f"***"
+        request_headers["Authorization"] = f"Bearer {token}"
     if headers:
         request_headers.update(headers)
     data = None if payload is None else _canonical_json_bytes(payload)

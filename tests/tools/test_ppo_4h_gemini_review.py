@@ -39,9 +39,7 @@ def _gemini_response(**updates: object) -> dict[str, object]:
     return {
         "modelVersion": "gemini-model-version",
         "responseId": "response-123",
-        "candidates": [
-            {"content": {"parts": [{"text": json.dumps(result)}]}}
-        ],
+        "candidates": [{"content": {"parts": [{"text": json.dumps(result)}]}}],
     }
 
 

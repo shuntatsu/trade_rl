@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import re
 import sys
 import urllib.error
@@ -322,7 +321,7 @@ def build_attestation(
         "packet_sha256": packet_digest,
         "result_blind": True,
         "reviewer_context": "trusted_default_branch_read_only",
-        "python_version": platform.python_version(),
+        "python_version": sys.version.split()[0],
         **fields,
     }
 

@@ -13,7 +13,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 PACKET_SCHEMA = "ppo_4h_gemini_review_packet_v1"
 ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"

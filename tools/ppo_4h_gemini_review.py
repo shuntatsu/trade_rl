@@ -247,7 +247,9 @@ def parse_gemini_response(response: object) -> dict[str, Any]:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Gemini {field} is malformed")
     for field in ("missing_evidence", "machine_oracles", "what_this_cannot_prove"):
-        review[field] = _required_string_list(review.get(field), field=f"Gemini {field}")
+        review[field] = _required_string_list(
+            review.get(field), field=f"Gemini {field}"
+        )
     return {
         "reviewer_provider": GEMINI_PROVIDER,
         "reviewer_model": model,
@@ -316,7 +318,9 @@ def build_attestation(
             reviewer_run_attempt, field="reviewer run attempt"
         ),
         "ci_run_id": _positive_int(ci_run_id, field="software CI run id"),
-        "ci_run_attempt": _positive_int(ci_run_attempt, field="software CI run attempt"),
+        "ci_run_attempt": _positive_int(
+            ci_run_attempt, field="software CI run attempt"
+        ),
         "packet_sha256": packet_digest,
         "result_blind": True,
         "reviewer_context": "trusted_default_branch_read_only",
@@ -338,7 +342,7 @@ def _api_json(
         "User-Agent": "trade-rl-ppo-gemini-reviewer",
     }
     if token:
-        request_headers["Authorization"] = f"Bearer {token}"
+        request_headers["Authorization"] = f"***"
     if headers:
         request_headers.update(headers)
     data = None if payload is None else _canonical_json_bytes(payload)
@@ -360,7 +364,9 @@ def _api_json(
             f"remote API request failed with HTTP {error.code}"
         ) from None
     except (OSError, urllib.error.URLError, TimeoutError):
-        raise ReviewTransportError("remote API request could not be completed") from None
+        raise ReviewTransportError(
+            "remote API request could not be completed"
+        ) from None
     if len(raw) > _MAX_API_BYTES:
         raise ReviewTransportError("remote API response exceeds size limit")
     try:
@@ -471,7 +477,9 @@ def _require_execution_pull(
         ):
             matches.append(pull)
     if len(matches) != 1:
-        raise ValueError("exact reviewed code is not owned by one open Draft execution PR")
+        raise ValueError(
+            "exact reviewed code is not owned by one open Draft execution PR"
+        )
     return _positive_int(matches[0].get("number"), field="execution pull number")
 
 
@@ -489,7 +497,9 @@ def _find_software_ci(
         }
     )
     payload = _github_api(repository, f"actions/runs?{query}", token=token)
-    if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+    if not isinstance(payload, dict) or not isinstance(
+        payload.get("workflow_runs"), list
+    ):
         raise ValueError("software CI inventory is malformed")
     runs = sorted(
         (run for run in payload["workflow_runs"] if isinstance(run, dict)),
@@ -517,7 +527,9 @@ def _find_software_ci(
             return validate_software_ci(run, jobs, reviewed_code_sha)
         except ValueError:
             continue
-    raise ValueError("no exact-head software verification run has all required Green jobs")
+    raise ValueError(
+        "no exact-head software verification run has all required Green jobs"
+    )
 
 
 def _gemini_schema() -> dict[str, Any]:
@@ -703,7 +715,10 @@ def main() -> int:
     try:
         return run()
     except Exception as error:
-        print(f"trusted Gemini review failed: {type(error).__name__}: {error}", file=sys.stderr)
+        print(
+            f"trusted Gemini review failed: {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
         return 1
 
 

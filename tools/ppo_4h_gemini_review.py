@@ -228,9 +228,8 @@ def _comment_matches_request(
         tag, reviewed, _ = _parse_request_body(comment.get("body"))
     except ValueError:
         return False
-    return (
-        tag == request.get("review_tag")
-        and reviewed == request.get("reviewed_code_sha")
+    return tag == request.get("review_tag") and reviewed == request.get(
+        "reviewed_code_sha"
     )
 
 
@@ -238,7 +237,9 @@ def require_first_review_request(
     request: dict[str, Any],
     comments: list[object],
 ) -> None:
-    current = _positive_int(request.get("comment_id"), field="review request comment id")
+    current = _positive_int(
+        request.get("comment_id"), field="review request comment id"
+    )
     for comment in comments:
         if not isinstance(comment, dict):
             continue
@@ -891,7 +892,9 @@ def _require_no_prior_authorized_request(
     repository: str,
     token: str,
 ) -> None:
-    current = _positive_int(request.get("comment_id"), field="review request comment id")
+    current = _positive_int(
+        request.get("comment_id"), field="review request comment id"
+    )
     for comment in comments:
         if not isinstance(comment, dict):
             continue

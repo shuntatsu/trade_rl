@@ -129,6 +129,35 @@ def test_review_request_is_canonical_and_bound_to_pull_comment_and_requester() -
         review.parse_review_request(malformed)
 
 
+
+def test_review_request_refetch_and_duplicate_identity_fail_closed() -> None:
+    event = _request_event()
+    request = review.parse_review_request(event)
+    comment = event["comment"]
+    assert isinstance(comment, dict)
+    fetched = {
+        "id": comment["id"],
+        "body": comment["body"],
+        "user": {"login": "author"},
+        "issue_url": "https://api.github.com/repos/owner/repo/issues/900",
+    }
+
+    body_sha = review.validate_request_comment_snapshot(request, fetched)
+    assert body_sha == hashlib.sha256(str(comment["body"]).encode("utf-8")).hexdigest()
+
+    edited = dict(fetched)
+    edited["body"] = str(comment["body"]) + "edited"
+    with pytest.raises(ValueError, match="request comment"):
+        review.validate_request_comment_snapshot(request, edited)
+
+    earlier = dict(fetched)
+    earlier["id"] = 455
+    with pytest.raises(ValueError, match="already requested"):
+        review.require_first_review_request(request, [earlier, fetched])
+
+    review.require_first_review_request(request, [fetched])
+
+
 def test_result_blind_packet_has_fixed_files_and_fixed_doc_sections(
     tmp_path: Path,
 ) -> None:
@@ -181,6 +210,61 @@ def test_result_blind_packet_rejects_missing_or_symlinked_source(
     with pytest.raises(ValueError, match="packet source"):
         review.build_result_blind_packet(
             tmp_path,
+            repository="owner/repo",
+            reviewed_code_sha=REVIEWED_SHA,
+            review_tag="review/ppo-4h-indicator-smoke-v1",
+            review_tag_object_sha=TAG_OBJECT_SHA,
+        )
+
+
+
+def test_result_blind_packet_rejects_symlinked_parent_directory(
+    tmp_path: Path,
+) -> None:
+    _target(tmp_path)
+    docs = tmp_path / "docs"
+    outside = tmp_path / "outside-docs"
+    docs.rename(outside)
+    docs.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="packet source"):
+        review.build_result_blind_packet(
+            tmp_path,
+            repository="owner/repo",
+            reviewed_code_sha=REVIEWED_SHA,
+            review_tag="review/ppo-4h-indicator-smoke-v1",
+            review_tag_object_sha=TAG_OBJECT_SHA,
+        )
+
+
+def test_canonical_packet_loader_rechecks_digest_and_identity(tmp_path: Path) -> None:
+    _target(tmp_path)
+    packet = review.build_result_blind_packet(
+        tmp_path,
+        repository="owner/repo",
+        reviewed_code_sha=REVIEWED_SHA,
+        review_tag="review/ppo-4h-indicator-smoke-v1",
+        review_tag_object_sha=TAG_OBJECT_SHA,
+    )
+    raw = canonical_json_bytes(packet)
+    path = tmp_path / "packet.json"
+    path.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+
+    assert review.load_review_packet(
+        path,
+        expected_sha256=digest,
+        repository="owner/repo",
+        reviewed_code_sha=REVIEWED_SHA,
+        review_tag="review/ppo-4h-indicator-smoke-v1",
+        review_tag_object_sha=TAG_OBJECT_SHA,
+    ) == packet
+
+    path.write_bytes(raw + b" ")
+    with pytest.raises(ValueError, match="packet"):
+        review.load_review_packet(
+            path,
+            expected_sha256=digest,
             repository="owner/repo",
             reviewed_code_sha=REVIEWED_SHA,
             review_tag="review/ppo-4h-indicator-smoke-v1",
@@ -318,8 +402,19 @@ def test_parse_gemini_response_rejects_noncanonical_semantics(
         review.parse_gemini_response(_gemini_response(**updates))
 
 
-def test_attestation_binds_request_trusted_ci_instruction_and_gemini_identity() -> None:
-    parsed = review.parse_gemini_response(_gemini_response())
+def test_attestation_binds_trusted_jobs_request_and_raw_gemini_identity() -> None:
+    raw_response = _gemini_response()
+    parsed = review.parse_gemini_response(raw_response)
+    gemini_request = review.build_gemini_request({"schema": "packet"})
+    raw_response_sha = hashlib.sha256(canonical_json_bytes(raw_response)).hexdigest()
+    request_sha = hashlib.sha256(canonical_json_bytes(gemini_request)).hexdigest()
+    runner_sha = "f" * 64
+    workflow_file_sha = "1" * 64
+    verification_jobs = {
+        "core": 101,
+        "ppo-runtime": 102,
+        "guide": 103,
+    }
     record = review.build_attestation(
         repository="owner/repo",
         repository_id=99,
@@ -330,15 +425,19 @@ def test_attestation_binds_request_trusted_ci_instruction_and_gemini_identity() 
         trusted_workflow_ref=(
             "owner/repo/.github/workflows/ppo-4h-gemini-review.yml@refs/heads/main"
         ),
+        trusted_workflow_file_sha256=workflow_file_sha,
+        trusted_runner_sha256=runner_sha,
         reviewer_run_id=456,
         reviewer_run_attempt=1,
         request_pull_number=900,
         request_comment_id=789,
         requester_login="author",
-        ci_run_id=123,
-        ci_run_attempt=2,
-        trusted_ci_sha256=TRUSTED_CI_SHA,
+        requester_permission="write",
+        request_body_sha256="2" * 64,
+        trusted_verification_jobs=verification_jobs,
         packet_sha256=PACKET_SHA,
+        gemini_request_sha256=request_sha,
+        raw_gemini_response_sha256=raw_response_sha,
         parsed_review=parsed,
     )
 
@@ -346,13 +445,16 @@ def test_attestation_binds_request_trusted_ci_instruction_and_gemini_identity() 
     assert record["reviewer_provider"] == "google_gemini"
     assert record["reviewed_code_sha"] == REVIEWED_SHA
     assert record["trusted_workflow_sha"] == WORKFLOW_SHA
+    assert record["trusted_workflow_file_sha256"] == workflow_file_sha
+    assert record["trusted_runner_sha256"] == runner_sha
     assert record["request_pull_number"] == 900
     assert record["request_comment_id"] == 789
     assert record["requester_login"] == "author"
-    assert record["ci_run_id"] == 123
-    assert record["ci_run_attempt"] == 2
-    assert record["trusted_ci_sha256"] == TRUSTED_CI_SHA
+    assert record["requester_permission"] == "write"
+    assert record["trusted_verification_jobs"] == verification_jobs
     assert record["packet_sha256"] == PACKET_SHA
+    assert record["gemini_request_sha256"] == request_sha
+    assert record["raw_gemini_response_sha256"] == raw_response_sha
     expected_system_sha = hashlib.sha256(
         review.GEMINI_SYSTEM_INSTRUCTION.encode("utf-8")
     ).hexdigest()
@@ -360,3 +462,4 @@ def test_attestation_binds_request_trusted_ci_instruction_and_gemini_identity() 
     assert canonical_json_bytes(record) == canonical_json_bytes(
         json.loads(canonical_json_bytes(record))
     )
+

@@ -70,15 +70,20 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
     monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
     monkeypatch.setattr(candidate_suite, "fit_ppo_strategy", fake_ppo)
-    monkeypatch.setattr(
-        candidate_suite,
-        "RidgeForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
-    )
+
+    def fake_ridge_wrapper(*args, **kwargs):
+        calls["ridge_wrapper_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    def fake_lightgbm_wrapper(*args, **kwargs):
+        calls["lightgbm_wrapper_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    monkeypatch.setattr(candidate_suite, "RidgeForecastStrategy", fake_ridge_wrapper)
     monkeypatch.setattr(
         candidate_suite,
         "LightGBMForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
+        fake_lightgbm_wrapper,
     )
 
     def fake_ppo_wrapper(*args, **kwargs):
@@ -113,6 +118,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         ppo_total_timesteps=256,
         ppo_seed=7,
         fit_symbol_indices=(0,),
+        forecast_switch_cost=0.0007,
     )
 
     result = candidate_suite.run_lean_candidate_suite(
@@ -134,6 +140,9 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ridge_wrapper_kwargs"]["one_way_switch_cost"] == 0.0007
+    assert calls["lightgbm_wrapper_kwargs"]["one_way_switch_cost"] == 0.0007
+    assert "one_way_switch_cost" not in calls["ppo_wrapper_kwargs"]
     assert calls["ppo_wrapper_kwargs"]["feature_names"] == ("signal",)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == StudyPlan.STRATEGY_NAMES

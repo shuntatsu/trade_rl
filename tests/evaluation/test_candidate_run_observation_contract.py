@@ -33,7 +33,15 @@ def _provenance() -> dict[str, object]:
     }
 
 
-def _summary(*, schema: str, observation: object | None) -> dict[str, object]:
+def _summary(
+    *,
+    schema: str,
+    observation: object | None,
+    forecast_switch_cost: object = None,
+) -> dict[str, object]:
+    candidate_config: dict[str, object] = {}
+    if schema == "lean_candidate_result_v3":
+        candidate_config["forecast_switch_cost"] = forecast_switch_cost
     summary: dict[str, object] = {
         "schema_version": schema,
         "dataset_id": "b" * 64,
@@ -42,7 +50,7 @@ def _summary(*, schema: str, observation: object | None) -> dict[str, object]:
             "artifact_digest": "d" * 64,
         },
         "symbols": ["BTCUSDT"],
-        "candidate_config": {},
+        "candidate_config": candidate_config,
         "evaluation": {},
         "by_symbol": [
             {
@@ -82,7 +90,7 @@ def _write_root(root: Path, summary: dict[str, object]) -> None:
     )
 
 
-def _result() -> object:
+def _result(*, forecast_switch_cost: float | None = None) -> object:
     config = SimpleNamespace(
         signal_name="signal",
         feature_names=("signal",),
@@ -91,6 +99,7 @@ def _result() -> object:
         evaluation_stop_exclusive=np.datetime64("2026-01-03T00:00:00", "ns"),
         gross_budget=0.5,
         initial_capital=1000.0,
+        forecast_switch_cost=forecast_switch_cost,
     )
     lean_config = SimpleNamespace(
         signal_index=0,
@@ -103,6 +112,7 @@ def _result() -> object:
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        forecast_switch_cost=forecast_switch_cost,
     )
     metrics = SimpleNamespace(
         total_return=0.0,
@@ -160,17 +170,18 @@ def _result() -> object:
     )
 
 
-def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> None:
+def test_new_candidate_write_records_result_v3_semantics(tmp_path: Path) -> None:
     artifact = publish_candidate_run(
         tmp_path / "run",
-        _result(),  # type: ignore[arg-type]
+        _result(forecast_switch_cost=0.0007),  # type: ignore[arg-type]
         _provenance(),
     )
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v2"
+    assert summary["schema_version"] == "lean_candidate_result_v3"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
+    assert summary["candidate_config"]["forecast_switch_cost"] == pytest.approx(0.0007)
 
 
 def test_historical_candidate_v1_without_observation_contract_still_loads(
@@ -207,6 +218,75 @@ def test_candidate_v2_requires_and_loads_exact_observation_contract(
         == ppo_observation_contract_payload()
     )
     assert identity.result_schema_version == "lean_candidate_result_v2"
+
+
+def test_candidate_v3_requires_and_loads_switch_cost_identity(tmp_path: Path) -> None:
+    root = tmp_path / "v3"
+    _write_root(
+        root,
+        _summary(
+            schema="lean_candidate_result_v3",
+            observation=ppo_observation_contract_payload(),
+            forecast_switch_cost=0.0007,
+        ),
+    )
+
+    loaded = load_candidate_run_artifact(root)
+    identity = inspect_candidate_run_artifact(root)
+
+    assert loaded.summary["candidate_config"]["forecast_switch_cost"] == pytest.approx(  # type: ignore[index]
+        0.0007
+    )
+    assert identity.result_schema_version == "lean_candidate_result_v3"
+
+
+def test_candidate_v3_accepts_disabled_switch_cost_identity(tmp_path: Path) -> None:
+    root = tmp_path / "v3-disabled"
+    _write_root(
+        root,
+        _summary(
+            schema="lean_candidate_result_v3",
+            observation=ppo_observation_contract_payload(),
+            forecast_switch_cost=None,
+        ),
+    )
+
+    loaded = load_candidate_run_artifact(root)
+    assert (
+        loaded.summary["candidate_config"]["forecast_switch_cost"] is None  # type: ignore[index]
+    )
+
+
+def test_candidate_v2_rejects_switch_cost_field(tmp_path: Path) -> None:
+    root = tmp_path / "v2-smuggled"
+    summary = _summary(
+        schema="lean_candidate_result_v2",
+        observation=ppo_observation_contract_payload(),
+    )
+    summary["candidate_config"] = {"forecast_switch_cost": 0.0007}
+    _write_root(root, summary)
+
+    with pytest.raises(ValueError, match="forecast switch cost"):
+        load_candidate_run_artifact(root)
+
+
+@pytest.mark.parametrize("switch_cost", (-0.0001, True, "0.0007"))
+def test_candidate_v3_rejects_invalid_switch_cost(
+    tmp_path: Path,
+    switch_cost: object,
+) -> None:
+    root = tmp_path / f"v3-invalid-{type(switch_cost).__name__}"
+    _write_root(
+        root,
+        _summary(
+            schema="lean_candidate_result_v3",
+            observation=ppo_observation_contract_payload(),
+            forecast_switch_cost=switch_cost,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="forecast switch cost"):
+        load_candidate_run_artifact(root)
 
 
 def test_candidate_v2_rejects_tampered_observation_contract(tmp_path: Path) -> None:

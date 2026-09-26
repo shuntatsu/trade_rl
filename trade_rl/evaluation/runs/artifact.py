@@ -30,8 +30,11 @@ from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
 
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
-_RESULT_SCHEMA = _RESULT_SCHEMA_V2
-_SUPPORTED_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2})
+_RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
+_RESULT_SCHEMA = _RESULT_SCHEMA_V3
+_SUPPORTED_RESULT_SCHEMAS = frozenset(
+    {_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
+)
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
 _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
 
@@ -181,6 +184,7 @@ def _result_payload(
             "forecast_exit_threshold": lean_config.forecast_exit_threshold,
             "ppo_total_timesteps": lean_config.ppo_total_timesteps,
             "ppo_seed": lean_config.ppo_seed,
+            "forecast_switch_cost": lean_config.forecast_switch_cost,
         },
         "evaluation": {
             "start": str(config.evaluation_start),
@@ -395,10 +399,31 @@ def _load_with_evidence(
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
     if (
-        result_schema == _RESULT_SCHEMA_V2
+        result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()
     ):
         raise ValueError("candidate PPO observation contract mismatch")
+    candidate_config = summary.get("candidate_config")
+    if result_schema == _RESULT_SCHEMA_V2:
+        if (
+            isinstance(candidate_config, dict)
+            and "forecast_switch_cost" in candidate_config
+        ):
+            raise ValueError("candidate forecast switch cost is invalid for result v2")
+    elif result_schema == _RESULT_SCHEMA_V3:
+        if (
+            not isinstance(candidate_config, dict)
+            or "forecast_switch_cost" not in candidate_config
+        ):
+            raise ValueError("candidate forecast switch cost is missing from result v3")
+        switch_cost = candidate_config["forecast_switch_cost"]
+        if switch_cost is not None and (
+            isinstance(switch_cost, bool)
+            or not isinstance(switch_cost, (int, float))
+            or not np.isfinite(float(switch_cost))
+            or float(switch_cost) < 0.0
+        ):
+            raise ValueError("candidate forecast switch cost is invalid")
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")

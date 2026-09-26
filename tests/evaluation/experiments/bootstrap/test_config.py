@@ -165,6 +165,18 @@ def test_top_level_contract_rejects_invalid_values(
         load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
 
 
+def test_forecast_switch_cost_can_be_preregistered_as_allowed_factor(
+    tmp_path: Path,
+) -> None:
+    payload = _valid_payload()
+    payload["allowed_factors"] = ["FORECAST_SWITCH_COST"]
+
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+
+    assert config.allowed_factors == (ControlledFactor.FORECAST_SWITCH_COST,)
+    assert config.baseline.forecast_switch_cost is None
+
+
 def test_unknown_controlled_factor_is_rejected(tmp_path: Path) -> None:
     payload = _valid_payload()
     payload["allowed_factors"] = ["DO_EVERYTHING"]

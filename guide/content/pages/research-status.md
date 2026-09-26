@@ -33,6 +33,8 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
+次の候補mechanismとして、Ridge / LightGBMだけに明示opt-inできるforecast switching-cost gateを実装しました。既存の24h log-return forecastとthresholdは変えず、simple-return costと同値なlog-domain境界で、片道cost floorを上回らないintent変更を抑制します。factor値は現行research assumptionの5bp fee + 2bp spreadから **0.0007** に結果前固定し、複数値を試して選びません。7bpは実約定costそのものの予測ではなくnominal one-way fee+spread proxyで、実際のpartial fill・capacity・risk・costはcanonical executor/accountingが決めます。このfactor選択には2023–2024 developmentの既存G4 auditを使っているため、新Studyではそのreportを`StudyResearchContext`へbindし、その期間をunusedへ戻しません。`FORECAST_SWITCH_COST` は一因子としてidentityへbindできますが、独立したresult-blind G0-G2 reviewが未完了なので、このmechanismのeconomic runはまだ行いません。着想・設計に使った既存2023–2024 G4 auditは既使用development evidenceとして扱い、後続Studyを作る場合は`StudyResearchContext`へbindしてunused/finalへ戻しません。
+
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
 
 ## まだ主張しないこと

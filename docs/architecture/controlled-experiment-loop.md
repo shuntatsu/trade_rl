@@ -96,9 +96,9 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。
+現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v3`を生成し、PPO Observation schema / global policy rosterに加えて、forecast switching-cost gateの有効/無効と固定costを`forecast_switch_cost`としてbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空であり、switch-cost未使用baselineは`null`を明示する。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。一方`forecast_switch_cost`は`FORECAST_SWITCH_COST`を宣言したExperimentだけが変更できる。
 
-historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
+historical `resolved_run_config_v1` / `resolved_run_config_v2` / Study artifactはread/inspection互換のため維持し、旧schemaへ`forecast_switch_cost`を後付けしない。EvidenceSet生成は実行前のfixed-field照合でschema混在をfail-closedにする。旧Studyを新semantic configへ暗黙migrationせず、新しいfactorを研究する場合はv3 configを持つ新しいStudy/lineageを使う。
 
 ## Study-owned EvidenceSet
 
@@ -122,6 +122,7 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 - `RULE_SIGNAL`
 - `RULE_THRESHOLDS`
 - `FORECAST_THRESHOLDS`
+- `FORECAST_SWITCH_COST`
 - `FIT_SYMBOL_SCOPE`
 - `PPO_TRAINING_BUDGET`
 - `GROSS_BUDGET`

@@ -59,4 +59,44 @@ class ForecastIntentController:
         return PositionIntent.SHORT
 
 
-__all__ = ["ForecastIntentConfig", "ForecastIntentController"]
+class CostAwareForecastIntentController:
+    """Gate log-return forecast intent changes with a simple-return cost proxy."""
+
+    def __init__(
+        self,
+        config: ForecastIntentConfig,
+        *,
+        one_way_switch_cost: float,
+    ) -> None:
+        if (
+            isinstance(one_way_switch_cost, bool)
+            or not math.isfinite(one_way_switch_cost)
+            or one_way_switch_cost < 0.0
+        ):
+            raise ValueError("one-way switch cost must be finite and non-negative")
+        self.config = config
+        self.one_way_switch_cost = float(one_way_switch_cost)
+        self._baseline = ForecastIntentController(config)
+
+    def decide(self, forecast: float, *, current: PositionIntent) -> PositionIntent:
+        proposed = self._baseline.decide(forecast, current=current)
+        if not math.isfinite(forecast):
+            return proposed
+        if proposed is current:
+            return current
+
+        intent_delta = int(proposed) - int(current)
+        if intent_delta > 0:
+            return proposed if forecast > math.log1p(
+                self.one_way_switch_cost
+            ) else current
+        if self.one_way_switch_cost >= 1.0:
+            return current
+        return proposed if forecast < math.log1p(-self.one_way_switch_cost) else current
+
+
+__all__ = [
+    "CostAwareForecastIntentController",
+    "ForecastIntentConfig",
+    "ForecastIntentController",
+]

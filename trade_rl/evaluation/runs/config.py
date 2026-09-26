@@ -53,6 +53,7 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
+        "forecast_switch_cost",
     )
 
     signal_name: str
@@ -69,6 +70,7 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
+    forecast_switch_cost: float | None = None
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -124,6 +126,11 @@ class CandidateRunConfig:
             self.initial_capital,
             field="initial_capital",
         )
+        forecast_switch_cost = (
+            None
+            if self.forecast_switch_cost is None
+            else _require_forecast_switch_cost(self.forecast_switch_cost)
+        )
 
         object.__setattr__(self, "signal_name", signal_name)
         object.__setattr__(self, "feature_names", feature_names)
@@ -133,12 +140,15 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
 
         payload: dict[str, object] = {}
         for name in self.JSON_FIELDS:
+            if name == "forecast_switch_cost" and self.forecast_switch_cost is None:
+                continue
             value = getattr(self, name)
             if isinstance(value, np.datetime64):
                 payload[name] = str(np.datetime64(value, "ns"))
@@ -231,6 +241,15 @@ def _require_non_negative_finite(value: object, *, field: str) -> float:
     return resolved
 
 
+def _require_forecast_switch_cost(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("forecast_switch_cost must be finite and non-negative")
+    resolved = float(value)
+    if not math.isfinite(resolved) or resolved < 0.0:
+        raise ValueError("forecast_switch_cost must be finite and non-negative")
+    return resolved
+
+
 def _required_string(raw: Mapping[str, object], name: str) -> str:
     return _validated_text(raw.get(name), field=name)
 
@@ -289,6 +308,11 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         ppo_seed=_required_int(raw, "ppo_seed"),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
+        forecast_switch_cost=(
+            None
+            if raw.get("forecast_switch_cost") is None
+            else _require_forecast_switch_cost(raw.get("forecast_switch_cost"))
+        ),
     )
 
 
@@ -370,6 +394,7 @@ def resolve_candidate_run_spec(
         forecast_exit_threshold=config.forecast_exit_threshold,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
+        forecast_switch_cost=config.forecast_switch_cost,
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

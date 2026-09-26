@@ -102,6 +102,19 @@ FACTOR_RULES: Mapping[ControlledFactor, FactorRule] = MappingProxyType(
                 }
             ),
         ),
+        ControlledFactor.FORECAST_SWITCH_COST: FactorRule(
+            allowed_paths=frozenset({("forecast_switch_cost",)}),
+            unaffected_strategies=frozenset(
+                {
+                    "cash",
+                    "constant_long",
+                    "constant_short",
+                    "trend",
+                    "mean_reversion",
+                    "ppo",
+                }
+            ),
+        ),
         ControlledFactor.FIT_SYMBOL_SCOPE: FactorRule(
             allowed_paths=frozenset(
                 {

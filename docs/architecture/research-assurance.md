@@ -466,6 +466,20 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Known limitations:** semantic parityはRLのcredit assignment、optimization安定性、収益性を保証しない。
 
+### COST-CONTROL-001 — result-blind forecast switching-cost gate
+
+**G0 question:** Ridge / LightGBMのfrozen forecast、entry/exit threshold、fit scopeを変えず、forecast controllerが提案したintent変更のうち、事前固定した片道取引cost floorを期待改善が上回らない変更だけを抑制すると、既存alpha仮説を別の情報源へ置換せずに不要なswitchingを減らせるかを検証する。このmechanism自体を新しいalpha sourceとは扱わない。economic resultを見てcost floorを選び直す、または複数floorからwinnerを選ぶ場合はこのresult-blind仮説を破る。
+
+**G1 mechanism:** baseline `ForecastIntentController` が最初にLONG / FLAT / SHORT proposalを決める。Ridge / LightGBMのpoint forecastは24h log price returnなので、cost gateはsimple-return単位の比較に揃える。概念上は `simple_edge = expm1(forecast_log_return)` とし、proposalがcurrent intentと異なる場合だけ、`(target_sign - current_sign) * simple_edge > abs(target_sign - current_sign) * one_way_switch_cost` を要求する。実装はこの不等式と同値なlog-domain境界（上方向は `forecast > log1p(cost)`、下方向は `forecast < log1p(-cost)`）を用い、`log1p` / `expm1` のround-trip誤差で同値境界が反転しないようにする。同値以下ではcurrent intentを維持する。現canonical execution assumptionのmarket-order explicit costは5bp fee + 2bp spreadで片道7bpなので、次のControlled Factorでは `one_way_switch_cost = 0.0007` を結果前に固定し、threshold探索を行わない。この値はnominal intent-spaceの片道fee+spread proxyであり、将来barのrealized fill costをstrategyへ観測させない。実際のfill notional、partial fill、capacity、risk projection、realized execution costは従来どおり後段のcanonical risk/executor/accounting authorityが決める。non-finite forecastは従来controllerのfail-closed FLATを維持する。hard risk / execution / accountingはstrategyの外側で常に優先され、このgateがriskを緩和または迂回することはない。PPOは期待return尺度を直接出さないため、このfactorのaffected strategyには含めない。
+
+**G2 invariant:** `forecast_switch_cost` は新規Run/Study semantic identityへbindされ、`None` と数値を区別する。historical Run/Study schemaへ後付けしない。Controlled Factor `FORECAST_SWITCH_COST` では変更可能pathを`forecast_switch_cost`だけ、affected strategyを`ridge24` / `lightgbm24`だけに限定し、controls / trend / mean-reversion / PPOのraw returnsは完全一致を要求する。constructorはnegative / non-finite / bool costを拒否し、cost未指定時の既存forecast strategy挙動を維持する。このfactorの着想・評価設計には既存G4 audit `report/ppo-btc-relative-feature-ablation-g4-20260922.json`（SHA-256 `cd01a193ca2a6fa34355873fdf21b62f5f425977b2d05a388259f69cf753f481`、development window `[2023-01-01, 2025-01-01)`）を使用済みなので、後続Studyでは同reportを`StudyResearchContext`の`DIAGNOSTIC_REPORT`として`HYPOTHESIS_FORMATION` / `EVALUATION_DESIGN`へbindし、その期間をunused/finalとして再分類しない。
+
+**Counterexample:** candidateがforecast threshold、feature、fit scope、PPO、gross budgetも同時に変える、7bpをdevelopment P&Lを見ながら調整する、将来barのrealized fill costをstrategy observationへ注入する、またはcost gateでhard-risk縮小を拒否する。
+
+**Oracle:** synthetic forecast/current-intent表へ `log1p(simple_edge)` を与え、entry/exit/reversalでsimple-return cost境界と同値なlog-domain比較になること、edgeとcostが同値ならtradeせず微小でもstrictに上回ればtradeすること、baseline opt-out equivalence、invalid cost rejection、Run artifact / resolved config round-trip、one-factor delta classifier、unaffected-strategy raw-return equalityをmachine testで検証する。
+
+**Known limitations:** 7bpは固定したresearch execution assumptionに基づくnominal one-way fee+spread proxyであり、将来のvenue fee、queue、impact、slippage、maker/taker mix、round-trip全体のcostを予測しない。`current_intent`はstrategyの前回intentであり、partial fill / capacity / hard-risk projection後のactual `current_weight`と一致しない場合があるため、intent distanceからrealized notionalやrealized costを正確に復元するmechanismではない。actual accountingはcanonical executorをauthorityとする。forecast値が真のconditional expected returnであることも、このgateがprofitabilityを改善することもG0-G2では証明しない。独立fresh/read-only AI semantic reviewはまだ完了していないため、このmechanismのG4 economic result生成はBLOCKEDのままとする。
+
 ### RISK-001 — hard risk priority
 
 **Statement:** hard riskによる縮小・拒否・終了はstrategyの利益期待より優先され、economic controllerがriskを迂回してはならない。

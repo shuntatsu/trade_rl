@@ -124,7 +124,9 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
         )
 
 
-def test_expired_matching_identity_fails_closed_but_unrelated_artifacts_do_not() -> None:
+def test_expired_matching_identity_fails_closed_but_unrelated_artifacts_do_not() -> (
+    None
+):
     identity = review.review_identity_digest(
         repository="owner/repo",
         repository_id=99,

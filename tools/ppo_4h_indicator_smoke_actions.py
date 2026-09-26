@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +24,12 @@ SOURCE_ARTIFACT_SHA256 = (
     "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
 REVIEW_PATH = Path("report/ppo-4h-indicator-smoke-review.json")
-REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v1"
-SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v2"
-SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v2 -->\n"
+REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v2"
+SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v3"
+SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v3 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v2"
-REVIEW_PULL_NUMBER = 758
+EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
+EXECUTION_BASE_BRANCH = "main"
 TRIGGER_MESSAGE = "run: execute 4h PPO indicator smoke"
 MINIMUM_AVAILABLE_BYTES = 4 * 1024**3
 DEADLINE_SECONDS = 300 * 60
@@ -35,6 +37,9 @@ _REVIEW_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/"
     r"(?P<repo>[A-Za-z0-9_.-]+)/pull/(?P<pull>[1-9][0-9]*)#"
     r"pullrequestreview-(?P<review>[1-9][0-9]*)$"
+)
+_REVIEW_TAG_RE = re.compile(
+    r"^review/ppo-4h-indicator-smoke-v(?P<version>[1-9][0-9]*)$"
 )
 
 
@@ -66,6 +71,8 @@ def _canonical_review(path: Path) -> dict[str, Any]:
         "schema",
         "reviewed_code_sha",
         "static_contract_digest",
+        "review_tag",
+        "review_tag_object_sha",
         "source_review_url",
         "source_review_body_sha256",
         "reviewer_surface",
@@ -100,7 +107,12 @@ def _canonical_source_review(body: str) -> dict[str, Any]:
         "schema",
         "reviewed_code_sha",
         "static_contract_digest",
+        "review_tag",
+        "review_tag_object_sha",
         "reviewer_independence",
+        "reviewer_kind",
+        "reviewer_model",
+        "reviewer_context",
         "result_blind",
         "g0",
         "g1",
@@ -137,6 +149,246 @@ def _github_principal_id(record: object, *, field: str) -> int:
     )
 
 
+def _github_principal_login(record: object, *, field: str) -> str:
+    if not isinstance(record, dict):
+        raise ValueError(f"{field} GitHub record is malformed")
+    user = record.get("user")
+    if not isinstance(user, dict):
+        raise ValueError(f"{field} GitHub principal is missing")
+    login = user.get("login")
+    if not isinstance(login, str) or not login:
+        raise ValueError(f"{field} GitHub login is malformed")
+    return login
+
+
+def _require_reviewer_write_permission(
+    record: object,
+    *,
+    repository: str,
+    token: str,
+    deadline: float,
+) -> None:
+    login = urllib.parse.quote(
+        _github_principal_login(record, field="source review"), safe=""
+    )
+    permission = transport._api_json(
+        "https://api.github.com/repos/"
+        f"{transport._repo_path(repository)}/collaborators/{login}/permission",
+        token=token,
+        deadline=deadline,
+    ).get("permission")
+    if permission not in {"write", "admin"}:
+        raise ValueError("source reviewer lacks repository write permission")
+
+
+def _require_review_tag_identity(
+    source: dict[str, Any],
+    *,
+    repository: str,
+    reviewed_code_sha: str,
+    token: str,
+    deadline: float,
+) -> None:
+    review_tag = source.get("review_tag")
+    if not isinstance(review_tag, str) or _REVIEW_TAG_RE.fullmatch(review_tag) is None:
+        raise ValueError("source review tag name is malformed")
+    expected_tag_object_sha = transport._require_commit_sha(
+        source.get("review_tag_object_sha"), field="review tag object SHA"
+    )
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    path = transport._repo_path(repository)
+    ref_name = urllib.parse.quote(f"tags/{review_tag}", safe="/")
+    try:
+        tag_ref = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/ref/{ref_name}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    if tag_ref.get("ref") != f"refs/tags/{review_tag}":
+        raise ValueError("review tag ref identity differs")
+    ref_object = tag_ref.get("object")
+    if not isinstance(ref_object, dict) or ref_object.get("type") != "tag":
+        raise ValueError("review tag must be annotated")
+    actual_tag_object_sha = transport._require_commit_sha(
+        ref_object.get("sha"), field="review tag object SHA"
+    )
+    if actual_tag_object_sha != expected_tag_object_sha:
+        raise ValueError("review tag object SHA differs from reviewed identity")
+
+    try:
+        tag_object = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/tags/{actual_tag_object_sha}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    if tag_object.get("tag") != review_tag:
+        raise ValueError("review tag object name differs from reviewed identity")
+    target = tag_object.get("object")
+    if not isinstance(target, dict) or target.get("type") != "commit":
+        raise ValueError("review tag object does not point to a commit")
+    tagged_commit_sha = transport._require_commit_sha(
+        target.get("sha"), field="review tag commit SHA"
+    )
+    if tagged_commit_sha != reviewed:
+        raise ValueError("review tag does not point to reviewed code commit")
+
+    try:
+        current_tag_ref = transport._api_json(
+            f"https://api.github.com/repos/{path}/git/ref/{ref_name}",
+            token=token,
+            deadline=deadline,
+        )
+    except transport.TransportError:
+        raise ValueError("review tag identity could not be verified") from None
+    current_ref_object = current_tag_ref.get("object")
+    if (
+        current_tag_ref.get("ref") != f"refs/tags/{review_tag}"
+        or not isinstance(current_ref_object, dict)
+        or current_ref_object.get("type") != "tag"
+        or current_ref_object.get("sha") != actual_tag_object_sha
+    ):
+        raise ValueError("review tag changed during identity check")
+
+
+def _review_inventory(
+    *,
+    repository: str,
+    pull_number: int,
+    token: str,
+    deadline: float,
+) -> list[object]:
+    path = transport._repo_path(repository)
+    inventory: list[object] = []
+    page = 1
+    while True:
+        records = transport._api_json_array(
+            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
+            f"?per_page=100&page={page}",
+            token=token,
+            deadline=deadline,
+        )
+        inventory.extend(records)
+        if len(records) < 100:
+            return inventory
+        page += 1
+
+
+def _require_review_not_superseded(
+    record: object,
+    inventory: list[object],
+) -> None:
+    reviewer_id = _github_principal_id(record, field="source review")
+    if not isinstance(record, dict):
+        raise ValueError("source review GitHub record is malformed")
+    review_id = transport._strict_positive_int(
+        record.get("id"), field="source review id"
+    )
+    for candidate in reversed(inventory):
+        try:
+            candidate_reviewer_id = _github_principal_id(
+                candidate, field="source review"
+            )
+        except ValueError:
+            continue
+        if candidate_reviewer_id != reviewer_id:
+            continue
+        if not isinstance(candidate, dict):
+            raise ValueError("source review authorization was superseded")
+        try:
+            candidate_id = transport._strict_positive_int(
+                candidate.get("id"), field="source review id"
+            )
+        except ValueError:
+            raise ValueError("source review authorization was superseded") from None
+        if candidate_id != review_id:
+            raise ValueError("source review authorization was superseded")
+        for field in ("html_url", "body", "commit_id", "state"):
+            if candidate.get(field) != record.get(field):
+                raise ValueError("source review changed during authorization check")
+        if _github_principal_login(
+            candidate, field="source review"
+        ) != _github_principal_login(record, field="source review"):
+            raise ValueError("source review changed during authorization check")
+        return
+    raise ValueError("source review is missing from current review inventory")
+
+
+def _require_current_main_contained(
+    *,
+    repository: str,
+    reviewed_code_sha: str,
+    token: str,
+    deadline: float,
+) -> str:
+    """Require reviewed code to contain the repository's current main commit."""
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    path = transport._repo_path(repository)
+    branch = transport._api_json(
+        f"https://api.github.com/repos/{path}/branches/{EXECUTION_BASE_BRANCH}",
+        token=token,
+        deadline=deadline,
+    )
+    commit = branch.get("commit")
+    if not isinstance(commit, dict):
+        raise ValueError("current main branch record is malformed")
+    current_main = transport._require_commit_sha(
+        commit.get("sha"), field="current main SHA"
+    )
+    comparison = transport._api_json(
+        f"https://api.github.com/repos/{path}/compare/{current_main}...{reviewed}",
+        token=token,
+        deadline=deadline,
+    )
+    behind_by = comparison.get("behind_by")
+    if isinstance(behind_by, bool) or not isinstance(behind_by, int) or behind_by < 0:
+        raise ValueError("current main comparison is malformed")
+    if comparison.get("status") not in {"ahead", "identical"} or behind_by != 0:
+        raise ValueError("reviewed code does not contain current main")
+    return current_main
+
+
+def _validate_execution_pull(
+    pull: object,
+    *,
+    repository: str,
+    pull_number: int,
+    expected_head_sha: str,
+) -> int:
+    if not isinstance(pull, dict):
+        raise ValueError("source review pull request record is malformed")
+    if pull.get("number") != pull_number:
+        raise ValueError("source review pull request number differs")
+    if pull.get("state") != "open":
+        raise ValueError("source review pull request must remain open")
+    if pull.get("draft") is not True:
+        raise ValueError("source review execution pull request must remain draft")
+
+    head = pull.get("head")
+    base = pull.get("base")
+    if not isinstance(head, dict) or not isinstance(base, dict):
+        raise ValueError("source review pull request refs are malformed")
+    if head.get("ref") != EXECUTION_BRANCH:
+        raise ValueError("source review pull request is not the execution branch")
+    if head.get("sha") != expected_head_sha:
+        raise ValueError(
+            "source review pull request head differs from expected exact head"
+        )
+    head_repo = head.get("repo")
+    if not isinstance(head_repo, dict) or head_repo.get("full_name") != repository:
+        raise ValueError("source review pull request belongs to another repository")
+    if base.get("ref") != EXECUTION_BASE_BRANCH:
+        raise ValueError("source review pull request base differs from main")
+    return _github_principal_id(pull, field="pull request author")
+
+
 def _validate_source_review_record(
     record: object,
     pull: object,
@@ -145,6 +397,7 @@ def _validate_source_review_record(
     pull_number: int,
     reviewed_code_sha: str,
     expected_static_digest: str,
+    expected_pull_head_sha: str | None = None,
     expected_url: str | None = None,
     expected_body_sha256: str | None = None,
 ) -> dict[str, Any]:
@@ -175,12 +428,19 @@ def _validate_source_review_record(
         raise ValueError("source review commit differs from reviewed code SHA")
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
+    author_id = _validate_execution_pull(
+        pull,
+        repository=repository,
+        pull_number=pull_number,
+        expected_head_sha=(
+            reviewed_code_sha
+            if expected_pull_head_sha is None
+            else expected_pull_head_sha
+        ),
+    )
     reviewer_id = _github_principal_id(record, field="source review")
-    author_id = _github_principal_id(pull, field="pull request author")
     if reviewer_id == author_id:
-        raise ValueError(
-            "source review is not independent from the pull request author"
-        )
+        raise ValueError("source review principal is not independent from PR author")
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed_code_sha:
@@ -189,6 +449,13 @@ def _validate_source_review_record(
         raise ValueError("source review payload binds a different static contract")
     if source.get("reviewer_independence") != "ESTABLISHED":
         raise ValueError("source review independence is not established")
+    if source.get("reviewer_kind") != "external_ai":
+        raise ValueError("source review is not from an external AI reviewer")
+    reviewer_model = source.get("reviewer_model")
+    if not isinstance(reviewer_model, str) or not reviewer_model.strip():
+        raise ValueError("source review model provenance is missing")
+    if source.get("reviewer_context") != "fresh_read_only":
+        raise ValueError("source review did not use a fresh read-only context")
     if source.get("result_blind") is not True:
         raise ValueError("source review is not result-blind")
     if source.get("g0") != "PASS":
@@ -219,8 +486,6 @@ def validate_independent_review_status(
     reviewed_code_sha: str,
 ) -> dict[str, Any]:
     """Validate one GitHub review event as exact-head independent authorization."""
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("independent review status is scoped to another pull request")
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
     )
@@ -242,11 +507,15 @@ def find_authorizing_source_review(
     token: str,
     deadline: float,
 ) -> dict[str, Any]:
-    """Return any current formal review authorizing the exact code HEAD."""
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("independent review status is scoped to another pull request")
+    """Return an authorizing latest-per-reviewer review for the exact code HEAD."""
     reviewed = transport._require_commit_sha(
         reviewed_code_sha, field="reviewed code SHA"
+    )
+    _require_current_main_contained(
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
     )
     path = transport._repo_path(repository)
     pull = transport._api_json(
@@ -254,30 +523,53 @@ def find_authorizing_source_review(
         token=token,
         deadline=deadline,
     )
-    page = 1
-    while True:
-        records = transport._api_json_array(
-            f"https://api.github.com/repos/{path}/pulls/{pull_number}/reviews"
-            f"?per_page=100&page={page}",
-            token=token,
-            deadline=deadline,
-        )
-        for record in reversed(records):
-            try:
-                validate_independent_review_status(
-                    record,
-                    pull,
-                    repository=repository,
-                    pull_number=pull_number,
-                    reviewed_code_sha=reviewed,
-                )
-            except ValueError:
-                continue
-            if isinstance(record, dict):
-                return record
-        if len(records) < 100:
-            break
-        page += 1
+    _validate_execution_pull(
+        pull,
+        repository=repository,
+        pull_number=pull_number,
+        expected_head_sha=reviewed,
+    )
+    inventory = _review_inventory(
+        repository=repository,
+        pull_number=pull_number,
+        token=token,
+        deadline=deadline,
+    )
+
+    seen_reviewers: set[int] = set()
+    for record in reversed(inventory):
+        try:
+            reviewer_id = _github_principal_id(record, field="source review")
+        except ValueError:
+            continue
+        if reviewer_id in seen_reviewers:
+            continue
+        seen_reviewers.add(reviewer_id)
+        try:
+            source = validate_independent_review_status(
+                record,
+                pull,
+                repository=repository,
+                pull_number=pull_number,
+                reviewed_code_sha=reviewed,
+            )
+            _require_review_tag_identity(
+                source,
+                repository=repository,
+                reviewed_code_sha=reviewed,
+                token=token,
+                deadline=deadline,
+            )
+            _require_reviewer_write_permission(
+                record,
+                repository=repository,
+                token=token,
+                deadline=deadline,
+            )
+        except ValueError:
+            continue
+        if isinstance(record, dict):
+            return record
     raise ValueError("independent research review is pending")
 
 
@@ -406,8 +698,6 @@ def validate_review_gate(
     if match.group("owner") != owner or match.group("repo") != name:
         raise ValueError("source review belongs to another repository")
     pull_number = int(match.group("pull"))
-    if pull_number != REVIEW_PULL_NUMBER:
-        raise ValueError("source review belongs to another pull request")
     review_id = match.group("review")
     record = transport._api_json(
         "https://api.github.com/repos/"
@@ -428,8 +718,41 @@ def validate_review_gate(
         pull_number=pull_number,
         reviewed_code_sha=reviewed,
         expected_static_digest=expected_static,
+        expected_pull_head_sha=head,
         expected_url=review_url,
         expected_body_sha256=review_sha,
+    )
+    if review.get("review_tag") != source.get("review_tag") or review.get(
+        "review_tag_object_sha"
+    ) != source.get("review_tag_object_sha"):
+        raise ValueError(
+            "trigger review tag identity differs from the authenticated source review"
+        )
+    _require_review_tag_identity(
+        source,
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
+    )
+    _require_reviewer_write_permission(
+        record,
+        repository=repository,
+        token=token,
+        deadline=deadline,
+    )
+    inventory = _review_inventory(
+        repository=repository,
+        pull_number=pull_number,
+        token=token,
+        deadline=deadline,
+    )
+    _require_review_not_superseded(record, inventory)
+    _require_current_main_contained(
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        token=token,
+        deadline=deadline,
     )
 
     for field in (
@@ -514,6 +837,12 @@ def execute_from_environment(environment: dict[str, str] | None = None) -> int:
             root=Path(temp),
         )
         smoke.prepare_smoke(source, output)
+        validate_review_gate(
+            review,
+            repository=repository,
+            token=token,
+            deadline=deadline,
+        )
         smoke.run_smoke(source, output)
     return 0
 

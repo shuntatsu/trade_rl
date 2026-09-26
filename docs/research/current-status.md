@@ -469,19 +469,62 @@ both fixed stresses. Otherwise the lineage stops after the smoke. Even a pass
 does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
 until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
-fixed contract. This smoke does not accept a same-author review as that fresh review. The
-trigger gate requires a formal GitHub PR review on the smoke's owning pull
-request from a distinct GitHub principal, exact review `commit_id`, exact
-review-body hash, and a
-canonical `ppo_4h_indicator_source_review_v2` payload whose code/contract
-identity, reviewer-independence status, G0/G1/G2 outcomes, blocking findings and
-development-only authorization all agree with the trigger record before source
-download or PPO fitting may start. GitHub now exposes the waiting state through
+fixed contract. For this smoke, the formal review must be posted by a GitHub
+principal distinct from the execution PR author. A same-principal canonical PASS
+payload plus a valid annotated tag is insufficient because the author could create
+both; the structured external-AI/fresh-read-only/independence fields remain required
+semantic attestations in addition to principal separation. The concrete
+`reviewer_model` value is recorded as non-empty provenance and is not hard-coded
+as a validator allow-list. The preregistration/code PR has been integrated
+without economic authorization, so the remaining authorization lifecycle is
+carried by a dedicated **open draft execution PR** on
+`research/ppo-4h-indicator-smoke-execution`. Draft state is a required machine invariant through review authorization and the evidence-only trigger transition, preventing the merge-before-review failure mode even while repository branch protection is unavailable. Review-status and trigger-time authorization also compare the reviewed code against live current `main`; if `main` advances, the old exact-head CI/review cannot be reused. The trigger gate
+requires that PR to target `main`, belong to this repository, and have its head
+equal the exact reviewed code SHA. The exact review `commit_id`, exact
+review-body hash, and canonical `ppo_4h_indicator_source_review_v3` payload
+must have matching code/contract identity, `review_tag`,
+`review_tag_object_sha`, `reviewer_independence=ESTABLISHED`,
+`reviewer_kind=external_ai`, non-empty `reviewer_model`,
+`reviewer_context=fresh_read_only`, result-blind G0/G1/G2 outcomes, no blocking
+findings, and development-only authorization before source download or PPO
+fitting may start. The review tag is versioned as
+`review/ppo-4h-indicator-smoke-vN` and authorization binds tag name + annotated
+tag object SHA + reviewed commit SHA. GitHub API validation follows tag ref ->
+annotated tag object -> commit and then refetches the tag ref, so lightweight
+tags, deleted or retargeted tags, tags for another commit, and mid-check ref
+mutation are rejected. Trigger evidence uses the versioned
+`ppo_4h_indicator_smoke_review_v2` schema and repeats the same tag
+name/object SHA; the pre-tag v1 trigger schema is not accepted for this
+lifecycle. The review-body SHA-256 freezes the full canonical body, including
+reviewer provenance. The gate also compares the authenticated review principal
+against the execution PR author and rejects equality; the v3 fields and live tag
+objects then provide the remaining machine-checked review-process attestation.
+GitHub now exposes the waiting state through
 an `Independent Research Review` check that runs only after Lean Core, real-SB3
 PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
 events repeat those checks and then refetch the current formal-review inventory;
 only reviews passing the execution gate's canonical validator can satisfy the check.
-`PENDING` therefore means software verification completed but the exact-head
+The posting GitHub principal must currently have repository `write` or `admin`
+permission; a public GitHub account without write authority cannot carry the
+authorization record. The inventory is chronological and only each posting
+GitHub principal's latest review is eligible, so a later blocking or otherwise
+non-authorizing review from that same principal supersedes its earlier
+authorization while another principal's later review does not rewrite it. If a
+review is BLOCKED, its review tag is deleted and the review is not reused after
+branch changes. The repaired exact HEAD must complete Full CI again before a
+new versioned tag such as `...-v2` is created and reviewed; only the APPROVED
+review tag is retained for the trigger. Because a Git ref has no trusted
+creation-time authority, creating the review tag only after exact-head Full CI
+is a procedural invariant rather than a timestamp check enforced by the
+gate.
+Before review authorization the
+open execution PR head equals the reviewed code SHA; the only subsequent source
+transition is the review-evidence-only trigger commit, which becomes the PR head
+while the formal review stays bound to its parent code SHA. The trigger gate
+refetches the bound review, current reviewer permission, and full review
+inventory immediately before accepting the evidence transition; a superseded,
+permission-revoked, or same-ID review whose URL/body/commit/state/login changed
+between the individual fetch and inventory refresh is rejected. `PENDING` therefore means software verification completed but the exact-head
 independent result-blind review is still absent or invalid; `READY` means only
 that the authenticated review-evidence transition may proceed, not that PPO
 economics may run directly.

@@ -344,6 +344,10 @@ behavior. Terminated child processes must be reaped before evidence upload.
 
 既定は、実装Workerとは別の **fresh reviewer context** を持つAI reviewer/sessionで、対象branchへwriteしない **read-only** roleとする。reviewはexact target revisionへbindする。
 
+GitHub上のposting principalはreview transportであり、それ自体をAI reviewerの独立性authorityとしない。同じGitHub principalをauthor/transportとして使う場合、review bodyやtagに `reviewer_independence=ESTABLISHED` と自己申告しただけではG4をauthorizeしない。独立性をmachine-boundに扱う経路では、default branch上のtrusted read-only reviewer runnerがfresh Gemini requestを発行し、そのrunからimmutable reviewer attestationを生成する。4h PPO smoke向け `ppo_4h_gemini_reviewer_run_v1` は最低限、reviewed code SHA、annotated review-tag object SHA、trusted workflow SHA/ref、canonical request PR/comment/requester identity、exact software-CI run/attempt、trusted CI bytesのSHA-256、result-blind packet digest、canonical system-instruction digest、Gemini `modelVersion` / `responseId`、G0/G1/G2/dispositionをbindする。具体的なGemini model versionはprovenanceでありvalidator allow-listにはしない。
+
+trusted reviewer workflowはreview targetを別directoryへcheckoutし、target Pythonやworkflowを実行しない。Gemini credentialを利用する前にcanonical request、requesterのrepository write authority、open Draft execution PR、current-main containment、annotated tag -> exact reviewed commit、exact-head Lean Core / PPO Runtime / Human Guide successを検証する。targetの `.github/workflows/ci.yml` はtrusted default-branch copyとbyte一致を要求し、target側だけでverification semanticsを弱めたGreenをreview evidenceへ昇格させない。target source/docs/testsは**untrusted evidence**としてuser messageへ渡し、reviewer system instructionを上書きするinstructionとして扱わない。
+
 独立したfresh reviewer surfaceを利用できない場合でもAI semantic review自体は省略しない。同じsession/contextでreviewした場合は `reviewer_independence=NOT ESTABLISHED` と明記する。新しいeconomic resultを生成するG4へ進むには、結果を見ていないfresh AI reviewerによる再reviewを必要とする。
 
 review targetのHEAD、Research Question Contract、Mechanism Contract、主要oracleが変わったら古いAI reviewを再利用しない。

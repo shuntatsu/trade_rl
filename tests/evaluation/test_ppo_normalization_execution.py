@@ -1461,7 +1461,9 @@ def test_verify_revalidates_the_exact_provenance_it_publishes(
     )
     result = json.loads((root / "slots" / spec.slot / "result.json").read_bytes())
     replay = {
-        key: value for key, value in result.items() if key not in module._RESULT_METADATA
+        key: value
+        for key, value in result.items()
+        if key not in module._RESULT_METADATA
     }
     dataset = SimpleNamespace(feature_names=("signal", "carry"))
     monkeypatch.setattr(

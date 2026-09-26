@@ -190,9 +190,13 @@ def _read_packet_source(root: Path, relative: str) -> tuple[bytes, str]:
 
 def _markdown_section(text: str, heading: str) -> str:
     lines = text.splitlines(keepends=True)
-    starts = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == heading]
+    starts = [
+        index for index, line in enumerate(lines) if line.rstrip("\r\n") == heading
+    ]
     if len(starts) != 1:
-        raise ValueError(f"result-blind packet section is missing or ambiguous: {heading}")
+        raise ValueError(
+            f"result-blind packet section is missing or ambiguous: {heading}"
+        )
     start = starts[0]
     level = len(heading) - len(heading.lstrip("#"))
     end = len(lines)

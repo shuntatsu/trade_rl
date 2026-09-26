@@ -18,10 +18,9 @@ ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
 BASE_BRANCH = "main"
 GEMINI_PROVIDER = "google_gemini"
+REVIEW_REQUEST_MARKER = "<!-- ppo-4h-gemini-review-request-v1 -->"
 PACKET_FILES = (
     ".github/workflows/ci.yml",
-    "docs/architecture/research-assurance.md",
-    "docs/research/current-status.md",
     "tools/ppo_4h_indicator_smoke_actions.py",
     "trade_rl/evaluation/ppo_4h_indicator_smoke.py",
     "trade_rl/data/features/price_channels.py",
@@ -29,6 +28,16 @@ PACKET_FILES = (
     "tests/architecture/test_ppo_4h_indicator_smoke_workflow.py",
     "tests/evaluation/test_ppo_4h_indicator_smoke.py",
     "tests/tools/test_ppo_4h_indicator_smoke_actions.py",
+)
+PACKET_SECTIONS = (
+    (
+        "docs/architecture/research-assurance.md",
+        "## Research-specific contract: PPO 4h indicator smoke",
+    ),
+    (
+        "docs/research/current-status.md",
+        "### PPO 4h indicator smoke: preregistered, not yet executed",
+    ),
 )
 _REQUIRED_SOFTWARE_JOBS = ("Lean Core", "PPO Runtime", "Human Guide")
 _REVIEW_TAG_RE = re.compile(
@@ -95,6 +104,107 @@ def require_review_tag(review_tag: str) -> int:
     return int(match.group("version"))
 
 
+def parse_review_request(event: object) -> dict[str, Any]:
+    if not isinstance(event, dict):
+        raise ValueError("review request event is malformed")
+    repository = event.get("repository")
+    issue = event.get("issue")
+    comment = event.get("comment")
+    if (
+        not isinstance(repository, dict)
+        or not isinstance(issue, dict)
+        or not isinstance(comment, dict)
+        or not isinstance(issue.get("pull_request"), dict)
+    ):
+        raise ValueError("review request event is malformed")
+    repository_name = repository.get("full_name")
+    pull_number = issue.get("number")
+    comment_id = comment.get("id")
+    user = comment.get("user")
+    body = comment.get("body")
+    if (
+        not isinstance(repository_name, str)
+        or _SAFE_REPO_RE.fullmatch(repository_name) is None
+        or isinstance(pull_number, bool)
+        or not isinstance(pull_number, int)
+        or pull_number < 1
+        or isinstance(comment_id, bool)
+        or not isinstance(comment_id, int)
+        or comment_id < 1
+        or not isinstance(user, dict)
+        or not isinstance(user.get("login"), str)
+        or not user["login"]
+        or not isinstance(body, str)
+    ):
+        raise ValueError("review request event is malformed")
+    prefix = REVIEW_REQUEST_MARKER + "\n"
+    if not body.startswith(prefix) or not body.endswith("\n"):
+        raise ValueError("review request body is not canonical")
+    raw = body[len(prefix) : -1].encode("utf-8")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("review request payload is invalid JSON") from None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"review_tag", "reviewed_code_sha"}
+        or _canonical_json_bytes(payload) != raw
+    ):
+        raise ValueError("review request payload is not canonical")
+    review_tag = payload.get("review_tag")
+    reviewed_code_sha = payload.get("reviewed_code_sha")
+    require_review_tag(review_tag)
+    reviewed = _require_sha(reviewed_code_sha, field="reviewed code SHA")
+    return {
+        "repository": repository_name,
+        "pull_number": pull_number,
+        "comment_id": comment_id,
+        "requester_login": user["login"],
+        "review_tag": review_tag,
+        "reviewed_code_sha": reviewed,
+    }
+
+
+def _read_packet_source(root: Path, relative: str) -> tuple[bytes, str]:
+    path = root / relative
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"packet source is missing or unsafe: {relative}")
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(f"packet source is not UTF-8: {relative}") from None
+    return raw, text
+
+
+def _markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == heading]
+    if len(starts) != 1:
+        raise ValueError(f"result-blind packet section is missing or ambiguous: {heading}")
+    start = starts[0]
+    level = len(heading) - len(heading.lstrip("#"))
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].lstrip()
+        if not stripped.startswith("#"):
+            continue
+        hashes = len(stripped) - len(stripped.lstrip("#"))
+        if hashes <= level and stripped[hashes : hashes + 1] == " ":
+            end = index
+            break
+    return "".join(lines[start:end])
+
+
+def require_trusted_ci_identity(trusted_root: Path, target_root: Path) -> str:
+    relative = ".github/workflows/ci.yml"
+    trusted_raw, _ = _read_packet_source(trusted_root, relative)
+    target_raw, _ = _read_packet_source(target_root, relative)
+    if trusted_raw != target_raw:
+        raise ValueError("target trusted CI identity differs from default branch")
+    return hashlib.sha256(trusted_raw).hexdigest()
+
+
 def build_result_blind_packet(
     root: Path,
     *,
@@ -108,24 +218,34 @@ def build_result_blind_packet(
     require_review_tag(review_tag)
     tag_object = _require_sha(review_tag_object_sha, field="review tag object SHA")
     files: list[dict[str, str]] = []
+    sections: list[dict[str, str]] = []
     total = 0
     for relative in PACKET_FILES:
-        path = root / relative
-        if path.is_symlink() or not path.is_file():
-            raise ValueError(f"packet source is missing or unsafe: {relative}")
-        raw = path.read_bytes()
+        raw, text = _read_packet_source(root, relative)
         total += len(raw)
         if total > _MAX_PACKET_BYTES:
             raise ValueError("result-blind packet exceeds size budget")
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise ValueError(f"packet source is not UTF-8: {relative}") from None
         files.append(
             {
                 "path": relative,
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "text": text,
+            }
+        )
+    for relative, heading in PACKET_SECTIONS:
+        raw, text = _read_packet_source(root, relative)
+        section = _markdown_section(text, heading)
+        encoded = section.encode("utf-8")
+        total += len(encoded)
+        if total > _MAX_PACKET_BYTES:
+            raise ValueError("result-blind packet exceeds size budget")
+        sections.append(
+            {
+                "path": relative,
+                "heading": heading,
+                "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "sha256": hashlib.sha256(encoded).hexdigest(),
+                "text": section,
             }
         )
     return {
@@ -136,6 +256,7 @@ def build_result_blind_packet(
         "review_tag_object_sha": tag_object,
         "result_blind": True,
         "files": files,
+        "sections": sections,
     }
 
 
@@ -143,17 +264,31 @@ def validate_software_ci(
     run: object,
     jobs: object,
     reviewed_code_sha: str,
+    *,
+    pull_number: int,
 ) -> tuple[int, int]:
     reviewed = _require_sha(reviewed_code_sha, field="reviewed code SHA")
     if not isinstance(run, dict):
         raise ValueError("software verification run is malformed")
     if (
         run.get("name") != "CI"
+        or run.get("path") != ".github/workflows/ci.yml"
         or run.get("event") != "pull_request"
         or run.get("head_sha") != reviewed
         or run.get("status") != "completed"
     ):
         raise ValueError("software verification is not exact-head PR CI")
+    pulls = run.get("pull_requests")
+    if not isinstance(pulls, list) or not any(
+        isinstance(item, dict)
+        and item.get("number") == pull_number
+        and isinstance(item.get("head"), dict)
+        and item["head"].get("sha") == reviewed
+        and isinstance(item.get("base"), dict)
+        and item["base"].get("ref") == BASE_BRANCH
+        for item in pulls
+    ):
+        raise ValueError("software verification is not bound to the execution pull")
     run_id = _positive_int(run.get("id"), field="software CI run id")
     attempt = _positive_int(run.get("run_attempt"), field="software CI run attempt")
     if not isinstance(jobs, list):

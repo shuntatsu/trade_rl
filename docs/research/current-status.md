@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-24 (JST)
+更新基準: 2026-09-26 (JST)
 
 ## 結論
 
@@ -218,12 +218,39 @@ shared-cash directional evaluator, and differs only by fit-only normalization. T
 sealed protocol keeps its preregistration-time source-blob provenance unchanged; the
 post-prereg feature-schema correctness fixes are part of the separately activation-bound
 current implementation identity rather than a rewrite of the protocol bytes.
-Each slot is write-once once fit/evaluation may begin, and fresh verification
-reloads the published bundle without refitting before recomputing the paired and
-absolute gates. The implementation deliberately leaves its economic activation
-digest unset, so no corrected-economics fit, replay, comparison result, unused
-future evaluation, production eligibility, or live authorization is established
-by this software work.
+
+The hardened execution boundary makes `prepare_replication_execution` the only
+root-creation transition and publishes a completely validated sibling staging tree
+atomically. Slot claim/failure transitions are private and derive activation and
+implementation identity from the prepared root; pre-fit and consumed failures are
+schema/slot/arm/seed/normalization/chronology checked. Source bytes and runtime
+identity are rechecked after long fit/replay before durable publication, bundle
+parents and manifest are validated before SB3 deserialization, and both fitted and
+reloaded policies must report exactly 262,144 timesteps.
+
+The implementation deliberately commits `ppo_normalization_activation.json` with
+`activation_sha256=null`. This non-Python authority file is outside the Python-only
+candidate implementation digest, so a later result-blind activation commit can bind
+the exact reviewed activation without creating a self-referential implementation
+hash. The future activation also has to bind immutable implementation-seal,
+fresh-reconstruction, and assurance-review digests. A local `verified.json` does
+not count as independent verification by itself: comparison publication additionally
+requires all ten verification identities to be bound by a fresh verifier artifact
+authority carrying repository/run/artifact identity, raw SHA-256 and matching API
+digest. The verifier runtime contract matches Python implementation/version, machine
+architecture, OS family, and the complete bound package map while treating kernel
+release as recorded provenance rather than an equality gate.
+
+The training mechanism still uses one-active-symbol episodes with
+`risk_config=None`, whereas evaluation uses the maintained shared-cash directional
+account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
+arms and therefore does not change the normalization-only factor, but it limits the
+absolute claim. Per-root immutability also does not establish repository-global
+exactly-once execution; the later authenticated one-shot transport must own global
+uniqueness and partial-result non-disclosure. Until the activation authority and
+those external authorities are sealed, no corrected-economics fit, replay,
+comparison result, unused future evaluation, production eligibility, or live
+authorization is established by this software work.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same

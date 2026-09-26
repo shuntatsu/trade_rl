@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shutil
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
@@ -14,7 +17,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
+from trade_rl.artifacts.verified_file import file_digest_and_size, open_regular_binary
 from trade_rl.data.artifacts import (
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
@@ -43,15 +46,21 @@ _SLOT_SCHEMA = "ppo_normalization_replication_slot_v1"
 _PREFIT_FAILURE_SCHEMA = "ppo_normalization_replication_prefit_failure_v1"
 _CONSUMED_FAILURE_SCHEMA = "ppo_normalization_replication_consumed_failure_v1"
 EXECUTION_ACTIVATION_SCHEMA = "ppo_normalization_execution_activation_v1"
+ACTIVATION_AUTHORITY_SCHEMA = "ppo_normalization_execution_activation_authority_v1"
+_ACTIVATION_AUTHORITY_PATH = Path(__file__).with_name(
+    "ppo_normalization_activation.json"
+)
 SEALED_PROTOCOL_SHA256 = (
     "0013470ed5858eaa3b9391f97f4b18f772495d21c128832f74e1c50b090df304"
 )
-# This implementation remains incapable of opening economic slots by itself.
-# A separate result-blind activation change must bind one exact reviewed digest.
-SEALED_EXECUTION_ACTIVATION_SHA256: str | None = None
 SLOT_RESULT_SCHEMA = "ppo_normalization_replication_result_v1"
 SLOT_VERIFICATION_SCHEMA = "ppo_normalization_replication_verification_v1"
 COMPARISON_SCHEMA = "ppo_normalization_replication_comparison_v1"
+VERIFIER_ARTIFACT_AUTHORITY_SCHEMA = (
+    "ppo_normalization_replication_verifier_artifact_authority_v1"
+)
+_VERIFICATION_SET_SCHEMA = "ppo_normalization_replication_verification_set_v1"
+_PPO_TIMESTEPS = 262_144
 
 
 class _ReplicationConfig(Protocol):
@@ -131,7 +140,7 @@ def fit_replication_strategy(
         start_index=0,
         stop_index=_fit_stop_index(dataset, config),
         gross_budget=0.1,
-        total_timesteps=262_144,
+        total_timesteps=_PPO_TIMESTEPS,
         seed=spec.seed,
         initial_capital=10_000.0,
         execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
@@ -250,7 +259,30 @@ def _slot_relative(spec: ReplicationArmSpec, name: str) -> Path:
     return Path("slots") / spec.slot / name
 
 
-def record_prefit_failure(
+def _absolute(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _check_directory_ancestors(path: Path) -> None:
+    absolute = _absolute(path)
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"execution path must not contain symlinks: {current}")
+        if current.exists() and not current.is_dir():
+            raise ValueError(f"execution path parent is not a directory: {current}")
+
+
+def _existing_execution_store(root: Path) -> StudyStore:
+    root = Path(root)
+    _check_directory_ancestors(root)
+    if root.is_symlink() or not root.exists() or not root.is_dir():
+        raise ValueError("replication execution root is not a prepared directory")
+    return StudyStore(root)
+
+
+def _record_prefit_failure(
     root: Path,
     spec: ReplicationArmSpec,
     *,
@@ -263,39 +295,46 @@ def record_prefit_failure(
     attempt = _safe_attempt_id(attempt_id)
     if not isinstance(error, str) or not error:
         raise ValueError("error must be non-empty text")
-    store = StudyStore(root)
-    store.publish_json_once(
-        Path("prefit-failures") / spec.slot / f"{attempt}.json",
-        {
-            "schema": _PREFIT_FAILURE_SCHEMA,
-            "slot": spec.slot,
-            "protocol_arm": spec.protocol_arm,
-            "seed": spec.seed,
-            "normalize_features": spec.normalize_features,
-            "consumed": False,
-            "error": error,
-        },
-    )
+    _validate_execution_root(root, runtime_contract="execution")
+    store = _existing_execution_store(root)
+    with store.mutation_lock():
+        state = _replication_slot_state(store, spec)
+        if state["consumed"] or state["failed"] or state["result_published"]:
+            raise ValueError("pre-fit failure cannot follow slot consumption")
+        store.publish_json_once(
+            Path("prefit-failures") / spec.slot / f"{attempt}.json",
+            {
+                "schema": _PREFIT_FAILURE_SCHEMA,
+                "slot": spec.slot,
+                "protocol_arm": spec.protocol_arm,
+                "seed": spec.seed,
+                "normalize_features": spec.normalize_features,
+                "attempt_id": attempt,
+                "consumed": False,
+                "error": error,
+            },
+        )
 
 
-def claim_replication_slot(
+def _claim_replication_slot(
     root: Path,
     spec: ReplicationArmSpec,
-    *,
-    activation_digest: str,
-    implementation_digest: str,
 ) -> None:
-    """Atomically cross the fit boundary exactly once for one slot."""
+    """Atomically cross the fit boundary exactly once for one prepared slot."""
 
     _require_registered_spec(spec)
-    activation = require_sha256(activation_digest, field="activation_digest")
-    implementation = require_sha256(
-        implementation_digest,
+    activation = _validate_execution_root(root, runtime_contract="execution")
+    activation_digest = _sealed_execution_activation_digest()
+    implementation = activation.get("implementation_digest")
+    if not isinstance(implementation, str):
+        raise ValueError("activation implementation digest is malformed")
+    implementation_digest = require_sha256(
+        implementation,
         field="implementation_digest",
     )
-    store = StudyStore(root)
+    store = _existing_execution_store(root)
     with store.mutation_lock():
-        state = replication_slot_state(root, spec)
+        state = _replication_slot_state(store, spec)
         if state["consumed"] or state["failed"] or state["result_published"]:
             raise ValueError(f"replication slot already consumed: {spec.slot}")
         store.publish_json_once(
@@ -306,35 +345,47 @@ def claim_replication_slot(
                 "protocol_arm": spec.protocol_arm,
                 "seed": spec.seed,
                 "normalize_features": spec.normalize_features,
-                "activation_digest": activation,
-                "implementation_digest": implementation,
+                "activation_digest": activation_digest,
+                "implementation_digest": implementation_digest,
                 "consumed": True,
             },
         )
 
 
-def record_consumed_failure(
+def _record_consumed_failure(
     root: Path,
     spec: ReplicationArmSpec,
     *,
     error: str,
 ) -> None:
-    """Persist a post-claim failure; the slot remains permanently consumed."""
+    """Persist a post-claim failure against the immutable prepared identity."""
 
     if not isinstance(error, str) or not error:
         raise ValueError("error must be non-empty text")
-    store = StudyStore(root)
+    store = _existing_execution_store(root)
     with store.mutation_lock():
-        state = replication_slot_state(root, spec)
-        if not state["consumed"]:
+        claim = _read_consumed_claim(store, spec)
+        state = _replication_slot_state(store, spec)
+        if claim is None or not state["consumed"]:
             raise ValueError("cannot record consumed failure before slot consumption")
         if state["failed"] or state["result_published"]:
             raise ValueError("consumed slot already has terminal evidence")
+        activation_digest = claim.get("activation_digest")
+        implementation_digest = claim.get("implementation_digest")
+        if not isinstance(activation_digest, str) or not isinstance(
+            implementation_digest, str
+        ):
+            raise ValueError("replication slot claim digests are malformed")
         store.publish_json_once(
             _slot_relative(spec, "failed.json"),
             {
                 "schema": _CONSUMED_FAILURE_SCHEMA,
                 "slot": spec.slot,
+                "protocol_arm": spec.protocol_arm,
+                "seed": spec.seed,
+                "normalize_features": spec.normalize_features,
+                "activation_digest": activation_digest,
+                "implementation_digest": implementation_digest,
                 "consumed": True,
                 "error": error,
             },
@@ -347,7 +398,7 @@ def _read_canonical_json(
     *,
     field: str,
 ) -> tuple[dict[str, object], bytes]:
-    path = store.root / relative
+    path = store._checked_target(relative)
     try:
         with open_regular_binary(path, field=field) as stream:
             raw = stream.read()
@@ -357,6 +408,57 @@ def _read_canonical_json(
     if not isinstance(payload, dict) or canonical_json_bytes(payload) != raw:
         raise ValueError(f"{field} must be canonical JSON")
     return payload, raw
+
+
+def _publish_json_with_sha256_pair(
+    store: StudyStore,
+    relative: str | Path,
+    payload: dict[str, object],
+    *,
+    field: str,
+) -> None:
+    relative_path = Path(relative)
+    if (
+        relative_path.is_absolute()
+        or not relative_path.parts
+        or relative_path == Path(".")
+        or ".." in relative_path.parts
+        or relative_path.suffix != ".json"
+    ):
+        raise ValueError(f"{field} path must be a safe JSON relative path")
+    digest_relative = relative_path.with_name(f"{relative_path.stem}.sha256.json")
+    raw = canonical_json_bytes(payload)
+    digest_payload = {"sha256": sha256(raw).hexdigest()}
+
+    with store.mutation_lock():
+        target = store._checked_target(relative_path)
+        digest_target = store._checked_target(digest_relative)
+
+        target_exists = target.exists() or target.is_symlink()
+        digest_exists = digest_target.exists() or digest_target.is_symlink()
+
+        if target_exists:
+            _existing_payload, existing_raw = _read_canonical_json(
+                store,
+                relative_path,
+                field=field,
+            )
+            if existing_raw != raw:
+                raise ValueError(f"{field} differs from existing evidence")
+
+        if digest_exists:
+            existing_digest, _existing_digest_raw = _read_canonical_json(
+                store,
+                digest_relative,
+                field=f"{field} digest",
+            )
+            if existing_digest != digest_payload:
+                raise ValueError(f"{field} digest differs from existing evidence")
+        else:
+            store.publish_json_once(digest_relative, digest_payload)
+
+        if not target_exists:
+            store.publish_json_once(relative_path, payload)
 
 
 def _regular_json_exists(store: StudyStore, relative: Path) -> bool:
@@ -415,28 +517,77 @@ def _read_consumed_claim(
     return payload
 
 
-def replication_slot_state(
-    root: Path,
+def _read_consumed_failure(
+    store: StudyStore,
+    spec: ReplicationArmSpec,
+    claim: dict[str, object],
+) -> dict[str, object] | None:
+    relative = _slot_relative(spec, "failed.json")
+    path = store._checked_target(relative)
+    if not path.exists() and not path.is_symlink():
+        return None
+    payload, _raw = _read_canonical_json(
+        store,
+        relative,
+        field="replication consumed failure evidence",
+    )
+    expected_keys = {
+        "schema",
+        "slot",
+        "protocol_arm",
+        "seed",
+        "normalize_features",
+        "activation_digest",
+        "implementation_digest",
+        "consumed",
+        "error",
+    }
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema") != _CONSUMED_FAILURE_SCHEMA
+        or payload.get("slot") != spec.slot
+        or payload.get("protocol_arm") != spec.protocol_arm
+        or payload.get("seed") != spec.seed
+        or payload.get("normalize_features") is not spec.normalize_features
+        or payload.get("activation_digest") != claim.get("activation_digest")
+        or payload.get("implementation_digest") != claim.get("implementation_digest")
+        or payload.get("consumed") is not True
+        or not isinstance(payload.get("error"), str)
+        or not payload.get("error")
+    ):
+        raise ValueError("replication consumed failure evidence is malformed")
+    return payload
+
+
+def _replication_slot_state(
+    store: StudyStore,
     spec: ReplicationArmSpec,
 ) -> dict[str, object]:
-    """Inspect one slot without treating pre-fit failures as consumption."""
-
     _require_registered_spec(spec)
-    store = StudyStore(root)
     consumed_claim = _read_consumed_claim(store, spec)
     consumed = consumed_claim is not None
-    failed = _regular_json_exists(store, _slot_relative(spec, "failed.json"))
+    failed_payload = (
+        None
+        if consumed_claim is None
+        else _read_consumed_failure(store, spec, consumed_claim)
+    )
+    failed = failed_payload is not None
+    failed_path = store._checked_target(_slot_relative(spec, "failed.json"))
+    if consumed_claim is None and (failed_path.exists() or failed_path.is_symlink()):
+        raise ValueError("terminal slot evidence exists without a consumed claim")
     result_published = _regular_json_exists(
         store,
         _slot_relative(spec, "result.json"),
     )
-    prefit_root = store.root / "prefit-failures" / spec.slot
-    if prefit_root.is_symlink():
-        raise ValueError("prefit failure directory must not be a symlink")
+
+    probe = store._checked_target(
+        Path("prefit-failures") / spec.slot / "__probe__.json"
+    )
+    prefit_root = probe.parent
     prefit_failure_count = 0
     if prefit_root.exists():
-        if not prefit_root.is_dir():
-            raise ValueError("prefit failure evidence must be a directory")
+        if prefit_root.is_symlink() or not prefit_root.is_dir():
+            raise ValueError("prefit failure evidence must be a regular directory")
         for path in sorted(prefit_root.iterdir(), key=lambda item: item.name):
             if path.is_symlink() or not path.is_file() or path.suffix != ".json":
                 raise ValueError("prefit failure evidence contains an unsafe entry")
@@ -446,13 +597,32 @@ def replication_slot_state(
                 relative,
                 field="replication prefit failure evidence",
             )
+            expected_keys = {
+                "schema",
+                "slot",
+                "protocol_arm",
+                "seed",
+                "normalize_features",
+                "attempt_id",
+                "consumed",
+                "error",
+            }
             if (
-                payload.get("schema") != _PREFIT_FAILURE_SCHEMA
+                set(payload) != expected_keys
+                or payload.get("schema") != _PREFIT_FAILURE_SCHEMA
                 or payload.get("slot") != spec.slot
+                or payload.get("protocol_arm") != spec.protocol_arm
+                or payload.get("seed") != spec.seed
+                or payload.get("normalize_features") is not spec.normalize_features
+                or payload.get("attempt_id") != path.stem
                 or payload.get("consumed") is not False
+                or not isinstance(payload.get("error"), str)
+                or not payload.get("error")
             ):
                 raise ValueError("prefit failure evidence is malformed")
+            _safe_attempt_id(path.stem)
             prefit_failure_count += 1
+
     if (failed or result_published) and not consumed:
         raise ValueError("terminal slot evidence exists without a consumed claim")
     if failed and result_published:
@@ -464,6 +634,17 @@ def replication_slot_state(
         "result_published": result_published,
         "prefit_failure_count": prefit_failure_count,
     }
+
+
+def replication_slot_state(
+    root: Path,
+    spec: ReplicationArmSpec,
+) -> dict[str, object]:
+    """Inspect one slot without creating or mutating an execution root."""
+
+    store = _existing_execution_store(root)
+    _validate_execution_root(root, runtime_contract="stored")
+    return _replication_slot_state(store, spec)
 
 
 def _read_verified_record(
@@ -503,6 +684,7 @@ def _read_verified_record(
         "result_sha256",
         "bundle_digest",
         "bundle_policy_sha256",
+        "verifier_provenance",
         "no_refit",
         "replay_verified",
     }
@@ -525,6 +707,13 @@ def _read_verified_record(
         raise ValueError(
             "replication verification record differs from published result"
         )
+    verifier_provenance = payload.get("verifier_provenance")
+    result_provenance = result.get("provenance")
+    if not isinstance(verifier_provenance, dict) or not isinstance(
+        result_provenance, dict
+    ):
+        raise ValueError("replication verifier provenance is malformed")
+    _validate_verifier_provenance(result_provenance, verifier_provenance)
     return payload
 
 
@@ -660,11 +849,34 @@ def recompute_replication_decision(
 
 
 def _sealed_execution_activation_digest() -> str:
-    digest = SEALED_EXECUTION_ACTIVATION_SHA256
+    try:
+        with open_regular_binary(
+            _ACTIVATION_AUTHORITY_PATH,
+            field="PPO normalization activation authority",
+        ) as stream:
+            raw = stream.read()
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            "PPO normalization activation authority is invalid JSON"
+        ) from error
+
+    if not isinstance(payload, dict) or canonical_json_bytes(payload) != raw:
+        raise ValueError(
+            "PPO normalization activation authority must be canonical JSON"
+        )
+    if (
+        set(payload) != {"schema", "activation_sha256"}
+        or payload.get("schema") != ACTIVATION_AUTHORITY_SCHEMA
+    ):
+        raise ValueError("PPO normalization activation authority shape is unsupported")
+    digest = payload.get("activation_sha256")
     if digest is None:
         raise RuntimeError(
             "PPO normalization economic execution activation is not sealed"
         )
+    if not isinstance(digest, str):
+        raise ValueError("PPO normalization activation digest must be text")
     return require_sha256(digest, field="sealed_execution_activation_sha256")
 
 
@@ -709,6 +921,67 @@ def _validate_runtime_authority(provenance: dict[str, object]) -> None:
         raise RuntimeError("sealed PPO runtime execution contract drifted")
 
 
+def _verifier_runtime_identity(provenance: dict[str, object]) -> dict[str, object]:
+    runtime = provenance.get("runtime_environment")
+    if not isinstance(runtime, dict):
+        raise ValueError("verifier runtime provenance is missing")
+    python = runtime.get("python")
+    os_info = runtime.get("os")
+    machine = runtime.get("machine")
+    packages = runtime.get("packages")
+    if (
+        not isinstance(python, dict)
+        or not isinstance(os_info, dict)
+        or not isinstance(machine, str)
+        or not machine
+        or not isinstance(packages, dict)
+        or any(not isinstance(name, str) or not name for name in packages)
+        or any(
+            value is not None and not isinstance(value, str)
+            for value in packages.values()
+        )
+    ):
+        raise ValueError("verifier runtime provenance is malformed")
+    implementation = python.get("implementation")
+    version = python.get("version")
+    os_family = os_info.get("family")
+    os_release = os_info.get("release")
+    if (
+        not isinstance(implementation, str)
+        or not implementation
+        or not isinstance(version, str)
+        or not version
+        or not isinstance(os_family, str)
+        or not os_family
+        or not isinstance(os_release, str)
+        or not os_release
+    ):
+        raise ValueError("verifier runtime provenance is malformed")
+    return {
+        "python": {
+            "implementation": implementation,
+            "version": version,
+        },
+        "os_family": os_family,
+        "machine": machine,
+        "packages": {name: packages[name] for name in sorted(packages)},
+    }
+
+
+def _validate_verifier_provenance(
+    expected: dict[str, object],
+    current: dict[str, object],
+) -> None:
+    if current.get("implementation_digest") != expected.get("implementation_digest"):
+        raise ValueError("verifier implementation digest differs from activation")
+    if current.get("research_context_digest") != expected.get(
+        "research_context_digest"
+    ):
+        raise ValueError("verifier research context differs from activation")
+    if _verifier_runtime_identity(current) != _verifier_runtime_identity(expected):
+        raise ValueError("verifier stable runtime identity differs from activation")
+
+
 def _validate_activation(
     activation: dict[str, object],
 ) -> dict[str, object]:
@@ -717,6 +990,9 @@ def _validate_activation(
         "schema",
         "protocol_sha256",
         "implementation_digest",
+        "implementation_seal_sha256",
+        "fresh_reconstruction_sha256",
+        "assurance_review_sha256",
         "provenance",
         "economic_execution_authorized",
         "economic_result_inspected",
@@ -735,6 +1011,15 @@ def _validate_activation(
     if not isinstance(implementation, str):
         raise ValueError("implementation_digest must be text")
     require_sha256(implementation, field="implementation_digest")
+    for evidence_field in (
+        "implementation_seal_sha256",
+        "fresh_reconstruction_sha256",
+        "assurance_review_sha256",
+    ):
+        evidence_digest = activation[evidence_field]
+        if not isinstance(evidence_digest, str):
+            raise ValueError(f"{evidence_field} must be text")
+        require_sha256(evidence_digest, field=evidence_field)
     provenance = activation["provenance"]
     if not isinstance(provenance, dict):
         raise ValueError("execution activation provenance is malformed")
@@ -761,39 +1046,66 @@ def prepare_replication_execution(
     root: Path,
     activation: dict[str, object],
 ) -> None:
-    """Persist an independently sealed one-shot activation without running economics."""
+    """Atomically publish one fully validated, result-blind execution root."""
 
     expected_activation_digest = _sealed_execution_activation_digest()
-    _validate_activation(activation)
+    checked = _validate_activation(activation)
+    current_provenance = build_candidate_run_provenance()
+    if checked["provenance"] != current_provenance:
+        raise ValueError("current provenance differs from execution activation")
+
+    root = Path(root)
+    _check_directory_ancestors(root.parent)
     if root.exists() or root.is_symlink():
         raise FileExistsError(f"replication execution root already exists: {root}")
-    root.mkdir(parents=True)
-    store = StudyStore(root)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    stage = root.parent / f".{root.name}.staging-{uuid.uuid4().hex}"
+    if stage.exists() or stage.is_symlink():
+        raise FileExistsError("replication execution staging root already exists")
+
     protocol = expected_ppo_normalization_protocol()
     raw = ppo_normalization_protocol_bytes()
     if sha256(raw).hexdigest() != SEALED_PROTOCOL_SHA256:
         raise RuntimeError("sealed normalization protocol bytes drifted")
-    store.publish_json_once("protocol.json", protocol)
-    store.publish_json_once(
-        "protocol.digest.json",
-        {"sha256": SEALED_PROTOCOL_SHA256},
-    )
-    store.publish_json_once("activation.json", activation)
-    store.publish_json_once(
-        "activation.digest.json",
-        {"digest": expected_activation_digest},
-    )
-    store.publish_json_once(
-        "slots.json",
-        {"slots": [spec.slot for spec in replication_arm_specs()]},
-    )
+
+    stage.mkdir()
+    try:
+        store = StudyStore(stage)
+        store.publish_json_once("protocol.json", protocol)
+        store.publish_json_once(
+            "protocol.digest.json",
+            {"sha256": SEALED_PROTOCOL_SHA256},
+        )
+        store.publish_json_once("activation.json", activation)
+        store.publish_json_once(
+            "activation.digest.json",
+            {"digest": expected_activation_digest},
+        )
+        store.publish_json_once(
+            "slots.json",
+            {"slots": [spec.slot for spec in replication_arm_specs()]},
+        )
+        _validate_execution_root(stage)
+        if root.exists() or root.is_symlink():
+            raise FileExistsError(f"replication execution root already exists: {root}")
+        stage.rename(root)
+    finally:
+        if stage.exists() or stage.is_symlink():
+            if stage.is_dir() and not stage.is_symlink():
+                shutil.rmtree(stage)
+            else:
+                stage.unlink(missing_ok=True)
 
 
 def _validate_execution_root(
     root: Path,
+    *,
+    runtime_contract: str = "execution",
 ) -> dict[str, object]:
+    if runtime_contract not in {"execution", "verifier", "stored"}:
+        raise ValueError("replication runtime contract is unsupported")
     expected_activation_digest = _sealed_execution_activation_digest()
-    store = StudyStore(root)
+    store = _existing_execution_store(root)
     protocol, protocol_raw = _read_canonical_json(
         store,
         Path("protocol.json"),
@@ -821,8 +1133,16 @@ def _validate_execution_root(
     if activation_digest != {"digest": expected_activation_digest}:
         raise ValueError("saved activation digest differs")
     checked = _validate_activation(activation)
-    if checked["provenance"] != build_candidate_run_provenance():
-        raise ValueError("source/runtime changed from execution activation")
+    if runtime_contract != "stored":
+        current_provenance = build_candidate_run_provenance()
+        expected_provenance = checked["provenance"]
+        if not isinstance(expected_provenance, dict):
+            raise ValueError("execution activation provenance is malformed")
+        if runtime_contract == "execution":
+            if expected_provenance != current_provenance:
+                raise ValueError("source/runtime changed from execution activation")
+        else:
+            _validate_verifier_provenance(expected_provenance, current_provenance)
     slots, _slots_raw = _read_canonical_json(
         store,
         Path("slots.json"),
@@ -831,6 +1151,34 @@ def _validate_execution_root(
     if slots != {"slots": [spec.slot for spec in replication_arm_specs()]}:
         raise ValueError("replication slot roster changed")
     return checked
+
+
+_SOURCE_IDENTITY_PATHS = (
+    Path("dataset") / "manifest.json",
+    Path("dataset") / "arrays.npz",
+    Path("study") / "plan.json",
+)
+
+
+def _source_identity_snapshot(source: Path) -> dict[str, dict[str, object]]:
+    source = Path(source)
+    snapshot: dict[str, dict[str, object]] = {}
+    for relative in _SOURCE_IDENTITY_PATHS:
+        path = source / relative
+        _check_directory_ancestors(path.parent)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(
+                f"replication source evidence is missing or unsafe: {relative}"
+            )
+        digest, size = file_digest_and_size(
+            path,
+            field=f"replication source {relative.as_posix()}",
+        )
+        snapshot[relative.as_posix()] = {
+            "sha256": digest,
+            "size_bytes": size,
+        }
+    return snapshot
 
 
 def _load_replication_context(
@@ -873,13 +1221,37 @@ def _load_replication_context(
 
 
 def _manifest_for_bundle(
-    store: StudyStore, spec: ReplicationArmSpec
+    store: StudyStore,
+    spec: ReplicationArmSpec,
+    *,
+    expected_digest: str | None = None,
 ) -> dict[str, object]:
     manifest, _manifest_raw = _read_canonical_json(
         store,
         Path("slots") / spec.slot / "bundle" / "manifest.json",
         field="PPO replication bundle manifest",
     )
+    expected_keys = {
+        "schema",
+        "observation",
+        "feature_indices",
+        "feature_names",
+        "normalizer",
+        "policy_sha256",
+    }
+    if (
+        set(manifest) != expected_keys
+        or manifest.get("schema") != "ppo_inference_bundle_v1"
+    ):
+        raise ValueError("PPO replication bundle manifest shape is unsupported")
+    if expected_digest is not None:
+        pinned = require_sha256(expected_digest, field="bundle_digest")
+        if content_digest(manifest) != pinned:
+            raise ValueError("PPO replication bundle manifest digest differs")
+    policy_sha256 = manifest.get("policy_sha256")
+    if not isinstance(policy_sha256, str):
+        raise ValueError("PPO replication bundle policy digest is malformed")
+    require_sha256(policy_sha256, field="bundle policy_sha256")
     expected_normalizer = spec.normalize_features
     has_normalizer = manifest.get("normalizer") is not None
     if has_normalizer is not expected_normalizer:
@@ -906,16 +1278,14 @@ def execute_replication_slot(
     if slot not in specs:
         raise ValueError("slot is outside the sealed replication roster")
     spec = specs[slot]
+    source_snapshot = _source_identity_snapshot(source)
     dataset, config, start, stop = _load_replication_context(source)
+    if _source_identity_snapshot(source) != source_snapshot:
+        raise ValueError("replication source changed while loading execution context")
     implementation = activation["implementation_digest"]
     if not isinstance(implementation, str):
         raise ValueError("activation implementation digest is malformed")
-    claim_replication_slot(
-        root,
-        spec,
-        activation_digest=expected_activation_digest,
-        implementation_digest=implementation,
-    )
+    _claim_replication_slot(root, spec)
     store = StudyStore(root)
     try:
         fitted = fit_replication_strategy(dataset, config, spec)
@@ -923,18 +1293,36 @@ def execute_replication_slot(
             getattr(fitted.policy, "num_timesteps"),
             field="realized PPO timesteps",
         )
-        bundle_root = store.root / "slots" / spec.slot / "bundle"
+        if realized_timesteps != _PPO_TIMESTEPS:
+            raise ValueError(
+                "realized PPO timesteps differ from sealed training budget"
+            )
+        bundle_root = store._checked_target(Path("slots") / spec.slot / "bundle")
+        if bundle_root.exists() or bundle_root.is_symlink():
+            raise ValueError("replication bundle destination already exists")
         bundle_digest = save_ppo_inference_bundle(
             bundle_root,
             fitted,
             feature_names=tuple(dataset.feature_names),
+        )
+        manifest = _manifest_for_bundle(
+            store,
+            spec,
+            expected_digest=bundle_digest,
         )
         loaded = load_ppo_inference_bundle(
             bundle_root,
             expected_digest=bundle_digest,
             feature_names=tuple(dataset.feature_names),
         )
-        manifest = _manifest_for_bundle(store, spec)
+        loaded_timesteps = _strict_int(
+            getattr(loaded.policy, "num_timesteps"),
+            field="reloaded PPO timesteps",
+        )
+        if loaded_timesteps != _PPO_TIMESTEPS:
+            raise ValueError(
+                "reloaded PPO timesteps differ from sealed training budget"
+            )
         factory = replication_strategy_factory(loaded)
         result = _evaluate_replication_result(
             dataset,
@@ -943,6 +1331,9 @@ def execute_replication_slot(
             stop_index=stop,
             spec=spec,
         )
+        if _source_identity_snapshot(source) != source_snapshot:
+            raise ValueError("replication source changed during fit or replay")
+        _validate_execution_root(root, runtime_contract="execution")
         payload: dict[str, object] = dict(result)
         payload.update(
             schema=SLOT_RESULT_SCHEMA,
@@ -969,7 +1360,7 @@ def execute_replication_slot(
     except BaseException as error:
         state = replication_slot_state(root, spec)
         if state["consumed"] and not state["failed"] and not state["result_published"]:
-            record_consumed_failure(root, spec, error=repr(error))
+            _record_consumed_failure(root, spec, error=repr(error))
         raise
 
 
@@ -997,7 +1388,7 @@ def verify_replication_slot(
     """Reload and replay one published bundle without fitting a model."""
 
     expected_activation_digest = _sealed_execution_activation_digest()
-    activation = _validate_execution_root(root)
+    activation = _validate_execution_root(root, runtime_contract="verifier")
     specs = {spec.slot: spec for spec in replication_arm_specs()}
     if slot not in specs:
         raise ValueError("slot is outside the sealed replication roster")
@@ -1036,23 +1427,32 @@ def verify_replication_slot(
         or claim.get("implementation_digest") != implementation
     ):
         raise ValueError("slot result or claim identity differs from activation")
+    source_snapshot = _source_identity_snapshot(source)
     dataset, _config, start, stop = _load_replication_context(source)
+    if _source_identity_snapshot(source) != source_snapshot:
+        raise ValueError("replication source changed while loading verifier context")
     bundle_digest = result.get("bundle_digest")
     if not isinstance(bundle_digest, str):
         raise ValueError("slot bundle digest is missing")
-    bundle_root = store.root / "slots" / spec.slot / "bundle"
+    bundle_root = store._checked_target(Path("slots") / spec.slot / "bundle")
+    manifest = _manifest_for_bundle(
+        store,
+        spec,
+        expected_digest=bundle_digest,
+    )
     loaded = load_ppo_inference_bundle(
         bundle_root,
         expected_digest=bundle_digest,
         feature_names=tuple(dataset.feature_names),
     )
-    manifest = _manifest_for_bundle(store, spec)
     if result.get("bundle_policy_sha256") != manifest.get("policy_sha256"):
         raise ValueError("slot policy digest differs from bundle manifest")
     realized = _strict_int(
         getattr(loaded.policy, "num_timesteps"),
         field="reloaded PPO timesteps",
     )
+    if realized != _PPO_TIMESTEPS:
+        raise ValueError("reloaded PPO timesteps differ from sealed training budget")
     if result.get("realized_timesteps") != realized:
         raise ValueError("reloaded PPO timestep count differs from result")
     replay = _evaluate_replication_result(
@@ -1067,6 +1467,14 @@ def verify_replication_slot(
     }
     if canonical_json_bytes(replay) != canonical_json_bytes(recorded_replay):
         raise ValueError("fresh bundle replay differs from published result")
+    if _source_identity_snapshot(source) != source_snapshot:
+        raise ValueError("replication source changed during verifier replay")
+    _validate_execution_root(root, runtime_contract="verifier")
+    verifier_provenance = build_candidate_run_provenance()
+    expected_provenance = activation.get("provenance")
+    if not isinstance(expected_provenance, dict):
+        raise ValueError("execution activation provenance is malformed")
+    _validate_verifier_provenance(expected_provenance, verifier_provenance)
     verification = {
         "schema": SLOT_VERIFICATION_SCHEMA,
         "slot": spec.slot,
@@ -1079,32 +1487,130 @@ def verify_replication_slot(
         "result_sha256": sha256(result_raw).hexdigest(),
         "bundle_digest": result.get("bundle_digest"),
         "bundle_policy_sha256": result.get("bundle_policy_sha256"),
+        "verifier_provenance": verifier_provenance,
         "no_refit": True,
         "replay_verified": True,
     }
-    with store.mutation_lock():
-        verification_path = _slot_relative(spec, "verified.json")
-        store.publish_json_once(verification_path, verification)
-        verification_raw = canonical_json_bytes(verification)
-        store.publish_json_once(
-            _slot_relative(spec, "verified.sha256.json"),
-            {"sha256": sha256(verification_raw).hexdigest()},
-        )
+    _publish_json_with_sha256_pair(
+        store,
+        _slot_relative(spec, "verified.json"),
+        verification,
+        field="replication verification record",
+    )
     return result
 
 
-def publish_replication_decision(root: Path) -> dict[str, object]:
-    """Publish a comparison only after all ten immutable results were verified."""
+def _verification_set_payload(
+    records: list[dict[str, str]],
+) -> dict[str, object]:
+    expected_slots = [spec.slot for spec in replication_arm_specs()]
+    if [record.get("slot") for record in records] != expected_slots:
+        raise ValueError("replication verification set is incomplete or reordered")
+    for record in records:
+        if set(record) != {"slot", "sha256"}:
+            raise ValueError("replication verification set record is malformed")
+        digest = record.get("sha256")
+        if not isinstance(digest, str):
+            raise ValueError("replication verification record digest is malformed")
+        require_sha256(digest, field="verification record SHA-256")
+    return {
+        "schema": _VERIFICATION_SET_SCHEMA,
+        "records": records,
+    }
 
-    activation = _validate_execution_root(root)
+
+def _read_verifier_artifact_authority(
+    store: StudyStore,
+    *,
+    activation_digest: str,
+    implementation_digest: str,
+    verification_records: list[dict[str, str]],
+) -> tuple[dict[str, object], str, str]:
+    relative = Path("verifier-authority.json")
+    digest_relative = Path("verifier-authority.sha256.json")
+    path = store._checked_target(relative)
+    digest_path = store._checked_target(digest_relative)
+    if (
+        not path.exists()
+        or not digest_path.exists()
+        or path.is_symlink()
+        or digest_path.is_symlink()
+    ):
+        raise ValueError("fresh verifier artifact authority is missing")
+    payload, raw = _read_canonical_json(
+        store,
+        relative,
+        field="fresh verifier artifact authority",
+    )
+    digest_payload, _digest_raw = _read_canonical_json(
+        store,
+        digest_relative,
+        field="fresh verifier artifact authority digest",
+    )
+    authority_sha256 = sha256(raw).hexdigest()
+    if digest_payload != {"sha256": authority_sha256}:
+        raise ValueError("fresh verifier artifact authority digest mismatch")
+
+    verification_set = _verification_set_payload(verification_records)
+    verification_set_sha256 = content_digest(verification_set)
+    expected_keys = {
+        "schema",
+        "repository_id",
+        "run_id",
+        "artifact_id",
+        "artifact_sha256",
+        "artifact_api_digest",
+        "code_sha",
+        "workflow_sha",
+        "activation_digest",
+        "implementation_digest",
+        "verification_set_sha256",
+    }
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema") != VERIFIER_ARTIFACT_AUTHORITY_SCHEMA
+        or payload.get("activation_digest") != activation_digest
+        or payload.get("implementation_digest") != implementation_digest
+        or payload.get("verification_set_sha256") != verification_set_sha256
+    ):
+        raise ValueError("fresh verifier artifact authority differs from evidence")
+    for field in ("repository_id", "run_id", "artifact_id"):
+        value = payload.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"fresh verifier {field} must be a positive integer")
+    artifact_sha256 = payload.get("artifact_sha256")
+    if not isinstance(artifact_sha256, str):
+        raise ValueError("fresh verifier artifact SHA-256 is malformed")
+    artifact_sha256 = require_sha256(
+        artifact_sha256,
+        field="fresh verifier artifact SHA-256",
+    )
+    if payload.get("artifact_api_digest") != f"sha256:{artifact_sha256}":
+        raise ValueError("fresh verifier API digest differs from artifact SHA-256")
+    for field in ("code_sha", "workflow_sha"):
+        value = payload.get(field)
+        if (
+            not isinstance(value, str)
+            or len(value) != 40
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError(f"fresh verifier {field} must be a full commit SHA")
+    return payload, authority_sha256, verification_set_sha256
+
+
+def publish_replication_decision(root: Path) -> dict[str, object]:
+    """Publish comparison only after fresh artifact-bound verification of all slots."""
+
+    activation = _validate_execution_root(root, runtime_contract="verifier")
     implementation = activation.get("implementation_digest")
     if not isinstance(implementation, str):
         raise ValueError("activation implementation digest is malformed")
     activation_digest = _sealed_execution_activation_digest()
-    store = StudyStore(root)
+    store = _existing_execution_store(root)
     control: dict[int, dict[str, Any]] = {}
     candidate: dict[int, dict[str, Any]] = {}
     verified_slots: list[str] = []
+    verification_records: list[dict[str, str]] = []
 
     for spec in replication_arm_specs():
         state = replication_slot_state(root, spec)
@@ -1134,11 +1640,17 @@ def publish_replication_decision(root: Path) -> dict[str, object]:
             or result.get("provenance") != activation.get("provenance")
         ):
             raise ValueError("slot result identity differs from comparison authority")
-        _read_verified_record(
+        verification = _read_verified_record(
             store,
             spec,
             result=result,
             result_raw=result_raw,
+        )
+        verification_records.append(
+            {
+                "slot": spec.slot,
+                "sha256": sha256(canonical_json_bytes(verification)).hexdigest(),
+            }
         )
         verified_slots.append(spec.slot)
         economic = {
@@ -1147,40 +1659,51 @@ def publish_replication_decision(root: Path) -> dict[str, object]:
         target = control if spec.protocol_arm == "control_raw" else candidate
         target[spec.seed] = economic
 
+    (
+        verifier_authority,
+        verifier_authority_sha256,
+        verification_set_sha256,
+    ) = _read_verifier_artifact_authority(
+        store,
+        activation_digest=activation_digest,
+        implementation_digest=implementation,
+        verification_records=verification_records,
+    )
     report = recompute_replication_decision(control, candidate)
     report.update(
         protocol_sha256=SEALED_PROTOCOL_SHA256,
         activation_digest=activation_digest,
         implementation_digest=implementation,
         verified_slots=verified_slots,
+        verification_set_sha256=verification_set_sha256,
+        verifier_authority_sha256=verifier_authority_sha256,
+        verifier_run_id=verifier_authority["run_id"],
+        verifier_artifact_id=verifier_authority["artifact_id"],
         all_slots_independently_verified=True,
         economic_result_inspected=True,
     )
-    with store.mutation_lock():
-        raw = canonical_json_bytes(report)
-        store.publish_json_once(
-            "comparison.sha256.json",
-            {"sha256": sha256(raw).hexdigest()},
-        )
-        store.publish_json_once("comparison.json", report)
+    _publish_json_with_sha256_pair(
+        store,
+        "comparison.json",
+        report,
+        field="replication comparison",
+    )
     return report
 
 
 __all__ = [
+    "ACTIVATION_AUTHORITY_SCHEMA",
     "EXECUTION_ACTIVATION_SCHEMA",
     "ReplicationArmSpec",
-    "SEALED_EXECUTION_ACTIVATION_SHA256",
     "SEALED_PROTOCOL_SHA256",
     "SLOT_VERIFICATION_SCHEMA",
     "SLOT_RESULT_SCHEMA",
-    "claim_replication_slot",
+    "VERIFIER_ARTIFACT_AUTHORITY_SCHEMA",
     "execute_replication_slot",
     "fit_replication_strategy",
     "prepare_replication_execution",
     "publish_replication_decision",
     "recompute_replication_decision",
-    "record_consumed_failure",
-    "record_prefit_failure",
     "replication_arm_specs",
     "replication_slot_state",
     "replication_strategy_factory",

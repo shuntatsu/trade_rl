@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import trade_rl.evaluation as evaluation
@@ -66,6 +67,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "ppo_feature_checkpoint.py",
         "ppo_normalization_replication.py",
         "ppo_normalization_execution.py",
+        "ppo_normalization_activation.json",
         "ppo_risk_study.py",
         "paper/__init__.py",
         "paper/store.py",
@@ -164,3 +166,19 @@ def test_evaluation_package_public_api_is_exactly_preserved() -> None:
     assert tuple(evaluation.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(evaluation, name), name
+
+
+def test_ppo_normalization_activation_package_data_is_declared() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+
+    assert package_data["trade_rl.evaluation"] == ["ppo_normalization_activation.json"]
+
+
+def test_ppo_normalization_software_only_activation_is_canonical_and_closed() -> None:
+    raw = (PACKAGE / "ppo_normalization_activation.json").read_bytes()
+
+    assert raw == (
+        b'{"activation_sha256":null,'
+        b'"schema":"ppo_normalization_execution_activation_authority_v1"}'
+    )

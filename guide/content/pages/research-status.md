@@ -33,7 +33,11 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
-PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。各slotはfit/evaluation開始後に再利用できず、published inference bundleをfresh verifierが再読込して再fitせずにreplayを再構成します。現時点ではeconomic activation digestを意図的に未設定としているため、この境界の実装完了はcorrected-economicsのP&L、profitability、unused-data validation、production/live適格性を意味しません。
+PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。execution rootはprepareだけがstagingからatomicに公開し、slot claim/failureはprepared rootのidentityから導出します。bundleはmanifestとparent pathを安全に確認してから読込み、fit/reloadとも262,144 timestepsを必須にします。source/runtimeも長いfit/replay後、resultを保存する前に再確認します。
+
+economic activationは非Pythonのcanonical `ppo_normalization_activation.json` で別管理し、現在は `activation_sha256=null` のためfail-closedです。後続activationはreview済みimplementationに加えてimplementation seal・fresh reconstruction・result-blind assurance reviewのdigestをbindする必要があります。またlocal `verified.json` だけではindependent verificationとは扱わず、10 slotsのverification identityをfresh verifierのrun/artifact/API digest authorityへbindしてからcomparisonを公開します。
+
+trainingは既存のone-active-symbol episode / `risk_config=None`、evaluationはshared-cash accountと10%/20% drawdown hard riskという共通のtrain/eval差を残します。この差は両arm共通なのでnormalization-only比較のfactorは変えませんが、shared-cash問題そのものを学習済みだという主張はできません。per-root immutabilityもrepository-global exactly-onceを証明しません。したがって、この境界の実装完了はcorrected-economicsのP&L、profitability、unused-data validation、production/live適格性を意味しません。
 
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
 

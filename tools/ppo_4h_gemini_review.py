@@ -164,6 +164,8 @@ def parse_review_request(event: object) -> dict[str, Any]:
         raise ValueError("review request payload is not canonical")
     review_tag = payload.get("review_tag")
     reviewed_code_sha = payload.get("reviewed_code_sha")
+    if not isinstance(review_tag, str):
+        raise ValueError("review request tag is malformed")
     require_review_tag(review_tag)
     reviewed = _require_sha(reviewed_code_sha, field="reviewed code SHA")
     return {

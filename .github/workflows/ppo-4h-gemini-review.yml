@@ -20,6 +20,9 @@ jobs:
     outputs:
       reviewed_sha: ${{ steps.request.outputs.reviewed_sha }}
       review_tag: ${{ steps.request.outputs.review_tag }}
+      review_tag_object_sha: ${{ steps.request.outputs.review_tag_object_sha }}
+      request_body_sha256: ${{ steps.request.outputs.request_body_sha256 }}
+      packet_sha256: ${{ steps.packet.outputs.packet_sha256 }}
     steps:
       - name: Checkout trusted reviewer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -34,6 +37,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 trusted/tools/ppo_4h_gemini_review.py request >> "$GITHUB_OUTPUT"
+
+      - name: Checkout untrusted review evidence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.request.outputs.reviewed_sha }}
+          path: evidence
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build canonical result-blind packet
+        id: packet
+        env:
+          REVIEWED_SHA: ${{ steps.request.outputs.reviewed_sha }}
+          REVIEW_TAG: ${{ steps.request.outputs.review_tag }}
+          REVIEW_TAG_OBJECT_SHA: ${{ steps.request.outputs.review_tag_object_sha }}
+          TARGET_ROOT: evidence
+          PACKET_PATH: output/review-packet.json
+        run: python3 trusted/tools/ppo_4h_gemini_review.py packet >> "$GITHUB_OUTPUT"
+
+      - name: Upload canonical review packet
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/review-packet.json
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
 
   core:
     name: Trusted Lean Core verification
@@ -82,7 +114,6 @@ jobs:
           uv run mypy
           tools/ppo_checkpoint_actions.py
           tools/ppo_4h_indicator_smoke_actions.py
-          tools/ppo_4h_gemini_review.py
 
       - name: Core tests
         working-directory: target
@@ -244,13 +275,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout untrusted review evidence
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download canonical review packet
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
         with:
-          ref: ${{ needs.request.outputs.reviewed_sha }}
-          path: evidence
-          fetch-depth: 1
-          persist-credentials: false
+          name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: request-evidence
 
       - name: Run trusted result-blind Gemini reviewer
         id: reviewer
@@ -262,13 +291,16 @@ jobs:
           TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
           REVIEWED_SHA: ${{ needs.request.outputs.reviewed_sha }}
           REVIEW_TAG: ${{ needs.request.outputs.review_tag }}
+          REVIEW_TAG_OBJECT_SHA: ${{ needs.request.outputs.review_tag_object_sha }}
           REQUEST_PULL_NUMBER: ${{ github.event.issue.number }}
           REQUEST_COMMENT_ID: ${{ github.event.comment.id }}
           REQUESTER_LOGIN: ${{ github.event.comment.user.login }}
+          REQUEST_BODY_SHA256: ${{ needs.request.outputs.request_body_sha256 }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           TRUSTED_ROOT: trusted
-          TARGET_ROOT: evidence
+          PACKET_PATH: request-evidence/review-packet.json
+          EXPECTED_PACKET_SHA256: ${{ needs.request.outputs.packet_sha256 }}
           REVIEW_OUTPUT: output
         run: python3 trusted/tools/ppo_4h_gemini_review.py
 
@@ -280,6 +312,7 @@ jobs:
           path: |
             output/reviewer-attestation.json
             output/review-packet.json
+            output/gemini-request.json
             output/gemini-response.json
             output/reviewer-disposition.txt
           if-no-files-found: warn

@@ -42,6 +42,10 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Temporary Gemini test format diff
+        continue-on-error: true
+        run: uv run ruff format --diff tests/architecture/test_ppo_4h_gemini_review_workflow.py tests/tools/test_ppo_4h_gemini_review.py
+
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 

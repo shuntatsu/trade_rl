@@ -21,6 +21,7 @@ jobs:
       reviewed_sha: ${{ steps.request.outputs.reviewed_sha }}
       review_tag: ${{ steps.request.outputs.review_tag }}
       review_tag_object_sha: ${{ steps.request.outputs.review_tag_object_sha }}
+      review_identity_digest: ${{ steps.request.outputs.review_identity_digest }}
       request_body_sha256: ${{ steps.request.outputs.request_body_sha256 }}
       packet_sha256: ${{ steps.packet.outputs.packet_sha256 }}
     steps:
@@ -59,7 +60,7 @@ jobs:
       - name: Upload canonical review packet
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ppo-4h-review-packet-${{ steps.request.outputs.review_identity_digest }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: output/review-packet.json
           if-no-files-found: error
           include-hidden-files: true
@@ -263,6 +264,7 @@ jobs:
         run: npm run e2e
 
   review:
+    name: Trusted Gemini semantic review
     needs: [request, core, ppo-runtime, guide]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -278,11 +280,11 @@ jobs:
       - name: Download canonical review packet
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
         with:
-          name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ppo-4h-review-packet-${{ needs.request.outputs.review_identity_digest }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: request-evidence
 
-      - name: Run trusted result-blind Gemini reviewer
-        id: reviewer
+      - name: Call Gemini reviewer
+        id: provider
         continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -292,6 +294,7 @@ jobs:
           REVIEWED_SHA: ${{ needs.request.outputs.reviewed_sha }}
           REVIEW_TAG: ${{ needs.request.outputs.review_tag }}
           REVIEW_TAG_OBJECT_SHA: ${{ needs.request.outputs.review_tag_object_sha }}
+          REVIEW_IDENTITY_DIGEST: ${{ needs.request.outputs.review_identity_digest }}
           REQUEST_PULL_NUMBER: ${{ github.event.issue.number }}
           REQUEST_COMMENT_ID: ${{ github.event.comment.id }}
           REQUESTER_LOGIN: ${{ github.event.comment.user.login }}
@@ -324,10 +327,15 @@ jobs:
       - name: Propagate reviewer disposition
         if: always()
         env:
-          REVIEWER_OUTCOME: ${{ steps.reviewer.outcome }}
+          PROVIDER_OUTCOME: ${{ steps.provider.outcome }}
         run: |
           set -euo pipefail
-          if [[ "$REVIEWER_OUTCOME" != "success" ]]; then
-            echo "Gemini reviewer blocked or failed; inspect the uploaded evidence."
+          if [[ "$PROVIDER_OUTCOME" != "success" ]]; then
+            echo "Gemini reviewer transport failed; inspect the uploaded evidence."
+            exit 1
+          fi
+          disposition="$(cat output/reviewer-disposition.txt)"
+          if [[ "$disposition" != "G0_G1_CLEAR_G2_EVIDENCE_BOUND" ]]; then
+            echo "Gemini semantic review blocked authorization: $disposition"
             exit 1
           fi

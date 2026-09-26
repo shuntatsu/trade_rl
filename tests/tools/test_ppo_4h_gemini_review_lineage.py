@@ -6,7 +6,6 @@ import pytest
 
 from tools import ppo_4h_gemini_review as review
 
-
 REVIEWED_SHA = "a" * 40
 OTHER_SHA = "b" * 40
 

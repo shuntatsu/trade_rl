@@ -33,14 +33,7 @@ def test_markdown_section_rejects_duplicate_real_heading() -> None:
 
 
 def test_markdown_section_handles_crlf_without_false_fence_boundary() -> None:
-    text = (
-        "## Target\r\n"
-        "~~~text\r\n"
-        "## fake boundary\r\n"
-        "~~~\r\n"
-        "after\r\n"
-        "## Next\r\n"
-    )
+    text = "## Target\r\n~~~text\r\n## fake boundary\r\n~~~\r\nafter\r\n## Next\r\n"
 
     section = review._markdown_section(text, "## Target")
 

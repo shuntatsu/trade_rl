@@ -89,7 +89,9 @@ def test_different_run_for_same_identity_is_not_a_retry() -> None:
             current_run_id=200,
             current_run_attempt=1,
             artifacts=artifacts,
-            jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="failure"),
+            jobs_for_attempt=lambda _run, _attempt: _jobs(
+                provider_conclusion="failure"
+            ),
         )
 
 
@@ -107,9 +109,7 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
         current_run_id=100,
         current_run_attempt=2,
         artifacts=artifacts,
-        jobs_for_attempt=lambda _run, _attempt: _jobs(
-            provider_conclusion="failure"
-        ),
+        jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="failure"),
     )
 
     with pytest.raises(ValueError, match="terminal Gemini review already exists"):
@@ -118,7 +118,9 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
             current_run_id=100,
             current_run_attempt=2,
             artifacts=artifacts,
-            jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="success"),
+            jobs_for_attempt=lambda _run, _attempt: _jobs(
+                provider_conclusion="success"
+            ),
         )
 
 

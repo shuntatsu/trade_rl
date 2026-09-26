@@ -124,7 +124,7 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
         )
 
 
-def test_expired_or_unrelated_artifacts_do_not_create_false_identity() -> None:
+def test_expired_matching_identity_fails_closed_but_unrelated_artifacts_do_not() -> None:
     identity = review.review_identity_digest(
         repository="owner/repo",
         repository_id=99,
@@ -132,9 +132,8 @@ def test_expired_or_unrelated_artifacts_do_not_create_false_identity() -> None:
         reviewed_code_sha=REVIEWED_SHA,
     )
     other = "c" * 64
-    artifacts: list[object] = [
-        _artifact(identity=identity, run_id=100, attempt=1, expired=True),
-        _artifact(identity=other, run_id=101, attempt=1),
+    unrelated: list[object] = [
+        _artifact(identity=other, run_id=101, attempt=1, expired=True),
         {"name": "unrelated", "expired": False, "workflow_run": {"id": 102}},
     ]
     calls: list[tuple[int, int]] = []
@@ -147,11 +146,21 @@ def test_expired_or_unrelated_artifacts_do_not_create_false_identity() -> None:
         identity,
         current_run_id=200,
         current_run_attempt=1,
-        artifacts=artifacts,
+        artifacts=unrelated,
         jobs_for_attempt=jobs_for_attempt,
     )
-
     assert calls == []
+
+    with pytest.raises(ValueError, match="expired"):
+        review.require_review_identity_retryable(
+            identity,
+            current_run_id=200,
+            current_run_attempt=1,
+            artifacts=[
+                _artifact(identity=identity, run_id=100, attempt=1, expired=True)
+            ],
+            jobs_for_attempt=jobs_for_attempt,
+        )
 
 
 def test_attestation_binds_review_identity_and_protocol() -> None:

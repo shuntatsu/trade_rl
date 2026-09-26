@@ -159,6 +159,45 @@ def test_review_request_refetch_and_duplicate_identity_fail_closed() -> None:
 
     review.require_first_review_request(request, [fetched])
 
+    same_sha_new_tag = dict(fetched)
+    same_sha_new_tag["id"] = 455
+    same_sha_new_tag["body"] = (
+        review.REVIEW_REQUEST_MARKER
+        + "\n"
+        + canonical_json_bytes(
+            {
+                "review_tag": "review/ppo-4h-indicator-smoke-v2",
+                "reviewed_code_sha": REVIEWED_SHA,
+            }
+        ).decode("utf-8")
+        + "\n"
+    )
+    with pytest.raises(ValueError, match="already requested"):
+        review.require_first_review_request(request, [same_sha_new_tag, fetched])
+
+    same_tag_new_sha = dict(fetched)
+    same_tag_new_sha["id"] = 455
+    same_tag_new_sha["body"] = (
+        review.REVIEW_REQUEST_MARKER
+        + "\n"
+        + canonical_json_bytes(
+            {
+                "review_tag": "review/ppo-4h-indicator-smoke-v1",
+                "reviewed_code_sha": "c" * 40,
+            }
+        ).decode("utf-8")
+        + "\n"
+    )
+    with pytest.raises(ValueError, match="already requested"):
+        review.require_first_review_request(request, [same_tag_new_sha, fetched])
+
+
+def test_result_blind_packet_excludes_mutable_result_status_doc() -> None:
+    assert all(
+        relative != "docs/research/current-status.md"
+        for relative, _heading in review.PACKET_SECTIONS
+    )
+
 
 def test_result_blind_packet_has_fixed_files_and_fixed_doc_sections(
     tmp_path: Path,

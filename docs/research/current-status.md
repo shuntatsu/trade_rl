@@ -486,6 +486,8 @@ independent result-blind review is still absent or invalid; `READY` means only
 that the authenticated review-evidence transition may proceed, not that PPO
 economics may run directly.
 
+A separate trusted reviewer transport is now implemented in `tools/ppo_4h_gemini_review.py` and `.github/workflows/ppo-4h-gemini-review.yml`. It can turn a canonical request into a result-blind Google Gemini run whose attestation binds the exact code/tag, trusted default-branch workflow and CI bytes, exact software-CI run, request identity, packet digest, system-instruction digest, and returned Gemini model/response identity without executing target code. This capability is **not yet an authorization for this smoke by itself**: the active execution gate must consume and independently verify that reviewer-run evidence before same-GitHub-principal posting can replace its current distinct-principal requirement. No Gemini reviewer artifact, PPO fit/replay, or economic result is claimed by merely merging the transport capability.
+
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.
 Synthetic CPU fit/save/load tests check the explicit config, rollout rounding,

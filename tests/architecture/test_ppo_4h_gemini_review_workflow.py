@@ -29,36 +29,39 @@ def test_gemini_review_workflow_is_default_branch_comment_triggered_and_read_onl
     assert "timeout-minutes: 20" in text
 
 
-def test_gemini_review_workflow_separates_trusted_runner_from_untrusted_target() -> (
-    None
-):
+def test_gemini_review_workflow_separates_verification_from_secret_reviewer() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "ref: ${{ github.workflow_sha }}" in text
-    assert "path: trusted" in text
-    assert "trusted/tools/ppo_4h_gemini_review.py request" in text
-    assert "id: request" in text
-    assert "ref: ${{ steps.request.outputs.reviewed_sha }}" in text
-    assert "path: target" in text
-    assert "ref: ${{ github.sha }}" not in text
-    assert text.count("persist-credentials: false") >= 2
-    assert "python target/" not in text
-    assert "uv run" not in text
-    assert "pip install" not in text
+    for job in ("request", "core", "ppo-runtime", "guide", "review"):
+        assert f"  {job}:\n" in text
 
-    target_checkout = text.index("name: Checkout untrusted review target")
-    secret_use = text.index("GEMINI_API_KEY:")
-    assert target_checkout < secret_use
+    review_start = text.index("  review:\n")
+    review = text[review_start:]
+    assert "needs: [request, core, ppo-runtime, guide]" in review
+    assert "GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}" in review
+    assert "ref: ${{ github.workflow_sha }}" in review
+    assert "path: trusted" in review
+    assert "path: target" not in review
+    assert "steps.request.outputs.reviewed_sha" in review
+    assert "python target/" not in review
+    assert "uv run" not in review
+    assert "pip install" not in review
+
+    before_review = text[:review_start]
+    assert "GEMINI_API_KEY:" not in before_review
+    assert before_review.count("ref: ${{ needs.request.outputs.reviewed_sha }}") >= 3
+    assert "name: Trusted Lean Core verification" in before_review
+    assert "name: Trusted PPO Runtime verification" in before_review
+    assert "name: Trusted Human Guide verification" in before_review
 
 
 def test_gemini_review_workflow_binds_comment_runtime_and_uploads_attestation() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}" in text
     assert "GEMINI_MODEL: ${{ vars.PPO_GEMINI_REVIEW_MODEL }}" in text
     assert "TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}" in text
-    assert "REVIEWED_SHA: ${{ steps.request.outputs.reviewed_sha }}" in text
-    assert "REVIEW_TAG: ${{ steps.request.outputs.review_tag }}" in text
+    assert "REVIEWED_SHA: ${{ needs.request.outputs.reviewed_sha }}" in text
+    assert "REVIEW_TAG: ${{ needs.request.outputs.review_tag }}" in text
     assert "REQUEST_PULL_NUMBER: ${{ github.event.issue.number }}" in text
     assert "REQUEST_COMMENT_ID: ${{ github.event.comment.id }}" in text
     assert "REQUESTER_LOGIN: ${{ github.event.comment.user.login }}" in text

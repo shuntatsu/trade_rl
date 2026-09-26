@@ -28,10 +28,7 @@ def _artifact(
     }
 
 
-def _jobs(
-    *,
-    provider_conclusion: str | None,
-) -> list[object]:
+def _jobs(*, provider_conclusion: str | None) -> list[object]:
     steps: list[dict[str, object]] = []
     if provider_conclusion is not None:
         steps.append(
@@ -92,9 +89,7 @@ def test_different_run_for_same_identity_is_not_a_retry() -> None:
             current_run_id=200,
             current_run_attempt=1,
             artifacts=artifacts,
-            jobs_for_attempt=lambda _run, _attempt: _jobs(
-                provider_conclusion="failure"
-            ),
+            jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="failure"),
         )
 
 
@@ -123,9 +118,7 @@ def test_same_run_retry_is_allowed_only_before_terminal_provider_response() -> N
             current_run_id=100,
             current_run_attempt=2,
             artifacts=artifacts,
-            jobs_for_attempt=lambda _run, _attempt: _jobs(
-                provider_conclusion="success"
-            ),
+            jobs_for_attempt=lambda _run, _attempt: _jobs(provider_conclusion="success"),
         )
 
 

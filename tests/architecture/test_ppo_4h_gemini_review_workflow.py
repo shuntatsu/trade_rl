@@ -76,7 +76,7 @@ def test_gemini_review_workflow_uses_request_packet_as_only_cross_job_evidence()
     assert "actions/checkout@" in review
     assert DOWNLOAD in review
     assert (
-        "name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}"
+        "name: ppo-4h-review-packet-${{ needs.request.outputs.review_identity_digest }}-${{ github.run_id }}-${{ github.run_attempt }}"
         in review
     )
     assert "PACKET_PATH:" in review

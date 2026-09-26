@@ -80,6 +80,79 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: corrected PPO fit-only normalization replication
+
+This contract applies only to the sealed corrected-economics comparison owned by
+`ppo_normalization_replication.py` / `ppo_normalization_execution.py`. It does
+not reopen or reinterpret the historical normalization result.
+
+### G0 — narrow question and falsifiers
+
+The question is whether **fit-only feature standardization** improves the current
+corrected-economics PPO path when both raw and normalized arms are fitted fresh
+under the same frozen Dataset/Study, seeds 0–4, training budget, execution cost,
+evaluation window, and maintained accounting path. The sole research factor is
+normalization off/on. Historical #645/#663 models and results are provenance, not
+the control arm.
+
+The hypothesis fails if the preregistered paired or absolute gates fail. A relative
+improvement alone is not profitability evidence. The 2023–2024 development window
+has already been consumed by research, so even a full development pass cannot
+establish unused-data confirmation, production eligibility, live authorization, or
+general profitability. No 2025+ interval may be opened by this replication.
+
+### G1 — fixed mechanism and known common mismatch
+
+Both arms use the same current `fit_ppo_strategy`, sequential layout, exact
+262,144 realized PPO timesteps, gross budget 0.1, initial capital 10,000,
+`DIRECTIONAL_BASE_EXECUTION_COST`, terminal settlement, and common source/config
+identity. The raw arm sets `normalize_features=false`; the candidate sets it true
+and must persist the fitted normalizer in the inference bundle.
+
+Training remains the existing **one-active-symbol episode/account mechanism** with
+`risk_config=None`. Evaluation remains the maintained **shared-cash directional
+account** and applies the current hard-risk semantics, including drawdown
+deleveraging at 10% and stop at 20%. This train/evaluation mechanism difference is
+common to both arms, so it does not invalidate the one-factor normalization
+comparison, but it bounds the claim: this experiment does not prove that PPO learned
+the exact shared-cash/hard-risk deployment problem. A shared-cash training redesign
+is a separate research factor and must not be introduced as a rescue after results.
+
+### G2 — implementation, activation, and independent-verifier boundary
+
+Before economics, machine checks must establish all of the following result-blind:
+
+- the non-Python canonical `ppo_normalization_activation.json` remains the global
+  activation authority and is `activation_sha256=null` on the software-only head;
+- the activation payload binds the exact Python implementation plus immutable
+  implementation-seal, fresh-reconstruction, and assurance-review evidence digests;
+- current provenance is checked before any execution-root mutation;
+- `prepare_replication_execution` is the only root creator and publishes a fully
+  validated sibling staging tree by atomic rename;
+- claim/failure transitions are private, derive identity from the prepared root, and
+  validate exact slot/arm/seed/normalization/failure chronology;
+- source artifact bytes and execution/runtime provenance are rechecked after long
+  fit/replay and before durable result publication;
+- bundle parent paths and the canonical manifest are validated before any SB3
+  deserialization, and realized/reloaded PPO timesteps equal exactly 262,144;
+- verifier replay never refits and uses a separately frozen stable-runtime contract:
+  Python implementation/version, machine architecture, OS family, and the complete
+  bound package map must match; kernel release is recorded but is not an equality
+  gate;
+- local `verified.json` booleans are insufficient independent evidence. Comparison
+  remains closed until all ten verification-record identities are transitively bound
+  to a fresh verifier artifact authority with repository/run/artifact identity, raw
+  artifact SHA-256, matching API digest, exact code/workflow SHAs, activation
+  identity, and the verification-set digest;
+- checkout, sdist, direct wheel, rebuilt wheel, and clean-installed wheel preserve
+  the exact activation-resource bytes.
+
+The module's prepared-root immutability is **not** repository-global exactly-once
+authority. A later authenticated one-shot transport must enforce global single-run
+uniqueness and partial-result non-disclosure. Nothing in this software-only contract
+authorizes economic execution or inspection by itself.
+
+
 ## Research-specific contract: PPO 4h indicator smoke
 
 This contract applies only to the development-only one-seed smoke implemented

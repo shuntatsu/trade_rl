@@ -83,6 +83,9 @@ trade_rl/
     ├── ppo_risk_study.py
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
+    ├── ppo_normalization_replication.py
+    ├── ppo_normalization_execution.py
+    ├── ppo_normalization_activation.json
     ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -319,8 +322,52 @@ protocol, source, runtime, feature schema, and artifact digests are verified.
 Interrupted work is not a completed checkpoint. Legacy partial study roots
 cannot be imported into this runner. The evaluation public facade is unchanged.
 
-Its private CLI provides `prepare`, `fit`, `replay-cell`, `assemble-arm`, and
-`finalize`, each with `--source` and `--output`. `prepare` requires a fresh root
+`evaluation/ppo_normalization_replication.py` owns the sealed, result-blind
+corrected-economics PPO fit-only feature-standardization protocol. It freezes the
+five matched seeds, raw/normalized arms, common current directional execution
+contract, 2023-2024 development window, runtime/artifact identity, relative gate,
+absolute family gate, and no-rescue boundary. It does not fit a model or publish
+P&L.
+
+`evaluation/ppo_normalization_execution.py` owns only the later software/evidence
+boundary for that protocol: the exact ten fresh-fit slots, prepared-root state machine,
+PPO fit delegation, inference-bundle publication/reload, current shared-cash directional
+replay, no-refit verification, and comparison recomputation. It does not implement a
+second PPO trainer, normalizer, executor, accounting path, selection oracle, or repository-
+global one-shot transport. `prepare_replication_execution` is the only root-creation
+transition: it validates current activation provenance before filesystem mutation, builds
+the complete root in sibling staging, validates it, and publishes by atomic rename.
+Claim/failure transitions are private and derive activation/implementation identity from
+that prepared root rather than caller-supplied digests. Per-root immutability therefore
+does not by itself establish repository-global exactly-once execution; a later one-shot
+transport authority must own that uniqueness.
+
+The sealed protocol's `source_blobs` remain historical preregistration provenance; later
+correctness fixes to the maintained PPO/artifact path are not rewritten into those bytes.
+The exact current execution implementation/runtime is instead bound by separately reviewed
+activation provenance and rechecked around long fit/replay before durable publication.
+`evaluation/ppo_normalization_activation.json` is a canonical non-Python activation
+authority. It is committed with `activation_sha256=null` in the software-only state.
+The candidate implementation identity intentionally hashes `trade_rl/**/*.py` only, so
+a later result-blind activation commit can bind the reviewed Python implementation without
+changing that implementation digest. The activation itself must bind result-blind
+implementation-seal, fresh-reconstruction, and assurance-review evidence digests.
+
+A local `verified.json` is no longer sufficient to make a comparison independent.
+Before comparison publication, the ten verification-record identities must be transitively
+bound to a fresh verifier artifact authority carrying repository/run/artifact identity,
+raw artifact SHA-256 and the matching GitHub API digest. Execution requires the exact
+activation runtime; the verifier uses a separately frozen stable-runtime contract requiring
+the same Python implementation/version, machine architecture, OS family, and complete
+bound package map while recording kernel release without making it an equality gate.
+Bundle manifest and all parent paths are validated before SB3 deserialization, and realized
+PPO timesteps must equal the sealed 262,144 budget. Economic execution remains fail-closed
+while the activation authority is unsealed, and these modules remain private evaluation
+surfaces that do not expand `trade_rl.evaluation.__all__`.
+
+`evaluation/ppo_feature_checkpoint.py`'s private CLI provides `prepare`, `fit`,
+`replay-cell`, `assemble-arm`, and `finalize`, each with `--source` and `--output`.
+`prepare` requires a fresh root
 and writes `checkpoint-protocol.json`, which embeds the unchanged economic
 `core_protocol` and the checkpoint execution contract. `fit` and `assemble-arm`
 select `--factor` and `--seed`; `replay-cell` also selects `--scenario` and
@@ -449,6 +496,6 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 ## Distribution source closure
 
-構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。
+構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpを確認する。source closureはPython sourceの配布契約であり、optional trainerの実学習、全platform動作、すべてのnon-code resourceを保証するものではない。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。

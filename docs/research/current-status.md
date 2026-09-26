@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-22 (JST)
+更新基準: 2026-09-26 (JST)
 
 ## 結論
 
@@ -207,6 +207,50 @@ The final comparison SHA-256 is
 `fab5e1e13c35263533f3f36f62ce7a7017fe92e5413b58a56f61f84ba910df33`.
 The isolated comparison retained original default risk, source, budget and gates;
 it does not establish operational profit or reopen the sealed interleaved study.
+
+That historical normalization result remains bound to the economic implementation
+that produced it and is not a current-economics control. A separate corrected-
+economics normalization replication protocol is sealed result-blind. Its current
+software boundary requires ten fresh matched fits (`control_raw_seed0..4` and
+`candidate_normalized_seed0..4`), delegates both arms to the maintained
+`fit_ppo_strategy` / `DIRECTIONAL_BASE_EXECUTION_COST` / PPO inference bundle /
+shared-cash directional evaluator, and differs only by fit-only normalization. The
+sealed protocol keeps its preregistration-time source-blob provenance unchanged; the
+post-prereg feature-schema correctness fixes are part of the separately activation-bound
+current implementation identity rather than a rewrite of the protocol bytes.
+
+The hardened execution boundary makes `prepare_replication_execution` the only
+root-creation transition and publishes a completely validated sibling staging tree
+atomically. Slot claim/failure transitions are private and derive activation and
+implementation identity from the prepared root; pre-fit and consumed failures are
+schema/slot/arm/seed/normalization/chronology checked. Source bytes and runtime
+identity are rechecked after long fit/replay before durable publication, bundle
+parents and manifest are validated before SB3 deserialization, and both fitted and
+reloaded policies must report exactly 262,144 timesteps.
+
+The implementation deliberately commits `ppo_normalization_activation.json` with
+`activation_sha256=null`. This non-Python authority file is outside the Python-only
+candidate implementation digest, so a later result-blind activation commit can bind
+the exact reviewed activation without creating a self-referential implementation
+hash. The future activation also has to bind immutable implementation-seal,
+fresh-reconstruction, and assurance-review digests. A local `verified.json` does
+not count as independent verification by itself: comparison publication additionally
+requires all ten verification identities to be bound by a fresh verifier artifact
+authority carrying repository/run/artifact identity, raw SHA-256 and matching API
+digest. The verifier runtime contract matches Python implementation/version, machine
+architecture, OS family, and the complete bound package map while treating kernel
+release as recorded provenance rather than an equality gate.
+
+The training mechanism still uses one-active-symbol episodes with
+`risk_config=None`, whereas evaluation uses the maintained shared-cash directional
+account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
+arms and therefore does not change the normalization-only factor, but it limits the
+absolute claim. Per-root immutability also does not establish repository-global
+exactly-once execution; the later authenticated one-shot transport must own global
+uniqueness and partial-result non-disclosure. Until the activation authority and
+those external authorities are sealed, no corrected-economics fit, replay,
+comparison result, unused future evaluation, production eligibility, or live
+authorization is established by this software work.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same

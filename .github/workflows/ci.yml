@@ -45,6 +45,14 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Gemini reviewer format diagnostic
+        continue-on-error: true
+        run: >-
+          uv run ruff format --diff
+          tests/architecture/test_ppo_4h_gemini_review_workflow.py
+          tests/tools/test_ppo_4h_gemini_review.py
+          tools/ppo_4h_gemini_review.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

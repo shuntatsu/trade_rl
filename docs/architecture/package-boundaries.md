@@ -418,6 +418,8 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、exact HEADにバインドされた外部レビュー（Gemini 3.8 Flash等の独立監査）をトリガーする。重大な指摘事項（Medium / High）が検出された場合は `### Disposition: BLOCKED` としてマージを差し戻し、指摘事項が解消され全必須CIがGreenであれば `### Disposition: APPROVED` として自動またはIntegratorによるマージ・クローズの対象となる。
 
+`tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、trusted runnerとuntrusted target checkoutを分離し、target codeを実行せずGemini reviewer-run attestationをartifactとして残す。target branchからこのrunner/workflowのauthorityを差し替えず、reviewed SHAのsoftware CIはtrusted default-branch `.github/workflows/ci.yml` とbyte一致する場合だけevidenceへ昇格する。Gemini API key/model selectionはworkflow configurationであり、concrete model versionをproduction trading/runtime schemaへ持ち込まない。
+
 ## Public API policy
 
 Intentionally maintainedなpackage-level importは、内部private file移動より優先して安定させる。

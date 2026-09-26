@@ -87,7 +87,9 @@ def _request_event(
         "repository": {"full_name": "owner/repo"},
         "issue": {
             "number": pull_number,
-            "pull_request": {"url": "https://api.github.com/repos/owner/repo/pulls/900"},
+            "pull_request": {
+                "url": "https://api.github.com/repos/owner/repo/pulls/900"
+            },
         },
         "comment": {
             "id": comment_id,
@@ -297,9 +299,7 @@ def test_parse_gemini_response_requires_clean_terminal_completion() -> None:
 
     for finish_reason in ("MAX_TOKENS", "SAFETY", "RECITATION"):
         with pytest.raises(ValueError, match="finish"):
-            review.parse_gemini_response(
-                _gemini_response(finish_reason=finish_reason)
-            )
+            review.parse_gemini_response(_gemini_response(finish_reason=finish_reason))
 
 
 @pytest.mark.parametrize(

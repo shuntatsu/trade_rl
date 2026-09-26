@@ -179,7 +179,9 @@ def require_review_identity_retryable(
         if match is None or match.group("identity") != identity:
             continue
         if artifact.get("expired") is True:
-            raise ValueError("review identity history is expired; retry cannot be proven safe")
+            raise ValueError(
+                "review identity history is expired; retry cannot be proven safe"
+            )
         run_id = int(match.group("run"))
         attempt = int(match.group("attempt"))
         workflow_run = artifact.get("workflow_run")

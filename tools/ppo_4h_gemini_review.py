@@ -139,9 +139,7 @@ def review_identity_digest(
         "repository": repository,
         "repository_id": _positive_int(repository_id, field="repository id"),
         "pull_number": _positive_int(pull_number, field="execution pull number"),
-        "reviewed_code_sha": _require_sha(
-            reviewed_code_sha, field="reviewed code SHA"
-        ),
+        "reviewed_code_sha": _require_sha(reviewed_code_sha, field="reviewed code SHA"),
         "review_protocol": REVIEW_PROTOCOL,
     }
     return hashlib.sha256(_canonical_json_bytes(identity)).hexdigest()
@@ -169,9 +167,7 @@ def require_review_identity_retryable(
 ) -> None:
     identity = _require_sha256(identity_digest, field="review identity digest")
     current_run = _positive_int(current_run_id, field="reviewer run id")
-    current_attempt = _positive_int(
-        current_run_attempt, field="reviewer run attempt"
-    )
+    current_attempt = _positive_int(current_run_attempt, field="reviewer run attempt")
     seen: set[tuple[int, int]] = set()
     for artifact in artifacts:
         if not isinstance(artifact, dict) or artifact.get("expired") is True:

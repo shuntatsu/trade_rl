@@ -39,7 +39,9 @@ def test_gemini_review_workflow_is_default_branch_comment_triggered_and_read_onl
     assert "timeout-minutes: 20" in text
 
 
-def test_gemini_review_workflow_uses_request_packet_as_only_cross_job_evidence() -> None:
+def test_gemini_review_workflow_uses_request_packet_as_only_cross_job_evidence() -> (
+    None
+):
     text = WORKFLOW.read_text(encoding="utf-8")
 
     for job in ("request", "core", "ppo-runtime", "guide", "review"):
@@ -73,9 +75,14 @@ def test_gemini_review_workflow_uses_request_packet_as_only_cross_job_evidence()
     assert "path: evidence" not in review
     assert "actions/checkout@" in review
     assert DOWNLOAD in review
-    assert "name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}" in review
+    assert (
+        "name: ppo-4h-review-packet-${{ github.run_id }}-${{ github.run_attempt }}"
+        in review
+    )
     assert "PACKET_PATH:" in review
-    assert "EXPECTED_PACKET_SHA256: ${{ needs.request.outputs.packet_sha256 }}" in review
+    assert (
+        "EXPECTED_PACKET_SHA256: ${{ needs.request.outputs.packet_sha256 }}" in review
+    )
     assert "python target/" not in review
     assert "uv run" not in review
     assert "pip install" not in review

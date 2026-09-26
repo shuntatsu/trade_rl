@@ -10,7 +10,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 PACKET_SCHEMA = "ppo_4h_gemini_review_packet_v1"
@@ -51,6 +51,11 @@ PACKET_SECTIONS = (
     ),
 )
 _REQUIRED_SOFTWARE_JOBS = ("Lean Core", "PPO Runtime", "Human Guide")
+_TRUSTED_VERIFICATION_JOBS = {
+    "core": "Trusted Lean Core verification",
+    "ppo-runtime": "Trusted PPO Runtime verification",
+    "guide": "Trusted Human Guide verification",
+}
 _REVIEW_TAG_RE = re.compile(
     r"^review/ppo-4h-indicator-smoke-v(?P<version>[1-9][0-9]*)$"
 )
@@ -60,6 +65,7 @@ _SAFE_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _MAX_API_BYTES = 8 * 1024 * 1024
 _MAX_PACKET_BYTES = 4 * 1024 * 1024
+_MAX_COMMENT_PAGES = 100
 
 
 class ReviewTransportError(RuntimeError):
@@ -115,6 +121,31 @@ def require_review_tag(review_tag: str) -> int:
     return int(match.group("version"))
 
 
+def _parse_request_body(body: object) -> tuple[str, str, str]:
+    if not isinstance(body, str):
+        raise ValueError("review request body is malformed")
+    prefix = REVIEW_REQUEST_MARKER + "\n"
+    if not body.startswith(prefix) or not body.endswith("\n"):
+        raise ValueError("review request body is not canonical")
+    raw = body[len(prefix) : -1].encode("utf-8")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("review request payload is invalid JSON") from None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"review_tag", "reviewed_code_sha"}
+        or _canonical_json_bytes(payload) != raw
+    ):
+        raise ValueError("review request payload is not canonical")
+    review_tag = payload.get("review_tag")
+    if not isinstance(review_tag, str):
+        raise ValueError("review request tag is malformed")
+    require_review_tag(review_tag)
+    reviewed = _require_sha(payload.get("reviewed_code_sha"), field="reviewed code SHA")
+    return review_tag, reviewed, hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def parse_review_request(event: object) -> dict[str, Any]:
     if not isinstance(event, dict):
         raise ValueError("review request event is malformed")
@@ -132,7 +163,6 @@ def parse_review_request(event: object) -> dict[str, Any]:
     pull_number = issue.get("number")
     comment_id = comment.get("id")
     user = comment.get("user")
-    body = comment.get("body")
     if (
         not isinstance(repository_name, str)
         or _SAFE_REPO_RE.fullmatch(repository_name) is None
@@ -145,29 +175,9 @@ def parse_review_request(event: object) -> dict[str, Any]:
         or not isinstance(user, dict)
         or not isinstance(user.get("login"), str)
         or not user["login"]
-        or not isinstance(body, str)
     ):
         raise ValueError("review request event is malformed")
-    prefix = REVIEW_REQUEST_MARKER + "\n"
-    if not body.startswith(prefix) or not body.endswith("\n"):
-        raise ValueError("review request body is not canonical")
-    raw = body[len(prefix) : -1].encode("utf-8")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError("review request payload is invalid JSON") from None
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"review_tag", "reviewed_code_sha"}
-        or _canonical_json_bytes(payload) != raw
-    ):
-        raise ValueError("review request payload is not canonical")
-    review_tag = payload.get("review_tag")
-    reviewed_code_sha = payload.get("reviewed_code_sha")
-    if not isinstance(review_tag, str):
-        raise ValueError("review request tag is malformed")
-    require_review_tag(review_tag)
-    reviewed = _require_sha(reviewed_code_sha, field="reviewed code SHA")
+    review_tag, reviewed, body_sha = _parse_request_body(comment.get("body"))
     return {
         "repository": repository_name,
         "pull_number": pull_number,
@@ -175,13 +185,100 @@ def parse_review_request(event: object) -> dict[str, Any]:
         "requester_login": user["login"],
         "review_tag": review_tag,
         "reviewed_code_sha": reviewed,
+        "request_body_sha256": body_sha,
     }
 
 
-def _read_packet_source(root: Path, relative: str) -> tuple[bytes, str]:
-    path = root / relative
+def validate_request_comment_snapshot(
+    request: dict[str, Any],
+    comment: object,
+) -> str:
+    if not isinstance(comment, dict):
+        raise ValueError("review request comment snapshot is malformed")
+    user = comment.get("user")
+    expected_issue = (
+        "https://api.github.com/repos/"
+        f"{_repo_path(str(request.get('repository', '')))}/issues/"
+        f"{request.get('pull_number')}"
+    )
+    if (
+        comment.get("id") != request.get("comment_id")
+        or not isinstance(user, dict)
+        or user.get("login") != request.get("requester_login")
+        or comment.get("issue_url") != expected_issue
+    ):
+        raise ValueError("review request comment identity changed")
+    tag, reviewed, body_sha = _parse_request_body(comment.get("body"))
+    if (
+        tag != request.get("review_tag")
+        or reviewed != request.get("reviewed_code_sha")
+        or body_sha != request.get("request_body_sha256")
+    ):
+        raise ValueError("review request comment bytes changed")
+    return body_sha
+
+
+def _comment_matches_request(
+    request: dict[str, Any],
+    comment: object,
+) -> bool:
+    if not isinstance(comment, dict):
+        return False
+    try:
+        tag, reviewed, _ = _parse_request_body(comment.get("body"))
+    except ValueError:
+        return False
+    return (
+        tag == request.get("review_tag")
+        and reviewed == request.get("reviewed_code_sha")
+    )
+
+
+def require_first_review_request(
+    request: dict[str, Any],
+    comments: list[object],
+) -> None:
+    current = _positive_int(request.get("comment_id"), field="review request comment id")
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        candidate_id = comment.get("id")
+        if (
+            isinstance(candidate_id, int)
+            and not isinstance(candidate_id, bool)
+            and candidate_id < current
+            and _comment_matches_request(request, comment)
+        ):
+            raise ValueError("review identity was already requested")
+
+
+def _safe_source_path(root: Path, relative: str) -> Path:
+    rel = PurePosixPath(relative)
+    if (
+        rel.is_absolute()
+        or not rel.parts
+        or any(part in {"", ".", ".."} for part in rel.parts)
+    ):
+        raise ValueError(f"packet source is missing or unsafe: {relative}")
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("packet source root is missing or unsafe")
+    root_resolved = root.resolve(strict=True)
+    current = root
+    for part in rel.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or not current.is_dir():
+            raise ValueError(f"packet source is missing or unsafe: {relative}")
+    path = current / rel.parts[-1]
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"packet source is missing or unsafe: {relative}")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root_resolved):
+        raise ValueError(f"packet source escapes target root: {relative}")
+    return path
+
+
+def _read_packet_source(root: Path, relative: str) -> tuple[bytes, str]:
+    path = _safe_source_path(root, relative)
     raw = path.read_bytes()
     try:
         text = raw.decode("utf-8")
@@ -214,6 +311,7 @@ def _markdown_section(text: str, heading: str) -> str:
 
 
 def require_trusted_ci_identity(trusted_root: Path, target_root: Path) -> str:
+    """Legacy diagnostic helper; not an authorization root."""
     relative = ".github/workflows/ci.yml"
     trusted_raw, _ = _read_packet_source(trusted_root, relative)
     target_raw, _ = _read_packet_source(target_root, relative)
@@ -277,6 +375,39 @@ def build_result_blind_packet(
     }
 
 
+def load_review_packet(
+    path: Path,
+    *,
+    expected_sha256: str,
+    repository: str,
+    reviewed_code_sha: str,
+    review_tag: str,
+    review_tag_object_sha: str,
+) -> dict[str, Any]:
+    expected = _require_sha256(expected_sha256, field="review packet SHA-256")
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("review packet is missing or unsafe")
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected:
+        raise ValueError("review packet digest differs")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("review packet is invalid JSON") from None
+    if not isinstance(value, dict) or _canonical_json_bytes(value) != raw:
+        raise ValueError("review packet is not canonical JSON")
+    if (
+        value.get("schema") != PACKET_SCHEMA
+        or value.get("repository") != repository
+        or value.get("reviewed_code_sha") != reviewed_code_sha
+        or value.get("review_tag") != review_tag
+        or value.get("review_tag_object_sha") != review_tag_object_sha
+        or value.get("result_blind") is not True
+    ):
+        raise ValueError("review packet identity differs")
+    return value
+
+
 def validate_software_ci(
     run: object,
     jobs: object,
@@ -284,6 +415,7 @@ def validate_software_ci(
     *,
     pull_number: int,
 ) -> tuple[int, int]:
+    """Legacy PR-CI diagnostic; trusted reviewer jobs are the authority."""
     reviewed = _require_sha(reviewed_code_sha, field="reviewed code SHA")
     if not isinstance(run, dict):
         raise ValueError("software verification run is malformed")
@@ -393,10 +525,7 @@ def parse_gemini_response(response: object) -> dict[str, Any]:
         not isinstance(item, str) or not item.strip() for item in findings
     ):
         raise ValueError("Gemini blocking findings are malformed")
-    for field in (
-        "strongest_counterexample",
-        "claim_downgrade",
-    ):
+    for field in ("strongest_counterexample", "claim_downgrade"):
         value = review.get(field)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Gemini {field} is malformed")
@@ -421,15 +550,19 @@ def build_attestation(
     review_tag_object_sha: str,
     trusted_workflow_sha: str,
     trusted_workflow_ref: str,
+    trusted_workflow_file_sha256: str,
+    trusted_runner_sha256: str,
     reviewer_run_id: int,
     reviewer_run_attempt: int,
     request_pull_number: int,
     request_comment_id: int,
     requester_login: str,
-    ci_run_id: int,
-    ci_run_attempt: int,
-    trusted_ci_sha256: str,
+    requester_permission: str,
+    request_body_sha256: str,
+    trusted_verification_jobs: dict[str, int],
     packet_sha256: str,
+    gemini_request_sha256: str,
+    raw_gemini_response_sha256: str,
     parsed_review: dict[str, Any],
 ) -> dict[str, Any]:
     _repo_path(repository)
@@ -437,14 +570,34 @@ def build_attestation(
     require_review_tag(review_tag)
     tag_object = _require_sha(review_tag_object_sha, field="review tag object SHA")
     workflow_sha = _require_sha(trusted_workflow_sha, field="trusted workflow SHA")
+    workflow_file_sha = _require_sha256(
+        trusted_workflow_file_sha256, field="trusted workflow file SHA-256"
+    )
+    runner_sha = _require_sha256(trusted_runner_sha256, field="trusted runner SHA-256")
+    request_body_sha = _require_sha256(
+        request_body_sha256, field="review request body SHA-256"
+    )
     packet_digest = _require_sha256(packet_sha256, field="review packet SHA-256")
-    trusted_ci = _require_sha256(trusted_ci_sha256, field="trusted CI SHA-256")
+    gemini_request_digest = _require_sha256(
+        gemini_request_sha256, field="Gemini request SHA-256"
+    )
+    raw_response_digest = _require_sha256(
+        raw_gemini_response_sha256, field="raw Gemini response SHA-256"
+    )
+    if requester_permission not in {"write", "admin"}:
+        raise ValueError("review requester permission is not authoritative")
     if not isinstance(requester_login, str) or not requester_login:
         raise ValueError("review request login is malformed")
     if not isinstance(trusted_workflow_ref, str) or not trusted_workflow_ref.endswith(
         "@refs/heads/main"
     ):
         raise ValueError("trusted workflow ref is not default-branch bound")
+    if set(trusted_verification_jobs) != set(_TRUSTED_VERIFICATION_JOBS):
+        raise ValueError("trusted verification job roster is malformed")
+    bound_jobs = {
+        key: _positive_int(value, field=f"trusted verification job {key}")
+        for key, value in trusted_verification_jobs.items()
+    }
     if parsed_review.get("reviewer_provider") != GEMINI_PROVIDER:
         raise ValueError("reviewer provider is not Google Gemini")
     fields = {
@@ -474,6 +627,8 @@ def build_attestation(
         "review_tag_object_sha": tag_object,
         "trusted_workflow_sha": workflow_sha,
         "trusted_workflow_ref": trusted_workflow_ref,
+        "trusted_workflow_file_sha256": workflow_file_sha,
+        "trusted_runner_sha256": runner_sha,
         "reviewer_run_id": _positive_int(reviewer_run_id, field="reviewer run id"),
         "reviewer_run_attempt": _positive_int(
             reviewer_run_attempt, field="reviewer run attempt"
@@ -485,15 +640,15 @@ def build_attestation(
             request_comment_id, field="review request comment id"
         ),
         "requester_login": requester_login,
-        "ci_run_id": _positive_int(ci_run_id, field="software CI run id"),
-        "ci_run_attempt": _positive_int(
-            ci_run_attempt, field="software CI run attempt"
-        ),
-        "trusted_ci_sha256": trusted_ci,
+        "requester_permission": requester_permission,
+        "request_body_sha256": request_body_sha,
+        "trusted_verification_jobs": bound_jobs,
         "packet_sha256": packet_digest,
         "system_instruction_sha256": hashlib.sha256(
             GEMINI_SYSTEM_INSTRUCTION.encode("utf-8")
         ).hexdigest(),
+        "gemini_request_sha256": gemini_request_digest,
+        "raw_gemini_response_sha256": raw_response_digest,
         "result_blind": True,
         "reviewer_context": "trusted_default_branch_read_only",
         "python_version": sys.version.split()[0],
@@ -501,14 +656,14 @@ def build_attestation(
     }
 
 
-def _api_json(
+def _api_bytes(
     url: str,
     *,
     token: str,
     method: str = "GET",
     payload: object | None = None,
     headers: dict[str, str] | None = None,
-) -> object:
+) -> bytes:
     request_headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "trade-rl-ppo-gemini-reviewer",
@@ -541,6 +696,24 @@ def _api_json(
         ) from None
     if len(raw) > _MAX_API_BYTES:
         raise ReviewTransportError("remote API response exceeds size limit")
+    return raw
+
+
+def _api_json(
+    url: str,
+    *,
+    token: str,
+    method: str = "GET",
+    payload: object | None = None,
+    headers: dict[str, str] | None = None,
+) -> object:
+    raw = _api_bytes(
+        url,
+        token=token,
+        method=method,
+        payload=payload,
+        headers=headers,
+    )
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -655,67 +828,12 @@ def _require_execution_pull(
     return _positive_int(matches[0].get("number"), field="execution pull number")
 
 
-def _find_software_ci(
-    repository: str,
-    reviewed_code_sha: str,
-    *,
-    pull_number: int,
-    token: str,
-) -> tuple[int, int]:
-    query = urllib.parse.urlencode(
-        {
-            "head_sha": reviewed_code_sha,
-            "event": "pull_request",
-            "per_page": "100",
-        }
-    )
-    payload = _github_api(repository, f"actions/runs?{query}", token=token)
-    if not isinstance(payload, dict) or not isinstance(
-        payload.get("workflow_runs"), list
-    ):
-        raise ValueError("software CI inventory is malformed")
-    runs = sorted(
-        (run for run in payload["workflow_runs"] if isinstance(run, dict)),
-        key=lambda item: int(item.get("id", 0)),
-        reverse=True,
-    )
-    for run in runs:
-        if (
-            run.get("name") != "CI"
-            or run.get("event") != "pull_request"
-            or run.get("head_sha") != reviewed_code_sha
-            or run.get("status") != "completed"
-        ):
-            continue
-        run_id = _positive_int(run.get("id"), field="software CI run id")
-        jobs_payload = _github_api(
-            repository,
-            f"actions/runs/{run_id}/jobs?per_page=100",
-            token=token,
-        )
-        if not isinstance(jobs_payload, dict):
-            continue
-        jobs = jobs_payload.get("jobs")
-        try:
-            return validate_software_ci(
-                run,
-                jobs,
-                reviewed_code_sha,
-                pull_number=pull_number,
-            )
-        except ValueError:
-            continue
-    raise ValueError(
-        "no exact-head software verification run has all required Green jobs"
-    )
-
-
-def _require_requester_write_permission(
+def _requester_write_permission(
     repository: str,
     login: str,
     *,
     token: str,
-) -> None:
+) -> str:
     encoded = urllib.parse.quote(login, safe="")
     payload = _github_api(
         repository,
@@ -727,6 +845,102 @@ def _require_requester_write_permission(
         "admin",
     }:
         raise ValueError("review requester lacks repository write permission")
+    permission = payload["permission"]
+    assert isinstance(permission, str)
+    return permission
+
+
+def _request_comment(
+    repository: str,
+    comment_id: int,
+    *,
+    token: str,
+) -> object:
+    return _github_api(
+        repository,
+        f"issues/comments/{comment_id}",
+        token=token,
+    )
+
+
+def _issue_comments(
+    repository: str,
+    pull_number: int,
+    *,
+    token: str,
+) -> list[object]:
+    comments: list[object] = []
+    for page in range(1, _MAX_COMMENT_PAGES + 1):
+        payload = _github_api(
+            repository,
+            f"issues/{pull_number}/comments?per_page=100&page={page}",
+            token=token,
+        )
+        if not isinstance(payload, list):
+            raise ValueError("review request comment inventory is malformed")
+        comments.extend(payload)
+        if len(payload) < 100:
+            return comments
+    raise ValueError("review request comment inventory exceeds page budget")
+
+
+def _require_no_prior_authorized_request(
+    request: dict[str, Any],
+    comments: list[object],
+    *,
+    repository: str,
+    token: str,
+) -> None:
+    current = _positive_int(request.get("comment_id"), field="review request comment id")
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        candidate_id = comment.get("id")
+        if (
+            not isinstance(candidate_id, int)
+            or isinstance(candidate_id, bool)
+            or candidate_id >= current
+            or not _comment_matches_request(request, comment)
+        ):
+            continue
+        user = comment.get("user")
+        if not isinstance(user, dict) or not isinstance(user.get("login"), str):
+            continue
+        try:
+            _requester_write_permission(repository, user["login"], token=token)
+        except ValueError:
+            continue
+        raise ValueError("review identity was already requested")
+
+
+def _trusted_verification_jobs(
+    repository: str,
+    run_id: int,
+    *,
+    token: str,
+) -> dict[str, int]:
+    payload = _github_api(
+        repository,
+        f"actions/runs/{run_id}/jobs?per_page=100",
+        token=token,
+    )
+    if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
+        raise ValueError("trusted verification job inventory is malformed")
+    jobs = payload["jobs"]
+    result: dict[str, int] = {}
+    for key, expected_name in _TRUSTED_VERIFICATION_JOBS.items():
+        matches = [
+            job
+            for job in jobs
+            if isinstance(job, dict) and job.get("name") == expected_name
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"trusted verification job is missing: {key}")
+        job = matches[0]
+        if job.get("status") != "completed" or job.get("conclusion") != "success":
+            raise ValueError(f"trusted verification job is not Green: {key}")
+        result[key] = _positive_int(job.get("id"), field=f"trusted job {key} id")
+    return result
 
 
 def _gemini_schema() -> dict[str, Any]:
@@ -796,7 +1010,7 @@ def _call_gemini(
     *,
     api_key: str,
     model: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], bytes]:
     if not api_key:
         raise ValueError("GEMINI_API_KEY is required")
     if not isinstance(model, str) or _SAFE_MODEL_RE.fullmatch(model) is None:
@@ -806,16 +1020,20 @@ def _call_gemini(
         f"{urllib.parse.quote(model, safe='')}:generateContent"
     )
     payload = build_gemini_request(packet)
-    value = _api_json(
+    raw = _api_bytes(
         endpoint,
         token="",
         method="POST",
         payload=payload,
         headers={"x-goog-api-key": api_key},
     )
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ReviewTransportError("Gemini API returned malformed JSON") from None
     if not isinstance(value, dict):
         raise ValueError("Gemini API response is malformed")
-    return value
+    return value, raw
 
 
 def _write_canonical(path: Path, value: object) -> None:
@@ -835,7 +1053,7 @@ def _is_authorizing(review: dict[str, Any]) -> bool:
     )
 
 
-def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
+def _load_event(environment: dict[str, str]) -> dict[str, Any]:
     event_path = Path(environment.get("GITHUB_EVENT_PATH", ""))
     if event_path.is_symlink() or not event_path.is_file():
         raise ValueError("GitHub event payload is missing or unsafe")
@@ -843,40 +1061,63 @@ def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
         event = json.loads(event_path.read_bytes())
     except json.JSONDecodeError:
         raise ValueError("GitHub event payload is invalid JSON") from None
+    if not isinstance(event, dict):
+        raise ValueError("GitHub event payload is malformed")
+    return event
+
+
+def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
+    event = _load_event(environment)
     request = parse_review_request(event)
     repository = environment.get("GITHUB_REPOSITORY", "")
     token = environment.get("GITHUB_TOKEN", "")
     if request["repository"] != repository or not token:
         raise ValueError("review request repository or token is invalid")
-    reviewed = request["reviewed_code_sha"]
-    review_tag = request["review_tag"]
-    _require_requester_write_permission(
+    fetched = _request_comment(
+        repository,
+        request["comment_id"],
+        token=token,
+    )
+    body_sha = validate_request_comment_snapshot(request, fetched)
+    permission = _requester_write_permission(
         repository,
         request["requester_login"],
         token=token,
     )
-    pull_number = _require_execution_pull(repository, reviewed, token=token)
+    pull_number = _require_execution_pull(
+        repository,
+        request["reviewed_code_sha"],
+        token=token,
+    )
     if pull_number != request["pull_number"]:
         raise ValueError("review request belongs to another pull request")
-    _require_current_main_contained(repository, reviewed, token=token)
-    _resolve_review_tag(
+    _require_current_main_contained(
         repository,
-        review_tag,
+        request["reviewed_code_sha"],
         token=token,
-        expected_reviewed_sha=reviewed,
     )
-    _find_software_ci(
+    tag_object_sha = _resolve_review_tag(
         repository,
-        reviewed,
-        pull_number=pull_number,
+        request["review_tag"],
+        token=token,
+        expected_reviewed_sha=request["reviewed_code_sha"],
+    )
+    comments = _issue_comments(repository, pull_number, token=token)
+    _require_no_prior_authorized_request(
+        request,
+        comments,
+        repository=repository,
         token=token,
     )
     return {
-        "reviewed_sha": reviewed,
-        "review_tag": review_tag,
+        "reviewed_sha": request["reviewed_code_sha"],
+        "review_tag": request["review_tag"],
+        "review_tag_object_sha": tag_object_sha,
         "pull_number": str(pull_number),
         "comment_id": str(request["comment_id"]),
         "requester_login": request["requester_login"],
+        "requester_permission": permission,
+        "request_body_sha256": body_sha,
     }
 
 
@@ -885,6 +1126,32 @@ def request_main(environment: dict[str, str] | None = None) -> int:
     outputs = _request_outputs(env)
     for key, value in outputs.items():
         print(f"{key}={value}")
+    return 0
+
+
+def packet_main(environment: dict[str, str] | None = None) -> int:
+    env = dict(os.environ if environment is None else environment)
+    repository = env.get("GITHUB_REPOSITORY", "")
+    reviewed = _require_sha(env.get("REVIEWED_SHA"), field="reviewed code SHA")
+    review_tag = env.get("REVIEW_TAG", "")
+    tag_object = _require_sha(
+        env.get("REVIEW_TAG_OBJECT_SHA"), field="review tag object SHA"
+    )
+    target_root = Path(env.get("TARGET_ROOT", "evidence"))
+    packet_path = Path(env.get("PACKET_PATH", "output/review-packet.json"))
+    packet = build_result_blind_packet(
+        target_root,
+        repository=repository,
+        reviewed_code_sha=reviewed,
+        review_tag=review_tag,
+        review_tag_object_sha=tag_object,
+    )
+    raw = _canonical_json_bytes(packet)
+    if packet_path.exists() or packet_path.is_symlink():
+        raise FileExistsError("review packet output already exists")
+    packet_path.parent.mkdir(parents=True, exist_ok=True)
+    packet_path.write_bytes(raw)
+    print(f"packet_sha256={hashlib.sha256(raw).hexdigest()}")
     return 0
 
 
@@ -899,6 +1166,9 @@ def run(environment: dict[str, str] | None = None) -> int:
         raise ValueError("GITHUB_TOKEN is required")
     review_tag = env.get("REVIEW_TAG", "")
     reviewed = _require_sha(env.get("REVIEWED_SHA"), field="reviewed code SHA")
+    expected_tag_object = _require_sha(
+        env.get("REVIEW_TAG_OBJECT_SHA"), field="review tag object SHA"
+    )
     workflow_sha = _require_sha(
         env.get("TRUSTED_WORKFLOW_SHA"), field="trusted workflow SHA"
     )
@@ -909,8 +1179,6 @@ def run(environment: dict[str, str] | None = None) -> int:
     reviewer_attempt = _environment_positive_int(
         env.get("GITHUB_RUN_ATTEMPT"), field="reviewer run attempt"
     )
-    target_root = Path(env.get("TARGET_ROOT", "target"))
-    trusted_root = Path(env.get("TRUSTED_ROOT", "trusted"))
     request_pull_number = _environment_positive_int(
         env.get("REQUEST_PULL_NUMBER"), field="review request pull number"
     )
@@ -918,39 +1186,81 @@ def run(environment: dict[str, str] | None = None) -> int:
         env.get("REQUEST_COMMENT_ID"), field="review request comment id"
     )
     requester_login = env.get("REQUESTER_LOGIN", "")
+    expected_request_body_sha = _require_sha256(
+        env.get("REQUEST_BODY_SHA256"), field="review request body SHA-256"
+    )
+    packet_path = Path(env.get("PACKET_PATH", "request-evidence/review-packet.json"))
+    expected_packet_sha = _require_sha256(
+        env.get("EXPECTED_PACKET_SHA256"), field="review packet SHA-256"
+    )
+    trusted_root = Path(env.get("TRUSTED_ROOT", "trusted"))
+    output = Path(env.get("REVIEW_OUTPUT", "output"))
     if not requester_login:
         raise ValueError("review request login is missing")
-    output = Path(env.get("REVIEW_OUTPUT", "output"))
     if output.exists() or output.is_symlink():
         raise FileExistsError("review output already exists")
 
-    tag_object_sha = _resolve_review_tag(
+    actual_tag_object = _resolve_review_tag(
         repository,
         review_tag,
         token=token,
         expected_reviewed_sha=reviewed,
     )
+    if actual_tag_object != expected_tag_object:
+        raise ValueError("review tag object changed after request validation")
     _require_current_main_contained(repository, reviewed, token=token)
     actual_pull = _require_execution_pull(repository, reviewed, token=token)
     if actual_pull != request_pull_number:
         raise ValueError("review request pull differs from the exact execution pull")
-    _require_requester_write_permission(repository, requester_login, token=token)
-    ci_run_id, ci_attempt = _find_software_ci(
+    permission = _requester_write_permission(
         repository,
-        reviewed,
-        pull_number=request_pull_number,
+        requester_login,
         token=token,
     )
-    trusted_ci_sha256 = require_trusted_ci_identity(trusted_root, target_root)
-    packet = build_result_blind_packet(
-        target_root,
+    request = {
+        "repository": repository,
+        "pull_number": request_pull_number,
+        "comment_id": request_comment_id,
+        "requester_login": requester_login,
+        "review_tag": review_tag,
+        "reviewed_code_sha": reviewed,
+        "request_body_sha256": expected_request_body_sha,
+    }
+    fetched = _request_comment(repository, request_comment_id, token=token)
+    validate_request_comment_snapshot(request, fetched)
+    comments = _issue_comments(repository, request_pull_number, token=token)
+    _require_no_prior_authorized_request(
+        request,
+        comments,
+        repository=repository,
+        token=token,
+    )
+    verification_jobs = _trusted_verification_jobs(
+        repository,
+        reviewer_run_id,
+        token=token,
+    )
+    packet = load_review_packet(
+        packet_path,
+        expected_sha256=expected_packet_sha,
         repository=repository,
         reviewed_code_sha=reviewed,
         review_tag=review_tag,
-        review_tag_object_sha=tag_object_sha,
+        review_tag_object_sha=expected_tag_object,
     )
-    packet_digest = hashlib.sha256(_canonical_json_bytes(packet)).hexdigest()
-    raw_response = _call_gemini(
+    workflow_raw, _ = _read_packet_source(
+        trusted_root,
+        ".github/workflows/ppo-4h-gemini-review.yml",
+    )
+    runner_raw, _ = _read_packet_source(
+        trusted_root,
+        "tools/ppo_4h_gemini_review.py",
+    )
+    gemini_request = build_gemini_request(packet)
+    gemini_request_sha = hashlib.sha256(
+        _canonical_json_bytes(gemini_request)
+    ).hexdigest()
+    raw_response, response_bytes = _call_gemini(
         packet,
         api_key=env.get("GEMINI_API_KEY", ""),
         model=env.get("GEMINI_MODEL", ""),
@@ -961,23 +1271,26 @@ def run(environment: dict[str, str] | None = None) -> int:
         repository_id=repository_id,
         reviewed_code_sha=reviewed,
         review_tag=review_tag,
-        review_tag_object_sha=tag_object_sha,
+        review_tag_object_sha=expected_tag_object,
         trusted_workflow_sha=workflow_sha,
         trusted_workflow_ref=workflow_ref,
+        trusted_workflow_file_sha256=hashlib.sha256(workflow_raw).hexdigest(),
+        trusted_runner_sha256=hashlib.sha256(runner_raw).hexdigest(),
         reviewer_run_id=reviewer_run_id,
         reviewer_run_attempt=reviewer_attempt,
         request_pull_number=request_pull_number,
         request_comment_id=request_comment_id,
         requester_login=requester_login,
-        ci_run_id=ci_run_id,
-        ci_run_attempt=ci_attempt,
-        trusted_ci_sha256=trusted_ci_sha256,
-        packet_sha256=packet_digest,
+        requester_permission=permission,
+        request_body_sha256=expected_request_body_sha,
+        trusted_verification_jobs=verification_jobs,
+        packet_sha256=expected_packet_sha,
+        gemini_request_sha256=gemini_request_sha,
+        raw_gemini_response_sha256=hashlib.sha256(response_bytes).hexdigest(),
         parsed_review=parsed,
     )
 
     output.mkdir(parents=True, exist_ok=False)
-    _write_canonical(output / "review-packet.json", packet)
     _write_canonical(output / "gemini-response.json", raw_response)
     _write_canonical(output / "reviewer-attestation.json", attestation)
     (output / "reviewer-disposition.txt").write_text(
@@ -991,6 +1304,8 @@ def main() -> int:
     try:
         if len(sys.argv) == 2 and sys.argv[1] == "request":
             return request_main()
+        if len(sys.argv) == 2 and sys.argv[1] == "packet":
+            return packet_main()
         if len(sys.argv) != 1:
             raise ValueError("trusted Gemini reviewer command is unsupported")
         return run()

@@ -19,8 +19,7 @@ def test_gemini_review_workflow_is_default_branch_comment_triggered_and_read_onl
     assert not re.search(r"(?m)^\s+create:", text)
     assert (
         "permissions:\n  actions: read\n  contents: read\n  issues: read\n  "
-        "pull-requests: read"
-        in text
+        "pull-requests: read" in text
     )
     assert "contents: write" not in text
     assert "pull-requests: write" not in text

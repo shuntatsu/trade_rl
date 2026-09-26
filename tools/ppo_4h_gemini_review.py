@@ -170,7 +170,7 @@ def require_review_identity_retryable(
     current_attempt = _positive_int(current_run_attempt, field="reviewer run attempt")
     seen: set[tuple[int, int]] = set()
     for artifact in artifacts:
-        if not isinstance(artifact, dict) or artifact.get("expired") is True:
+        if not isinstance(artifact, dict):
             continue
         name = artifact.get("name")
         if not isinstance(name, str):
@@ -178,6 +178,8 @@ def require_review_identity_retryable(
         match = _REVIEW_PACKET_ARTIFACT_RE.fullmatch(name)
         if match is None or match.group("identity") != identity:
             continue
+        if artifact.get("expired") is True:
+            raise ValueError("review identity history is expired; retry cannot be proven safe")
         run_id = int(match.group("run"))
         attempt = int(match.group("attempt"))
         workflow_run = artifact.get("workflow_run")

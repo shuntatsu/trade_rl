@@ -122,6 +122,9 @@ def test_review_request_is_canonical_and_bound_to_pull_comment_and_requester() -
         "requester_login": "author",
         "review_tag": "review/ppo-4h-indicator-smoke-v1",
         "reviewed_code_sha": REVIEWED_SHA,
+        "request_body_sha256": hashlib.sha256(
+            str(_request_event()["comment"]["body"]).encode("utf-8")
+        ).hexdigest(),
     }
 
     malformed = _request_event(body=review.REVIEW_REQUEST_MARKER + "\n{}\ntrailing")

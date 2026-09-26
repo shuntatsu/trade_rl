@@ -1291,7 +1291,10 @@ def run(environment: dict[str, str] | None = None) -> int:
     )
 
     output.mkdir(parents=True, exist_ok=False)
-    _write_canonical(output / "gemini-response.json", raw_response)
+    _write_canonical(output / "review-packet.json", packet)
+    _write_canonical(output / "gemini-request.json", gemini_request)
+    response_path = output / "gemini-response.json"
+    response_path.write_bytes(response_bytes)
     _write_canonical(output / "reviewer-attestation.json", attestation)
     (output / "reviewer-disposition.txt").write_text(
         f"{attestation['disposition']}\n",

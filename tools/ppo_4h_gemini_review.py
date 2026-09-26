@@ -653,6 +653,7 @@ def _find_software_ci(
     repository: str,
     reviewed_code_sha: str,
     *,
+    pull_number: int,
     token: str,
 ) -> tuple[int, int]:
     query = urllib.parse.urlencode(
@@ -690,12 +691,36 @@ def _find_software_ci(
             continue
         jobs = jobs_payload.get("jobs")
         try:
-            return validate_software_ci(run, jobs, reviewed_code_sha)
+            return validate_software_ci(
+                run,
+                jobs,
+                reviewed_code_sha,
+                pull_number=pull_number,
+            )
         except ValueError:
             continue
     raise ValueError(
         "no exact-head software verification run has all required Green jobs"
     )
+
+
+def _require_requester_write_permission(
+    repository: str,
+    login: str,
+    *,
+    token: str,
+) -> None:
+    encoded = urllib.parse.quote(login, safe="")
+    payload = _github_api(
+        repository,
+        f"collaborators/{encoded}/permission",
+        token=token,
+    )
+    if not isinstance(payload, dict) or payload.get("permission") not in {
+        "write",
+        "admin",
+    }:
+        raise ValueError("review requester lacks repository write permission")
 
 
 def _gemini_schema() -> dict[str, Any]:
@@ -804,6 +829,59 @@ def _is_authorizing(review: dict[str, Any]) -> bool:
     )
 
 
+def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
+    event_path = Path(environment.get("GITHUB_EVENT_PATH", ""))
+    if event_path.is_symlink() or not event_path.is_file():
+        raise ValueError("GitHub event payload is missing or unsafe")
+    try:
+        event = json.loads(event_path.read_bytes())
+    except json.JSONDecodeError:
+        raise ValueError("GitHub event payload is invalid JSON") from None
+    request = parse_review_request(event)
+    repository = environment.get("GITHUB_REPOSITORY", "")
+    token = environment.get("GITHUB_TOKEN", "")
+    if request["repository"] != repository or not token:
+        raise ValueError("review request repository or token is invalid")
+    reviewed = request["reviewed_code_sha"]
+    review_tag = request["review_tag"]
+    _require_requester_write_permission(
+        repository,
+        request["requester_login"],
+        token=token,
+    )
+    pull_number = _require_execution_pull(repository, reviewed, token=token)
+    if pull_number != request["pull_number"]:
+        raise ValueError("review request belongs to another pull request")
+    _require_current_main_contained(repository, reviewed, token=token)
+    _resolve_review_tag(
+        repository,
+        review_tag,
+        token=token,
+        expected_reviewed_sha=reviewed,
+    )
+    _find_software_ci(
+        repository,
+        reviewed,
+        pull_number=pull_number,
+        token=token,
+    )
+    return {
+        "reviewed_sha": reviewed,
+        "review_tag": review_tag,
+        "pull_number": str(pull_number),
+        "comment_id": str(request["comment_id"]),
+        "requester_login": request["requester_login"],
+    }
+
+
+def request_main(environment: dict[str, str] | None = None) -> int:
+    env = dict(os.environ if environment is None else environment)
+    outputs = _request_outputs(env)
+    for key, value in outputs.items():
+        print(f"{key}={value}")
+    return 0
+
+
 def run(environment: dict[str, str] | None = None) -> int:
     env = dict(os.environ if environment is None else environment)
     repository = env.get("GITHUB_REPOSITORY", "")
@@ -826,6 +904,16 @@ def run(environment: dict[str, str] | None = None) -> int:
         env.get("GITHUB_RUN_ATTEMPT"), field="reviewer run attempt"
     )
     target_root = Path(env.get("TARGET_ROOT", "target"))
+    trusted_root = Path(env.get("TRUSTED_ROOT", "trusted"))
+    request_pull_number = _environment_positive_int(
+        env.get("REQUEST_PULL_NUMBER"), field="review request pull number"
+    )
+    request_comment_id = _environment_positive_int(
+        env.get("REQUEST_COMMENT_ID"), field="review request comment id"
+    )
+    requester_login = env.get("REQUESTER_LOGIN", "")
+    if not requester_login:
+        raise ValueError("review request login is missing")
     output = Path(env.get("REVIEW_OUTPUT", "output"))
     if output.exists() or output.is_symlink():
         raise FileExistsError("review output already exists")
@@ -837,8 +925,17 @@ def run(environment: dict[str, str] | None = None) -> int:
         expected_reviewed_sha=reviewed,
     )
     _require_current_main_contained(repository, reviewed, token=token)
-    _require_execution_pull(repository, reviewed, token=token)
-    ci_run_id, ci_attempt = _find_software_ci(repository, reviewed, token=token)
+    actual_pull = _require_execution_pull(repository, reviewed, token=token)
+    if actual_pull != request_pull_number:
+        raise ValueError("review request pull differs from the exact execution pull")
+    _require_requester_write_permission(repository, requester_login, token=token)
+    ci_run_id, ci_attempt = _find_software_ci(
+        repository,
+        reviewed,
+        pull_number=request_pull_number,
+        token=token,
+    )
+    trusted_ci_sha256 = require_trusted_ci_identity(trusted_root, target_root)
     packet = build_result_blind_packet(
         target_root,
         repository=repository,
@@ -863,8 +960,12 @@ def run(environment: dict[str, str] | None = None) -> int:
         trusted_workflow_ref=workflow_ref,
         reviewer_run_id=reviewer_run_id,
         reviewer_run_attempt=reviewer_attempt,
+        request_pull_number=request_pull_number,
+        request_comment_id=request_comment_id,
+        requester_login=requester_login,
         ci_run_id=ci_run_id,
         ci_run_attempt=ci_attempt,
+        trusted_ci_sha256=trusted_ci_sha256,
         packet_sha256=packet_digest,
         parsed_review=parsed,
     )
@@ -882,6 +983,10 @@ def run(environment: dict[str, str] | None = None) -> int:
 
 def main() -> int:
     try:
+        if len(sys.argv) == 2 and sys.argv[1] == "request":
+            return request_main()
+        if len(sys.argv) != 1:
+            raise ValueError("trusted Gemini reviewer command is unsupported")
         return run()
     except Exception as error:
         print(

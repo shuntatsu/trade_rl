@@ -45,10 +45,6 @@ PACKET_SECTIONS = (
         "docs/architecture/research-assurance.md",
         "## Research-specific contract: PPO 4h indicator smoke",
     ),
-    (
-        "docs/research/current-status.md",
-        "### PPO 4h indicator smoke: preregistered, not yet executed",
-    ),
 )
 _REQUIRED_SOFTWARE_JOBS = ("Lean Core", "PPO Runtime", "Human Guide")
 _TRUSTED_VERIFICATION_JOBS = {
@@ -218,7 +214,7 @@ def validate_request_comment_snapshot(
     return body_sha
 
 
-def _comment_matches_request(
+def _comment_conflicts_request(
     request: dict[str, Any],
     comment: object,
 ) -> bool:
@@ -228,7 +224,7 @@ def _comment_matches_request(
         tag, reviewed, _ = _parse_request_body(comment.get("body"))
     except ValueError:
         return False
-    return tag == request.get("review_tag") and reviewed == request.get(
+    return tag == request.get("review_tag") or reviewed == request.get(
         "reviewed_code_sha"
     )
 
@@ -248,7 +244,7 @@ def require_first_review_request(
             isinstance(candidate_id, int)
             and not isinstance(candidate_id, bool)
             and candidate_id < current
-            and _comment_matches_request(request, comment)
+            and _comment_conflicts_request(request, comment)
         ):
             raise ValueError("review identity was already requested")
 
@@ -903,7 +899,7 @@ def _require_no_prior_authorized_request(
             not isinstance(candidate_id, int)
             or isinstance(candidate_id, bool)
             or candidate_id >= current
-            or not _comment_matches_request(request, comment)
+            or not _comment_conflicts_request(request, comment)
         ):
             continue
         user = comment.get("user")

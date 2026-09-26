@@ -42,10 +42,6 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Temporary Gemini runner format diff
-        continue-on-error: true
-        run: uv run ruff format --diff tools/ppo_4h_gemini_review.py
-
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 

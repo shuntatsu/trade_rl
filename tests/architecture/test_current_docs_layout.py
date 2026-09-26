@@ -162,6 +162,7 @@ def test_only_permanent_workflows_remain() -> None:
         "branch-hygiene.yml",
         "ci.yml",
         "deploy-guide.yml",
+        "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
     }
 

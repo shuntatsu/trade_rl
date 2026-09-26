@@ -1,18 +1,20 @@
 name: PPO 4h Gemini Review
 
 on:
-  create:
+  issue_comment:
+    types: [created]
 
 permissions:
   actions: read
   contents: read
+  issues: read
   pull-requests: read
 
 jobs:
   review:
     if: >-
-      github.ref_type == 'tag' &&
-      startsWith(github.ref_name, 'review/ppo-4h-indicator-smoke-v')
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '<!-- ppo-4h-gemini-review-request-v1 -->')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -24,10 +26,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Validate canonical review request
+        id: request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 trusted/tools/ppo_4h_gemini_review.py request >> "$GITHUB_OUTPUT"
+
       - name: Checkout untrusted review target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ steps.request.outputs.reviewed_sha }}
           path: target
           fetch-depth: 1
           persist-credentials: false
@@ -40,10 +48,14 @@ jobs:
           GEMINI_MODEL: ${{ vars.PPO_GEMINI_REVIEW_MODEL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          REVIEWED_SHA: ${{ github.sha }}
-          REVIEW_TAG: ${{ github.ref_name }}
+          REVIEWED_SHA: ${{ steps.request.outputs.reviewed_sha }}
+          REVIEW_TAG: ${{ steps.request.outputs.review_tag }}
+          REQUEST_PULL_NUMBER: ${{ github.event.issue.number }}
+          REQUEST_COMMENT_ID: ${{ github.event.comment.id }}
+          REQUESTER_LOGIN: ${{ github.event.comment.user.login }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRUSTED_ROOT: trusted
           TARGET_ROOT: target
           REVIEW_OUTPUT: output
         run: python3 trusted/tools/ppo_4h_gemini_review.py

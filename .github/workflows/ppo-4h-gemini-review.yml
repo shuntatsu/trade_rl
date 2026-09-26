@@ -65,7 +65,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ppo-4h-gemini-review-${{ github.run_id }}-${{ github.run_attempt }}
-          path: output/
+          path: |
+            output/reviewer-attestation.json
+            output/review-packet.json
+            output/gemini-response.json
+            output/reviewer-disposition.txt
           if-no-files-found: warn
           include-hidden-files: true
           compression-level: 0

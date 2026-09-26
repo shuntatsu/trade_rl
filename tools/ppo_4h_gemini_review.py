@@ -204,7 +204,10 @@ def validate_request_comment_snapshot(
         or comment.get("issue_url") != expected_issue
     ):
         raise ValueError("review request comment identity changed")
-    tag, reviewed, body_sha = _parse_request_body(comment.get("body"))
+    try:
+        tag, reviewed, body_sha = _parse_request_body(comment.get("body"))
+    except ValueError:
+        raise ValueError("review request comment bytes changed") from None
     if (
         tag != request.get("review_tag")
         or reviewed != request.get("reviewed_code_sha")

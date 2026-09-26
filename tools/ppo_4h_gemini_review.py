@@ -11,13 +11,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 
 PACKET_SCHEMA = "ppo_4h_gemini_review_packet_v1"
 ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
 BASE_BRANCH = "main"
 GEMINI_PROVIDER = "google_gemini"
+REVIEW_PROTOCOL = "ppo_4h_gemini_semantic_review_v1"
+REVIEW_JOB_NAME = "Trusted Gemini semantic review"
+PROVIDER_STEP_NAME = "Call Gemini reviewer"
 REVIEW_REQUEST_MARKER = "<!-- ppo-4h-gemini-review-request-v1 -->"
 GEMINI_SYSTEM_INSTRUCTION = (
     "You are the independent result-blind G0-G2 reviewer for a development-only "
@@ -59,6 +62,12 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+_REVIEW_PACKET_ARTIFACT_RE = re.compile(
+    r"^ppo-4h-review-packet-(?P<identity>[0-9a-f]{64})-"
+    r"(?P<run>[1-9][0-9]*)-(?P<attempt>[1-9][0-9]*)$"
+)
 _MAX_API_BYTES = 8 * 1024 * 1024
 _MAX_PACKET_BYTES = 4 * 1024 * 1024
 _MAX_COMMENT_PAGES = 100
@@ -115,6 +124,113 @@ def require_review_tag(review_tag: str) -> int:
     if match is None:
         raise ValueError("review tag is malformed")
     return int(match.group("version"))
+
+
+def review_identity_digest(
+    *,
+    repository: str,
+    repository_id: int,
+    pull_number: int,
+    reviewed_code_sha: str,
+) -> str:
+    _repo_path(repository)
+    identity = {
+        "schema": "ppo_4h_gemini_review_identity_v1",
+        "repository": repository,
+        "repository_id": _positive_int(repository_id, field="repository id"),
+        "pull_number": _positive_int(pull_number, field="execution pull number"),
+        "reviewed_code_sha": _require_sha(
+            reviewed_code_sha, field="reviewed code SHA"
+        ),
+        "review_protocol": REVIEW_PROTOCOL,
+    }
+    return hashlib.sha256(_canonical_json_bytes(identity)).hexdigest()
+
+
+def review_packet_artifact_name(
+    identity_digest: str,
+    *,
+    run_id: int,
+    run_attempt: int,
+) -> str:
+    identity = _require_sha256(identity_digest, field="review identity digest")
+    run = _positive_int(run_id, field="reviewer run id")
+    attempt = _positive_int(run_attempt, field="reviewer run attempt")
+    return f"ppo-4h-review-packet-{identity}-{run}-{attempt}"
+
+
+def require_review_identity_retryable(
+    identity_digest: str,
+    *,
+    current_run_id: int,
+    current_run_attempt: int,
+    artifacts: list[object],
+    jobs_for_attempt: Callable[[int, int], list[object]],
+) -> None:
+    identity = _require_sha256(identity_digest, field="review identity digest")
+    current_run = _positive_int(current_run_id, field="reviewer run id")
+    current_attempt = _positive_int(
+        current_run_attempt, field="reviewer run attempt"
+    )
+    seen: set[tuple[int, int]] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or artifact.get("expired") is True:
+            continue
+        name = artifact.get("name")
+        if not isinstance(name, str):
+            continue
+        match = _REVIEW_PACKET_ARTIFACT_RE.fullmatch(name)
+        if match is None or match.group("identity") != identity:
+            continue
+        run_id = int(match.group("run"))
+        attempt = int(match.group("attempt"))
+        workflow_run = artifact.get("workflow_run")
+        if (
+            not isinstance(workflow_run, dict)
+            or _positive_int(
+                workflow_run.get("id"), field="review packet workflow run id"
+            )
+            != run_id
+        ):
+            raise ValueError("review lineage artifact identity is malformed")
+        key = (run_id, attempt)
+        if key in seen:
+            raise ValueError("review lineage contains duplicate attempt evidence")
+        seen.add(key)
+        if key == (current_run, current_attempt):
+            continue
+        if run_id != current_run:
+            raise ValueError("review identity already has an attempt")
+        if attempt >= current_attempt:
+            raise ValueError("review lineage attempt ordering is malformed")
+        jobs = jobs_for_attempt(run_id, attempt)
+        if not isinstance(jobs, list):
+            raise ValueError("review lineage job inventory is malformed")
+        review_jobs = [
+            job
+            for job in jobs
+            if isinstance(job, dict) and job.get("name") == REVIEW_JOB_NAME
+        ]
+        if len(review_jobs) > 1:
+            raise ValueError("review lineage has duplicate review jobs")
+        if not review_jobs:
+            continue
+        steps = review_jobs[0].get("steps")
+        if not isinstance(steps, list):
+            continue
+        provider_steps = [
+            step
+            for step in steps
+            if isinstance(step, dict) and step.get("name") == PROVIDER_STEP_NAME
+        ]
+        if len(provider_steps) > 1:
+            raise ValueError("review lineage has duplicate provider steps")
+        if (
+            provider_steps
+            and provider_steps[0].get("status") == "completed"
+            and provider_steps[0].get("conclusion") == "success"
+        ):
+            raise ValueError("terminal Gemini review already exists")
 
 
 def _parse_request_body(body: object) -> tuple[str, str, str]:
@@ -288,10 +404,31 @@ def _read_packet_source(root: Path, relative: str) -> tuple[bytes, str]:
 
 
 def _markdown_section(text: str, heading: str) -> str:
-    lines = text.splitlines(keepends=True)
-    starts = [
-        index for index, line in enumerate(lines) if line.rstrip("\r\n") == heading
-    ]
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.splitlines(keepends=True)
+    headings: list[tuple[int, int, str]] = []
+    fence_character: str | None = None
+    fence_length = 0
+
+    for index, line in enumerate(lines):
+        fence = _FENCE_RE.match(line)
+        if fence is not None:
+            marker = fence.group(1)
+            if fence_character is None:
+                fence_character = marker[0]
+                fence_length = len(marker)
+            elif marker[0] == fence_character and len(marker) >= fence_length:
+                fence_character = None
+                fence_length = 0
+            continue
+        if fence_character is not None:
+            continue
+        raw = line.rstrip("\n")
+        match = _HEADING_RE.match(raw)
+        if match is not None:
+            headings.append((index, len(match.group(1)), raw))
+
+    starts = [index for index, _level, raw in headings if raw == heading]
     if len(starts) != 1:
         raise ValueError(
             f"result-blind packet section is missing or ambiguous: {heading}"
@@ -299,12 +436,8 @@ def _markdown_section(text: str, heading: str) -> str:
     start = starts[0]
     level = len(heading) - len(heading.lstrip("#"))
     end = len(lines)
-    for index in range(start + 1, len(lines)):
-        stripped = lines[index].lstrip()
-        if not stripped.startswith("#"):
-            continue
-        hashes = len(stripped) - len(stripped.lstrip("#"))
-        if hashes <= level and stripped[hashes : hashes + 1] == " ":
+    for index, candidate_level, _raw in headings:
+        if index > start and candidate_level <= level:
             end = index
             break
     return "".join(lines[start:end])
@@ -618,8 +751,16 @@ def build_attestation(
             "what_this_cannot_prove",
         )
     }
+    identity_digest = review_identity_digest(
+        repository=repository,
+        repository_id=repository_id,
+        pull_number=request_pull_number,
+        reviewed_code_sha=reviewed,
+    )
     return {
         "schema": ATTESTATION_SCHEMA,
+        "review_protocol": REVIEW_PROTOCOL,
+        "review_identity_digest": identity_digest,
         "repository": repository,
         "repository_id": _positive_int(repository_id, field="repository id"),
         "reviewed_code_sha": reviewed,
@@ -915,6 +1056,55 @@ def _require_no_prior_authorized_request(
         raise ValueError("review identity was already requested")
 
 
+def _review_packet_artifacts(
+    repository: str,
+    identity_digest: str,
+    *,
+    token: str,
+) -> list[object]:
+    identity = _require_sha256(identity_digest, field="review identity digest")
+    prefix = f"ppo-4h-review-packet-{identity}-"
+    artifacts: list[object] = []
+    for page in range(1, _MAX_COMMENT_PAGES + 1):
+        payload = _github_api(
+            repository,
+            f"actions/artifacts?per_page=100&page={page}",
+            token=token,
+        )
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("artifacts"), list
+        ):
+            raise ValueError("review artifact inventory is malformed")
+        page_artifacts = payload["artifacts"]
+        artifacts.extend(
+            artifact
+            for artifact in page_artifacts
+            if isinstance(artifact, dict)
+            and isinstance(artifact.get("name"), str)
+            and artifact["name"].startswith(prefix)
+        )
+        if len(page_artifacts) < 100:
+            return artifacts
+    raise ValueError("review artifact inventory exceeds page budget")
+
+
+def _jobs_for_review_attempt(
+    repository: str,
+    run_id: int,
+    run_attempt: int,
+    *,
+    token: str,
+) -> list[object]:
+    payload = _github_api(
+        repository,
+        f"actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100",
+        token=token,
+    )
+    if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
+        raise ValueError("review lineage job inventory is malformed")
+    return payload["jobs"]
+
+
 def _trusted_verification_jobs(
     repository: str,
     run_id: int,
@@ -1072,6 +1262,9 @@ def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
     event = _load_event(environment)
     request = parse_review_request(event)
     repository = environment.get("GITHUB_REPOSITORY", "")
+    repository_id = _environment_positive_int(
+        environment.get("GITHUB_REPOSITORY_ID"), field="repository id"
+    )
     token = environment.get("GITHUB_TOKEN", "")
     if request["repository"] != repository or not token:
         raise ValueError("review request repository or token is invalid")
@@ -1111,9 +1304,16 @@ def _request_outputs(environment: dict[str, str]) -> dict[str, str]:
         repository=repository,
         token=token,
     )
+    identity_digest = review_identity_digest(
+        repository=repository,
+        repository_id=repository_id,
+        pull_number=pull_number,
+        reviewed_code_sha=request["reviewed_code_sha"],
+    )
     return {
         "reviewed_sha": request["reviewed_code_sha"],
         "review_tag": request["review_tag"],
+        "review_identity_digest": identity_digest,
         "review_tag_object_sha": tag_object_sha,
         "pull_number": str(pull_number),
         "comment_id": str(request["comment_id"]),
@@ -1195,6 +1395,9 @@ def run(environment: dict[str, str] | None = None) -> int:
     expected_packet_sha = _require_sha256(
         env.get("EXPECTED_PACKET_SHA256"), field="review packet SHA-256"
     )
+    expected_identity_digest = _require_sha256(
+        env.get("REVIEW_IDENTITY_DIGEST"), field="review identity digest"
+    )
     trusted_root = Path(env.get("TRUSTED_ROOT", "trusted"))
     output = Path(env.get("REVIEW_OUTPUT", "output"))
     if not requester_login:
@@ -1241,6 +1444,31 @@ def run(environment: dict[str, str] | None = None) -> int:
         repository,
         reviewer_run_id,
         token=token,
+    )
+    actual_identity_digest = review_identity_digest(
+        repository=repository,
+        repository_id=repository_id,
+        pull_number=request_pull_number,
+        reviewed_code_sha=reviewed,
+    )
+    if actual_identity_digest != expected_identity_digest:
+        raise ValueError("review identity digest changed after request validation")
+    lineage_artifacts = _review_packet_artifacts(
+        repository,
+        actual_identity_digest,
+        token=token,
+    )
+    require_review_identity_retryable(
+        actual_identity_digest,
+        current_run_id=reviewer_run_id,
+        current_run_attempt=reviewer_attempt,
+        artifacts=lineage_artifacts,
+        jobs_for_attempt=lambda run_id, attempt: _jobs_for_review_attempt(
+            repository,
+            run_id,
+            attempt,
+            token=token,
+        ),
     )
     packet = load_review_packet(
         packet_path,
@@ -1302,7 +1530,7 @@ def run(environment: dict[str, str] | None = None) -> int:
         f"{attestation['disposition']}\n",
         encoding="utf-8",
     )
-    return 0 if _is_authorizing(attestation) else 2
+    return 0
 
 
 def main() -> int:

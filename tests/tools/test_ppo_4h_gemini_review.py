@@ -132,7 +132,6 @@ def test_review_request_is_canonical_and_bound_to_pull_comment_and_requester() -
         review.parse_review_request(malformed)
 
 
-
 def test_review_request_refetch_and_duplicate_identity_fail_closed() -> None:
     event = _request_event()
     request = review.parse_review_request(event)
@@ -220,7 +219,6 @@ def test_result_blind_packet_rejects_missing_or_symlinked_source(
         )
 
 
-
 def test_result_blind_packet_rejects_symlinked_parent_directory(
     tmp_path: Path,
 ) -> None:
@@ -254,14 +252,17 @@ def test_canonical_packet_loader_rechecks_digest_and_identity(tmp_path: Path) ->
     path.write_bytes(raw)
     digest = hashlib.sha256(raw).hexdigest()
 
-    assert review.load_review_packet(
-        path,
-        expected_sha256=digest,
-        repository="owner/repo",
-        reviewed_code_sha=REVIEWED_SHA,
-        review_tag="review/ppo-4h-indicator-smoke-v1",
-        review_tag_object_sha=TAG_OBJECT_SHA,
-    ) == packet
+    assert (
+        review.load_review_packet(
+            path,
+            expected_sha256=digest,
+            repository="owner/repo",
+            reviewed_code_sha=REVIEWED_SHA,
+            review_tag="review/ppo-4h-indicator-smoke-v1",
+            review_tag_object_sha=TAG_OBJECT_SHA,
+        )
+        == packet
+    )
 
     path.write_bytes(raw + b" ")
     with pytest.raises(ValueError, match="packet"):
@@ -465,4 +466,3 @@ def test_attestation_binds_trusted_jobs_request_and_raw_gemini_identity() -> Non
     assert canonical_json_bytes(record) == canonical_json_bytes(
         json.loads(canonical_json_bytes(record))
     )
-

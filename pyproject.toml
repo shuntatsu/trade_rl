@@ -42,6 +42,9 @@ version = {attr = "trade_rl._version.__version__"}
 where = ["."]
 include = ["trade_rl*"]
 
+[tool.setuptools.package-data]
+"trade_rl.evaluation" = ["ppo_normalization_activation.json"]
+
 [tool.uv]
 required-version = "==0.10.0"
 

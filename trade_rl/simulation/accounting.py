@@ -1,1 +1,642 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíówN‹Z–‹­¦ëeŠw¬Ôˆˆ‰M•±˜µ™¥¹…¹¥¹œÁ½ÉÑ™½±¥¼‰½½¬ÍÑ…Ñ”…¹‰…Í”µ‰…È…½Õ¹Ñ¥¹œ¸ˆˆˆ()™É½´}}™ÕÑÕÉ•}|¥µÁ½ÉÐ…¹¹½Ñ…Ñ¥½¹Ì()¥µÁ½ÉÐµ…Ñ )™É½´‘…Ñ…±…ÍÍ•Ì¥µÁ½ÉÐ‘…Ñ…±…ÍÌ°™¥•±)™É½´•¹Õ´¥µÁ½ÉÐ¹Õ´)™É½´™É…Ñ¥½¹Ì¥µÁ½ÉÐÉ…Ñ¥½¸()¥µÁ½ÉÐ¹ÕµÁä…Ì¹À()™É½´ÑÉ…‘•}É°¹Í¥µÕ±…Ñ¥½¸¹ÅÕ…¹Ñ¥Ñ¥•Ì¥µÁ½ÉÐ€ (€€€…•ÁÑ•‘}™¥±±}ÅÕ…¹Ñ¥Ñä°(€€€•á…Ñ}ÅÕ…¹Ñ¥Ñä°(€€€Á…ÉÍ•}ÅÕ…¹Ñ¥Ñä°(€€€ÁÉ½©•Ñ}ÅÕ…¹Ñ¥Ñä°(¤()}Q=1I9€ô€Å”´ÄÈ)}5%9}EU%Qdè™±½…Ð€ô™±½…Ð¡¹À¹™¥¹™¼¡¹À¹™±½…ÐØÐ¤¹Ñ¥¹ä¤(()±…ÍÌ½¹½µ¥Q•Éµ¥¹…Ñ¥½¹I•…Í½¸¡ÍÑÈ°¹Õ´¤è(€€€€ˆˆ‰½¹½µ¥Œ½ÕÑ½µ•ÌÑ¡…ÐÑ•Éµ¥¹…Ñ”…¸•Á¥Í½‘”Ý¥Ñ¡½ÕÐ„½‘”•ÉÉ½È¸ˆˆˆ((€€€5%9%5U5}EU%Qd€ô€‰µ¥¹¥µÕµ}•ÅÕ¥Ñäˆ(€€€aUQ%=9}=MQ}a!UMQ%=8€ô€‰•á•ÕÑ¥½¹}½ÍÑ}•á¡…ÕÍÑ¥½¸ˆ(€€€5I%9}10€ô€‰µ…É¥¹}…±°ˆ(€€€1%EU%Q%=8€ô€‰±¥ÅÕ¥‘…Ñ¥½¸ˆ(€€€I]=]9}MQ=@€ô€‰‘É…Ý‘½Ý¹}ÍÑ½Àˆ(€€€%9M=1Y9d€ô€‰¥¹Í½±Ù•¹äˆ(()‘•˜}™¥¹¥Ñ•}Ù•Ñ½È¡Ù…±Õ”è¹À¹¹‘…ÉÉ…ä°€¨°™¥•±‘}¹…µ”èÍÑÈ¤€´ø¹À¹¹‘…ÉÉ…äè(€€€Ù•Ñ½È€ô¹À¹…Í…ÉÉ…ä¡Ù…±Õ”°‘ÑåÁ”õ¹À¹™±½…ÐØÐ¤¹É•Í¡…Á” ´Ä¤¹½Áä ¤(€€€¥˜Ù•Ñ½È¹Í¥é”€ôô€À½È¹½Ð¹À¹¥Í™¥¹¥Ñ”¡Ù•Ñ½È¤¹…±° ¤è(€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰í™¥•±‘}¹…µ•ôµÕÍÐ‰”„¹½¸µ•µÁÑä™¥¹¥Ñ”Ù•Ñ½Èˆ¤(€€€É•ÑÕÉ¸Ù•Ñ½È(()‘…Ñ…±…ÍÌ¡Í±½ÑÌõQÉÕ”¤)±…ÍÌ	½½­MÑ…Ñ”è(€€€€ˆˆ‰5ÕÑ…‰±”Í¥¹•µÅÕ…¹Ñ¥Ñä…½Õ¹Ð¥Í½±…Ñ•™É½´Á½±¥ä…¹Ý½É­™±½Ü±½¥Œ¸ˆˆˆ((€€€ÅÕ…¹Ñ¥Ñ¥•Ìè¹À¹¹‘…ÉÉ…ä(€€€…Í è™±½…Ð(€€€µ…É­}ÁÉ¥•Ìè¹À¹¹‘…ÉÉ…ä(€€€Á•…­}Ù…±Õ”è™±½…Ð(€€€½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌè¹À¹¹‘…ÉÉ…äð9½¹”€ô9½¹”(€€€µ…á}‘É…Ý‘½Ý¸è™±½…Ð€ô€À¸À(€€€ÑÕÉ¹½Ù•É}Ñ½Ñ…°è™±½…Ð€ô€À¸À(€€€Ñ½Ñ…±}½ÍÐè™±½…Ð€ô€À¸À(€€€™Õ¹‘¥¹}Á¹°è™±½…Ð€ô€À¸À(€€€™¥±±}½Õ¹Ðè¥¹Ð€ô€À(€€€É•‰…±…¹•}•Ù•¹ÑÌè¥¹Ð€ô€À(€€€É•ÑÕÉ¹Í}¡¥ÍÑ½Éäè±¥ÍÑm™±½…Ñt€ô™¥•±¡‘•™…Õ±Ñ}™…Ñ½Éäõ±¥ÍÐ¤(€€€‰½ÉÉ½Ý}½ÍÐè™±½…Ð€ô€À¸À(€€€µ…É¥¹}ÕÍ•è™±½…Ð€ô€À¸À(€€€µ…¥¹Ñ•¹…¹•}µ…É¥¸è™±½…Ð€ô€À¸À(€€€µ…¥¹Ñ•¹…¹•}É•ÅÕ¥É•µ•¹Ðè™±½…Ð€ô€À¸À(€€€µ…É¥¹}‘•™¥¥Ðè™±½…Ð€ô€À¸À(€€€¥¹Í½±Ù•¹Ðè‰½½°€ô…±Í”(€€€Ñ•Éµ¥¹…Ñ¥½¹}É•…Í½¸è½¹½µ¥Q•Éµ¥¹…Ñ¥½¹I•…Í½¸ðÍÑÈð9½¹”€ô9½¹”(€€€}•á…Ñ}ÅÕ…¹Ñ¥Ñ¥•ÌèÑÕÁ±•mÍÑÈ°€¸¸¹tð9½¹”€ô™¥•±¡‘•™…Õ±Ðõ9½¹”°É•ÁÈõ…±Í”¤((€€€‘•˜}}Á½ÍÑ}¥¹¥Ñ}|¡Í•±˜¤€´ø9½¹”è(€€€€€€€ÅÕ…¹Ñ¥Ñ¥•Ì€ô}™¥¹¥Ñ•}Ù•Ñ½È¡Í•±˜¹ÅÕ…¹Ñ¥Ñ¥•Ì°™¥•±‘}¹…µ”ô‰ÅÕ…¹Ñ¥Ñ¥•Ìˆ¤(€€€€€€€µ…É­Ì€ô}™¥¹¥Ñ•}Ù•Ñ½È¡Í•±˜¹µ…É­}ÁÉ¥•Ì°™¥•±‘}¹…µ”ô‰µ…É­}ÁÉ¥•Ìˆ¤(€€€€€€€¥˜ÅÕ…¹Ñ¥Ñ¥•Ì¹Í¡…Á”€„ôµ…É­Ì¹Í¡…Á”è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰ÅÕ…¹Ñ¥Ñ¥•Ì…¹µ…É­}ÁÉ¥•ÌµÕÍÐ¡…Ù”¥‘•¹Ñ¥…°Í¡…Á•Ìˆ¤(€€€€€€€µÕ±Ñ¥Á±¥•ÉÌ€ô€ (€€€€€€€€€€€¹À¹½¹•Í}±¥­”¡ÅÕ…¹Ñ¥Ñ¥•Ì¤(€€€€€€€€€€€¥˜Í•±˜¹½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌ¥Ì9½¹”(€€€€€€€€€€€•±Í”}™¥¹¥Ñ•}Ù•Ñ½È (€€€€€€€€€€€€€€€Í•±˜¹½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌ°(€€€€€€€€€€€€€€€™¥•±‘}¹…µ”ô‰½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌˆ°(€€€€€€€€€€€€¤(€€€€€€€€¤(€€€€€€€¥˜µÕ±Ñ¥Á±¥•ÉÌ¹Í¡…Á”€„ôÅÕ…¹Ñ¥Ñ¥•Ì¹Í¡…Á”½È¹À¹…¹ä¡µÕ±Ñ¥Á±¥•ÉÌ€ðô€À¸À¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È (€€€€€€€€€€€€€€€€‰½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌµÕÍÐµ…Ñ ÅÕ…¹Ñ¥Ñ¥•Ì…¹‰”Á½Í¥Ñ¥Ù”ˆ(€€€€€€€€€€€€¤(€€€€€€€¥˜¹À¹…¹ä¡µ…É­Ì€ðô€À¸À¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰µ…É­}ÁÉ¥•ÌµÕÍÐ‰”ÍÑÉ¥Ñ±äÁ½Í¥Ñ¥Ù”ˆ¤(€€€€€€€™½È™¥•±‘}¹…µ”°Ù…±Õ”¥¸€ (€€€€€€€€€€€€ ‰…Í ˆ°Í•±˜¹…Í ¤°(€€€€€€€€€€€€ ‰Á•…­}Ù…±Õ”ˆ°Í•±˜¹Á•…­}Ù…±Õ”¤°(€€€€€€€€€€€€ ‰µ…á}‘É…Ý‘½Ý¸ˆ°Í•±˜¹µ…á}‘É…Ý‘½Ý¸¤°(€€€€€€€€€€€€ ‰ÑÕÉ¹½Ù•É}Ñ½Ñ…°ˆ°Í•±˜¹ÑÕÉ¹½Ù•É}Ñ½Ñ…°¤°(€€€€€€€€€€€€ ‰Ñ½Ñ…±}½ÍÐˆ°Í•±˜¹Ñ½Ñ…±}½ÍÐ¤°(€€€€€€€€€€€€ ‰™Õ¹‘¥¹}Á¹°ˆ°Í•±˜¹™Õ¹‘¥¹}Á¹°¤°(€€€€€€€€€€€€ ‰‰½ÉÉ½Ý}½ÍÐˆ°Í•±˜¹‰½ÉÉ½Ý}½ÍÐ¤°(€€€€€€€€€€€€ ‰µ…É¥¹}ÕÍ•ˆ°Í•±˜¹µ…É¥¹}ÕÍ•¤°(€€€€€€€€€€€€ ‰µ…¥¹Ñ•¹…¹•}µ…É¥¸ˆ°Í•±˜¹µ…¥¹Ñ•¹…¹•}µ…É¥¸¤°(€€€€€€€€€€€€ ‰µ…¥¹Ñ•¹…¹•}É•ÅÕ¥É•µ•¹Ðˆ°Í•±˜¹µ…¥¹Ñ•¹…¹•}É•ÅÕ¥É•µ•¹Ð¤°(€€€€€€€€€€€€ ‰µ…É¥¹}‘•™¥¥Ðˆ°Í•±˜¹µ…É¥¹}‘•™¥¥Ð¤°(€€€€€€€€¤è(€€€€€€€€€€€¥˜¹½Ð¹À¹¥Í™¥¹¥Ñ”¡Ù…±Õ”¤è(€€€€€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰í™¥•±‘}¹…µ•ôµÕÍÐ‰”™¥¹¥Ñ”ˆ¤(€€€€€€€¥˜Í•±˜¹Á•…­}Ù…±Õ”€ðô€À¸Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰Á•…­}Ù…±Õ”µÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€¥˜Í•±˜¹™¥±±}½Õ¹Ð€ð€À½ÈÍ•±˜¹É•‰…±…¹•}•Ù•¹ÑÌ€ð€Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰•á•ÕÑ¥½¸½Õ¹Ñ•ÉÌµÕÍÐ‰”¹½¸µ¹•…Ñ¥Ù”ˆ¤(€€€€€€€¥˜€ (€€€€€€€€€€€Í•±˜¹‰½ÉÉ½Ý}½ÍÐ€ð€À¸À(€€€€€€€€€€€½ÈÍ•±˜¹µ…É¥¹}ÕÍ•€ð€À¸À(€€€€€€€€€€€½ÈÍ•±˜¹µ…¥¹Ñ•¹…¹•}É•ÅÕ¥É•µ•¹Ð€ð€À¸À(€€€€€€€€€€€½ÈÍ•±˜¹µ…É¥¹}‘•™¥¥Ð€ð€À¸À(€€€€€€€€¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È (€€€€€€€€€€€€€€€€‰‰½ÉÉ½Ý}½ÍÐ°µ…É¥¹}ÕÍ•…¹µ…¥¹Ñ•¹…¹•}É•ÅÕ¥É•µ•¹ÐµÕÍÐ‰”¹½¸µ¹•…Ñ¥Ù”ˆ(€€€€€€€€€€€€¤(€€€€€€€¥˜¹½Ð€À¸À€ðôÍ•±˜¹µ…¥¹Ñ•¹…¹•}µ…É¥¸€ðô€Ä¸Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰µ…¥¹Ñ•¹…¹•}µ…É¥¸µÕÍÐ‰”Ý¥Ñ¡¥¸lÀ°€Åtˆ¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡Í•±˜¹¥¹Í½±Ù•¹Ð°‰½½°¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰¥¹Í½±Ù•¹ÐµÕÍÐ‰”„‰½½±•…¸ˆ¤(€€€€€€€É•…Í½¸€ôÍ•±˜¹Ñ•Éµ¥¹…Ñ¥½¹}É•…Í½¸(€€€€€€€¥˜É•…Í½¸¥Ì¹½Ð9½¹”è(€€€€€€€€€€€ÑÉäè(€€€€€€€€€€€€€€€É•…Í½¸€ô½¹½µ¥Q•Éµ¥¹…Ñ¥½¹I•…Í½¸¡É•…Í½¸¤(€€€€€€€€€€€•á•ÁÐY…±Õ•ÉÉ½È…Ì•ÉÉ½Èè(€€€€€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰Ñ•Éµ¥¹…Ñ¥½¹}É•…Í½¸¥Ì¹½ÐÍÕÁÁ½ÉÑ•ˆ¤™É½´•ÉÉ½È(€€€€€€€½‰©•Ð¹}}Í•Ñ…ÑÑÉ}|¡Í•±˜°€‰ÅÕ…¹Ñ¥Ñ¥•Ìˆ°ÅÕ…¹Ñ¥Ñ¥•Ì¤(€€€€€€€½‰©•Ð¹}}Í•Ñ…ÑÑÉ}|¡Í•±˜°€‰µ…É­}ÁÉ¥•Ìˆ°µ…É­Ì¤(€€€€€€€½‰©•Ð¹}}Í•Ñ…ÑÑÉ}|¡Í•±˜°€‰½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌˆ°µÕ±Ñ¥Á±¥•ÉÌ¤(€€€€€€€½‰©•Ð¹}}Í•Ñ…ÑÑÉ}|¡Í•±˜°€‰Ñ•Éµ¥¹…Ñ¥½¹}É•…Í½¸ˆ°É•…Í½¸¤(€€€€€€€•á…Ð€ôÍ•±˜¹}•á…Ñ}ÅÕ…¹Ñ¥Ñ¥•Ì(€€€€€€€¥˜•á…Ð¥Ì9½¹”è(€€€€€€€€€€€Í•±˜¹}•á…Ñ}ÅÕ…¹Ñ¥Ñ¥•Ì€ôÑÕÁ±” (€€€€€€€€€€€€€€€ÍÑÈ¡•á…Ñ}ÅÕ…¹Ñ¥Ñä¡™±½…Ð¡Ä¤¤¤™½ÈÄ¥¸ÅÕ…¹Ñ¥Ñ¥•Ì(€€€€€€€€€€€€¤(€€€€€€€•±¥˜±•¸¡•á…Ð¤€„ô±•¸¡ÅÕ…¹Ñ¥Ñ¥•Ì¤½È…¹ä (€€€€€€€€€€€ÁÉ½©•Ñ}ÅÕ…¹Ñ¥Ñä¡Á…ÉÍ•}ÅÕ…¹Ñ¥Ñä¡Ù…±Õ”¤¤€„ôÅÕ…¹Ñ¥Ñä(€€€€€€€€€€€™½ÈÙ…±Õ”°ÅÕ…¹Ñ¥Ñä¥¸é¥À¡•á…Ð°ÅÕ…¹Ñ¥Ñ¥•Ì°ÍÑÉ¥ÐõQÉÕ”¤(€€€€€€€€¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰•á…ÐÅÕ…¹Ñ¥ÑäÍÑ…Ñ”‘¥™™•ÉÌ™É½´¥ÑÌÉ•Á½ÉÑ¥¹œÙ¥•Üˆ¤(€€€€€€€Í•±˜¹}É•™É•Í¡}•½¹½µ¥}ÍÑ…Ñ” ¤(€€€€€€€Á½ÉÑ™½±¥½}Ù…±Õ”€ôÍ•±˜¹Á½ÉÑ™½±¥½}Ù…±Õ”(€€€€€€€½µÁ…É¥Í½¹}Ñ½±•É…¹”€ôµ…à (€€€€€€€€€€€}Q=1I9°(€€€€€€€€€€€…‰Ì¡Á½ÉÑ™½±¥½}Ù…±Õ”¤€¨€Å”´ÄÈ°(€€€€€€€€€€€…‰Ì¡Í•±˜¹Á•…­}Ù…±Õ”¤€¨€Å”´ÄÈ°(€€€€€€€€¤(€€€€€€€¥˜€ (€€€€€€€€€€€¹½ÐÍ•±˜¹¥¹Í½±Ù•¹Ð(€€€€€€€€€€€…¹Í•±˜¹Á•…­}Ù…±Õ”€¬½µÁ…É¥Í½¹}Ñ½±•É…¹”€ðÁ½ÉÑ™½±¥½}Ù…±Õ”(€€€€€€€€¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰Á•…­}Ù…±Õ”…¹¹½Ð‰”‰•±½ÜÁ½ÉÑ™½±¥½}Ù…±Õ”ˆ¤((€€€±…ÍÍµ•Ñ¡½(€€€‘•˜é•É¼ (€€€€€€€±Ì°(€€€€€€€¹}Íåµ‰½±Ìè¥¹Ð°(€€€€€€€¥¹¥Ñ¥…±}…Á¥Ñ…°è™±½…Ð°(€€€€€€€¥¹¥Ñ¥…±}ÁÉ¥•Ìè¹À¹¹‘…ÉÉ…äð9½¹”€ô9½¹”°(€€€€€€€½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌè¹À¹¹‘…ÉÉ…äð9½¹”€ô9½¹”°(€€€€¤€´ø	½½­MÑ…Ñ”è(€€€€€€€¥˜¹}Íåµ‰½±Ì€ðô€Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰¹}Íåµ‰½±ÌµÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€¥˜¹½Ð¹À¹¥Í™¥¹¥Ñ”¡¥¹¥Ñ¥…±}…Á¥Ñ…°¤½È¥¹¥Ñ¥…±}…Á¥Ñ…°€ðô€À¸Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰¥¹¥Ñ¥…±}…Á¥Ñ…°µÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€ÁÉ¥•Ì€ô€ (€€€€€€€€€€€¹À¹½¹•Ì¡¹}Íåµ‰½±Ì°‘ÑåÁ”õ¹À¹™±½…ÐØÐ¤(€€€€€€€€€€€¥˜¥¹¥Ñ¥…±}ÁÉ¥•Ì¥Ì9½¹”(€€€€€€€€€€€•±Í”}™¥¹¥Ñ•}Ù•Ñ½È¡¥¹¥Ñ¥…±}ÁÉ¥•Ì°™¥•±‘}¹…µ”ô‰¥¹¥Ñ¥…±}ÁÉ¥•Ìˆ¤(€€€€€€€€¤(€€€€€€€¥˜ÁÉ¥•Ì¹Í¡…Á”€„ô€¡¹}Íåµ‰½±Ì°¤½È¹À¹…¹ä¡ÁÉ¥•Ì€ðô€À¸À¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰¥¹¥Ñ¥…±}ÁÉ¥•ÌµÕÍÐµ…Ñ Íåµ‰½±Ì…¹‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€É•ÑÕÉ¸±Ì (€€€€€€€€€€€ÅÕ…¹Ñ¥Ñ¥•Ìõ¹À¹é•É½Ì¡¹}Íåµ‰½±Ì°‘ÑåÁ”õ¹À¹™±½…ÐØÐ¤°(€€€€€€€€€€€…Í õ™±½…Ð¡¥¹¥Ñ¥…±}…Á¥Ñ…°¤°(€€€€€€€€€€€µ…É­}ÁÉ¥•ÌõÁÉ¥•Ì°(€€€€€€€€€€€Á•…­}Ù…±Õ”õ™±½…Ð¡¥¹¥Ñ¥…±}…Á¥Ñ…°¤°(€€€€€€€€€€€½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌõ½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌ°(€€€€€€€€¤((€€€±…ÍÍµ•Ñ¡½(€€€‘•˜™É½µ}Ý•¥¡ÑÌ (€€€€€€€±Ì°(€€€€€€€€¨°(€€€€€€€Ý•¥¡ÑÌè¹À¹¹‘…ÉÉ…ä°(€€€€€€€…Á¥Ñ…°è™±½…Ð°(€€€€€€€ÁÉ¥•Ìè¹À¹¹‘…ÉÉ…ä°(€€€€€€€Á•…­}Ù…±Õ”è™±½…Ðð9½¹”€ô9½¹”°(€€€€€€€µ…á}É½ÍÌè™±½…Ð€ô€Ä¸À°(€€€€€€€½¹ÑÉ…Ñ}µÕ±Ñ¥Á±¥•ÉÌè¹À¹¹‘…ÉÉ…äð9½¹”€ô9½¹”°(€€€€¤€´ø	½½­MÑ…Ñ”è(€€€€€€€Ý•¥¡Ñ}Ù•Ñ½È€ô}™¥¹¥Ñ•}Ù•Ñ½È¡Ý•¥¡ÑÌ°™¥•±‘}¹…µ”ô‰Ý•¥¡ÑÌˆ¤(€€€€€€€ÁÉ¥•}Ù•Ñ½È€ô}™¥¹¥Ñ•}Ù•Ñ½È¡ÁÉ¥•Ì°™¥•±‘}¹…µ”ô‰ÁÉ¥•Ìˆ¤(€€€€€€€¥˜Ý•¥¡Ñ}Ù•Ñ½È¹Í¡…Á”€„ôÁÉ¥•}Ù•Ñ½È¹Í¡…Á”½È¹À¹…¹ä¡ÁÉ¥•}Ù•Ñ½È€ðô€À¸À¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰Ý•¥¡ÑÌ…¹ÁÉ¥•ÌµÕÍÐ¡…Ù”¥‘•¹Ñ¥…°Ù…±¥Í¡…Á•Ìˆ¤(€€€€€€€¥˜¹½Ð¹À¹¥Í™¥¹¥Ñ”¡…Á¥Ñ…°¤½È…Á¥Ñ…°€ðô€À¸Àè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È ‰}ýÞÚ$z{-®éÜj×FW&Ö–æF–öå&V6öâ‡&V6öâ¢6VÆbæ–ç6öÇfVçBÒG'VP¢6VÆbçFW&Ö–æF–öå÷&V6öâÒ&W6öÇfV@ ¢FVb&WfÇVR‡6VÆbÂÖ&µ÷&–6W3¢çææF'&’’ÓâæöæS ¢Ö&·2Òöf–æ—FU÷fV7F÷"†Ö&µ÷&–6W2Âf–VÆEöæÖSÒ&Ö&µ÷&–6W2"¢–bÖ&·2ç6†RÒ6VÆbçVçF—F–W2ç6†R÷"çæç’†Ö&·2ÃÒã“ ¢&—6RfÇVTW'&÷"‚&Ö&µ÷&–6W2×W7BÖF6‚F†R&öö²æB&R÷6—F—fR"¢6VÆbæÖ&µ÷&–6W2ÒÖ&·0¢6VÆbå÷&Vg&W6…öV6öæöÖ–5÷7FFR‚ ¢FVbW†V7WFR€¢6VÆbÀ¢¢À¢f–ÆÅ÷&–6W3¢çææF'&’À¢F&vWE÷VçF—F–W3¢çææF'&’À¢6÷7EöÖ÷VçC¢fÆöBÀ¢GW&æ÷fW#¢fÆöBÀ¢’ÓâæöæS ¢F&vWG2Òöf–æ—FU÷fV7F÷"‡F&vWE÷VçF—F–W2Âf–VÆEöæÖSÒ'F&vWE÷VçF—F–W2"¢–bF&vWG2ç6†RÒ6VÆbçVçF—F–W2ç6†S ¢&—6RfÇVTW'&÷"‚&W†V7WF–öâfV7F÷'2×W7BÖF6‚F†R&öö²"¢W†7E÷F&vWG2ÒGWÆR†W†7E÷VçF—G’†fÆöB‡fÇVR’’f÷"fÇVR–âF&vWG2¢FVÇFÒGWÆR€¢F&vWBÒ&Wf–÷W0¢f÷"F&vWBÂ&Wf–÷W2–â¦—€¢W†7E÷F&vWG2Â6VÆbå÷VçF—G•÷fÇVW2‚’Â7G&–7CÕG'VP¢¢¢6VÆbå÷&V6÷&EöW†V7WF–öâ€¢f–ÆÅ÷&–6W3Öf–ÆÅ÷&–6W2À¢W†7E÷F&vWG3ÖW†7E÷F&vWG2À¢FVÇFÖFVÇFÀ¢6÷7EöÖ÷VçCÖ6÷7EöÖ÷VçBÀ¢GW&æ÷fW#×GW&æ÷fW"À¢ ¢FVbW†V7WFUöf–ÆÂ€¢6VÆbÀ¢¢À¢7–Ö&öÅö–æFWƒ¢–çBÀ¢VçF—G“¢fÆöBÀ¢f–ÆÅ÷&–6W3¢çææF'&’À¢6÷7EöÖ÷VçC¢fÆöBÀ¢GW&æ÷fW#¢fÆöBÀ¢Æ÷E÷6—¦S¢fÆöBÒãÀ¢Æ÷Eö6÷VçC¢–çBÂæöæRÒæöæRÀ¢fÇVF–öå÷&–6W3¢çææF'&’ÂæöæRÒæöæRÀ¢’ÓâæöæS ¢–b€¢—6–ç7Fæ6R‡7–Ö&öÅö–æFW‚Â&ööÂ¢÷"æ÷B—6–ç7Fæ6R‡7–Ö&öÅö–æFW‚Â–çB¢÷"æ÷BÃÒ7–Ö&öÅö–æFW‚ÂÆVâ‡6VÆbçVçF—F–W2¢“ ¢&—6RfÇVTW'&÷"‚&f–ÆÂ7–Ö&öÂ–æFW‚—2÷WG6–FRF†R&öö²"¢66WFVBÒ66WFVEöf–ÆÅ÷VçF—G’€¢VçF—G’ÂÆ÷E÷6—¦SÖÆ÷E÷6—¦RÂÆ÷Eö6÷VçCÖÆ÷Eö6÷Vç@¢¢fÇVW2ÒÆ—7B‡6VÆbå÷VçF—G•÷fÇVW2‚’¢fÇVW5·7–Ö&öÅö–æFW…Ò³Ò66WFV@¢FVÇFÒ´g&7F–öâƒ’f÷"ò–â6VÆbçVçF—F–W5Ð¢FVÇF·7–Ö&öÅö–æFW…ÒÒ66WFV@¢6VÆbå÷&V6÷&EöW†V7WF–öâ€¢f–ÆÅ÷&–6W3Öf–ÆÅ÷&–6W2À¢W†7E÷F&vWG3×GWÆR‡fÇVW2’À¢FVÇF×GWÆR†FVÇF’À¢6÷7EöÖ÷VçCÖ6÷7EöÖ÷VçBÀ¢GW&æ÷fW#×GW&æ÷fW"À¢fÇVF–öå÷&–6W3×fÇVF–öå÷&–6W2À¢ ¢FVb÷&V6÷&EöW†V7WF–öâ€¢6VÆbÀ¢¢À¢f–ÆÅ÷&–6W3¢çææF'&’À¢W†7E÷F&vWG3¢GWÆU´g&7F–öâÂââåÒÀ¢FVÇF¢GWÆU´g&7F–öâÂââåÒÀ¢6÷7EöÖ÷VçC¢fÆöBÀ¢GW&æ÷fW#¢fÆöBÀ¢fÇVF–öå÷&–6W3¢çææF'&’ÂæöæRÒæöæRÀ¢’ÓâæöæS ¢&–6W2Òöf–æ—FU÷fV7F÷"†f–ÆÅ÷&–6W2Âf–VÆEöæÖSÒ&f–ÆÅ÷&–6W2"¢F&vWG2Òçæ'&’…·&ö¦V7E÷VçF—G’‡fÇVR’f÷"fÇVR–âW†7E÷F&vWG5Ò¢–b€¢&–6W2ç6†RÒ6VÆbçVçF—F–W2ç6†P¢÷"F&vWG2ç6†RÒ6VÆbçVçF—F–W2ç6†P¢“ ¢&—6RfÇVTW'&÷"‚&W†V7WF–öâfV7F÷'2×W7BÖF6‚F†R&öö²"¢–bçæç’‡&–6W2ÃÒã“ ¢&—6RfÇVTW'&÷"‚&f–ÆÅ÷&–6W2×W7B&R7G&–7FÇ’÷6—F—fR"¢Ö&·2Ò€¢&–6W0¢–bfÇVF–öå÷&–6W2—2æöæP¢VÇ6Röf–æ—FU÷fV7F÷"‡fÇVF–öå÷&–6W2Âf–VÆEöæÖSÒ'fÇVF–öå÷&–6W2"¢¢–bÖ&·2ç6†RÒ&–6W2ç6†R÷"çæç’†Ö&·2ÃÒã“ ¢&—6RfÇVTW'&÷"‚'fÇVF–öå÷&–6W2×W7BÖF6‚F†R&öö²æB&R÷6—F—fR"¢–bæ÷Bçæ—6f–æ—FR†6÷7EöÖ÷VçB’÷"6÷7EöÖ÷VçBÂã ¢&—6RfÇVTW'&÷"‚&6÷7EöÖ÷VçB×W7B&Rf–æ—FRæBæöâÖæVvF—fR"¢–bæ÷Bçæ—6f–æ—FR‡GW&æ÷fW"’÷"GW&æ÷fW"Âã ¢&—6RfÇVTW'&÷"‚'GW&æ÷fW"×W7B&Rf–æ—FRæBæöâÖæVvF—fR" ¢f–ÆÆVBÒçæ'&’…¶'2‡fÇVR’âW†7E÷VçF—G’…õDôÄU$ä4R’f÷"fÇVR–âFVÇFÒ¢fÇVUö&Vf÷&RÒ6VÆbç÷'FföÆ–õ÷fÇVP¢×VÇF—Æ–W'2Ò6VÆbæ6öçG&7Eö×VÇF—Æ–W'0¢76W'B×VÇF—Æ–W'2—2æ÷BæöæP¢6–væVEöæ÷F–öæÂÒÖF‚æg7VÒ€¢&ö¦V7E÷VçF—G’‡VçF—G’’¢fÆöB‡&–6R’¢fÆöB†×VÇF—Æ–W"¢f÷"VçF—G’Â&–6RÂ×VÇF—Æ–W"–â¦—€¢FVÇFÂ&–6W2Â×VÇF—Æ–W'2Â7G&–7CÕG'VP¢¢¢66…ögFW"Ò6VÆbæ66‚Ò‡6–væVEöæ÷F–öæÂ²fÆöB†6÷7EöÖ÷VçB’¢GW&æ÷fW%ögFW"Ò6VÆbçGW&æ÷fW%÷F÷FÂ²fÆöB‡GW&æ÷fW"¢6÷7EögFW"Ò6VÆbçF÷FÅö6÷7B²fÆöB†6÷7EöÖ÷VçB¢v—F‚çæW''7FFR†÷fW#Ò&–væ÷&R"Â–çfÆ–CÒ&–væ÷&R"“ ¢WV—G•ögFW"ÒfÆöB†66…ögFW"²‡F&vWG2¢Ö&·2¢×VÇF—Æ–W'2’ç7VÒ‚’¢–bæ÷BÆÂ€¢ÖF‚æ—6f–æ—FR‡fÇVR¢f÷"fÇVR–â†66…ögFW"ÂGW&æ÷fW%ögFW"Â6÷7EögFW"ÂWV—G•ögFW"¢“ ¢&—6RfÇVTW'&÷"‚'&÷÷6VBW†V7WF–öâ×W7B&W6W'fRf–æ—FR66÷VçBfÇVW2"¢6VÆbæ66‚Ò66…ögFW ¢6VÆbçVçF—F–W2ÒF&vWG0¢6VÆbåöW†7E÷VçF—F–W2ÒGWÆR‡7G"‡fÇVR’f÷"fÇVR–âW†7E÷F&vWG2¢6VÆbæÖ&µ÷&–6W2ÒÖ&·0¢6VÆbçGW&æ÷fW%÷F÷FÂÒGW&æ÷fW%ögFW ¢6VÆbçF÷FÅö6÷7BÒ6÷7EögFW ¢f–ÆÅö6÷VçBÒ–çB†çæ6÷VçEöæöç¦W&ò†f–ÆÆVB’¢6VÆbæf–ÆÅö6÷VçB³Òf–ÆÅö6÷Vç@¢–bf–ÆÅö6÷VçC ¢6VÆbç&V&Ææ6UöWfVçG2³Ò¢–b6÷7EöÖ÷VçBãÒÖ‚‡fÇVUö&Vf÷&RÂã’ÒõDôÄU$ä4S ¢6VÆbçFW&Ö–æFR„V6öæöÖ–5FW&Ö–æF–öå&V6öâäU„T5UD”ôåô4õ5EôU„„U5D”ôâ¢6VÆbå÷&Vg&W6…öV6öæöÖ–5÷7FFR‚¢6VÆbå÷WFFUöG&vF÷vâ‚ ¢FVb6†&vUö&÷'&÷r‡6VÆbÂÖ÷VçC¢fÆöB’ÓâæöæS ¢–bæ÷Bçæ—6f–æ—FR†Ö÷VçB’÷"Ö÷VçBÂã ¢&—6RfÇVTW'&÷"‚&&÷'&÷rÖ÷VçB×W7B&Rf–æ—FRæBæöâÖæVvF—fR"¢6VÆbæ66‚ÓÒfÆöB†Ö÷VçB¢6VÆbæ&÷'&÷uö6÷7B³ÒfÆöB†Ö÷VçB¢6VÆbå÷&Vg&W6…öV6öæöÖ–5÷7FFR‚ ¢FVbÖ&µ÷FõöÖ&¶WB€¢6VÆbÀ¢¢À¢Ö&µ÷&–6W3¢çææF'&’À¢gVæF–æuöÖ÷VçC¢fÆöBÀ¢W&–öE÷7F'E÷fÇVS¢fÆöBÂæöæRÒæöæRÀ¢’ÓâfÆöC ¢–bæ÷Bçæ—6f–æ—FR†gVæF–æuöÖ÷VçB“ ¢&—6RfÇVTW'&÷"‚&gVæF–æuöÖ÷VçB×W7B&Rf–æ—FR"¢7F'F–æu÷fÇVRÒ€¢6VÆbç÷'FföÆ–õ÷fÇVP¢–bW&–öE÷7F'E÷fÇVR—2æöæP¢VÇ6RfÆöB‡W&–öE÷7F'E÷fÇVR¢¢–bæ÷Bçæ—6f–æ—FR‡7F'F–æu÷fÇVR’÷"7F'F–æu÷fÇVRÃÒã ¢&—6RfÇVTW'&÷"‚'W&–öE÷7F'E÷fÇVR×W7B&Rf–æ—FRæB÷6—F—fR" ¢6VÆbæ66‚³ÒfÆöB†gVæF–æuöÖ÷VçB¢6VÆbç&WfÇVR†Ö&µ÷&–6W2¢fÇVRÒ6VÆbç÷'FföÆ–õ÷fÇVP¢–bæ÷Bçæ—6f–æ—FR‡fÇVR“ ¢&—6RfÇVTW'&÷"‚&&6RÖ&"÷'FföÆ–òfÇVR&V6ÖRæöâÖf–æ—FR"¢æWE÷&WGW&âÒÖ‚‡fÇVRò7F'F–æu÷fÇVRÒãÂÓã²RÓ"¢6VÆbå÷WFFUöG&vF÷vâ‚¢6VÆbægVæF–æu÷æÂ³ÒfÆöB†gVæF–æuöÖ÷VçB¢6VÆbç&WGW&ç5ö†—7F÷'’æVæB†fÆöB†æWE÷&WGW&â’¢&WGW&âfÆöB†æWE÷&WGW&â ¢FVb&Vg&W6…öG&vF÷vâ‡6VÆb’ÓâæöæS ¢""%&Vg&W6‚V²æBG&vF÷vâgFW"6W6ÂÖ&²6†ævRâ""  ¢6VÆbå÷WFFUöG&vF÷vâ‚ ¢FVb÷WFFUöG&vF÷vâ‡6VÆb’ÓâæöæS ¢fÇVRÒÖ‚‡6VÆbç÷'FföÆ–õ÷fÇVRÂã¢6VÆbçVµ÷fÇVRÒÖ‚‡6VÆbçVµ÷fÇVRÂfÇVR¢6VÆbæÖ…öG&vF÷vâÒÖ‚€¢6VÆbæÖ…öG&vF÷vâÀ¢ãÒfÇVRòÖ‚‡6VÆbçVµ÷fÇVRÂôÔ”åôUT•E’’À¢ ¢FVb÷&Vg&W6…öV6öæöÖ–5÷7FFR‡6VÆb’ÓâæöæS ¢fÇVRÒ6VÆbç÷'FföÆ–õ÷fÇVP¢–bæ÷Bçæ—6f–æ—FR‡fÇVR“ ¢&—6RfÇVTW'&÷"‚'÷'FföÆ–òfÇVR&V6ÖRæöâÖf–æ—FR"¢–bfÇVRÃÒãæBæ÷B6VÆbæ–ç6öÇfVçC ¢6VÆbçFW&Ö–æFR„V6öæöÖ–5FW&Ö–æF–öå&V6öâä”å4ôÅdTä5’
+"""Self-financing portfolio book state and base-bar accounting."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from enum import Enum
+from fractions import Fraction
+
+import numpy as np
+
+from trade_rl.simulation.quantities import (
+    accepted_fill_quantity,
+    exact_quantity,
+    parse_quantity,
+    project_quantity,
+)
+
+_TOLERANCE = 1e-12
+_MIN_EQUITY: float = float(np.finfo(np.float64).tiny)
+
+
+class EconomicTerminationReason(str, Enum):
+    """Economic outcomes that terminate an episode without a code error."""
+
+    MINIMUM_EQUITY = "minimum_equity"
+    EXECUTION_COST_EXHAUSTION = "execution_cost_exhaustion"
+    MARGIN_CALL = "margin_call"
+    LIQUIDATION = "liquidation"
+    DRAWDOWN_STOP = "drawdown_stop"
+    INSOLVENCY = "insolvency"
+
+
+def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+    if vector.size == 0 or not np.isfinite(vector).all():
+        raise ValueError(f"{field_name} must be a non-empty finite vector")
+    return vector
+
+
+@dataclass(slots=True)
+class BookState:
+    """Mutable signed-quantity account isolated from policy and workflow logic."""
+
+    quantities: np.ndarray
+    cash: float
+    mark_prices: np.ndarray
+    peak_value: float
+    contract_multipliers: np.ndarray | None = None
+    max_drawdown: float = 0.0
+    turnover_total: float = 0.0
+    total_cost: float = 0.0
+    funding_pnl: float = 0.0
+    fill_count: int = 0
+    rebalance_events: int = 0
+    returns_history: list[float] = field(default_factory=list)
+    borrow_cost: float = 0.0
+    margin_used: float = 0.0
+    maintenance_margin: float = 0.0
+    maintenance_requirement: float = 0.0
+    margin_deficit: float = 0.0
+    insolvent: bool = False
+    termination_reason: EconomicTerminationReason | str | None = None
+    _exact_quantities: tuple[str, ...] | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        quantities = _finite_vector(self.quantities, field_name="quantities")
+        marks = _finite_vector(self.mark_prices, field_name="mark_prices")
+        if quantities.shape != marks.shape:
+            raise ValueError("quantities and mark_prices must have identical shapes")
+        multipliers = (
+            np.ones_like(quantities)
+            if self.contract_multipliers is None
+            else _finite_vector(
+                self.contract_multipliers,
+                field_name="contract_multipliers",
+            )
+        )
+        if multipliers.shape != quantities.shape or np.any(multipliers <= 0.0):
+            raise ValueError(
+                "contract_multipliers must match quantities and be positive"
+            )
+        if np.any(marks <= 0.0):
+            raise ValueError("mark_prices must be strictly positive")
+        for field_name, value in (
+            ("cash", self.cash),
+            ("peak_value", self.peak_value),
+            ("max_drawdown", self.max_drawdown),
+            ("turnover_total", self.turnover_total),
+            ("total_cost", self.total_cost),
+            ("funding_pnl", self.funding_pnl),
+            ("borrow_cost", self.borrow_cost),
+            ("margin_used", self.margin_used),
+            ("maintenance_margin", self.maintenance_margin),
+            ("maintenance_requirement", self.maintenance_requirement),
+            ("margin_deficit", self.margin_deficit),
+        ):
+            if not np.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if self.peak_value <= 0.0:
+            raise ValueError("peak_value must be positive")
+        if self.fill_count < 0 or self.rebalance_events < 0:
+            raise ValueError("execution counters must be non-negative")
+        if (
+            self.borrow_cost < 0.0
+            or self.margin_used < 0.0
+            or self.maintenance_requirement < 0.0
+            or self.margin_deficit < 0.0
+        ):
+            raise ValueError(
+                "borrow_cost, margin_used and maintenance_requirement must be non-negative"
+            )
+        if not 0.0 <= self.maintenance_margin <= 1.0:
+            raise ValueError("maintenance_margin must be within [0, 1]")
+        if not isinstance(self.insolvent, bool):
+            raise ValueError("insolvent must be a boolean")
+        reason = self.termination_reason
+        if reason is not None:
+            try:
+                reason = EconomicTerminationReason(reason)
+            except ValueError as error:
+                raise ValueError("termination_reason is not supported") from error
+        object.__setattr__(self, "quantities", quantities)
+        object.__setattr__(self, "mark_prices", marks)
+        object.__setattr__(self, "contract_multipliers", multipliers)
+        object.__setattr__(self, "termination_reason", reason)
+        exact = self._exact_quantities
+        if exact is None:
+            self._exact_quantities = tuple(
+                str(exact_quantity(float(q))) for q in quantities
+            )
+        elif len(exact) != len(quantities) or any(
+            project_quantity(parse_quantity(value)) != quantity
+            for value, quantity in zip(exact, quantities, strict=True)
+        ):
+            raise ValueError("exact quantity state differs from its reporting view")
+        self._refresh_economic_state()
+        portfolio_value = self.portfolio_value
+        comparison_tolerance = max(
+            _TOLERANCE,
+            abs(portfolio_value) * 1e-12,
+            abs(self.peak_value) * 1e-12,
+        )
+        if (
+            not self.insolvent
+            and self.peak_value + comparison_tolerance < portfolio_value
+        ):
+            raise ValueError("peak_value cannot be below portfolio_value")
+
+    @classmethod
+    def zero(
+        cls,
+        n_symbols: int,
+        initial_capital: float,
+        initial_prices: np.ndarray | None = None,
+        contract_multipliers: np.ndarray | None = None,
+    ) -> BookState:
+        if n_symbols <= 0:
+            raise ValueError("n_symbols must be positive")
+        if not np.isfinite(initial_capital) or initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
+        prices = (
+            np.ones(n_symbols, dtype=np.float64)
+            if initial_prices is None
+            else _finite_vector(initial_prices, field_name="initial_prices")
+        )
+        if prices.shape != (n_symbols,) or np.any(prices <= 0.0):
+            raise ValueError("initial_prices must match symbols and be positive")
+        return cls(
+            quantities=np.zeros(n_symbols, dtype=np.float64),
+            cash=float(initial_capital),
+            mark_prices=prices,
+            peak_value=float(initial_capital),
+            contract_multipliers=contract_multipliers,
+        )
+
+    @classmethod
+    def from_weights(
+        cls,
+        *,
+        weights: np.ndarray,
+        capital: float,
+        prices: np.ndarray,
+        peak_value: float | None = None,
+        max_gross: float = 1.0,
+        contract_multipliers: np.ndarray | None = None,
+    ) -> BookState:
+        weight_vector = _finite_vector(weights, field_name="weights")
+        price_vector = _finite_vector(prices, field_name="prices")
+        if weight_vector.shape != price_vector.shape or np.any(price_vector <= 0.0):
+            raise ValueError("weights and prices must have identical valid shapes")
+        if not np.isfinite(capital) or capital <= 0.0:
+            raise ValueError("capital must be finite and positive")
+        if not np.isfinite(max_gross) or max_gross <= 0.0:
+            raise ValueError("max_gross must be finite and positive")
+        multiplier_vector = (
+            np.ones_like(price_vector)
+            if contract_multipliers is None
+            else _finite_vector(
+                contract_multipliers,
+                field_name="contract_multipliers",
+            )
+        )
+        if multiplier_vector.shape != price_vector.shape or np.any(
+            multiplier_vector <= 0.0
+        ):
+            raise ValueError("contract_multipliers must match prices and be positive")
+        gross = float(np.abs(weight_vector).sum())
+        if gross > max_gross + _TOLERANCE:
+            raise ValueError("initial gross exposure exceeds max_gross")
+        quantities = weight_vector * capital / (price_vector * multiplier_vector)
+        cash = capital - float(np.sum(quantities * price_vector * multiplier_vector))
+        resolved_peak = capital if peak_value is None else float(peak_value)
+        if resolved_peak < capital:
+            raise ValueError("peak_value cannot be below capital")
+        return cls(
+            quantities=quantities,
+            cash=cash,
+            mark_prices=price_vector,
+            peak_value=resolved_peak,
+            contract_multipliers=multiplier_vector,
+        )
+
+    @property
+    def position_values(self) -> np.ndarray:
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        return self.quantities * self.mark_prices * multipliers
+
+    @property
+    def portfolio_value(self) -> float:
+        return float(self.cash + self.position_values.sum())
+
+    @property
+    def effective_portfolio_value(self) -> float:
+        return max(self.portfolio_value, _MIN_EQUITY)
+
+    @property
+    def weights(self) -> np.ndarray:
+        value = self.portfolio_value
+        if value <= 0.0 or not np.isfinite(value):
+            return np.zeros_like(self.quantities)
+        return self.position_values / value
+
+    @property
+    def cash_weight(self) -> float:
+        value = self.portfolio_value
+        return 0.0 if value <= 0.0 else float(self.cash / value)
+
+    @property
+    def gross_exposure(self) -> float:
+        return float(np.abs(self.weights).sum())
+
+    @property
+    def net_exposure(self) -> float:
+        return float(self.weights.sum())
+
+    @property
+    def margin_utilization(self) -> float:
+        value = self.portfolio_value
+        if value <= 0.0:
+            return 1.0
+        return float(self.margin_used / value)
+
+    @property
+    def n_trades(self) -> int:
+        return self.fill_count
+
+    @property
+    def exact_quantities(self) -> tuple[Fraction, ...]:
+        """Read accepted quantity evidence without a reporting-float round trip."""
+        return self._quantity_values()
+
+    def clone(self) -> BookState:
+        self._quantity_values()
+        return BookState(
+            quantities=self.quantities,
+            cash=self.cash,
+            mark_prices=self.mark_prices,
+            peak_value=self.peak_value,
+            contract_multipliers=np.asarray(self.contract_multipliers),
+            max_drawdown=self.max_drawdown,
+            turnover_total=self.turnover_total,
+            total_cost=self.total_cost,
+            funding_pnl=self.funding_pnl,
+            fill_count=self.fill_count,
+            rebalance_events=self.rebalance_events,
+            returns_history=list(self.returns_history),
+            borrow_cost=self.borrow_cost,
+            margin_used=self.margin_used,
+            maintenance_margin=self.maintenance_margin,
+            maintenance_requirement=self.maintenance_requirement,
+            margin_deficit=self.margin_deficit,
+            insolvent=self.insolvent,
+            termination_reason=self.termination_reason,
+            _exact_quantities=self._exact_quantities,
+        )
+
+    def _quantity_values(self) -> tuple[Fraction, ...]:
+        assert self._exact_quantities is not None
+        previous = tuple(parse_quantity(value) for value in self._exact_quantities)
+        # Public mutable quantities remain an explicit replacement boundary.
+        # Rebase only visibly replaced coordinates, never infer lot alignment.
+        values = tuple(
+            exact
+            if project_quantity(exact) == current
+            else exact_quantity(float(current))
+            for exact, current in zip(previous, self.quantities, strict=True)
+        )
+        self._exact_quantities = tuple(str(value) for value in values)
+        return values
+
+    def _set_quantity_values(self, values: tuple[Fraction, ...]) -> None:
+        projected = np.array([project_quantity(value) for value in values])
+        self._exact_quantities = tuple(str(value) for value in values)
+        self.quantities = projected
+
+    def apply_split(self, split_factor: np.ndarray) -> None:
+        factors = _finite_vector(split_factor, field_name="split_factor")
+        if factors.shape != self.quantities.shape or np.any(factors <= 0.0):
+            raise ValueError("split_factor must match the book and be positive")
+        self._set_quantity_values(
+            tuple(
+                quantity * exact_quantity(float(factor))
+                for quantity, factor in zip(
+                    self._quantity_values(), factors, strict=True
+                )
+            )
+        )
+        self.mark_prices /= factors
+        self._refresh_economic_state()
+
+    def apply_dividend(self, dividend_per_unit: np.ndarray) -> float:
+        dividend = _finite_vector(dividend_per_unit, field_name="dividend_per_unit")
+        if dividend.shape != self.quantities.shape:
+            raise ValueError("dividend_per_unit must match the book")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        amount = float(np.dot(self.quantities * multipliers, dividend))
+        self.cash += amount
+        self._refresh_economic_state()
+        return amount
+
+    def apply_cash_interest(
+        self,
+        annual_rate: float,
+        *,
+        periods_per_year: int | None = None,
+        year_fraction: float | None = None,
+    ) -> float:
+        if not np.isfinite(annual_rate):
+            raise ValueError("annual_rate must be finite")
+        if year_fraction is None:
+            if periods_per_year is None or periods_per_year <= 0:
+                raise ValueError("periods_per_year must be positive")
+            resolved_fraction = 1.0 / periods_per_year
+        else:
+            if not np.isfinite(year_fraction) or year_fraction < 0.0:
+                raise ValueError("year_fraction must be finite and non-negative")
+            resolved_fraction = float(year_fraction)
+        amount = float(self.cash * annual_rate * resolved_fraction)
+        self.cash += amount
+        self._refresh_economic_state()
+        return amount
+
+    def settle_positions(
+        self,
+        *,
+        mask: np.ndarray,
+        prices: np.ndarray,
+        recovery: np.ndarray,
+    ) -> float:
+        settle_mask = np.asarray(mask, dtype=np.bool_).reshape(-1)
+        price_vector = _finite_vector(prices, field_name="settlement_prices")
+        recovery_vector = _finite_vector(recovery, field_name="recovery")
+        if any(
+            vector.shape != self.quantities.shape
+            for vector in (settle_mask, price_vector, recovery_vector)
+        ):
+            raise ValueError("settlement vectors must match the book")
+        if (
+            np.any(price_vector <= 0.0)
+            or np.any(recovery_vector < 0.0)
+            or np.any(recovery_vector > 1.0)
+        ):
+            raise ValueError("settlement prices or recovery are invalid")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        quantities = self._quantity_values()
+        proceeds = math.fsum(
+            float(
+                quantity
+                * exact_quantity(float(price))
+                * exact_quantity(float(multiplier))
+                * exact_quantity(float(recovered))
+            )
+            for quantity, price, multiplier, recovered, settle in zip(
+                quantities,
+                price_vector,
+                multipliers,
+                recovery_vector,
+                settle_mask,
+                strict=True,
+            )
+            if settle
+        )
+        self.cash += proceeds
+        self._set_quantity_values(
+            tuple(
+                Fraction(0) if settle else value
+                for value, settle in zip(quantities, settle_mask, strict=True)
+            )
+        )
+        self.mark_prices = price_vector.copy()
+        self._refresh_economic_state()
+        self._update_drawdown()
+        return proceeds
+
+    def set_margin(
+        self,
+        *,
+        margin_used: float,
+        maintenance_margin: float,
+        maintenance_requirement: float | None = None,
+    ) -> None:
+        if not np.isfinite(margin_used) or margin_used < 0.0:
+            raise ValueError("margin_used must be finite and non-negative")
+        if not np.isfinite(maintenance_margin) or not 0.0 <= maintenance_margin <= 1.0:
+            raise ValueError("maintenance_margin must be within [0, 1]")
+        requirement = (
+            float(maintenance_margin) * float(np.abs(self.position_values).sum())
+            if maintenance_requirement is None
+            else float(maintenance_requirement)
+        )
+        if not np.isfinite(requirement) or requirement < 0.0:
+            raise ValueError("maintenance_requirement must be finite and non-negative")
+        self.margin_used = float(margin_used)
+        self.maintenance_margin = float(maintenance_margin)
+        self.maintenance_requirement = requirement
+        self.margin_deficit = max(
+            0.0,
+            requirement - max(self.portfolio_value, 0.0),
+        )
+        if (
+            self.portfolio_value > 0.0
+            and requirement > 0.0
+            and self.portfolio_value < requirement - _TOLERANCE
+        ):
+            self.terminate(EconomicTerminationReason.MARGIN_CALL)
+
+    def terminate(self, reason: EconomicTerminationReason | str) -> None:
+        resolved = EconomicTerminationReason(reason)
+        self.insolvent = True
+        self.termination_reason = resolved
+
+    def revalue(self, mark_prices: np.ndarray) -> None:
+        marks = _finite_vector(mark_prices, field_name="mark_prices")
+        if marks.shape != self.quantities.shape or np.any(marks <= 0.0):
+            raise ValueError("mark_prices must match the book and be positive")
+        self.mark_prices = marks
+        self._refresh_economic_state()
+
+    def execute(
+        self,
+        *,
+        fill_prices: np.ndarray,
+        target_quantities: np.ndarray,
+        cost_amount: float,
+        turnover: float,
+    ) -> None:
+        targets = _finite_vector(target_quantities, field_name="target_quantities")
+        if targets.shape != self.quantities.shape:
+            raise ValueError("execution vectors must match the book")
+        exact_targets = tuple(exact_quantity(float(value)) for value in targets)
+        delta = tuple(
+            target - previous
+            for target, previous in zip(
+                exact_targets, self._quantity_values(), strict=True
+            )
+        )
+        self._record_execution(
+            fill_prices=fill_prices,
+            exact_targets=exact_targets,
+            delta=delta,
+            cost_amount=cost_amount,
+            turnover=turnover,
+        )
+
+    def execute_fill(
+        self,
+        *,
+        symbol_index: int,
+        quantity: float,
+        fill_prices: np.ndarray,
+        cost_amount: float,
+        turnover: float,
+        lot_size: float = 0.0,
+        lot_count: int | None = None,
+        valuation_prices: np.ndarray | None = None,
+    ) -> None:
+        if (
+            isinstance(symbol_index, bool)
+            or not isinstance(symbol_index, int)
+            or not 0 <= symbol_index < len(self.quantities)
+        ):
+            raise ValueError("fill symbol index is outside the book")
+        accepted = accepted_fill_quantity(
+            quantity, lot_size=lot_size, lot_count=lot_count
+        )
+        values = list(self._quantity_values())
+        values[symbol_index] += accepted
+        delta = [Fraction(0) for _ in self.quantities]
+        delta[symbol_index] = accepted
+        self._record_execution(
+            fill_prices=fill_prices,
+            exact_targets=tuple(values),
+            delta=tuple(delta),
+            cost_amount=cost_amount,
+            turnover=turnover,
+            valuation_prices=valuation_prices,
+        )
+
+    def _record_execution(
+        self,
+        *,
+        fill_prices: np.ndarray,
+        exact_targets: tuple[Fraction, ...],
+        delta: tuple[Fraction, ...],
+        cost_amount: float,
+        turnover: float,
+        valuation_prices: np.ndarray | None = None,
+    ) -> None:
+        prices = _finite_vector(fill_prices, field_name="fill_prices")
+        targets = np.array([project_quantity(value) for value in exact_targets])
+        if (
+            prices.shape != self.quantities.shape
+            or targets.shape != self.quantities.shape
+        ):
+            raise ValueError("execution vectors must match the book")
+        if np.any(prices <= 0.0):
+            raise ValueError("fill_prices must be strictly positive")
+        marks = (
+            prices
+            if valuation_prices is None
+            else _finite_vector(valuation_prices, field_name="valuation_prices")
+        )
+        if marks.shape != prices.shape or np.any(marks <= 0.0):
+            raise ValueError("valuation_prices must match the book and be positive")
+        if not np.isfinite(cost_amount) or cost_amount < 0.0:
+            raise ValueError("cost_amount must be finite and non-negative")
+        if not np.isfinite(turnover) or turnover < 0.0:
+            raise ValueError("turnover must be finite and non-negative")
+
+        filled = np.array([abs(value) > exact_quantity(_TOLERANCE) for value in delta])
+        value_before = self.portfolio_value
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        signed_notional = math.fsum(
+            project_quantity(quantity) * float(price) * float(multiplier)
+            for quantity, price, multiplier in zip(
+                delta, prices, multipliers, strict=True
+            )
+        )
+        cash_after = self.cash - (signed_notional + float(cost_amount))
+        turnover_after = self.turnover_total + float(turnover)
+        cost_after = self.total_cost + float(cost_amount)
+        with np.errstate(over="ignore", invalid="ignore"):
+            equity_after = float(cash_after + (targets * marks * multipliers).sum())
+        if not all(
+            math.isfinite(value)
+            for value in (cash_after, turnover_after, cost_after, equity_after)
+        ):
+            raise ValueError("proposed execution must preserve finite account values")
+        self.cash = cash_after
+        self.quantities = targets
+        self._exact_quantities = tuple(str(value) for value in exact_targets)
+        self.mark_prices = marks
+        self.turnover_total = turnover_after
+        self.total_cost = cost_after
+        fill_count = int(np.count_nonzero(filled))
+        self.fill_count += fill_count
+        if fill_count:
+            self.rebalance_events += 1
+        if cost_amount >= max(value_before, 0.0) - _TOLERANCE:
+            self.terminate(EconomicTerminationReason.EXECUTION_COST_EXHAUSTION)
+        self._refresh_economic_state()
+        self._update_drawdown()
+
+    def charge_borrow(self, amount: float) -> None:
+        if not np.isfinite(amount) or amount < 0.0:
+            raise ValueError("borrow amount must be finite and non-negative")
+        self.cash -= float(amount)
+        self.borrow_cost += float(amount)
+        self._refresh_economic_state()
+
+    def mark_to_market(
+        self,
+        *,
+        mark_prices: np.ndarray,
+        funding_amount: float,
+        period_start_value: float | None = None,
+    ) -> float:
+        if not np.isfinite(funding_amount):
+            raise ValueError("funding_amount must be finite")
+        starting_value = (
+            self.portfolio_value
+            if period_start_value is None
+            else float(period_start_value)
+        )
+        if not np.isfinite(starting_value) or starting_value <= 0.0:
+            raise ValueError("period_start_value must be finite and positive")
+
+        self.cash += float(funding_amount)
+        self.revalue(mark_prices)
+        value = self.portfolio_value
+        if not np.isfinite(value):
+            raise ValueError("base-bar portfolio value became non-finite")
+        net_return = max(value / starting_value - 1.0, -1.0 + 1e-12)
+        self._update_drawdown()
+        self.funding_pnl += float(funding_amount)
+        self.returns_history.append(float(net_return))
+        return float(net_return)
+
+    def refresh_drawdown(self) -> None:
+        """Refresh peak and drawdown after a causal mark change."""
+
+        self._update_drawdown()
+
+    def _update_drawdown(self) -> None:
+        value = max(self.portfolio_value, 0.0)
+        self.peak_value = max(self.peak_value, value)
+        self.max_drawdown = max(
+            self.max_drawdown,
+            1.0 - value / max(self.peak_value, _MIN_EQUITY),
+        )
+
+    def _refresh_economic_state(self) -> None:
+        value = self.portfolio_value
+        if not np.isfinite(value):
+            raise ValueError("portfolio value became non-finite")
+        if value <= 0.0 and not self.insolvent:
+            self.terminate(EconomicTerminationReason.INSOLVENCY)

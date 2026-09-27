@@ -256,3 +256,38 @@ def test_rule_burden_reports_declared_ratio_percentiles() -> None:
         {"p50": 5.0, "p95": 5.0, "max": 5.0}
     )
     assert burden["adverse_tick_rounding"] is True
+
+
+def test_effective_rule_arrays_apply_floors_after_selecting_timestep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market(
+        tick_size=np.asarray([[0.1], [0.2], [0.3], [0.4]]),
+        lot_size=np.asarray([[0.01], [0.02], [0.03], [0.04]]),
+        minimum_notional=np.asarray([[5.0], [6.0], [7.0], [8.0]]),
+    )
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig(tick_size=0.25, lot_size=0.04, minimum_notional=9.0),
+        rule_stress=ExecutionRuleStress(
+            name="row_floor",
+            tick_size_factor=1.5,
+            lot_size_factor=1.5,
+            minimum_notional_factor=1.5,
+        ),
+    )
+    original_maximum = np.maximum
+    input_shapes: list[tuple[int, ...]] = []
+
+    def record_shape(left: np.ndarray, right: object, **kwargs: object) -> np.ndarray:
+        input_shapes.append(np.asarray(left).shape)
+        return original_maximum(left, right, **kwargs)
+
+    monkeypatch.setattr(np, "maximum", record_shape)
+
+    tick, lot, minimum = executor.effective_rule_arrays(index=2)
+
+    assert input_shapes == [(1,), (1,), (1,)]
+    assert tick == pytest.approx([0.45])
+    assert lot == pytest.approx([0.06])
+    assert minimum == pytest.approx([13.5])

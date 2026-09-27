@@ -1,13 +1,13 @@
-from __future__ import annotations
-
 import json
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
+from trade_rl.evaluation.runs.artifact import load_candidate_run_artifact
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
@@ -138,7 +138,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v2"
+    assert summary["schema_version"] == "lean_candidate_result_v3"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -160,6 +160,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "forecast_switch_cost": None,
     }
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",
@@ -285,3 +286,29 @@ def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None
             config_path=config_path,
             output_root=output,
         )
+
+
+def test_v1_run_rejects_forecast_switch_cost(tmp_path) -> None:
+    root = tmp_path / "legacy-v1"
+    root.mkdir()
+    summary = {
+        "schema_version": "lean_candidate_result_v1",
+        "candidate_config": {"forecast_switch_cost": 0.0007},
+        "by_symbol": [],
+    }
+    (root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    np.savez_compressed(root / "returns.npz")
+    implementation: dict[str, object] = {}
+    runtime: dict[str, object] = {}
+    provenance = {
+        "schema_version": "candidate_run_provenance_v1",
+        "implementation": implementation,
+        "implementation_digest": content_digest(implementation),
+        "runtime_environment": runtime,
+        "runtime_environment_digest": content_digest(runtime),
+        "research_context_digest": None,
+    }
+    (root / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="forecast switch cost.*result v1"):
+        load_candidate_run_artifact(root)

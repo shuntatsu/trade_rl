@@ -59,6 +59,8 @@ candidateの比較対象は、このreachable lineage上のbaselineです。
 
 `verify_controlled_delta`等の検証で、宣言したfactor以外の差分が混入していないことを確認します。
 
+`FORECAST_SWITCH_COST` を使う場合は `forecast_switch_cost` だけを変更可能pathとし、Ridge / LightGBMだけをaffected strategyとして扱います。controls、trend、mean-reversion、PPOのraw returnsはbaselineと完全一致しなければINVALIDです。
+
 影響しないはずのstrategyについてraw returnsが変わっていないかも重要な反証です。
 
 ## 6. 生のreturnsから比較する

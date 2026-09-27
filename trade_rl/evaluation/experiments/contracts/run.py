@@ -21,6 +21,7 @@ from trade_rl.strategies.rl.intent import (
 
 _RESOLVED_RUN_CONFIG_V1 = "resolved_run_config_v1"
 _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
+_RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -59,6 +60,7 @@ class ResolvedRunConfig:
     execution_overlay: str
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
+    forecast_switch_cost: float | None = None
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
 
     def __post_init__(self) -> None:
@@ -150,14 +152,19 @@ class ResolvedRunConfig:
             field="execution_overlay",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        forecast_switch_cost = self.forecast_switch_cost
         if schema_version == _RESOLVED_RUN_CONFIG_V1:
             if self.ppo_observation_schema is not None or self.ppo_global_feature_names:
                 raise ContractViolationError(
                     "resolved_run_config_v1 must not define a PPO observation contract"
                 )
+            if forecast_switch_cost is not None:
+                raise ContractViolationError(
+                    "resolved_run_config_v1 must not define forecast_switch_cost"
+                )
             ppo_observation_schema: str | None = None
             ppo_global_feature_names: tuple[str, ...] = ()
-        elif schema_version == _RESOLVED_RUN_CONFIG_V2:
+        elif schema_version in {_RESOLVED_RUN_CONFIG_V2, _RESOLVED_RUN_CONFIG_V3}:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
                 field="ppo_observation_schema",
@@ -178,6 +185,24 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "PPO global feature names do not match the frozen observation contract"
                 )
+            if schema_version == _RESOLVED_RUN_CONFIG_V2:
+                if forecast_switch_cost is not None:
+                    raise ContractViolationError(
+                        "resolved_run_config_v2 must not define forecast_switch_cost"
+                    )
+            elif forecast_switch_cost is not None:
+                if isinstance(forecast_switch_cost, bool):
+                    raise ContractViolationError(
+                        "forecast_switch_cost must be finite and non-negative"
+                    )
+                forecast_switch_cost = contract_finite(
+                    forecast_switch_cost,
+                    field="forecast_switch_cost",
+                )
+                if forecast_switch_cost < 0.0:
+                    raise ContractViolationError(
+                        "forecast_switch_cost must be finite and non-negative"
+                    )
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
 
@@ -201,6 +226,7 @@ class ResolvedRunConfig:
         object.__setattr__(self, "execution_overlay", execution_overlay)
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
         object.__setattr__(self, "schema_version", schema_version)
 
     @classmethod
@@ -233,7 +259,8 @@ class ResolvedRunConfig:
             execution_overlay=spec.execution_overlay,
             ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V2,
+            forecast_switch_cost=config.forecast_switch_cost,
+            schema_version=_RESOLVED_RUN_CONFIG_V3,
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -258,9 +285,11 @@ class ResolvedRunConfig:
             "initial_capital": self.initial_capital,
             "execution_overlay": self.execution_overlay,
         }
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V2:
+        if self.schema_version in {_RESOLVED_RUN_CONFIG_V2, _RESOLVED_RUN_CONFIG_V3}:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V3:
+            payload["forecast_switch_cost"] = self.forecast_switch_cost
         return payload
 
     @property

@@ -69,7 +69,11 @@ def market() -> MarketDataset:
     )
 
 
-def observation(*, available: bool = True) -> StrategyObservation:
+def observation(
+    *,
+    available: bool = True,
+    current: PositionIntent = PositionIntent.FLAT,
+) -> StrategyObservation:
     return StrategyObservation(
         index=10,
         timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
@@ -81,7 +85,7 @@ def observation(*, available: bool = True) -> StrategyObservation:
         ),
         global_features=np.asarray([0.0]),
         global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
+        current_intent=current,
         current_weight=0.0,
     )
 
@@ -131,3 +135,28 @@ def test_lightgbm_strategy_uses_shared_forecast_controller() -> None:
 
     assert strategy.decide(observation()) is PositionIntent.LONG
     assert strategy.decide(observation(available=False)) is PositionIntent.FLAT
+
+
+def test_lightgbm_strategy_cost_aware_controller_is_explicit_opt_in() -> None:
+    model = LightGBMForecastModel(
+        feature_indices=(0, 1),
+        predictor=FakeRegressor(),
+        horizon_hours=24,
+        n_samples=100,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    baseline = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    cost_aware = LightGBMForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.25,
+    )
+    obs = observation(current=PositionIntent.SHORT)
+
+    assert baseline.decide(obs) is PositionIntent.LONG
+    assert cost_aware.decide(obs) is PositionIntent.SHORT

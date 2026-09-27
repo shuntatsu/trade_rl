@@ -48,6 +48,7 @@ class LeanCandidateConfig:
     forecast_exit_threshold: float
     ppo_total_timesteps: int
     ppo_seed: int = 0
+    forecast_switch_cost: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -98,9 +99,20 @@ class LeanCandidateConfig:
             raise ValueError("ppo_seed must be a non-negative integer")
         if self.ppo_seed < 0:
             raise ValueError("ppo_seed must be a non-negative integer")
+        forecast_switch_cost = self.forecast_switch_cost
+        if forecast_switch_cost is not None:
+            if (
+                isinstance(forecast_switch_cost, bool)
+                or not isinstance(forecast_switch_cost, (int, float))
+                or not math.isfinite(float(forecast_switch_cost))
+                or float(forecast_switch_cost) < 0.0
+            ):
+                raise ValueError("forecast_switch_cost must be finite and non-negative")
+            forecast_switch_cost = float(forecast_switch_cost)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
 
 
 def _ppo_training_stop_index(
@@ -186,11 +198,13 @@ def run_lean_candidate_suite(
             ridge_model,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
+            one_way_switch_cost=config.forecast_switch_cost,
         ),
         "lightgbm24": lambda: LightGBMForecastStrategy(
             lightgbm_model,
             entry_threshold=config.forecast_entry_threshold,
             exit_threshold=config.forecast_exit_threshold,
+            one_way_switch_cost=config.forecast_switch_cost,
         ),
         "ppo": lambda: PPOIntentStrategy(
             ppo_strategy.policy,

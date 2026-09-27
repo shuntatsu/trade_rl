@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -70,15 +71,20 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
     monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
     monkeypatch.setattr(candidate_suite, "fit_ppo_strategy", fake_ppo)
-    monkeypatch.setattr(
-        candidate_suite,
-        "RidgeForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
-    )
+
+    def fake_ridge_wrapper(*args, **kwargs):
+        calls["ridge_wrapper_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    def fake_lightgbm_wrapper(*args, **kwargs):
+        calls["lightgbm_wrapper_kwargs"] = kwargs
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    monkeypatch.setattr(candidate_suite, "RidgeForecastStrategy", fake_ridge_wrapper)
     monkeypatch.setattr(
         candidate_suite,
         "LightGBMForecastStrategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
+        fake_lightgbm_wrapper,
     )
 
     def fake_ppo_wrapper(*args, **kwargs):
@@ -113,6 +119,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         ppo_total_timesteps=256,
         ppo_seed=7,
         fit_symbol_indices=(0,),
+        forecast_switch_cost=0.0007,
     )
 
     result = candidate_suite.run_lean_candidate_suite(
@@ -134,6 +141,9 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ridge_wrapper_kwargs"]["one_way_switch_cost"] == 0.0007
+    assert calls["lightgbm_wrapper_kwargs"]["one_way_switch_cost"] == 0.0007
+    assert "one_way_switch_cost" not in calls["ppo_wrapper_kwargs"]
     assert calls["ppo_wrapper_kwargs"]["feature_names"] == ("signal",)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == StudyPlan.STRATEGY_NAMES
@@ -147,3 +157,94 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         "execution_cost": None,
         "risk": None,
     }
+
+
+def test_cost_aware_suite_changes_only_forecast_replays(monkeypatch) -> None:
+    class ForecastModel:
+        feature_indices = (0,)
+
+        def predict(self, features: np.ndarray) -> float:
+            return float(np.asarray(features).reshape(-1)[0])
+
+    class FlatPolicy:
+        def predict(self, observation: np.ndarray, *, deterministic: bool = True):
+            return np.asarray([1]), None
+
+    monkeypatch.setattr(
+        candidate_suite,
+        "fit_ridge_forecast",
+        lambda *args, **kwargs: ForecastModel(),
+    )
+    monkeypatch.setattr(
+        candidate_suite,
+        "fit_lightgbm_forecast",
+        lambda *args, **kwargs: ForecastModel(),
+    )
+    monkeypatch.setattr(
+        candidate_suite,
+        "fit_ppo_strategy",
+        lambda *args, **kwargs: SimpleNamespace(
+            policy=FlatPolicy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            feature_normalizer=None,
+        ),
+    )
+
+    dataset = market()
+    features = dataset.features.copy()
+    features[54:59, :, 0] = np.asarray(
+        [0.02, 0.0, 0.0, -0.001, -0.02], dtype=np.float32
+    )[:, None]
+    dataset = replace(dataset, features=features)
+    fit_cutoff = np.datetime64("2026-01-03T06:00:00", "ns")
+
+    def run(forecast_switch_cost: float | None):
+        config = candidate_suite.LeanCandidateConfig(
+            signal_index=0,
+            feature_indices=(0,),
+            fit_symbol_indices=(0,),
+            fit_cutoff=fit_cutoff,
+            rule_entry_threshold=0.10,
+            rule_exit_threshold=0.02,
+            forecast_entry_threshold=0.01,
+            forecast_exit_threshold=0.002,
+            ppo_total_timesteps=256,
+            ppo_seed=7,
+            forecast_switch_cost=forecast_switch_cost,
+        )
+        return candidate_suite.run_lean_candidate_suite(
+            dataset,
+            config,
+            start_index=54,
+            stop_index=59,
+            gross_budget=0.5,
+            initial_capital=1_000.0,
+        )
+
+    baseline = run(None)
+    cost_aware = run(0.0007)
+    forecast_names = {"ridge24", "lightgbm24"}
+    for baseline_symbol, cost_aware_symbol in zip(
+        baseline.by_symbol, cost_aware.by_symbol, strict=True
+    ):
+        before = {entry.name: entry for entry in baseline_symbol.comparison.entries}
+        after = {entry.name: entry for entry in cost_aware_symbol.comparison.entries}
+        for name in forecast_names:
+            assert not np.array_equal(
+                before[name].replay.returns.values,
+                after[name].replay.returns.values,
+            )
+            assert (
+                before[name].replay.diagnostics.turnover_total
+                != after[name].replay.diagnostics.turnover_total
+            )
+        for name in set(before) - forecast_names:
+            assert (
+                np.asarray(before[name].replay.returns.values).tobytes()
+                == np.asarray(after[name].replay.returns.values).tobytes()
+            )
+            assert (
+                before[name].replay.diagnostics.turnover_total
+                == after[name].replay.diagnostics.turnover_total
+            )

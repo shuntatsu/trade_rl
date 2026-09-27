@@ -9,6 +9,7 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.forecasts.controller import (
+    CostAwareForecastIntentController,
     ForecastIntentConfig,
     ForecastIntentController,
 )
@@ -112,12 +113,19 @@ class RidgeForecastStrategy:
         *,
         entry_threshold: float,
         exit_threshold: float,
+        one_way_switch_cost: float | None = None,
     ) -> None:
         self.model = model
-        self.controller = ForecastIntentController(
-            ForecastIntentConfig(
-                entry_threshold=entry_threshold,
-                exit_threshold=exit_threshold,
+        config = ForecastIntentConfig(
+            entry_threshold=entry_threshold,
+            exit_threshold=exit_threshold,
+        )
+        self.controller = (
+            ForecastIntentController(config)
+            if one_way_switch_cost is None
+            else CostAwareForecastIntentController(
+                config,
+                one_way_switch_cost=one_way_switch_cost,
             )
         )
 

@@ -45,6 +45,13 @@ def _v2_payload() -> dict[str, object]:
     return payload
 
 
+def _v3_payload(*, forecast_switch_cost: float | None = None) -> dict[str, object]:
+    payload = _v2_payload()
+    payload["schema_version"] = "resolved_run_config_v3"
+    payload["forecast_switch_cost"] = forecast_switch_cost
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -83,6 +90,44 @@ def test_resolved_run_v2_round_trips_and_study_digest_binds_observation() -> Non
     assert resolved.to_payload() == payload
     assert plan.to_payload()["baseline_config"] == payload
     assert plan.digest == content_digest(plan.to_payload())
+
+
+def test_resolved_run_v3_round_trips_explicit_switch_cost_identity() -> None:
+    payload = _v3_payload(forecast_switch_cost=0.0007)
+
+    resolved = _resolved_from_payload(payload, field="current")
+    plan = _study_plan(resolved)
+
+    assert resolved.forecast_switch_cost == pytest.approx(0.0007)
+    assert resolved.to_payload() == payload
+    assert plan.to_payload()["baseline_config"] == payload
+    assert plan.digest == content_digest(plan.to_payload())
+
+
+def test_resolved_run_v3_round_trips_disabled_switch_cost_identity() -> None:
+    payload = _v3_payload()
+
+    resolved = _resolved_from_payload(payload, field="current")
+
+    assert resolved.forecast_switch_cost is None
+    assert resolved.to_payload() == payload
+
+
+def test_resolved_run_v2_rejects_v3_switch_cost_field() -> None:
+    payload = _v2_payload()
+    payload["forecast_switch_cost"] = 0.0007
+
+    with pytest.raises(ArtifactIntegrityError, match="keys differ"):
+        _resolved_from_payload(payload, field="historical-v2")
+
+
+@pytest.mark.parametrize("switch_cost", (-0.0001, True))
+def test_resolved_run_v3_rejects_invalid_switch_cost(switch_cost: object) -> None:
+    payload = _v3_payload()
+    payload["forecast_switch_cost"] = switch_cost
+
+    with pytest.raises(ArtifactIntegrityError, match="resolved-run contract|numeric"):
+        _resolved_from_payload(payload, field="current")
 
 
 def test_resolved_run_v2_rejects_tampered_global_observation_roster() -> None:

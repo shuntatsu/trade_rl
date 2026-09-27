@@ -148,6 +148,14 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
     }
     if schema_version == "resolved_run_config_v2":
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
+    elif schema_version == "resolved_run_config_v3":
+        expected.update(
+            {
+                "ppo_observation_schema",
+                "ppo_global_feature_names",
+                "forecast_switch_cost",
+            }
+        )
     elif schema_version != "resolved_run_config_v1":
         raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
@@ -214,6 +222,15 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 else _as_string_tuple(
                     raw["ppo_global_feature_names"],
                     field=f"{field}.ppo_global_feature_names",
+                )
+            ),
+            forecast_switch_cost=(
+                None
+                if schema_version != "resolved_run_config_v3"
+                or raw["forecast_switch_cost"] is None
+                else _as_float(
+                    raw["forecast_switch_cost"],
+                    field=f"{field}.forecast_switch_cost",
                 )
             ),
             schema_version=schema_version,
@@ -352,7 +369,7 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
 
 
 def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "signal_name": config.signal_name,
         "feature_names": list(config.feature_names),
         "fit_symbol_names": list(config.fit_symbol_names),
@@ -370,6 +387,9 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
         "gross_budget": config.gross_budget,
         "initial_capital": config.initial_capital,
     }
+    if config.forecast_switch_cost is not None:
+        payload["forecast_switch_cost"] = config.forecast_switch_cost
+    return payload
 
 
 def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunConfig:
@@ -391,6 +411,7 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ppo_seed=config.ppo_seed,
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
+            forecast_switch_cost=config.forecast_switch_cost,
         )
     except ValueError as error:
         raise ArtifactIntegrityError(

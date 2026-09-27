@@ -117,7 +117,8 @@ No shutdown reason was recorded; operational status is not an economic replay.
 
 The observation gap now exceeds the frozen 180-second limit, so this protocol
 cannot qualify. Preserve its incomplete evidence without resuming or backfilling
-it; the economic evaluator has not run. Any successor needs a separately sealed
+it; this operational journal does not establish whether an economic replay ran.
+Any successor needs a separately sealed
 protocol with a new future start and current source/runtime identity. Prospective
 profitability remains unproven.
 

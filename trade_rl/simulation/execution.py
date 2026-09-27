@@ -367,8 +367,14 @@ class MarketExecutor:
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
 
-    def _base_rule_array(self, field_name: str, *, floor: float) -> np.ndarray:
-        return np.maximum(self.dataset.resolved_array(field_name), floor)
+    def _base_rule_array(
+        self,
+        field_name: str,
+        *,
+        floor: float,
+        index: int,
+    ) -> np.ndarray:
+        return np.maximum(self.dataset.resolved_array(field_name)[index], floor)
 
     def _validate_rule_stress(self) -> None:
         requirements = (
@@ -396,17 +402,27 @@ class MarketExecutor:
         if not 0 <= index < self.dataset.n_bars:
             raise IndexError("execution-rule index is outside the dataset")
         tick = (
-            self._base_rule_array("tick_size", floor=self.cost.tick_size)[index]
+            self._base_rule_array(
+                "tick_size",
+                floor=self.cost.tick_size,
+                index=index,
+            )
             * self.rule_stress.tick_size_factor
         )
         lot = (
-            self._base_rule_array("lot_size", floor=self.cost.lot_size)[index]
+            self._base_rule_array(
+                "lot_size",
+                floor=self.cost.lot_size,
+                index=index,
+            )
             * self.rule_stress.lot_size_factor
         )
         minimum = (
-            self._base_rule_array("minimum_notional", floor=self.cost.minimum_notional)[
-                index
-            ]
+            self._base_rule_array(
+                "minimum_notional",
+                floor=self.cost.minimum_notional,
+                index=index,
+            )
             * self.rule_stress.minimum_notional_factor
         )
         if self.market_order_profile is not None:

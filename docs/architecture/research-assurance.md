@@ -126,6 +126,9 @@ Before economics, machine checks must establish all of the following result-blin
   activation authority and is `activation_sha256=null` on the software-only head;
 - the activation payload binds the exact Python implementation plus immutable
   implementation-seal, fresh-reconstruction, and assurance-review evidence digests;
+- Python implementation identity is reconstructed from path-relative source bytes with
+  checkout line endings canonicalized (`CRLF -> LF`) and bare `CR` rejected, so host
+  checkout policy cannot change the sealed implementation identity;
 - current provenance is checked before any execution-root mutation;
 - `prepare_replication_execution` is the only root creator and publishes a fully
   validated sibling staging tree by atomic rename;

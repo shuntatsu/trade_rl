@@ -348,8 +348,10 @@ The exact current execution implementation/runtime is instead bound by separatel
 activation provenance and rechecked around long fit/replay before durable publication.
 `evaluation/ppo_normalization_activation.json` is a canonical non-Python activation
 authority. It is committed with `activation_sha256=null` in the software-only state.
-The candidate implementation identity intentionally hashes `trade_rl/**/*.py` only, so
-a later result-blind activation commit can bind the reviewed Python implementation without
+The candidate implementation identity intentionally hashes `trade_rl/**/*.py` only and
+canonicalizes Python source line endings (`CRLF -> LF`, bare `CR` rejected) before hashing,
+so clean checkouts on different host policies reconstruct one source identity. A later
+result-blind activation commit can therefore bind the reviewed Python implementation without
 changing that implementation digest. The activation itself must bind result-blind
 implementation-seal, fresh-reconstruction, and assurance-review evidence digests.
 

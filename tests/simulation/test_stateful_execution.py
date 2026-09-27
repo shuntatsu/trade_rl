@@ -10,7 +10,7 @@ import pytest
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
-from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.orders.model import (
     OrderBookState,
@@ -187,6 +187,52 @@ def test_empty_order_bar_skips_admission_projection_but_still_marks_book(
     assert result.next_index == 1
     assert result.book.portfolio_value == pytest.approx(1_010.0)
     assert result.order_events == ()
+
+
+def test_empty_orders_reconcile_exact_quantities_for_insolvent_book(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market()
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.array([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        max_gross=1.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    runtime = StatefulExecutionRuntime.create(
+        executor,
+        book,
+        OrderBookState.empty(),
+    )
+    runtime.book.terminate(EconomicTerminationReason.MARGIN_CALL)
+    runtime.book.quantities[0] = 0.0
+    exact_reads: list[tuple[BookState, tuple[Fraction, ...]]] = []
+    original_exact_quantities = BookState.exact_quantities.fget
+    assert original_exact_quantities is not None
+
+    def capture_exact_quantities(book: BookState) -> tuple[Fraction, ...]:
+        quantities = original_exact_quantities(book)
+        exact_reads.append((book, quantities))
+        return quantities
+
+    monkeypatch.setattr(
+        BookState,
+        "exact_quantities",
+        property(capture_exact_quantities),
+    )
+
+    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+        runtime,
+        SimpleNamespace(processing_index=1),
+    )
+
+    assert accepted == []
+    assert len(exact_reads) == 1
+    reconciled_book, quantities = exact_reads[0]
+    assert reconciled_book is runtime.book
+    assert quantities == (Fraction(0),)
 
 
 def test_interleaved_symbol_orders_keep_processing_order_and_fill_state(

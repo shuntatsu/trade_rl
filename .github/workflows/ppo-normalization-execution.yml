@@ -85,6 +85,7 @@ jobs:
 
       - name: Execute all ten immutable slots
         id: execute
+        timeout-minutes: 330
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -112,6 +113,21 @@ jobs:
           compression-level: 0
           retention-days: 90
           overwrite: false
+
+      - name: Ensure non-economic execution failure receipt
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_SHA256: ${{ needs.request.outputs.request_sha256 }}
+          OUTPUT_ROOT: output/execution
+        run: >-
+          python3
+          trusted/tools/ppo_normalization_actions.py failure-receipt
 
       - name: Upload non-economic execution failure receipt
         if: failure()

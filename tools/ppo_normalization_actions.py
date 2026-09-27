@@ -351,7 +351,7 @@ def build_execution_failure_receipt(
     execution_code_sha: str,
     request_sha256: str,
     activation_sha256: str | None,
-    activation_tag_created: bool,
+    activation_tag_created: bool | None,
     phase: str,
     slot: str | None,
     slot_consumed: bool | None,
@@ -364,8 +364,10 @@ def build_execution_failure_receipt(
         raise ValueError("execution failure slot must be non-empty text")
     if slot_consumed is not None and not isinstance(slot_consumed, bool):
         raise ValueError("execution failure slot_consumed must be boolean or null")
-    if not isinstance(activation_tag_created, bool):
-        raise ValueError("activation_tag_created must be boolean")
+    if activation_tag_created is not None and not isinstance(
+        activation_tag_created, bool
+    ):
+        raise ValueError("activation_tag_created must be boolean or null")
     activation = (
         None
         if activation_sha256 is None
@@ -1021,6 +1023,173 @@ def _create_activation_tag(
     return tag_object_sha
 
 
+def _read_activation_tag_record(
+    repository: str,
+    *,
+    token: str,
+    code_sha: str,
+    request_sha256: str,
+    run_id: int,
+    run_attempt: int,
+) -> dict[str, object] | None:
+    """Recover this run's immutable activation record from the fixed tag."""
+
+    repo = _repo_path(repository)
+    encoded_tag = urllib.parse.quote(ACTIVATION_TAG, safe="/")
+    ref = _api_json(
+        f"https://api.github.com/repos/{repo}/git/ref/tags/{encoded_tag}",
+        token=token,
+        allow_not_found=True,
+    )
+    if ref is None:
+        return None
+    ref_object = ref.get("object")
+    if (
+        not isinstance(ref_object, dict)
+        or ref_object.get("type") != "tag"
+        or not isinstance(ref_object.get("sha"), str)
+    ):
+        raise ValueError("repository activation tag ref is malformed")
+    tag_object_sha = _require_sha(ref_object["sha"], field="activation tag object SHA")
+    tag_object = _api_json(
+        f"https://api.github.com/repos/{repo}/git/tags/{tag_object_sha}",
+        token=token,
+    )
+    if tag_object is None:
+        raise ValueError("repository activation tag object is missing")
+    target = tag_object.get("object")
+    message = tag_object.get("message")
+    if (
+        tag_object.get("tag") != ACTIVATION_TAG
+        or not isinstance(target, dict)
+        or target.get("type") != "commit"
+        or target.get("sha") != code_sha
+        or not isinstance(message, str)
+    ):
+        raise ValueError("repository activation tag identity differs")
+    raw = message.encode("utf-8")
+    try:
+        record = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("repository activation tag record is invalid JSON") from None
+    expected_keys = {
+        "schema",
+        "execution_code_sha",
+        "request_sha256",
+        "activation_sha256",
+        "implementation_digest",
+        "implementation_seal_sha256",
+        "fresh_reconstruction_sha256",
+        "assurance_review_sha256",
+        "run_id",
+        "run_attempt",
+        "economic_result_inspected",
+        "unused_data_accessed",
+        "final_test_accessed",
+        "production_eligible",
+        "live_trading_authorized",
+    }
+    if (
+        not isinstance(record, dict)
+        or set(record) != expected_keys
+        or canonical_json_bytes(record) != raw
+        or record.get("schema") != "ppo_normalization_repository_activation_v1"
+        or record.get("execution_code_sha") != code_sha
+        or record.get("request_sha256") != request_sha256
+        or record.get("implementation_digest") != IMPLEMENTATION_DIGEST
+        or record.get("implementation_seal_sha256") != IMPLEMENTATION_SEAL_SHA256
+        or record.get("fresh_reconstruction_sha256") != FRESH_RECONSTRUCTION_SHA256
+        or record.get("assurance_review_sha256") != ASSURANCE_REVIEW_SHA256
+        or record.get("run_id") != run_id
+        or record.get("run_attempt") != run_attempt
+        or record.get("economic_result_inspected") is not False
+        or record.get("unused_data_accessed") is not False
+        or record.get("final_test_accessed") is not False
+        or record.get("production_eligible") is not False
+        or record.get("live_trading_authorized") is not False
+    ):
+        raise ValueError("repository activation tag record differs from this run")
+    activation = record.get("activation_sha256")
+    if not isinstance(activation, str):
+        raise ValueError("repository activation digest is malformed")
+    _require_sha256(activation, field="repository activation SHA-256")
+    return record
+
+
+def ensure_failure_receipt_main(
+    environment: dict[str, str] | None = None,
+) -> int:
+    """Ensure a hard process failure still leaves non-economic activation provenance."""
+
+    env = dict(os.environ if environment is None else environment)
+    repository = env.get("GITHUB_REPOSITORY", "")
+    repository_id = _positive_int(
+        int(env.get("GITHUB_REPOSITORY_ID", "0")), field="repository id"
+    )
+    run_id = _positive_int(int(env.get("GITHUB_RUN_ID", "0")), field="workflow run id")
+    run_attempt = _positive_int(
+        int(env.get("GITHUB_RUN_ATTEMPT", "0")), field="workflow run attempt"
+    )
+    token = env.get("GITHUB_TOKEN", "")
+    code_sha = _require_sha(env.get("EXECUTION_CODE_SHA"), field="execution code SHA")
+    request_sha = _require_sha256(
+        env.get("REQUEST_SHA256"), field="execution request SHA-256"
+    )
+    output_root = Path(env.get("OUTPUT_ROOT", "output/execution"))
+    failure_path = output_root.parent / "execution-failure.json"
+    if not token:
+        raise ValueError("GITHUB_TOKEN is required")
+
+    if failure_path.exists() or failure_path.is_symlink():
+        payload, _raw = _canonical_file(
+            failure_path,
+            field="execution failure receipt",
+        )
+        if payload.get("schema") != EXECUTION_FAILURE_SCHEMA:
+            raise ValueError("existing execution failure receipt schema differs")
+        return 0
+
+    activation_digest: str | None = None
+    activation_tag_created: bool | None = None
+    try:
+        record = _read_activation_tag_record(
+            repository,
+            token=token,
+            code_sha=code_sha,
+            request_sha256=request_sha,
+            run_id=run_id,
+            run_attempt=run_attempt,
+        )
+    except Exception:
+        # Preserve auditability without falsely asserting that no activation exists
+        # when GitHub metadata cannot be read after a hard process failure.
+        record = None
+    else:
+        activation_tag_created = record is not None
+        if record is not None:
+            value = record.get("activation_sha256")
+            if isinstance(value, str):
+                activation_digest = value
+
+    _write_canonical_once(
+        failure_path,
+        build_execution_failure_receipt(
+            repository=repository,
+            repository_id=repository_id,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            execution_code_sha=code_sha,
+            request_sha256=request_sha,
+            activation_sha256=activation_digest,
+            activation_tag_created=activation_tag_created,
+            phase="workflow_failure",
+            slot=None,
+            slot_consumed=None,
+        ),
+    )
+    return 0
+
+
 def _download_source(
     repository: str,
     *,
@@ -1512,6 +1681,8 @@ def main(argv: list[str] | None = None) -> int:
             return request_main()
         if args == ["execute"]:
             return execute_main()
+        if args == ["failure-receipt"]:
+            return ensure_failure_receipt_main()
         if args == ["verify"]:
             return verify_main()
         if args == ["finalize"]:
@@ -1544,6 +1715,7 @@ __all__ = [
     "build_execution_request",
     "build_verifier_artifact_authority",
     "content_digest",
+    "ensure_failure_receipt_main",
     "parse_execution_request_comment",
     "validate_execution_pr_files",
     "validate_execution_request",

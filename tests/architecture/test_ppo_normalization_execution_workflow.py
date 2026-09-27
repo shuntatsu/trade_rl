@@ -51,13 +51,28 @@ def test_normalization_execution_workflow_never_uploads_per_slot_artifacts() -> 
 def test_normalization_execution_workflow_failure_upload_is_non_economic_only() -> None:
     text = _text()
 
+    assert "name: Ensure non-economic execution failure receipt" in text
     assert "name: Upload non-economic execution failure receipt" in text
     assert "if: failure()" in text
     assert "path: output/execution-failure.json" in text
     assert "path: output/execution\n" in text
+    execute = text.index("name: Execute all ten immutable slots")
+    ensure = text.index("name: Ensure non-economic execution failure receipt")
     failure = text.index("name: Upload non-economic execution failure receipt")
     verify = text.index("name: Verify all ten slots without refit")
-    assert failure < verify
+    assert execute < ensure < failure < verify
+
+
+def test_normalization_execution_step_times_out_before_job_hard_limit() -> None:
+    text = _text()
+    execution_job = text[text.index("  execution:") : text.index("  verify:")]
+    execute_step = execution_job[
+        execution_job.index("name: Execute all ten immutable slots") :
+    ]
+
+    assert "timeout-minutes: 350" in execution_job
+    assert "timeout-minutes: 330" in execute_step
+    assert "ppo_normalization_actions.py failure-receipt" in execution_job
 
 
 def test_normalization_execution_workflow_has_trusted_write_boundary() -> None:

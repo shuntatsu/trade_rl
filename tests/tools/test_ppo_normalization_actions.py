@@ -650,6 +650,119 @@ def test_execute_failure_publishes_only_non_economic_receipt(
     )
 
 
+def test_fallback_failure_receipt_recovers_consumed_activation_from_tag(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "output" / "execution"
+    activation = "c" * 64
+    request_sha = "b" * 64
+    tag_object_sha = "d" * 40
+    record = {
+        "schema": "ppo_normalization_repository_activation_v1",
+        "execution_code_sha": HEAD,
+        "request_sha256": request_sha,
+        "activation_sha256": activation,
+        "implementation_digest": actions.IMPLEMENTATION_DIGEST,
+        "implementation_seal_sha256": actions.IMPLEMENTATION_SEAL_SHA256,
+        "fresh_reconstruction_sha256": actions.FRESH_RECONSTRUCTION_SHA256,
+        "assurance_review_sha256": actions.ASSURANCE_REVIEW_SHA256,
+        "run_id": 123,
+        "run_attempt": 1,
+        "economic_result_inspected": False,
+        "unused_data_accessed": False,
+        "final_test_accessed": False,
+        "production_eligible": False,
+        "live_trading_authorized": False,
+    }
+
+    def fake_api(url, *, token, method="GET", payload=None, allow_not_found=False):
+        assert token == "token"
+        if "/git/ref/tags/activation/ppo-normalization-corrected-v1" in url:
+            return {"object": {"sha": tag_object_sha, "type": "tag"}}
+        if f"/git/tags/{tag_object_sha}" in url:
+            return {
+                "tag": actions.ACTIVATION_TAG,
+                "object": {"sha": HEAD, "type": "commit"},
+                "message": actions.canonical_json_bytes(record).decode("utf-8"),
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions, "_api_json", fake_api)
+
+    assert (
+        actions.ensure_failure_receipt_main(
+            {
+                "GITHUB_REPOSITORY": "shuntatsu/trade_rl",
+                "GITHUB_REPOSITORY_ID": "1103009698",
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_TOKEN": "token",
+                "EXECUTION_CODE_SHA": HEAD,
+                "REQUEST_SHA256": request_sha,
+                "OUTPUT_ROOT": str(output),
+            }
+        )
+        == 0
+    )
+
+    receipt = json.loads((output.parent / "execution-failure.json").read_bytes())
+    assert receipt["activation_sha256"] == activation
+    assert receipt["activation_tag_created"] is True
+    assert receipt["phase"] == "workflow_failure"
+    assert receipt["slot"] is None
+    assert receipt["slot_consumed"] is None
+    assert receipt["economic_result_inspected"] is False
+    assert not any(
+        key in receipt
+        for key in ("error", "error_message", "result", "return", "metrics", "pnl")
+    )
+
+
+def test_fallback_failure_receipt_preserves_existing_detailed_receipt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output = tmp_path / "output" / "execution"
+    receipt_path = output.parent / "execution-failure.json"
+    original = actions.build_execution_failure_receipt(
+        repository="shuntatsu/trade_rl",
+        repository_id=1103009698,
+        run_id=123,
+        run_attempt=1,
+        execution_code_sha=HEAD,
+        request_sha256="b" * 64,
+        activation_sha256="c" * 64,
+        activation_tag_created=True,
+        phase="slot",
+        slot="control_raw_seed0",
+        slot_consumed=True,
+    )
+    actions._write_canonical_once(receipt_path, original)
+    monkeypatch.setattr(
+        actions,
+        "_api_json",
+        lambda *_args, **_kwargs: pytest.fail("existing receipt must not be replaced"),
+    )
+
+    assert (
+        actions.ensure_failure_receipt_main(
+            {
+                "GITHUB_REPOSITORY": "shuntatsu/trade_rl",
+                "GITHUB_REPOSITORY_ID": "1103009698",
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_TOKEN": "token",
+                "EXECUTION_CODE_SHA": HEAD,
+                "REQUEST_SHA256": "b" * 64,
+                "OUTPUT_ROOT": str(output),
+            }
+        )
+        == 0
+    )
+    assert json.loads(receipt_path.read_bytes()) == original
+
+
 def test_render_request_is_head_independent(tmp_path, capsys) -> None:
     output = tmp_path / "request.json"
 

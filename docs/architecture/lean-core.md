@@ -117,9 +117,11 @@ observations, rewards, action meanings, or replay risk. Research callers must
 bind the explicit training configuration in their protocol and separately verify
 that evaluation risk matches the intended deployment objective.
 With the implicit default, PPOTradingEnv skips projection only when the proposal
-is finite and within the execution-derived weight limit, where the default risk
-transform is an exact no-op. Explicit risk configurations and proposals outside
-that limit continue through `PreTradeRisk.constrain`.
+is finite and within the execution-derived weight limit and drawdown is within
+`[0, 1]`, where the default risk transform is an exact no-op. Explicit risk
+configurations, invalid drawdown values, and proposals outside that limit
+continue through `PreTradeRisk.constrain` so its validation and projection remain
+in force.
 
 Directional PPOのfitとdevelopment評価は `DIRECTIONAL_BASE_EXECUTION_COST` を共通authorityとして使う。zero overlayでもDataset由来のfee / spread / funding / borrowは消さず、特に `borrow_rate_multiplier=1.0` を学習・評価の両方で維持する。過去のPPO evidenceは生成時の旧implementation SHAにbindされたままであり、このcorrected execution contractのcontrolとして自動再利用しない。
 

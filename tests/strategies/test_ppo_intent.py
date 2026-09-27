@@ -348,6 +348,25 @@ def test_env_default_risk_projects_targets_above_execution_limit(
     assert info["risk_reasons"] == ("max_abs_weight",)
 
 
+def test_env_default_risk_rejects_invalid_drawdown_before_execution() -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    env.reset(seed=7)
+    env.book.max_drawdown = 1.1
+
+    with pytest.raises(
+        ValueError, match=r"drawdown must be finite and within \[0, 1\]"
+    ):
+        env.step(2)
+
+
 def test_env_encodes_observation_without_constructing_strategy_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

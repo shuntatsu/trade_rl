@@ -487,10 +487,13 @@ class PPOTradingEnv(gym.Env):
         proposal_weights = self._proposal_weights
         proposal_weights.fill(0.0)
         proposal_weights[symbol_index] = proposal_weight
+        drawdown = self.book.max_drawdown
         if (
             self.risk_config is None
             and math.isfinite(proposal_weight)
             and abs(proposal_weight) <= self._default_risk_weight_limit
+            and math.isfinite(drawdown)
+            and 0.0 <= drawdown <= 1.0
         ):
             target_weights = proposal_weights
             was_constrained = False
@@ -499,7 +502,7 @@ class PPOTradingEnv(gym.Env):
             constrained = self.risk.constrain(
                 proposal_weights,
                 current=self.book.weights,
-                drawdown=self.book.max_drawdown,
+                drawdown=drawdown,
             )
             target_weights = constrained.weights
             was_constrained = constrained.was_constrained

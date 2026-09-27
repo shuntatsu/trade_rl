@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-26 (JST)
+更新基準: 2026-09-27 (JST)
 
 ## 結論
 
@@ -106,8 +106,21 @@ the collector was launched before start. Its source implementation digest is
 `5e093425ee775639b2ac840831e8a71f30c34966b6150367e40bdc0b7f6ed349`
 and runtime environment digest is
 `0c56fc67d16f583d49b5dea7a3878e3fcba0f58e6abd0e9dd66e51393c994cc9`.
-The declared period is not complete. No future profit or deployment qualification
-has been established, and neither a partial return nor software CI can pass it.
+The collector produced 188 observations; its last committed observation was
+`2026-09-17T23:11:01Z`. A 2026-09-27 audit found the recorded PID 23548
+absent and no `collection-failure.json`. Journal-only status verification
+confirmed 188 events through tip
+`1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b`.
+The last stored status retains quantities `0.016`, `-0.016`, `0.509`, and
+`-0.509`, marked equity 9993.9707, zero funding income, and `terminal_flat=false`.
+No shutdown reason was recorded; operational status is not an economic replay.
+
+The observation gap now exceeds the frozen 180-second limit, so this protocol
+cannot qualify. Preserve its incomplete evidence without resuming or backfilling
+it; this operational journal does not establish whether an economic replay ran.
+Any successor needs a separately sealed
+protocol with a new future start and current source/runtime identity. Prospective
+profitability remains unproven.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

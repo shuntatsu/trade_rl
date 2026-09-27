@@ -517,7 +517,7 @@ to the fixed contract. The review is now process-bound rather than GitHub-princi
 bound: the same authenticated GitHub account may transport the formal review, but a
 same-principal body/tag assertion cannot authorize anything unless it references
 immutable evidence from the frozen trusted Google Gemini reviewer authority merged at
-`seal/ppo-4h-gemini-review-authority-20260927-v2`.
+`seal/ppo-4h-gemini-review-authority-20260927-v3`.
 
 The active execution lifecycle remains on the dedicated **open draft execution PR**
 `research/ppo-4h-indicator-smoke-execution -> main`. Draft state is required through
@@ -541,11 +541,11 @@ The execution gate independently re-fetches the trusted reviewer authority rathe
 trusting those source-review fields. It requires GitHub Actions run
 `PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`
 whose `head_sha` resolves to the authority commit frozen by
-`seal/ppo-4h-gemini-review-authority-20260927-v2`. The frozen workflow/runner SHA-256
+`seal/ppo-4h-gemini-review-authority-20260927-v3`. The frozen workflow/runner SHA-256
 identities are
 `98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`
 and
-`90a72d238035ff3764cd27bc0bb91e043d4f9e0d60ee487a3d870519da213187`.
+`2cb17eb9c9fe292431255f85a3dbdc591344a498b788422ee4d2d478245dd335`.
 The gate refetches the same-run trusted Core / PPO Runtime / Human Guide and Gemini
 semantic-review jobs, downloads the named reviewer artifact, binds GitHub metadata and
 raw ZIP digest, safely extracts the exact artifact roster, hashes canonical
@@ -575,23 +575,30 @@ the existing #767 reviewed source did not contain unrelated economic-result labe
 The first trusted request for #767 used reviewed SHA `2e78ae61...`, review tag
 `review/ppo-4h-indicator-smoke-v1`, and frozen authority v1. Request run
 `36289664090` completed the request packet and all three trusted software-verification
-jobs, but attempts 1 and 2 both failed at the Gemini provider transport with HTTP 500
-before any terminal semantic response or reviewer attestation existed. Those attempts
-are not G0-G2 evidence. Diagnosis against Google's documented legacy
-`generateContent` contract found that authority v1 sent `responseJsonSchema` where
-the REST contract requires `generationConfig.responseSchema`. The authority-v2 transport
-repair corrected that wire field with a permanent regression test, passed exact-head
-Full CI, and was
-frozen as authority v2 by `seal/ppo-4h-gemini-review-authority-20260927-v2`.
+jobs, but attempts 1 and 2 both failed at Gemini provider transport with HTTP 500 before
+any terminal semantic response or reviewer attestation existed. Authority v1 sent the
+legacy `responseJsonSchema` structured-output field. Authority v2 corrected that to
+`responseSchema`, was independently reviewed/frozen, and #767 restarted on
+`be20ff97...` with review tag `review/ppo-4h-indicator-smoke-v2`. Its fresh trusted
+run `36304175265` again completed all three trusted software jobs but failed at the
+provider with HTTP 500 before any semantic response or attestation. Neither v1 nor v2
+transport failure is G0-G2 evidence.
 
-Because the frozen authority and current `main` changed, the old #767 reviewed SHA/tag
-and its failed request are not reused. The execution branch must pin authority v2,
-contain current `main`, complete new exact-head software verification, and only then
-create the next unused annotated review tag and one fresh canonical trusted-review
-request. A successful trusted attestation must pass the v4 consumer before the
-evidence-only trigger commit can be created. Any terminal BLOCKED semantic review
-requires a new reviewed source HEAD before another semantic review may become
-authoritative. No PPO fit/replay or economic result has been authorized by these
+Current Google Gemini 3.x REST structured-output examples use
+`generationConfig.responseFormat.text.mimeType/schema`; authority v3 migrated the
+request to that shape, added a permanent regression test forbidding the deprecated
+`responseMimeType`, `responseSchema`, and `responseJsonSchema` keys, passed
+exact-head Full CI plus bootstrap review, and was frozen by
+`seal/ppo-4h-gemini-review-authority-20260927-v3`.
+
+Because the frozen authority and current `main` changed again, the old #767 v1/v2
+reviewed SHAs, tags, and failed requests are not reused. The execution branch must pin
+authority v3, contain current `main`, complete new exact-head software verification,
+and only then create the next unused annotated review tag (`...-v3`) and one fresh
+canonical trusted-review request. A successful trusted attestation must pass the v4
+consumer before the evidence-only trigger commit can be created. Any terminal BLOCKED
+semantic review requires a new reviewed source HEAD before another semantic review may
+become authoritative. No PPO fit/replay or economic result has been authorized by these
 transport attempts, and none of this establishes profitability, unused-data evidence,
 production eligibility, or live-trading readiness.
 

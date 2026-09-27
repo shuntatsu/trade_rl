@@ -80,3 +80,10 @@ def test_normalization_execution_workflow_uses_trusted_raw_artifact_redownload()
     assert "EXECUTION_ARTIFACT_SHA256" in text
     assert "VERIFICATION_ARTIFACT_ID" in text
     assert "VERIFICATION_ARTIFACT_SHA256" in text
+
+
+def test_normalization_transport_is_type_checked_in_push_and_full_ci() -> None:
+    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert ci.count("name: Research transport types") == 2
+    assert ci.count("tools/ppo_normalization_actions.py") == 2

@@ -113,7 +113,7 @@
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "8f8e19e8fcc42ab521252cdf375fb11ecfd8b3f4505276a07bdb5e84b7043a49",
+      "source_sha256": "a9c686c71f36972172ba125876a30a9bc804a58089843743b2ba421b648a4699",
       "label_ja": "PPO環境を1ステップ進める",
       "description_ja": "actionを売買意図へ変換し、hard riskと約定を通します。max_turnover/drawdownのtransient projectionはproposalへ再注入せず、terminal settlement有効時は最後のagent interval後にFLAT proposalを同じrisk/execution経路で処理し、そのlog wealth changeをterminal rewardへ加算します。",
       "variables": [

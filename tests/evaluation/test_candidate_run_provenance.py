@@ -82,6 +82,29 @@ def test_implementation_manifest_is_path_independent_and_source_byte_sensitive(
     assert content_digest(changed) != content_digest(first_manifest)
 
 
+def test_implementation_manifest_is_checkout_line_ending_independent(
+    tmp_path: Path,
+) -> None:
+    lf = _fake_package(tmp_path / "lf", payload=b"VALUE = 1\nOTHER = 2\n")
+    crlf = _fake_package(
+        tmp_path / "crlf",
+        payload=b"VALUE = 1\r\nOTHER = 2\r\n",
+    )
+
+    lf_manifest = provenance_module._implementation_manifest(lf)
+    crlf_manifest = provenance_module._implementation_manifest(crlf)
+
+    assert crlf_manifest == lf_manifest
+    assert content_digest(crlf_manifest) == content_digest(lf_manifest)
+
+
+def test_implementation_manifest_rejects_bare_carriage_returns(tmp_path: Path) -> None:
+    package = _fake_package(tmp_path, payload=b"VALUE = 1\rOTHER = 2\n")
+
+    with pytest.raises(ValueError, match="bare CR"):
+        provenance_module._implementation_manifest(package)
+
+
 def test_runtime_environment_manifest_has_fixed_dependency_roster(monkeypatch) -> None:
     real_version = provenance_module.metadata.version
 

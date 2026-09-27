@@ -25,8 +25,18 @@ _RUNTIME_DISTRIBUTIONS: Final = (
 )
 
 
+def _canonical_python_source_bytes(path: Path) -> bytes:
+    """Return checkout-independent canonical bytes for one Python source file."""
+
+    raw = path.read_bytes()
+    normalized = raw.replace(b"\r\n", b"\n")
+    if b"\r" in normalized:
+        raise ValueError(f"Python source contains unsupported bare CR bytes: {path}")
+    return normalized
+
+
 def _implementation_manifest(package_root: Path) -> dict[str, object]:
-    """Return a path-independent exact-byte manifest for Python package sources."""
+    """Return a path- and checkout-independent manifest for Python package sources."""
 
     root = Path(package_root)
     files: list[dict[str, str]] = []
@@ -39,7 +49,7 @@ def _implementation_manifest(package_root: Path) -> dict[str, object]:
         files.append(
             {
                 "path": relative.as_posix(),
-                "sha256": sha256(path.read_bytes()).hexdigest(),
+                "sha256": sha256(_canonical_python_source_bytes(path)).hexdigest(),
             }
         )
     return {

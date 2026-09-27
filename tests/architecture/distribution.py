@@ -8,11 +8,43 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import re
 import stat
 import subprocess
 import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
+
+_ACTIVATION_RESOURCE = "trade_rl/evaluation/ppo_normalization_activation.json"
+_ACTIVATION_SCHEMA = "ppo_normalization_execution_activation_authority_v1"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_activation_resource_bytes(raw: bytes) -> None:
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("activation authority resource is not valid JSON") from error
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    digest = payload.get("activation_sha256") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema", "activation_sha256"}
+        or payload.get("schema") != _ACTIVATION_SCHEMA
+        or canonical != raw
+        or (
+            digest is not None
+            and (not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None)
+        )
+    ):
+        raise ValueError("activation authority resource is not canonical or supported")
 
 
 def _git_sources(repository: Path) -> dict[str, str]:
@@ -22,11 +54,19 @@ def _git_sources(repository: Path) -> dict[str, str]:
         check=True,
         capture_output=True,
     ).stdout.decode("utf-8")
-    names = {name for name in tracked.split("\0") if name.endswith(".py")}
+    tracked_names = {name for name in tracked.split("\0") if name}
+    names = {
+        name
+        for name in tracked_names
+        if name.endswith(".py") or name == _ACTIVATION_RESOURCE
+    }
     present = {
         path.relative_to(repository).as_posix()
         for path in (repository / "trade_rl").rglob("*.py")
     }
+    activation_path = repository / _ACTIVATION_RESOURCE
+    if activation_path.exists() or activation_path.is_symlink():
+        present.add(_ACTIVATION_RESOURCE)
     if not names or names != present:
         raise ValueError("worktree source roster differs from Git (missing/untracked)")
     diff = subprocess.run(
@@ -42,7 +82,10 @@ def _git_sources(repository: Path) -> dict[str, str]:
             part.is_symlink() for part in (path, *path.parents)
         ):
             raise ValueError("package source must be a regular file without symlinks")
-        result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        raw = path.read_bytes()
+        if name == _ACTIVATION_RESOURCE:
+            _validate_activation_resource_bytes(raw)
+        result[name] = hashlib.sha256(raw).hexdigest()
     return result
 
 
@@ -79,13 +122,19 @@ def _archive_sources(archive: Path) -> dict[str, str]:
                 kind = stat.S_IFMT(info.external_attr >> 16)
                 if kind == stat.S_IFLNK:
                     raise ValueError("wheel must not contain symlink members")
-                if info.is_dir() or path.suffix != ".py":
+                if info.is_dir():
+                    continue
+                name = path.as_posix()
+                if path.suffix != ".py" and name != _ACTIVATION_RESOURCE:
                     continue
                 if kind not in (0, stat.S_IFREG):
-                    raise ValueError("wheel Python source must be a regular file")
+                    raise ValueError("wheel package payload must be a regular file")
                 if path.parts[0] != "trade_rl":
-                    raise ValueError("unexpected Python source outside package path")
-                result[path.as_posix()] = hashlib.sha256(wheel.read(info)).hexdigest()
+                    raise ValueError("unexpected package payload outside package path")
+                raw = wheel.read(info)
+                if name == _ACTIVATION_RESOURCE:
+                    _validate_activation_resource_bytes(raw)
+                result[name] = hashlib.sha256(raw).hexdigest()
     elif archive.name.endswith(".tar.gz"):
         roots: set[str] = set()
         with tarfile.open(archive, "r:gz") as sdist:
@@ -98,16 +147,19 @@ def _archive_sources(archive: Path) -> dict[str, str]:
                     )
                 if len(path.parts) < 2 or path.parts[1] != "trade_rl":
                     continue
-                if path.suffix != ".py":
+                name = PurePosixPath(*path.parts[1:]).as_posix()
+                if path.suffix != ".py" and name != _ACTIVATION_RESOURCE:
                     continue
                 if not member.isfile():
-                    raise ValueError("sdist Python source must be a regular file")
+                    raise ValueError("sdist package payload must be a regular file")
                 handle = sdist.extractfile(member)
                 if handle is None:
-                    raise ValueError("sdist Python source is unreadable")
+                    raise ValueError("sdist package payload is unreadable")
                 with handle:
-                    name = PurePosixPath(*path.parts[1:]).as_posix()
-                    result[name] = hashlib.sha256(handle.read()).hexdigest()
+                    raw = handle.read()
+                    if name == _ACTIVATION_RESOURCE:
+                        _validate_activation_resource_bytes(raw)
+                    result[name] = hashlib.sha256(raw).hexdigest()
         if len(roots) > 1:
             raise ValueError("sdist must have one archive root path")
     else:

@@ -155,3 +155,89 @@ def test_negative_value_properties_and_termination_are_fail_closed() -> None:
     assert book.margin_utilization == 1.0
     clone = book.clone()
     assert clone.termination_reason is EconomicTerminationReason.INSOLVENCY
+
+
+def test_book_state_clone_uses_constructor_copy_without_array_aliasing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.25, -0.5]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_200.0,
+        contract_multipliers=np.array([1.0, 2.0]),
+        max_drawdown=0.125,
+        turnover_total=42.0,
+        total_cost=3.5,
+        funding_pnl=-1.25,
+        fill_count=4,
+        rebalance_events=5,
+        returns_history=[0.1, -0.2],
+        borrow_cost=0.75,
+        margin_used=80.0,
+        maintenance_margin=0.2,
+        maintenance_requirement=15.0,
+    )
+    constructor_inputs: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    original_post_init = BookState.__post_init__
+
+    def capture_constructor_inputs(clone: BookState) -> None:
+        assert clone.contract_multipliers is not None
+        constructor_inputs.append(
+            (clone.quantities, clone.mark_prices, clone.contract_multipliers)
+        )
+        original_post_init(clone)
+
+    monkeypatch.setattr(BookState, "__post_init__", capture_constructor_inputs)
+    clone = book.clone()
+
+    assert len(constructor_inputs) == 1
+    assert constructor_inputs[0][0] is book.quantities
+    assert constructor_inputs[0][1] is book.mark_prices
+    assert constructor_inputs[0][2] is book.contract_multipliers
+    assert book.contract_multipliers is not None
+    assert clone.contract_multipliers is not None
+    np.testing.assert_array_equal(clone.quantities, book.quantities)
+    np.testing.assert_array_equal(clone.mark_prices, book.mark_prices)
+    np.testing.assert_array_equal(clone.contract_multipliers, book.contract_multipliers)
+    assert clone.exact_quantities == book.exact_quantities
+    for field_name in (
+        "cash",
+        "peak_value",
+        "max_drawdown",
+        "turnover_total",
+        "total_cost",
+        "funding_pnl",
+        "fill_count",
+        "rebalance_events",
+        "borrow_cost",
+        "margin_used",
+        "maintenance_margin",
+        "maintenance_requirement",
+        "margin_deficit",
+        "insolvent",
+        "termination_reason",
+    ):
+        assert getattr(clone, field_name) == getattr(book, field_name)
+    assert clone.portfolio_value == pytest.approx(book.portfolio_value)
+    original_quantities = book.quantities.copy()
+    original_mark_prices = book.mark_prices.copy()
+    assert book.contract_multipliers is not None
+    original_multipliers = book.contract_multipliers.copy()
+    original_history = book.returns_history.copy()
+
+    clone.quantities[0] = 9.0
+    clone.mark_prices[0] = 110.0
+    assert clone.contract_multipliers is not None
+    clone.contract_multipliers[0] = 3.0
+    clone.returns_history.append(0.3)
+
+    assert not np.shares_memory(book.quantities, clone.quantities)
+    assert not np.shares_memory(book.mark_prices, clone.mark_prices)
+    assert not np.shares_memory(book.contract_multipliers, clone.contract_multipliers)
+    np.testing.assert_array_equal(book.quantities, original_quantities)
+    np.testing.assert_array_equal(book.mark_prices, original_mark_prices)
+    np.testing.assert_array_equal(book.contract_multipliers, original_multipliers)
+    assert book.returns_history == original_history
+    assert clone.returns_history == [*original_history, 0.3]
+    assert clone.returns_history is not book.returns_history

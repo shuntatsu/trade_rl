@@ -1192,7 +1192,7 @@ def build_gemini_request(packet: dict[str, Any]) -> dict[str, Any]:
         "generationConfig": {
             "temperature": 0,
             "responseMimeType": "application/json",
-            "responseJsonSchema": _gemini_schema(),
+            "responseSchema": _gemini_schema(),
         },
     }
 

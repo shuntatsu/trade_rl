@@ -339,8 +339,16 @@ transition: it validates current activation provenance before filesystem mutatio
 the complete root in sibling staging, validates it, and publishes by atomic rename.
 Claim/failure transitions are private and derive activation/implementation identity from
 that prepared root rather than caller-supplied digests. Per-root immutability therefore
-does not by itself establish repository-global exactly-once execution; a later one-shot
-transport authority must own that uniqueness.
+does not by itself establish repository-global exactly-once execution. The separate
+`tools/ppo_normalization_actions.py` transport and
+`.github/workflows/ppo-normalization-execution.yml` own that repository-global boundary:
+an open Draft request PR may change only the canonical execution-request record, must
+contain current `main`, and must have exact-head Core / real-PPO / Guide / generic-review
+Green before a write-authorized canonical request comment can proceed. The transport
+revalidates the merged implementation seal/review tags and the frozen source Artifact,
+requires the fixed activation tag to be absent, and creates that tag before crossing any
+economic slot boundary. A failed activated run may publish only a non-economic failure
+receipt; partial slot evidence is not uploaded as execution evidence.
 
 The sealed protocol's `source_blobs` remain historical preregistration provenance; later
 correctness fixes to the maintained PPO/artifact path are not rewritten into those bytes.
@@ -358,14 +366,20 @@ implementation-seal, fresh-reconstruction, and assurance-review evidence digests
 A local `verified.json` is no longer sufficient to make a comparison independent.
 Before comparison publication, the ten verification-record identities must be transitively
 bound to a fresh verifier artifact authority carrying repository/run/artifact identity,
-raw artifact SHA-256 and the matching GitHub API digest. Execution requires the exact
+raw artifact SHA-256 and the matching GitHub API digest. The one-shot workflow therefore
+uploads execution evidence only after all ten slots complete, re-downloads that complete
+artifact by immutable id/run/raw digest into a separate no-refit verifier job, uploads a
+complete verification artifact, and only then re-downloads it in the finalizer to construct
+the verifier authority and reveal `comparison.json`. Execution requires the exact
 activation runtime; the verifier uses a separately frozen stable-runtime contract requiring
 the same Python implementation/version, machine architecture, OS family, and complete
 bound package map while recording kernel release without making it an equality gate.
 Bundle manifest and all parent paths are validated before SB3 deserialization, and realized
-PPO timesteps must equal the sealed 262,144 budget. Economic execution remains fail-closed
-while the activation authority is unsealed, and these modules remain private evaluation
-surfaces that do not expand `trade_rl.evaluation.__all__`.
+PPO timesteps must equal the sealed 262,144 budget. The committed activation resource
+remains null until the authenticated request lifecycle actually creates the one-shot
+activation; transport capability by itself does not authorize or execute economics. These
+modules remain private evaluation surfaces that do not expand
+`trade_rl.evaluation.__all__`.
 
 `evaluation/ppo_feature_checkpoint.py`'s private CLI provides `prepare`, `fit`,
 `replay-cell`, `assemble-arm`, and `finalize`, each with `--source` and `--output`.

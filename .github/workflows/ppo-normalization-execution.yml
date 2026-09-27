@@ -1,0 +1,261 @@
+name: PPO Normalization One-Shot Execution
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: ppo-normalization-corrected-v1
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  request:
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '<!-- ppo-normalization-execution-request-v1 -->')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      execution_code_sha: ${{ steps.request.outputs.execution_code_sha }}
+      request_sha256: ${{ steps.request.outputs.request_sha256 }}
+      activation_identity: ${{ steps.request.outputs.activation_identity }}
+    steps:
+      - name: Checkout trusted one-shot authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate canonical one-shot request
+        id: request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: python3 trusted/tools/ppo_normalization_actions.py request >> "$GITHUB_OUTPUT"
+
+  execution:
+    needs: request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    permissions:
+      actions: read
+      contents: write
+      issues: read
+      pull-requests: read
+    outputs:
+      activation_digest: ${{ steps.execute.outputs.activation_digest }}
+      execution_artifact_name: ${{ steps.execute.outputs.execution_artifact_name }}
+      execution_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      execution_artifact_sha256: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout trusted one-shot authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact execution head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.execution_code_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12.12"
+          enable-cache: true
+          working-directory: target
+
+      - name: Install exact PPO runtime
+        working-directory: target
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Execute all ten immutable slots
+        id: execute
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_SHA256: ${{ needs.request.outputs.request_sha256 }}
+          TARGET_ROOT: target
+          OUTPUT_ROOT: output/execution
+        run: >-
+          target/.venv/bin/python
+          trusted/tools/ppo_normalization_actions.py execute
+          >> "$GITHUB_OUTPUT"
+
+      - name: Upload complete execution evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.execute.outputs.execution_artifact_name }}
+          path: output/execution
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+      - name: Upload non-economic execution failure receipt
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-normalization-execution-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/execution-failure.json
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  verify:
+    needs: [request, execution]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      verification_artifact_name: ${{ steps.verify.outputs.verification_artifact_name }}
+      verification_set_sha256: ${{ steps.verify.outputs.verification_set_sha256 }}
+      verification_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      verification_artifact_sha256: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Checkout trusted one-shot authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact execution head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.execution_code_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12.12"
+          enable-cache: true
+          working-directory: target
+
+      - name: Install exact PPO runtime
+        working-directory: target
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Verify all ten slots without refit
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          ACTIVATION_DIGEST: ${{ needs.execution.outputs.activation_digest }}
+          EXECUTION_ARTIFACT_ID: ${{ needs.execution.outputs.execution_artifact_id }}
+          EXECUTION_ARTIFACT_SHA256: ${{ needs.execution.outputs.execution_artifact_sha256 }}
+          TARGET_ROOT: target
+          OUTPUT_ROOT: output/verification
+        run: >-
+          target/.venv/bin/python
+          trusted/tools/ppo_normalization_actions.py verify
+          >> "$GITHUB_OUTPUT"
+
+      - name: Upload complete verification evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.verify.outputs.verification_artifact_name }}
+          path: output/verification
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  finalize:
+    needs: [request, execution, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout trusted one-shot authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact execution head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.execution_code_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12.12"
+          enable-cache: true
+          working-directory: target
+
+      - name: Install exact PPO runtime
+        working-directory: target
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Publish comparison after verifier authority
+        id: finalize
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          ACTIVATION_DIGEST: ${{ needs.execution.outputs.activation_digest }}
+          VERIFICATION_ARTIFACT_ID: ${{ needs.verify.outputs.verification_artifact_id }}
+          VERIFICATION_ARTIFACT_SHA256: ${{ needs.verify.outputs.verification_artifact_sha256 }}
+          VERIFICATION_SET_SHA256: ${{ needs.verify.outputs.verification_set_sha256 }}
+          TARGET_ROOT: target
+          OUTPUT_ROOT: output/final
+        run: >-
+          target/.venv/bin/python
+          trusted/tools/ppo_normalization_actions.py finalize
+          >> "$GITHUB_OUTPUT"
+
+      - name: Upload final comparison evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.finalize.outputs.final_artifact_name }}
+          path: output/final
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false

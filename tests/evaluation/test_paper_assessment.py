@@ -164,7 +164,7 @@ def test_block_marks_are_causal_and_final_block_includes_exit_costs():
     assert metrics.maximum_gap_seconds > 180
 
 
-@pytest.mark.parametrize("settlement_delta", [timedelta(), timedelta(seconds=1)])
+@pytest.mark.parametrize("settlement_delta", [None, timedelta(), timedelta(seconds=1)])
 def test_terminal_grace_funding_blocks_follow_settlement_time_not_receipt_time(
     settlement_delta,
 ):
@@ -187,26 +187,26 @@ def test_terminal_grace_funding_blocks_follow_settlement_time_not_receipt_time(
             }
         }
 
+    funding = [
+        {
+            "funding_at": (close_at - timedelta(seconds=1)).isoformat(),
+            "known_at": received_at.isoformat(),
+            "amount": 1.0,
+        }
+    ]
+    if settlement_delta is not None:
+        funding.append(
+            {
+                "funding_at": (close_at + settlement_delta).isoformat(),
+                "known_at": received_at.isoformat(),
+                "amount": 1.0,
+            }
+        )
     records = [
         event(start_at + timedelta(seconds=1), 10001),
         event(start_at + timedelta(days=30) - timedelta(seconds=1), 10100),
         event(start_at + timedelta(days=60) - timedelta(seconds=1), 10200),
-        event(
-            received_at,
-            10250,
-            (
-                {
-                    "funding_at": (close_at - timedelta(seconds=1)).isoformat(),
-                    "known_at": received_at.isoformat(),
-                    "amount": 1.0,
-                },
-                {
-                    "funding_at": (close_at + settlement_delta).isoformat(),
-                    "known_at": received_at.isoformat(),
-                    "amount": 1.0,
-                },
-            ),
-        ),
+        event(received_at, 10250, funding),
     ]
     status = {
         "account": {"equity": 10250, "total_cost": 20, "maximum_drawdown": 0.01},
@@ -224,10 +224,9 @@ def test_terminal_grace_funding_blocks_follow_settlement_time_not_receipt_time(
         unpaid_funding=[],
     )
 
-    # Both payments first arrive in block 3's terminal grace. Only the settlement
-    # that actually occurred before the ninety-day close belongs to block 3.
     assert metrics.block_funding_counts == (0, 0, 1)
-    assert "post_close_funding" in assessment.screen_reasons(metrics)
+    has_post_close_funding = "post_close_funding" in assessment.screen_reasons(metrics)
+    assert has_post_close_funding is (settlement_delta is not None)
 
 
 def completed_software_collection(tmp_path, monkeypatch):

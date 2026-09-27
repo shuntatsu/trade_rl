@@ -85,6 +85,33 @@ def test_successor_seal_binds_the_failed_predecessor_attempt(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("last_observed_at", "message"),
+    [
+        (NOW - timedelta(seconds=180), "has not exceeded 180 seconds"),
+        (NOW + timedelta(seconds=1), "newer than the seal"),
+    ],
+)
+def test_lineage_rejects_unqualified_observation_gap_timestamp(
+    last_observed_at, message
+):
+    lineage = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 2,
+        "predecessor": {
+            "attempt_number": 1,
+            "protocol_sha256": "a" * 64,
+            "final_tip_sha256": "b" * 64,
+            "disposition": "invalidated",
+            "reason_codes": ["observation_gap"],
+            "last_observed_at": last_observed_at.isoformat(),
+        },
+    }
+
+    with pytest.raises(ValueError, match=message):
+        operations.validate_attempt_lineage(lineage, sealed_at=NOW)
+
+
+@pytest.mark.parametrize(
     "lineage",
     [
         {

@@ -14,7 +14,7 @@ def test_normalization_execution_workflow_is_comment_triggered_and_globally_seri
 
     assert "issue_comment:" in text
     assert "workflow_dispatch:" not in text
-    assert "ppo-normalization-execution-request-v1" in text
+    assert "ppo-normalization-execution-request-v2" in text
     assert "concurrency:" in text
     assert "ppo-normalization-corrected-v1" in text
     assert "cancel-in-progress: false" in text
@@ -102,3 +102,17 @@ def test_normalization_transport_is_type_checked_in_push_and_full_ci() -> None:
 
     assert ci.count("name: Research transport types") == 2
     assert ci.count("tools/ppo_normalization_actions.py") == 2
+
+
+def test_normalization_execution_workflow_separates_request_and_sealed_source_checkouts() -> (
+    None
+):
+    text = _text()
+
+    assert "ppo-normalization-execution-request-v2" in text
+    assert "request_code_sha:" in text
+    assert "execution_source_sha:" in text
+    assert "path: request" in text
+    assert "path: target" in text
+    assert "ref: ${{ needs.request.outputs.request_code_sha }}" in text
+    assert "ref: ${{ needs.request.outputs.execution_source_sha }}" in text

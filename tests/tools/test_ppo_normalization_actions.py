@@ -12,10 +12,11 @@ HEAD = "a" * 40
 def test_execution_request_binds_exact_result_blind_authorities() -> None:
     payload = actions.build_execution_request()
 
-    assert "execution_code_sha" not in payload
+    assert "request_code_sha" not in payload
 
     assert payload == {
-        "schema": "ppo_normalization_execution_request_v1",
+        "schema": "ppo_normalization_execution_request_v2",
+        "execution_source_sha": actions.IMPLEMENTATION_CODE_SHA,
         "protocol_sha256": (
             "0013470ed5858eaa3b9391f97f4b18f772495d21c128832f74e1c50b090df304"
         ),
@@ -67,7 +68,7 @@ def test_request_comment_is_canonical_and_exact_head_bound() -> None:
         actions.REVIEW_REQUEST_MARKER
         + "\n"
         + json.dumps(
-            {"execution_code_sha": HEAD, "request_sha256": request_sha},
+            {"request_code_sha": HEAD, "request_sha256": request_sha},
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -76,7 +77,7 @@ def test_request_comment_is_canonical_and_exact_head_bound() -> None:
 
     parsed = actions.parse_execution_request_comment(body)
     assert parsed == {
-        "execution_code_sha": HEAD,
+        "request_code_sha": HEAD,
         "request_sha256": request_sha,
     }
 
@@ -266,7 +267,7 @@ def test_request_snapshot_requires_green_exact_head_ci_and_fixed_request(
         actions.REVIEW_REQUEST_MARKER
         + "\n"
         + json.dumps(
-            {"execution_code_sha": HEAD, "request_sha256": request_sha},
+            {"request_code_sha": HEAD, "request_sha256": request_sha},
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -382,7 +383,8 @@ def test_request_snapshot_requires_green_exact_head_ci_and_fixed_request(
 
     outputs = actions._request_outputs(event, token="token")
 
-    assert outputs["execution_code_sha"] == HEAD
+    assert outputs["request_code_sha"] == HEAD
+    assert outputs["execution_source_sha"] == actions.IMPLEMENTATION_CODE_SHA
     assert outputs["request_sha256"] == request_sha
     assert len(outputs["activation_identity"]) == 64
 
@@ -535,7 +537,8 @@ def test_execution_failure_receipt_contains_no_economic_payload() -> None:
         repository_id=1103009698,
         run_id=123,
         run_attempt=1,
-        execution_code_sha=HEAD,
+        request_code_sha=HEAD,
+        execution_source_sha=actions.IMPLEMENTATION_CODE_SHA,
         request_sha256="b" * 64,
         activation_sha256="c" * 64,
         activation_tag_created=True,
@@ -544,7 +547,7 @@ def test_execution_failure_receipt_contains_no_economic_payload() -> None:
         slot_consumed=True,
     )
 
-    assert receipt["schema"] == "ppo_normalization_execution_failure_v1"
+    assert receipt["schema"] == "ppo_normalization_execution_failure_v2"
     assert receipt["activation_tag_created"] is True
     assert receipt["slot"] == "candidate_normalized_seed2"
     assert receipt["slot_consumed"] is True
@@ -620,6 +623,9 @@ def test_execute_failure_publishes_only_non_economic_receipt(
             return False
 
     monkeypatch.setattr(actions.tempfile, "TemporaryDirectory", FakeTemporaryDirectory)
+    monkeypatch.setattr(
+        actions, "_git_head", lambda _root: actions.IMPLEMENTATION_CODE_SHA
+    )
 
     with pytest.raises(RuntimeError, match="fit failed"):
         actions.execute_main(
@@ -629,7 +635,8 @@ def test_execute_failure_publishes_only_non_economic_receipt(
                 "GITHUB_RUN_ID": "123",
                 "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_TOKEN": "token",
-                "EXECUTION_CODE_SHA": HEAD,
+                "REQUEST_CODE_SHA": HEAD,
+                "EXECUTION_SOURCE_SHA": actions.IMPLEMENTATION_CODE_SHA,
                 "REQUEST_SHA256": "b" * 64,
                 "TARGET_ROOT": str(target),
                 "OUTPUT_ROOT": str(output),
@@ -659,8 +666,9 @@ def test_fallback_failure_receipt_recovers_consumed_activation_from_tag(
     request_sha = "b" * 64
     tag_object_sha = "d" * 40
     record = {
-        "schema": "ppo_normalization_repository_activation_v1",
-        "execution_code_sha": HEAD,
+        "schema": "ppo_normalization_repository_activation_v2",
+        "request_code_sha": HEAD,
+        "execution_source_sha": actions.IMPLEMENTATION_CODE_SHA,
         "request_sha256": request_sha,
         "activation_sha256": activation,
         "implementation_digest": actions.IMPLEMENTATION_DIGEST,
@@ -698,7 +706,8 @@ def test_fallback_failure_receipt_recovers_consumed_activation_from_tag(
                 "GITHUB_RUN_ID": "123",
                 "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_TOKEN": "token",
-                "EXECUTION_CODE_SHA": HEAD,
+                "REQUEST_CODE_SHA": HEAD,
+                "EXECUTION_SOURCE_SHA": actions.IMPLEMENTATION_CODE_SHA,
                 "REQUEST_SHA256": request_sha,
                 "OUTPUT_ROOT": str(output),
             }
@@ -730,7 +739,8 @@ def test_fallback_failure_receipt_preserves_existing_detailed_receipt(
         repository_id=1103009698,
         run_id=123,
         run_attempt=1,
-        execution_code_sha=HEAD,
+        request_code_sha=HEAD,
+        execution_source_sha=actions.IMPLEMENTATION_CODE_SHA,
         request_sha256="b" * 64,
         activation_sha256="c" * 64,
         activation_tag_created=True,
@@ -753,7 +763,8 @@ def test_fallback_failure_receipt_preserves_existing_detailed_receipt(
                 "GITHUB_RUN_ID": "123",
                 "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_TOKEN": "token",
-                "EXECUTION_CODE_SHA": HEAD,
+                "REQUEST_CODE_SHA": HEAD,
+                "EXECUTION_SOURCE_SHA": actions.IMPLEMENTATION_CODE_SHA,
                 "REQUEST_SHA256": "b" * 64,
                 "OUTPUT_ROOT": str(output),
             }
@@ -770,7 +781,8 @@ def test_render_request_is_head_independent(tmp_path, capsys) -> None:
 
     payload = json.loads(output.read_bytes())
     assert payload == actions.build_execution_request()
-    assert "execution_code_sha" not in payload
+    assert "request_code_sha" not in payload
+    assert payload["execution_source_sha"] == actions.IMPLEMENTATION_CODE_SHA
     assert (
         capsys.readouterr().out.strip()
         == actions.hashlib.sha256(output.read_bytes()).hexdigest()
@@ -795,6 +807,7 @@ def test_verification_transport_receipt_is_required_before_reveal(
         root / "verification-transport.json",
         {
             "schema": "ppo_normalization_verification_transport_v1",
+            "execution_source_sha": actions.IMPLEMENTATION_CODE_SHA,
             "activation_sha256": activation,
             "verification_set_sha256": verification_set,
             "replication_tree_sha256": "c" * 64,
@@ -807,6 +820,7 @@ def test_verification_transport_receipt_is_required_before_reveal(
         actions._validate_verification_transport_tree(
             root,
             expected_activation_digest=activation,
+            expected_execution_source_sha=actions.IMPLEMENTATION_CODE_SHA,
             expected_verification_set_sha256=verification_set,
         )
         == replication
@@ -821,6 +835,7 @@ def test_verification_transport_receipt_is_required_before_reveal(
         actions._validate_verification_transport_tree(
             root,
             expected_activation_digest=activation,
+            expected_execution_source_sha=actions.IMPLEMENTATION_CODE_SHA,
             expected_verification_set_sha256=verification_set,
         )
 
@@ -915,3 +930,32 @@ def test_stdlib_canonical_json_matches_repository_canonical_json() -> None:
         actions.content_digest(payload)
         == actions.hashlib.sha256(repository_canonical_json_bytes(payload)).hexdigest()
     )
+
+
+def test_execution_request_v2_binds_sealed_source_separately_from_request_head() -> (
+    None
+):
+    payload = actions.build_execution_request()
+
+    assert payload["schema"] == "ppo_normalization_execution_request_v2"
+    assert payload["execution_source_sha"] == actions.IMPLEMENTATION_CODE_SHA
+    assert "request_code_sha" not in payload
+
+
+def test_request_comment_v2_binds_request_head_only() -> None:
+    request_sha = actions.content_digest(actions.build_execution_request())
+    body = (
+        actions.REVIEW_REQUEST_MARKER
+        + "\n"
+        + json.dumps(
+            {"request_code_sha": HEAD, "request_sha256": request_sha},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+
+    assert actions.parse_execution_request_comment(body) == {
+        "request_code_sha": HEAD,
+        "request_sha256": request_sha,
+    }

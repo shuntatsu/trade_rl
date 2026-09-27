@@ -32,7 +32,7 @@ EXECUTION_ACTIVATION_SCHEMA: Final = "ppo_normalization_execution_activation_v1"
 VERIFIER_ARTIFACT_AUTHORITY_SCHEMA: Final = (
     "ppo_normalization_replication_verifier_artifact_authority_v1"
 )
-EXECUTION_FAILURE_SCHEMA: Final = "ppo_normalization_execution_failure_v1"
+EXECUTION_FAILURE_SCHEMA: Final = "ppo_normalization_execution_failure_v2"
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -123,8 +123,8 @@ def publish_replication_decision(root: Path) -> dict[str, object]:
     return publish(root)
 
 
-REQUEST_SCHEMA: Final = "ppo_normalization_execution_request_v1"
-REVIEW_REQUEST_MARKER: Final = "<!-- ppo-normalization-execution-request-v1 -->"
+REQUEST_SCHEMA: Final = "ppo_normalization_execution_request_v2"
+REVIEW_REQUEST_MARKER: Final = "<!-- ppo-normalization-execution-request-v2 -->"
 REQUEST_PATH: Final = Path("report/ppo-normalization-execution-request.json")
 ACTIVATION_TAG: Final = "activation/ppo-normalization-corrected-v1"
 
@@ -185,6 +185,7 @@ def build_execution_request() -> dict[str, object]:
 
     return {
         "schema": REQUEST_SCHEMA,
+        "execution_source_sha": IMPLEMENTATION_CODE_SHA,
         "protocol_sha256": PROTOCOL_SHA256,
         "implementation_digest": IMPLEMENTATION_DIGEST,
         "implementation_seal_sha256": IMPLEMENTATION_SEAL_SHA256,
@@ -214,6 +215,8 @@ def validate_execution_request(payload: object) -> dict[str, object]:
         raise ValueError("execution request has an unexpected shape")
     if payload.get("schema") != REQUEST_SCHEMA:
         raise ValueError("execution request schema differs")
+    if payload.get("execution_source_sha") != IMPLEMENTATION_CODE_SHA:
+        raise ValueError("execution request sealed source differs")
     if payload.get("implementation_seal_sha256") != IMPLEMENTATION_SEAL_SHA256:
         raise ValueError("execution request implementation seal differs")
     for field in (
@@ -245,20 +248,20 @@ def parse_execution_request_comment(body: object) -> dict[str, str]:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         raise ValueError("execution request comment is invalid JSON") from None
-    expected_keys = {"execution_code_sha", "request_sha256"}
+    expected_keys = {"request_code_sha", "request_sha256"}
     if (
         not isinstance(payload, dict)
         or set(payload) != expected_keys
         or canonical_json_bytes(payload) != raw
     ):
         raise ValueError("execution request comment is not canonical")
-    code_sha = _require_sha(
-        payload.get("execution_code_sha"), field="execution code SHA"
+    request_code_sha = _require_sha(
+        payload.get("request_code_sha"), field="request code SHA"
     )
     request_sha = _require_sha256(
         payload.get("request_sha256"), field="execution request SHA-256"
     )
-    return {"execution_code_sha": code_sha, "request_sha256": request_sha}
+    return {"request_code_sha": request_code_sha, "request_sha256": request_sha}
 
 
 def validate_execution_pr_files(files: list[str]) -> None:
@@ -348,7 +351,8 @@ def build_execution_failure_receipt(
     repository_id: int,
     run_id: int,
     run_attempt: int,
-    execution_code_sha: str,
+    request_code_sha: str,
+    execution_source_sha: str,
     request_sha256: str,
     activation_sha256: str | None,
     activation_tag_created: bool | None,
@@ -379,8 +383,9 @@ def build_execution_failure_receipt(
         "repository_id": _positive_int(repository_id, field="repository id"),
         "run_id": _positive_int(run_id, field="workflow run id"),
         "run_attempt": _positive_int(run_attempt, field="workflow run attempt"),
-        "execution_code_sha": _require_sha(
-            execution_code_sha, field="execution code SHA"
+        "request_code_sha": _require_sha(request_code_sha, field="request code SHA"),
+        "execution_source_sha": _require_sha(
+            execution_source_sha, field="execution source SHA"
         ),
         "request_sha256": _require_sha256(
             request_sha256, field="execution request SHA-256"
@@ -759,7 +764,7 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
     ):
         raise ValueError("GitHub execution request identity is malformed")
     parsed = parse_execution_request_comment(comment.get("body"))
-    head_sha = parsed["execution_code_sha"]
+    request_code_sha = parsed["request_code_sha"]
     repo = _repo_path(repository)
 
     permission = _api_json(
@@ -782,7 +787,7 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
         pull.get("state") != "open"
         or pull.get("draft") is not True
         or not isinstance(head, dict)
-        or head.get("sha") != head_sha
+        or head.get("sha") != request_code_sha
         or not isinstance(head.get("repo"), dict)
         or head["repo"].get("id") != repository_id
         or not isinstance(base, dict)
@@ -800,7 +805,7 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
         raise ValueError("current main could not be resolved")
     main_sha = _require_sha(main["commit"].get("sha"), field="current main SHA")
     compare = _api_json(
-        f"https://api.github.com/repos/{repo}/compare/{main_sha}...{head_sha}",
+        f"https://api.github.com/repos/{repo}/compare/{main_sha}...{request_code_sha}",
         token=token,
     )
     if (
@@ -819,7 +824,7 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
 
     contents = _api_json(
         f"https://api.github.com/repos/{repo}/contents/"
-        f"{urllib.parse.quote(REQUEST_PATH.as_posix(), safe='/')}?ref={head_sha}",
+        f"{urllib.parse.quote(REQUEST_PATH.as_posix(), safe='/')}?ref={request_code_sha}",
         token=token,
     )
     raw = _decode_contents_file(contents)
@@ -843,7 +848,7 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
         repository,
         token=token,
         pull_number=pull_number,
-        head_sha=head_sha,
+        head_sha=request_code_sha,
     )
     implementation_pull = _api_json(
         f"https://api.github.com/repos/{repo}/pulls/770",
@@ -883,14 +888,17 @@ def _request_outputs(event: dict[str, Any], *, token: str) -> dict[str, str]:
         {
             "schema": "ppo_normalization_activation_identity_v1",
             "repository_id": repository_id,
+            "request_code_sha": request_code_sha,
             "request_sha256": request_sha,
+            "execution_source_sha": IMPLEMENTATION_CODE_SHA,
             "protocol_sha256": PROTOCOL_SHA256,
             "implementation_digest": IMPLEMENTATION_DIGEST,
             "source_artifact_sha256": SOURCE_ARTIFACT_SHA256,
         }
     )
     return {
-        "execution_code_sha": head_sha,
+        "request_code_sha": request_code_sha,
+        "execution_source_sha": IMPLEMENTATION_CODE_SHA,
         "request_sha256": request_sha,
         "activation_identity": activation_identity,
     }
@@ -963,7 +971,8 @@ def _create_activation_tag(
     repository: str,
     *,
     token: str,
-    code_sha: str,
+    request_code_sha: str,
+    execution_source_sha: str,
     request_sha256: str,
     activation_digest: str,
     run_id: int,
@@ -971,8 +980,11 @@ def _create_activation_tag(
 ) -> str:
     _require_no_activation_tag(repository, token=token)
     record = {
-        "schema": "ppo_normalization_repository_activation_v1",
-        "execution_code_sha": _require_sha(code_sha, field="execution code SHA"),
+        "schema": "ppo_normalization_repository_activation_v2",
+        "request_code_sha": _require_sha(request_code_sha, field="request code SHA"),
+        "execution_source_sha": _require_sha(
+            execution_source_sha, field="execution source SHA"
+        ),
         "request_sha256": _require_sha256(
             request_sha256, field="execution request SHA-256"
         ),
@@ -999,7 +1011,7 @@ def _create_activation_tag(
         payload={
             "tag": ACTIVATION_TAG,
             "message": canonical_json_bytes(record).decode("utf-8"),
-            "object": code_sha,
+            "object": request_code_sha,
             "type": "commit",
         },
     )
@@ -1027,7 +1039,8 @@ def _read_activation_tag_record(
     repository: str,
     *,
     token: str,
-    code_sha: str,
+    request_code_sha: str,
+    execution_source_sha: str,
     request_sha256: str,
     run_id: int,
     run_attempt: int,
@@ -1063,7 +1076,7 @@ def _read_activation_tag_record(
         tag_object.get("tag") != ACTIVATION_TAG
         or not isinstance(target, dict)
         or target.get("type") != "commit"
-        or target.get("sha") != code_sha
+        or target.get("sha") != request_code_sha
         or not isinstance(message, str)
     ):
         raise ValueError("repository activation tag identity differs")
@@ -1074,7 +1087,8 @@ def _read_activation_tag_record(
         raise ValueError("repository activation tag record is invalid JSON") from None
     expected_keys = {
         "schema",
-        "execution_code_sha",
+        "request_code_sha",
+        "execution_source_sha",
         "request_sha256",
         "activation_sha256",
         "implementation_digest",
@@ -1093,8 +1107,9 @@ def _read_activation_tag_record(
         not isinstance(record, dict)
         or set(record) != expected_keys
         or canonical_json_bytes(record) != raw
-        or record.get("schema") != "ppo_normalization_repository_activation_v1"
-        or record.get("execution_code_sha") != code_sha
+        or record.get("schema") != "ppo_normalization_repository_activation_v2"
+        or record.get("request_code_sha") != request_code_sha
+        or record.get("execution_source_sha") != execution_source_sha
         or record.get("request_sha256") != request_sha256
         or record.get("implementation_digest") != IMPLEMENTATION_DIGEST
         or record.get("implementation_seal_sha256") != IMPLEMENTATION_SEAL_SHA256
@@ -1131,7 +1146,12 @@ def ensure_failure_receipt_main(
         int(env.get("GITHUB_RUN_ATTEMPT", "0")), field="workflow run attempt"
     )
     token = env.get("GITHUB_TOKEN", "")
-    code_sha = _require_sha(env.get("EXECUTION_CODE_SHA"), field="execution code SHA")
+    request_code_sha = _require_sha(
+        env.get("REQUEST_CODE_SHA"), field="request code SHA"
+    )
+    execution_source_sha = _require_sha(
+        env.get("EXECUTION_SOURCE_SHA"), field="execution source SHA"
+    )
     request_sha = _require_sha256(
         env.get("REQUEST_SHA256"), field="execution request SHA-256"
     )
@@ -1155,7 +1175,8 @@ def ensure_failure_receipt_main(
         record = _read_activation_tag_record(
             repository,
             token=token,
-            code_sha=code_sha,
+            request_code_sha=request_code_sha,
+            execution_source_sha=execution_source_sha,
             request_sha256=request_sha,
             run_id=run_id,
             run_attempt=run_attempt,
@@ -1178,7 +1199,8 @@ def ensure_failure_receipt_main(
             repository_id=repository_id,
             run_id=run_id,
             run_attempt=run_attempt,
-            execution_code_sha=code_sha,
+            request_code_sha=request_code_sha,
+            execution_source_sha=execution_source_sha,
             request_sha256=request_sha,
             activation_sha256=activation_digest,
             activation_tag_created=activation_tag_created,
@@ -1258,15 +1280,15 @@ def _download_workflow_artifact_tree(
 
 
 def _read_request_from_checkout(
-    target_root: Path,
+    request_root: Path,
     *,
-    expected_code_sha: str,
+    expected_request_code_sha: str,
     expected_request_sha: str,
 ) -> dict[str, object]:
-    if _git_head(target_root) != expected_code_sha:
-        raise ValueError("execution checkout HEAD differs from request")
+    if _git_head(request_root) != expected_request_code_sha:
+        raise ValueError("request checkout HEAD differs from request authority")
     payload, raw = _canonical_file(
-        target_root / REQUEST_PATH,
+        request_root / REQUEST_PATH,
         field="committed execution request",
     )
     validate_execution_request(payload)
@@ -1286,10 +1308,16 @@ def execute_main(environment: dict[str, str] | None = None) -> int:
         int(env.get("GITHUB_RUN_ATTEMPT", "0")), field="workflow run attempt"
     )
     token = env.get("GITHUB_TOKEN", "")
-    code_sha = _require_sha(env.get("EXECUTION_CODE_SHA"), field="execution code SHA")
+    request_code_sha = _require_sha(
+        env.get("REQUEST_CODE_SHA"), field="request code SHA"
+    )
+    execution_source_sha = _require_sha(
+        env.get("EXECUTION_SOURCE_SHA"), field="execution source SHA"
+    )
     request_sha = _require_sha256(
         env.get("REQUEST_SHA256"), field="execution request SHA-256"
     )
+    request_root = Path(env.get("REQUEST_ROOT", "request"))
     target_root = Path(env.get("TARGET_ROOT", "target"))
     output_root = Path(env.get("OUTPUT_ROOT", "output/execution"))
     failure_path = output_root.parent / "execution-failure.json"
@@ -1305,10 +1333,18 @@ def execute_main(environment: dict[str, str] | None = None) -> int:
         if output_root.exists() or output_root.is_symlink():
             raise FileExistsError("execution output already exists")
         request = _read_request_from_checkout(
-            target_root,
-            expected_code_sha=code_sha,
+            request_root,
+            expected_request_code_sha=request_code_sha,
             expected_request_sha=request_sha,
         )
+        if request.get("execution_source_sha") != execution_source_sha:
+            raise ValueError("request execution source differs from workflow authority")
+        if execution_source_sha != IMPLEMENTATION_CODE_SHA:
+            raise ValueError("execution source differs from sealed implementation")
+        if _git_head(target_root) != execution_source_sha:
+            raise ValueError(
+                "execution checkout HEAD differs from sealed implementation"
+            )
         provenance = build_candidate_run_provenance()
         activation = build_execution_activation(request, provenance)
         activation_digest = content_digest(activation)
@@ -1317,7 +1353,8 @@ def execute_main(environment: dict[str, str] | None = None) -> int:
         tag_object_sha = _create_activation_tag(
             repository,
             token=token,
-            code_sha=code_sha,
+            request_code_sha=request_code_sha,
+            execution_source_sha=execution_source_sha,
             request_sha256=request_sha,
             activation_digest=activation_digest,
             run_id=run_id,
@@ -1365,7 +1402,8 @@ def execute_main(environment: dict[str, str] | None = None) -> int:
                 "repository_id": repository_id,
                 "run_id": run_id,
                 "run_attempt": run_attempt,
-                "execution_code_sha": code_sha,
+                "request_code_sha": request_code_sha,
+                "execution_source_sha": execution_source_sha,
                 "request_sha256": request_sha,
                 "activation_sha256": activation_digest,
                 "activation_tag": ACTIVATION_TAG,
@@ -1409,7 +1447,8 @@ def execute_main(environment: dict[str, str] | None = None) -> int:
                     repository_id=repository_id,
                     run_id=run_id,
                     run_attempt=run_attempt,
-                    execution_code_sha=code_sha,
+                    request_code_sha=request_code_sha,
+                    execution_source_sha=execution_source_sha,
                     request_sha256=request_sha,
                     activation_sha256=activation_digest,
                     activation_tag_created=activation_tag_created,
@@ -1427,6 +1466,7 @@ def _validate_transport_tree(
     artifact_root: Path,
     *,
     expected_activation_digest: str,
+    expected_execution_source_sha: str,
 ) -> Path:
     receipt, _raw = _canonical_file(
         artifact_root / "transport.json",
@@ -1434,7 +1474,9 @@ def _validate_transport_tree(
     )
     replication_root = artifact_root / "replication"
     if (
-        receipt.get("activation_sha256") != expected_activation_digest
+        receipt.get("schema") != "ppo_normalization_execution_transport_v1"
+        or receipt.get("execution_source_sha") != expected_execution_source_sha
+        or receipt.get("activation_sha256") != expected_activation_digest
         or receipt.get("all_slots_complete") is not True
         or receipt.get("replication_tree_sha256") != _tree_digest(replication_root)
     ):
@@ -1466,7 +1508,9 @@ def verify_main(environment: dict[str, str] | None = None) -> int:
     )
     run_id = _positive_int(int(env.get("GITHUB_RUN_ID", "0")), field="workflow run id")
     token = env.get("GITHUB_TOKEN", "")
-    code_sha = _require_sha(env.get("EXECUTION_CODE_SHA"), field="execution code SHA")
+    execution_source_sha = _require_sha(
+        env.get("EXECUTION_SOURCE_SHA"), field="execution source SHA"
+    )
     activation_digest = _require_sha256(
         env.get("ACTIVATION_DIGEST"), field="activation digest"
     )
@@ -1480,8 +1524,10 @@ def verify_main(environment: dict[str, str] | None = None) -> int:
     output_root = Path(env.get("OUTPUT_ROOT", "output/verification"))
     if not token:
         raise ValueError("GITHUB_TOKEN is required")
-    if _git_head(target_root) != code_sha:
-        raise ValueError("verifier checkout HEAD differs from execution authority")
+    if execution_source_sha != IMPLEMENTATION_CODE_SHA:
+        raise ValueError("verifier source differs from sealed implementation")
+    if _git_head(target_root) != execution_source_sha:
+        raise ValueError("verifier checkout HEAD differs from sealed implementation")
     if output_root.exists() or output_root.is_symlink():
         raise FileExistsError("verification output already exists")
     with tempfile.TemporaryDirectory(
@@ -1501,6 +1547,7 @@ def verify_main(environment: dict[str, str] | None = None) -> int:
     replication_root = _validate_transport_tree(
         output_root,
         expected_activation_digest=activation_digest,
+        expected_execution_source_sha=execution_source_sha,
     )
     _restore_activation_authority(
         target_root,
@@ -1524,7 +1571,7 @@ def verify_main(environment: dict[str, str] | None = None) -> int:
             "repository": repository,
             "repository_id": repository_id,
             "run_id": run_id,
-            "execution_code_sha": code_sha,
+            "execution_source_sha": execution_source_sha,
             "activation_sha256": activation_digest,
             "execution_artifact_id": execution_artifact_id,
             "execution_artifact_sha256": execution_artifact_sha,
@@ -1546,6 +1593,7 @@ def _validate_verification_transport_tree(
     artifact_root: Path,
     *,
     expected_activation_digest: str,
+    expected_execution_source_sha: str,
     expected_verification_set_sha256: str,
 ) -> Path:
     receipt, _raw = _canonical_file(
@@ -1578,7 +1626,9 @@ def finalize_main(environment: dict[str, str] | None = None) -> int:
     )
     run_id = _positive_int(int(env.get("GITHUB_RUN_ID", "0")), field="workflow run id")
     token = env.get("GITHUB_TOKEN", "")
-    code_sha = _require_sha(env.get("EXECUTION_CODE_SHA"), field="execution code SHA")
+    execution_source_sha = _require_sha(
+        env.get("EXECUTION_SOURCE_SHA"), field="execution source SHA"
+    )
     workflow_sha = _require_sha(env.get("GITHUB_WORKFLOW_SHA"), field="workflow SHA")
     activation_digest = _require_sha256(
         env.get("ACTIVATION_DIGEST"), field="activation digest"
@@ -1599,8 +1649,10 @@ def finalize_main(environment: dict[str, str] | None = None) -> int:
     output_root = Path(env.get("OUTPUT_ROOT", "output/final"))
     if not token:
         raise ValueError("GITHUB_TOKEN is required")
-    if _git_head(target_root) != code_sha:
-        raise ValueError("finalizer checkout HEAD differs from execution authority")
+    if execution_source_sha != IMPLEMENTATION_CODE_SHA:
+        raise ValueError("finalizer source differs from sealed implementation")
+    if _git_head(target_root) != execution_source_sha:
+        raise ValueError("finalizer checkout HEAD differs from sealed implementation")
     if output_root.exists() or output_root.is_symlink():
         raise FileExistsError("final output already exists")
     with tempfile.TemporaryDirectory(
@@ -1620,6 +1672,7 @@ def finalize_main(environment: dict[str, str] | None = None) -> int:
     replication_root = _validate_verification_transport_tree(
         output_root,
         expected_activation_digest=activation_digest,
+        expected_execution_source_sha=execution_source_sha,
         expected_verification_set_sha256=verification_set_sha,
     )
     _restore_activation_authority(
@@ -1632,7 +1685,7 @@ def finalize_main(environment: dict[str, str] | None = None) -> int:
         run_id=run_id,
         artifact_id=verification_artifact_id,
         artifact_sha256=verification_artifact_sha,
-        code_sha=code_sha,
+        code_sha=execution_source_sha,
         workflow_sha=workflow_sha,
         activation_digest=activation_digest,
         implementation_digest=IMPLEMENTATION_DIGEST,
@@ -1651,7 +1704,7 @@ def finalize_main(environment: dict[str, str] | None = None) -> int:
             "repository": repository,
             "repository_id": repository_id,
             "run_id": run_id,
-            "execution_code_sha": code_sha,
+            "execution_source_sha": execution_source_sha,
             "activation_sha256": activation_digest,
             "verification_artifact_id": verification_artifact_id,
             "verification_artifact_sha256": verification_artifact_sha,

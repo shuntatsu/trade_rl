@@ -18,11 +18,12 @@ jobs:
   request:
     if: >-
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '<!-- ppo-normalization-execution-request-v1 -->')
+      contains(github.event.comment.body, '<!-- ppo-normalization-execution-request-v2 -->')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
-      execution_code_sha: ${{ steps.request.outputs.execution_code_sha }}
+      request_code_sha: ${{ steps.request.outputs.request_code_sha }}
+      execution_source_sha: ${{ steps.request.outputs.execution_source_sha }}
       request_sha256: ${{ steps.request.outputs.request_sha256 }}
       activation_identity: ${{ steps.request.outputs.activation_identity }}
     steps:
@@ -64,10 +65,18 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout exact execution head
+      - name: Checkout exact request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.request.outputs.execution_code_sha }}
+          ref: ${{ needs.request.outputs.request_code_sha }}
+          path: request
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout sealed execution source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.execution_source_sha }}
           path: target
           fetch-depth: 1
           persist-credentials: false
@@ -93,8 +102,10 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_CODE_SHA: ${{ needs.request.outputs.request_code_sha }}
+          EXECUTION_SOURCE_SHA: ${{ needs.request.outputs.execution_source_sha }}
           REQUEST_SHA256: ${{ needs.request.outputs.request_sha256 }}
+          REQUEST_ROOT: request
           TARGET_ROOT: target
           OUTPUT_ROOT: output/execution
         run: >-
@@ -122,7 +133,8 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_CODE_SHA: ${{ needs.request.outputs.request_code_sha }}
+          EXECUTION_SOURCE_SHA: ${{ needs.request.outputs.execution_source_sha }}
           REQUEST_SHA256: ${{ needs.request.outputs.request_sha256 }}
           OUTPUT_ROOT: output/execution
         run: >-
@@ -161,10 +173,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout exact execution head
+      - name: Checkout sealed execution source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.request.outputs.execution_code_sha }}
+          ref: ${{ needs.request.outputs.execution_source_sha }}
           path: target
           fetch-depth: 1
           persist-credentials: false
@@ -187,7 +199,8 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_CODE_SHA: ${{ needs.request.outputs.request_code_sha }}
+          EXECUTION_SOURCE_SHA: ${{ needs.request.outputs.execution_source_sha }}
           ACTIVATION_DIGEST: ${{ needs.execution.outputs.activation_digest }}
           EXECUTION_ARTIFACT_ID: ${{ needs.execution.outputs.execution_artifact_id }}
           EXECUTION_ARTIFACT_SHA256: ${{ needs.execution.outputs.execution_artifact_sha256 }}
@@ -226,10 +239,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout exact execution head
+      - name: Checkout sealed execution source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.request.outputs.execution_code_sha }}
+          ref: ${{ needs.request.outputs.execution_source_sha }}
           path: target
           fetch-depth: 1
           persist-credentials: false
@@ -253,7 +266,8 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          EXECUTION_CODE_SHA: ${{ needs.request.outputs.execution_code_sha }}
+          REQUEST_CODE_SHA: ${{ needs.request.outputs.request_code_sha }}
+          EXECUTION_SOURCE_SHA: ${{ needs.request.outputs.execution_source_sha }}
           ACTIVATION_DIGEST: ${{ needs.execution.outputs.activation_digest }}
           VERIFICATION_ARTIFACT_ID: ${{ needs.verify.outputs.verification_artifact_id }}
           VERIFICATION_ARTIFACT_SHA256: ${{ needs.verify.outputs.verification_artifact_sha256 }}

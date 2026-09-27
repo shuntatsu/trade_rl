@@ -261,9 +261,12 @@ execution-request PR whose sole delta is the canonical request record, requires 
 exact HEAD to contain current `main` and pass Core / real-PPO / Guide / generic
 independent-review gates, revalidates the merged implementation seal/review tags and
 the frozen source Artifact, and requires the static repository activation tag to be
-absent. The execution job builds the activation from its own runtime provenance,
-creates the repository-global activation tag before any slot is consumed, and keeps
-all ten fits on that exact runtime. Complete execution evidence is uploaded only
+absent. The request HEAD is not the economic implementation authority: the canonical
+request separately binds the reviewed source SHA from #770, and execution/verifier jobs
+checkout that sealed source even when current `main` has moved. The execution job builds
+the activation from that sealed source plus its own runtime provenance, creates the
+repository-global activation tag before any slot is consumed, and keeps all ten fits on
+that exact source/runtime. Complete execution evidence is uploaded only
 after all ten slots finish; a failed activated run can expose only a non-economic
 failure receipt. A separate no-refit verifier re-downloads the complete execution
 artifact by id/run/raw digest, and the finalizer reveals the comparison only after a

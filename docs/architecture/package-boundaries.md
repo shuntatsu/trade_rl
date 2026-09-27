@@ -344,7 +344,10 @@ does not by itself establish repository-global exactly-once execution. The separ
 `.github/workflows/ppo-normalization-execution.yml` own that repository-global boundary:
 an open Draft request PR may change only the canonical execution-request record, must
 contain current `main`, and must have exact-head Core / real-PPO / Guide / generic-review
-Green before a write-authorized canonical request comment can proceed. The transport
+Green before a write-authorized canonical request comment can proceed. That request HEAD
+is authorization provenance only: the request record separately binds the reviewed/sealed
+implementation source SHA, and economic execution / no-refit verification checkout that
+sealed source rather than inheriting later Python changes from current `main`. The transport
 revalidates the merged implementation seal/review tags and the frozen source Artifact,
 requires the fixed activation tag to be absent, and creates that tag before crossing any
 economic slot boundary. A failed activated run may publish only a non-economic failure

@@ -413,7 +413,7 @@ def test_gemini_request_separates_trusted_instruction_from_untrusted_evidence() 
     generation = payload["generationConfig"]
     assert generation["responseFormat"] == {
         "text": {
-            "mimeType": "application/json",
+            "mimeType": "APPLICATION_JSON",
             "schema": review._gemini_schema(),
         }
     }

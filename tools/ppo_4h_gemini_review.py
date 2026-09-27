@@ -1193,7 +1193,7 @@ def build_gemini_request(packet: dict[str, Any]) -> dict[str, Any]:
             "temperature": 0,
             "responseFormat": {
                 "text": {
-                    "mimeType": "application/json",
+                    "mimeType": "APPLICATION_JSON",
                     "schema": _gemini_schema(),
                 }
             },

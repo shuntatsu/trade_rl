@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -413,13 +415,43 @@ def test_gemini_request_separates_trusted_instruction_from_untrusted_evidence() 
     generation = payload["generationConfig"]
     assert generation["responseFormat"] == {
         "text": {
-            "mimeType": "APPLICATION_JSON",
+            "mimeType": "application/json",
             "schema": review._gemini_schema(),
         }
     }
+    assert "temperature" not in generation
     assert "responseMimeType" not in generation
     assert "responseSchema" not in generation
     assert "responseJsonSchema" not in generation
+
+
+def test_http_error_summary_exposes_only_bounded_provider_error_fields() -> None:
+    body = canonical_json_bytes(
+        {
+            "error": {
+                "code": 500,
+                "status": "INTERNAL",
+                "message": "backend rejected structured-output request",
+                "details": [{"debug": "MUST_NOT_LEAK"}],
+            }
+        }
+    )
+    error = urllib.error.HTTPError(
+        "https://generativelanguage.googleapis.com/v1beta/models/example:generateContent",
+        500,
+        "Internal Server Error",
+        {},
+        io.BytesIO(body),
+    )
+
+    summary = review._http_error_summary(error)
+
+    assert summary == (
+        "remote API request failed with HTTP 500 "
+        "(provider_code=500, status=INTERNAL, "
+        "message=backend rejected structured-output request)"
+    )
+    assert "MUST_NOT_LEAK" not in summary
 
 
 def test_parse_gemini_response_requires_clean_terminal_completion() -> None:

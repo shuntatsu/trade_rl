@@ -285,6 +285,11 @@ class PPOTradingEnv(gym.Env):
             if self.risk_config is None
             else PreTradeRisk(self.risk_config)
         )
+        self._default_risk_weight_limit = min(
+            self.risk.config.max_gross,
+            self.risk.config.max_abs_weight,
+        )
+        self._proposal_weights = np.zeros(dataset.n_symbols, dtype=np.float64)
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
@@ -479,20 +484,37 @@ class PPOTradingEnv(gym.Env):
             self.desired_quantity,
             symbol_index=symbol_index,
         )
-        proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+        proposal_weights = self._proposal_weights
+        proposal_weights.fill(0.0)
         proposal_weights[symbol_index] = proposal_weight
-        constrained = self.risk.constrain(
-            proposal_weights,
-            current=self.book.weights,
-            drawdown=self.book.max_drawdown,
-        )
-        target_weight = float(constrained.weights[symbol_index])
-        if should_rebind_strategy_proposal(constrained):
-            self.desired_quantity = _desired_quantity_from_weight(
-                self.book,
-                target_weight,
-                symbol_index=symbol_index,
+        drawdown = self.book.max_drawdown
+        if (
+            self.risk_config is None
+            and math.isfinite(proposal_weight)
+            and abs(proposal_weight) <= self._default_risk_weight_limit
+            and math.isfinite(drawdown)
+            and 0.0 <= drawdown <= 1.0
+        ):
+            target_weights = proposal_weights
+            was_constrained = False
+            risk_reasons: tuple[str, ...] = ()
+        else:
+            constrained = self.risk.constrain(
+                proposal_weights,
+                current=self.book.weights,
+                drawdown=drawdown,
             )
+            target_weights = constrained.weights
+            was_constrained = constrained.was_constrained
+            risk_reasons = constrained.reasons
+            target_weight = float(target_weights[symbol_index])
+            if should_rebind_strategy_proposal(constrained):
+                self.desired_quantity = _desired_quantity_from_weight(
+                    self.book,
+                    target_weight,
+                    symbol_index=symbol_index,
+                )
+        target_weight = float(target_weights[symbol_index])
 
         # The environment owns this history; avoid copying its full prefix into
         # the transactional execution clone on every one-bar training step.
@@ -501,7 +523,7 @@ class PPOTradingEnv(gym.Env):
         try:
             execution = self.executor.execute_interval(
                 self.book,
-                constrained.weights,
+                target_weights,
                 start_index=self.index,
                 bars=1,
             )
@@ -538,8 +560,8 @@ class PPOTradingEnv(gym.Env):
             "intent": intent,
             "target_weight": target_weight,
             "realized_weight": realized_weight,
-            "was_constrained": constrained.was_constrained,
-            "risk_reasons": constrained.reasons,
+            "was_constrained": was_constrained,
+            "risk_reasons": risk_reasons,
             "interval_net_return": execution.interval_net_return,
             "interval_cost_amount": execution.interval_cost,
             "interval_funding_amount": execution.interval_funding,

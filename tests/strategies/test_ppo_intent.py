@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -233,7 +233,9 @@ def test_ppo_reversal_preserves_short_proposal_through_hard_override() -> None:
     assert follow_up["target_weight"] == pytest.approx(0.4)
 
 
-def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
+def test_env_default_unconstrained_risk_matches_canonical_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset = market()
     intents = (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)
     replay = run_single_symbol_replay(
@@ -255,6 +257,12 @@ def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
         execution_cost=ExecutionCostConfig.zero(),
     )
     env.reset(seed=7)
+
+    def reject_redundant_projection(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        pytest.fail("default unconstrained PPO targets should bypass risk projection")
+
+    monkeypatch.setattr(env.risk, "constrain", reject_redundant_projection)
     return_history = env.book.returns_history
     rewards: list[float] = []
     for action in (2, 2, 1):
@@ -269,6 +277,94 @@ def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
     np.testing.assert_array_equal(return_history, replay.returns.values)
     assert env.book.quantities == replay.book.quantities
     assert env.book.portfolio_value == replay.book.portfolio_value
+
+
+def test_env_custom_risk_still_projects_proposed_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=PreTradeRiskConfig(
+            max_gross=0.2,
+            max_abs_weight=0.2,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        ),
+    )
+    env.reset(seed=7)
+    projection_calls = 0
+    original_constrain = env.risk.constrain
+
+    def count_projection(*args: object, **kwargs: object) -> object:
+        nonlocal projection_calls
+        projection_calls += 1
+        return original_constrain(*args, **kwargs)
+
+    monkeypatch.setattr(env.risk, "constrain", count_projection)
+
+    _, _, _, _, info = env.step(2)
+
+    assert projection_calls == 1
+    assert info["target_weight"] == pytest.approx(0.2)
+    assert info["was_constrained"] is True
+    assert info["risk_reasons"] == ("max_abs_weight",)
+
+
+def test_env_default_risk_projects_targets_above_execution_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+        execution_cost=replace(ExecutionCostConfig.zero(), max_leverage=0.5),
+    )
+    env.reset(seed=7)
+    projection_calls = 0
+    original_constrain = env.risk.constrain
+
+    def count_projection(*args: object, **kwargs: object) -> object:
+        nonlocal projection_calls
+        projection_calls += 1
+        return original_constrain(*args, **kwargs)
+
+    monkeypatch.setattr(env.risk, "constrain", count_projection)
+
+    _, _, _, _, info = env.step(2)
+
+    assert projection_calls == 1
+    assert info["target_weight"] == pytest.approx(0.5)
+    assert info["was_constrained"] is True
+    assert info["risk_reasons"] == ("max_abs_weight",)
+
+
+def test_env_default_risk_rejects_invalid_drawdown_before_execution() -> None:
+    env = PPOTradingEnv(
+        market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+    env.reset(seed=7)
+    env.book.max_drawdown = 1.1
+
+    with pytest.raises(
+        ValueError, match=r"drawdown must be finite and within \[0, 1\]"
+    ):
+        env.step(2)
 
 
 def test_env_encodes_observation_without_constructing_strategy_record(

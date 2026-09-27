@@ -529,8 +529,8 @@ until exact-head software verification and a fresh result-blind G0-G2 review are
 to the fixed contract. The review is now process-bound rather than GitHub-principal-
 bound: the same authenticated GitHub account may transport the formal review, but a
 same-principal body/tag assertion cannot authorize anything unless it references
-immutable evidence from the frozen trusted Google Gemini reviewer authority merged at
-`seal/ppo-4h-gemini-review-authority-20260927-v4`.
+immutable evidence from the frozen trusted Google Gemini reviewer authority identified by
+`seal/ppo-4h-gemini-review-authority-20260927-v5`.
 
 The active execution lifecycle remains on the dedicated **open draft execution PR**
 `research/ppo-4h-indicator-smoke-execution -> main`. Draft state is required through
@@ -552,13 +552,15 @@ fields plus the exact formal-review URL/body SHA-256.
 
 The execution gate independently re-fetches the trusted reviewer authority rather than
 trusting those source-review fields. It requires GitHub Actions run
-`PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`
-whose `head_sha` resolves to the authority commit frozen by
-`seal/ppo-4h-gemini-review-authority-20260927-v4`. The frozen workflow/runner SHA-256
-identities are
+`PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`.
+The bootstrap-reviewed authority anchor is the commit targeted by
+`seal/ppo-4h-gemini-review-authority-20260927-v5`. A later `main` head is acceptable
+only when GitHub proves it is a descendant of that anchor with `behind_by=0` and the
+execution gate independently refetches the workflow/runner bytes at that exact run head.
+Their frozen SHA-256 identities are
 `98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`
 and
-`d5951f8a500c686fe8647bdd07ea13ef41f67454e19957fc120ca93ee40ebeab`.
+`be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5`.
 The gate refetches the same-run trusted Core / PPO Runtime / Human Guide and Gemini
 semantic-review jobs, downloads the named reviewer artifact, binds GitHub metadata and
 raw ZIP digest, safely extracts the exact artifact roster, hashes canonical
@@ -604,23 +606,39 @@ request to that shape and forbade the deprecated `responseMimeType`,
 `8ca2d110...`, software lanes passed, and review tag
 `review/ppo-4h-indicator-smoke-v3` was created only afterwards. Fresh trusted run
 `36306400096` still failed at provider transport with HTTP 500 before any terminal
-Gemini semantic response or attestation. The remaining raw-wire mismatch was that the
-REST field is an enum: `responseFormat.text.mimeType` must carry
-`APPLICATION_JSON`, while authority v3 sent the SDK-style MIME string
-`application/json`. Authority v4 corrected that exact value, added a permanent
-regression oracle, passed exact-head Full CI plus bootstrap review, and was frozen by
-`seal/ppo-4h-gemini-review-authority-20260927-v4`.
+Gemini semantic response or attestation. Authority v4 then tested the raw enum spelling
+`APPLICATION_JSON`, but the provider still failed before a semantic response.
 
-Because the frozen authority and current `main` changed again, the old #767 v1/v2/v3
-reviewed SHAs, tags, and transport-failed requests are not reused. The execution branch
-must pin authority v4, contain current `main`, complete new exact-head software
-verification, and only then create the next unused annotated review tag (`...-v4`)
-and one fresh canonical trusted-review request. A successful trusted attestation must
-pass the v4 consumer before the evidence-only trigger commit can be created. Any
-terminal BLOCKED semantic review requires a new reviewed source HEAD before another
-semantic review may become authoritative. No PPO fit/replay or economic result has been
-authorized by these transport attempts, and none of this establishes profitability,
-unused-data evidence, production eligibility, or live-trading readiness.
+A subsequent contract audit against Google's raw REST example found that the wire
+shape uses `responseFormat.text.mimeType="application/json"` and that Gemini 3.x
+migration guidance removes deprecated sampling parameters such as `temperature`.
+The authority-v5 transport repair restored that MIME string, removed `temperature: 0`, and added bounded
+provider-error diagnostics that expose only code/status/message while suppressing raw
+bodies, nested details, credentials, and packet content. Its exact-head review-event CI
+run `36319375502` was Green and the merged reviewer implementation was frozen as
+`seal/ppo-4h-gemini-review-authority-20260927-v5` at anchor commit
+`b35d1b76...`. The trusted workflow/runner bytes are unchanged on current `main`
+even though unrelated commits advanced the branch.
+
+That unrelated main advance exposed an overly strict consumer rule: requiring the
+review workflow run head to equal the frozen authority commit makes a content-identical
+trusted reviewer unusable as soon as `main` advances. The consumer therefore pins the
+bootstrap-reviewed v5 anchor and frozen workflow/runner digests, requires any later run
+head to be a Git descendant of that anchor with `behind_by=0`, and independently
+refetches/hashes the trusted workflow and runner at the exact run head. Unrelated main
+advances are accepted only while those bytes remain identical; any reviewer-byte drift
+fails closed.
+
+Because current `main`, the frozen authority, and the consumer contract changed, the
+old #767 v1-v4 reviewed SHAs/tags/transport-failed requests are not reused. The execution
+branch must contain current `main`, pin authority v5, complete fresh exact-head
+software verification, and only then create the next unused annotated review tag and one
+fresh canonical trusted-review request. A successful trusted attestation must pass the
+v4 source-review / v3 trigger consumer before the evidence-only trigger commit can be
+created. Any terminal BLOCKED semantic review requires a new reviewed source HEAD before
+another semantic review may become authoritative. No PPO fit/replay or economic result
+has been authorized by the transport attempts above, and none of this establishes
+profitability, unused-data evidence, production eligibility, or live-trading readiness.
 
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.

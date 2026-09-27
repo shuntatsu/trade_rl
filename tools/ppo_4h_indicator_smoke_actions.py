@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -29,14 +31,14 @@ SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v4"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v4 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v3"
 TRUSTED_REPOSITORY_ID = 1_103_009_698
-TRUSTED_REVIEWER_AUTHORITY_COMMIT = "7d1f8f687b31f83f64a91bffa512804f9b6c4402"
+TRUSTED_REVIEWER_AUTHORITY_COMMIT = "b35d1b76bd37902ff34f8be8b23061071f770e91"
 TRUSTED_REVIEWER_WORKFLOW_PATH = ".github/workflows/ppo-4h-gemini-review.yml"
 TRUSTED_REVIEWER_WORKFLOW_NAME = "PPO 4h Gemini Review"
 TRUSTED_REVIEWER_WORKFLOW_SHA256 = (
     "98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17"
 )
 TRUSTED_REVIEWER_RUNNER_SHA256 = (
-    "d5951f8a500c686fe8647bdd07ea13ef41f67454e19957fc120ca93ee40ebeab"
+    "be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5"
 )
 TRUSTED_REVIEWER_ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
 TRUSTED_REVIEW_PROTOCOL = "ppo_4h_gemini_semantic_review_v1"
@@ -142,6 +144,70 @@ def _review_identity_digest(
     return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
 
 
+def _github_file_bytes(record: object, *, field: str) -> bytes:
+    if (
+        not isinstance(record, dict)
+        or record.get("type") != "file"
+        or record.get("encoding") != "base64"
+        or not isinstance(record.get("content"), str)
+    ):
+        raise ValueError(f"{field} GitHub content record is malformed")
+    encoded = "".join(record["content"].split())
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError(f"{field} GitHub content is invalid base64") from None
+
+
+def _require_frozen_reviewer_authority(
+    *,
+    repository: str,
+    run_head_sha: str,
+    token: str,
+    deadline: float,
+) -> None:
+    run_head = transport._require_commit_sha(
+        run_head_sha,
+        field="trusted reviewer workflow SHA",
+    )
+    repo_path = transport._repo_path(repository)
+    comparison = transport._api_json(
+        "https://api.github.com/repos/"
+        f"{repo_path}/compare/{TRUSTED_REVIEWER_AUTHORITY_COMMIT}...{run_head}",
+        token=token,
+        deadline=deadline,
+    )
+    if (
+        comparison.get("status") not in {"ahead", "identical"}
+        or comparison.get("behind_by") != 0
+    ):
+        raise ValueError("trusted reviewer run is not a descendant of frozen authority")
+
+    for relative, expected_sha, label in (
+        (
+            TRUSTED_REVIEWER_WORKFLOW_PATH,
+            TRUSTED_REVIEWER_WORKFLOW_SHA256,
+            "trusted reviewer workflow",
+        ),
+        (
+            "tools/ppo_4h_gemini_review.py",
+            TRUSTED_REVIEWER_RUNNER_SHA256,
+            "trusted reviewer runner",
+        ),
+    ):
+        encoded_path = urllib.parse.quote(relative, safe="/")
+        encoded_ref = urllib.parse.quote(run_head, safe="")
+        record = transport._api_json(
+            "https://api.github.com/repos/"
+            f"{repo_path}/contents/{encoded_path}?ref={encoded_ref}",
+            token=token,
+            deadline=deadline,
+        )
+        raw = _github_file_bytes(record, field=label)
+        if hashlib.sha256(raw).hexdigest() != expected_sha:
+            raise ValueError(f"{label} bytes differ from frozen authority")
+
+
 def validate_trusted_reviewer_attestation(
     attestation: object,
     source: dict[str, Any],
@@ -200,8 +266,6 @@ def validate_trusted_reviewer_attestation(
     run_head = transport._require_commit_sha(
         run.get("head_sha"), field="trusted reviewer workflow SHA"
     )
-    if run_head != TRUSTED_REVIEWER_AUTHORITY_COMMIT:
-        raise ValueError("trusted reviewer workflow run identity is invalid")
     if not isinstance(jobs, list):
         raise ValueError("trusted reviewer job inventory is malformed")
     by_name: dict[str, dict[str, Any]] = {}
@@ -445,6 +509,17 @@ def _require_trusted_reviewer_attestation(
     repo_path = transport._repo_path(repository)
     run = transport._api_json(
         f"https://api.github.com/repos/{repo_path}/actions/runs/{run_id}",
+        token=token,
+        deadline=deadline,
+    )
+    if not isinstance(run, dict):
+        raise ValueError("trusted reviewer workflow run is malformed")
+    run_head = transport._require_commit_sha(
+        run.get("head_sha"), field="trusted reviewer workflow SHA"
+    )
+    _require_frozen_reviewer_authority(
+        repository=repository,
+        run_head_sha=run_head,
         token=token,
         deadline=deadline,
     )

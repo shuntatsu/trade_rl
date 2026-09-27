@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib
 import zipfile
@@ -23,6 +24,7 @@ RESPONSE_ID = "response-123"
 MODEL = "gemini-model-version"
 REVIEW_TAG = "review/ppo-4h-indicator-smoke-v1"
 REVIEW_URL = "https://github.com/shuntatsu/trade_rl/pull/767#pullrequestreview-12345"
+DESCENDANT_AUTHORITY_SHA = "9" * 40
 
 
 def _identity() -> str:
@@ -184,16 +186,122 @@ def _jobs(**updates: object) -> list[dict[str, object]]:
 
 def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
     assert actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT == (
-        "7d1f8f687b31f83f64a91bffa512804f9b6c4402"
+        "b35d1b76bd37902ff34f8be8b23061071f770e91"
     )
     assert actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 == (
         "98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17"
     )
     assert actions.TRUSTED_REVIEWER_RUNNER_SHA256 == (
-        "d5951f8a500c686fe8647bdd07ea13ef41f67454e19957fc120ca93ee40ebeab"
+        "be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5"
     )
     assert actions.SOURCE_REVIEW_SCHEMA == "ppo_4h_indicator_source_review_v4"
     assert actions.REVIEW_SCHEMA == "ppo_4h_indicator_smoke_review_v3"
+
+
+def test_trusted_attestation_accepts_verified_authority_descendant() -> None:
+    result = actions.validate_trusted_reviewer_attestation(
+        _attestation(trusted_workflow_sha=DESCENDANT_AUTHORITY_SHA),
+        _source(),
+        repository="shuntatsu/trade_rl",
+        pull_number=767,
+        reviewed_code_sha=REVIEWED_SHA,
+        run=_run(head_sha=DESCENDANT_AUTHORITY_SHA),
+        jobs=_jobs(),
+    )
+
+    assert result["trusted_workflow_sha"] == DESCENDANT_AUTHORITY_SHA
+
+
+def _content_record(raw: bytes) -> dict[str, object]:
+    return {
+        "type": "file",
+        "encoding": "base64",
+        "content": base64.b64encode(raw).decode("ascii"),
+    }
+
+
+def test_frozen_authority_accepts_descendant_with_independently_verified_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = b"name: trusted-reviewer\n"
+    runner = b"print('trusted reviewer')\n"
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_WORKFLOW_SHA256",
+        hashlib.sha256(workflow).hexdigest(),
+    )
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_RUNNER_SHA256",
+        hashlib.sha256(runner).hexdigest(),
+    )
+
+    def api(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/compare/" in url:
+            return {"status": "ahead", "behind_by": 0}
+        if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
+            return _content_record(workflow)
+        if "/contents/tools/ppo_4h_gemini_review.py?" in url:
+            return _content_record(runner)
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+
+    actions._require_frozen_reviewer_authority(
+        repository="shuntatsu/trade_rl",
+        run_head_sha=DESCENDANT_AUTHORITY_SHA,
+        token="token",
+        deadline=999999999.0,
+    )
+
+
+def test_frozen_authority_rejects_non_descendant_or_changed_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = b"name: trusted-reviewer\n"
+    runner = b"print('trusted reviewer')\n"
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_WORKFLOW_SHA256",
+        hashlib.sha256(workflow).hexdigest(),
+    )
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_RUNNER_SHA256",
+        hashlib.sha256(runner).hexdigest(),
+    )
+
+    def non_descendant(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/compare/" in url:
+            return {"status": "diverged", "behind_by": 1}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", non_descendant)
+    with pytest.raises(ValueError, match="descendant"):
+        actions._require_frozen_reviewer_authority(
+            repository="shuntatsu/trade_rl",
+            run_head_sha=DESCENDANT_AUTHORITY_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
+
+    def changed_runner(url: str, **_kwargs: object) -> dict[str, object]:
+        if "/compare/" in url:
+            return {"status": "ahead", "behind_by": 0}
+        if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
+            return _content_record(workflow)
+        if "/contents/tools/ppo_4h_gemini_review.py?" in url:
+            return _content_record(b"changed runner\n")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(actions.transport, "_api_json", changed_runner)
+    with pytest.raises(ValueError, match="runner"):
+        actions._require_frozen_reviewer_authority(
+            repository="shuntatsu/trade_rl",
+            run_head_sha=DESCENDANT_AUTHORITY_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
 
 
 def test_trusted_attestation_accepts_same_account_transport_and_free_model_provenance() -> (
@@ -325,6 +433,16 @@ def _fake_trusted_evidence_transport(
     def api(url: str, **_kwargs: object) -> dict[str, object]:
         if url.endswith(f"/actions/runs/{RUN_ID}"):
             return run_value
+        if "/compare/" in url:
+            if run_value.get("head_sha") == actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT:
+                return {"status": "identical", "behind_by": 0}
+            return {"status": "diverged", "behind_by": 1}
+        if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
+            return _content_record(
+                Path(".github/workflows/ppo-4h-gemini-review.yml").read_bytes()
+            )
+        if "/contents/tools/ppo_4h_gemini_review.py?" in url:
+            return _content_record(Path("tools/ppo_4h_gemini_review.py").read_bytes())
         if url.endswith(
             f"/actions/runs/{RUN_ID}/attempts/{RUN_ATTEMPT}/jobs?per_page=100"
         ):
@@ -442,7 +560,7 @@ def test_require_trusted_attestation_rejects_attestation_digest_mismatch(
         )
 
 
-def test_require_trusted_attestation_rejects_unfrozen_workflow_run(
+def test_require_trusted_attestation_rejects_non_descendant_workflow_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _fake_trusted_evidence_transport(
@@ -450,7 +568,7 @@ def test_require_trusted_attestation_rejects_unfrozen_workflow_run(
         attestation=_attestation(),
         run=_run(head_sha="9" * 40),
     )
-    with pytest.raises(ValueError, match="workflow run identity"):
+    with pytest.raises(ValueError, match="descendant"):
         actions._require_trusted_reviewer_attestation(
             source,
             repository="shuntatsu/trade_rl",

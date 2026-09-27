@@ -212,11 +212,10 @@ GitHub principal is only an authenticated transport and may be the same account 
 execution PR author. Same-principal posting is never sufficient by itself: the canonical
 source-review payload must reference immutable evidence produced by the frozen trusted
 Google Gemini reviewer authority frozen by
-`seal/ppo-4h-gemini-review-authority-20260927-v4`. The consumer pins that authority's
-workflow SHA-256
-`98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`
+`seal/ppo-4h-gemini-review-authority-20260927-v5`. The consumer pins that seal's bootstrap-reviewed authority commit together with workflow SHA-256
+`98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`,
 and runner SHA-256
-`d5951f8a500c686fe8647bdd07ea13ef41f67454e19957fc120ca93ee40ebeab`.
+`be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5`.
 A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed
 by a matching trusted reviewer run/artifact/attestation therefore fails closed.
 
@@ -233,8 +232,7 @@ concrete Gemini model version remains provenance rather than a validator allow-l
 
 The trusted reviewer attestation is independently refetched by the execution gate. The
 gate refetches the exact GitHub Actions run and attempt, requires workflow name
-`PPO 4h Gemini Review`, event `issue_comment`, completed/success status, main-branch
-head equal to the frozen authority commit, and the frozen workflow path. It refetches
+`PPO 4h Gemini Review`, event `issue_comment`, completed/success status, and the frozen workflow path. The run head may advance beyond the bootstrap-reviewed authority commit only when GitHub's compare API proves the run head contains that commit with `behind_by=0`; the gate then independently refetches the workflow and runner bytes at that exact run head and requires their SHA-256 digests to equal the frozen authority values. Thus unrelated main advances do not invalidate the reviewer, while any reviewer-byte drift fails closed. It refetches
 the same-run job inventory and requires exactly the attested
 `Trusted Lean Core verification`, `Trusted PPO Runtime verification`, and
 `Trusted Human Guide verification` jobs to be Green together with a Green

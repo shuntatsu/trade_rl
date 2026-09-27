@@ -211,12 +211,12 @@ and the review's `commit_id` must equal the exact reviewed code HEAD. The postin
 GitHub principal is only an authenticated transport and may be the same account as the
 execution PR author. Same-principal posting is never sufficient by itself: the canonical
 source-review payload must reference immutable evidence produced by the frozen trusted
-Google Gemini reviewer authority merged at
-`seal/ppo-4h-gemini-review-authority-20260926-v1`. The consumer pins that authority's
+Google Gemini reviewer authority frozen by
+`seal/ppo-4h-gemini-review-authority-20260927-v2`. The consumer pins that authority's
 workflow SHA-256
 `98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`
 and runner SHA-256
-`ba5f322c6b5abc57c67da757953c94b36dcb3ab2174bd7a2f5785331a622b509`.
+`90a72d238035ff3764cd27bc0bb91e043d4f9e0d60ee487a3d870519da213187`.
 A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed
 by a matching trusted reviewer run/artifact/attestation therefore fails closed.
 

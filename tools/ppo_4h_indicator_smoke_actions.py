@@ -24,10 +24,33 @@ SOURCE_ARTIFACT_SHA256 = (
     "89e899427f23fa46929c8be1e71fd49abe0d1d465c7a7f796a0874426b885bce"
 )
 REVIEW_PATH = Path("report/ppo-4h-indicator-smoke-review.json")
-REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v2"
-SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v3"
-SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v3 -->\n"
-REVIEWER_SURFACE = "github_pr_review_v2"
+REVIEW_SCHEMA = "ppo_4h_indicator_smoke_review_v3"
+SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v4"
+SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v4 -->\n"
+REVIEWER_SURFACE = "github_pr_review_v3"
+TRUSTED_REPOSITORY_ID = 1_103_009_698
+TRUSTED_REVIEWER_AUTHORITY_COMMIT = "18be65917bbc3963ba96d0659ea08483e0ef7dcb"
+TRUSTED_REVIEWER_WORKFLOW_PATH = ".github/workflows/ppo-4h-gemini-review.yml"
+TRUSTED_REVIEWER_WORKFLOW_NAME = "PPO 4h Gemini Review"
+TRUSTED_REVIEWER_WORKFLOW_SHA256 = (
+    "98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17"
+)
+TRUSTED_REVIEWER_RUNNER_SHA256 = (
+    "ba5f322c6b5abc57c67da757953c94b36dcb3ab2174bd7a2f5785331a622b509"
+)
+TRUSTED_REVIEWER_ATTESTATION_SCHEMA = "ppo_4h_gemini_reviewer_run_v1"
+TRUSTED_REVIEW_PROTOCOL = "ppo_4h_gemini_semantic_review_v1"
+TRUSTED_REVIEWER_PROVIDER = "google_gemini"
+TRUSTED_REVIEWER_CONTEXT = "trusted_default_branch_read_only"
+TRUSTED_REVIEWER_ARTIFACT_PREFIX = "ppo-4h-gemini-review"
+TRUSTED_REVIEWER_ATTESTATION_PATH = "reviewer-attestation.json"
+_TRUSTED_REVIEWER_ARTIFACT_FILES = {
+    "gemini-request.json",
+    "gemini-response.json",
+    "review-packet.json",
+    "reviewer-attestation.json",
+    "reviewer-disposition.txt",
+}
 EXECUTION_BRANCH = "research/ppo-4h-indicator-smoke-execution"
 EXECUTION_BASE_BRANCH = "main"
 TRIGGER_MESSAGE = "run: execute 4h PPO indicator smoke"
@@ -41,6 +64,438 @@ _REVIEW_URL_RE = re.compile(
 _REVIEW_TAG_RE = re.compile(
     r"^review/ppo-4h-indicator-smoke-v(?P<version>[1-9][0-9]*)$"
 )
+_TRUSTED_PACKET_ARTIFACT_RE = re.compile(
+    r"^ppo-4h-review-packet-(?P<identity>[0-9a-f]{64})-"
+    r"(?P<run>[1-9][0-9]*)-(?P<attempt>[1-9][0-9]*)$"
+)
+_MAX_TRUSTED_ARTIFACT_PAGES = 20
+
+
+_TRUSTED_ATTESTATION_FIELDS = {
+    "schema",
+    "review_protocol",
+    "review_identity_digest",
+    "repository",
+    "repository_id",
+    "reviewed_code_sha",
+    "review_tag",
+    "review_tag_object_sha",
+    "trusted_workflow_sha",
+    "trusted_workflow_ref",
+    "trusted_workflow_file_sha256",
+    "trusted_runner_sha256",
+    "reviewer_run_id",
+    "reviewer_run_attempt",
+    "request_pull_number",
+    "request_comment_id",
+    "requester_login",
+    "requester_permission",
+    "request_body_sha256",
+    "trusted_verification_jobs",
+    "packet_sha256",
+    "system_instruction_sha256",
+    "gemini_request_sha256",
+    "raw_gemini_response_sha256",
+    "result_blind",
+    "reviewer_context",
+    "python_version",
+    "reviewer_provider",
+    "reviewer_model",
+    "reviewer_response_id",
+    "g0",
+    "g1",
+    "g2",
+    "disposition",
+    "blocking_findings",
+    "strongest_counterexample",
+    "missing_evidence",
+    "claim_downgrade",
+    "machine_oracles",
+    "what_this_cannot_prove",
+}
+_TRUSTED_JOB_NAMES = {
+    "core": "Trusted Lean Core verification",
+    "ppo-runtime": "Trusted PPO Runtime verification",
+    "guide": "Trusted Human Guide verification",
+}
+
+
+def _review_identity_digest(
+    *,
+    repository: str,
+    pull_number: int,
+    reviewed_code_sha: str,
+) -> str:
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    identity = {
+        "schema": "ppo_4h_gemini_review_identity_v1",
+        "repository": repository,
+        "repository_id": TRUSTED_REPOSITORY_ID,
+        "pull_number": transport._strict_positive_int(
+            pull_number, field="execution pull number"
+        ),
+        "reviewed_code_sha": reviewed,
+        "review_protocol": TRUSTED_REVIEW_PROTOCOL,
+    }
+    return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
+
+
+def validate_trusted_reviewer_attestation(
+    attestation: object,
+    source: dict[str, Any],
+    *,
+    repository: str,
+    pull_number: int,
+    reviewed_code_sha: str,
+    run: object,
+    jobs: object,
+) -> dict[str, Any]:
+    if (
+        not isinstance(attestation, dict)
+        or set(attestation) != _TRUSTED_ATTESTATION_FIELDS
+    ):
+        raise ValueError("trusted reviewer attestation shape is unsupported")
+    reviewed = transport._require_commit_sha(
+        reviewed_code_sha, field="reviewed code SHA"
+    )
+    expected_identity = _review_identity_digest(
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed,
+    )
+    expected_run_id = transport._strict_positive_int(
+        source.get("trusted_reviewer_run_id"), field="trusted reviewer run id"
+    )
+    expected_attempt = transport._strict_positive_int(
+        source.get("trusted_reviewer_run_attempt"),
+        field="trusted reviewer run attempt",
+    )
+    transport._strict_positive_int(
+        source.get("trusted_reviewer_artifact_id"),
+        field="trusted reviewer artifact id",
+    )
+    transport._require_sha256(
+        source.get("trusted_reviewer_artifact_sha256"),
+        field="trusted reviewer artifact SHA-256",
+    )
+    transport._require_sha256(
+        source.get("trusted_reviewer_attestation_sha256"),
+        field="trusted reviewer attestation SHA-256",
+    )
+    if not isinstance(run, dict):
+        raise ValueError("trusted reviewer workflow run is malformed")
+    if (
+        run.get("id") != expected_run_id
+        or run.get("name") != TRUSTED_REVIEWER_WORKFLOW_NAME
+        or run.get("event") != "issue_comment"
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or run.get("run_attempt") != expected_attempt
+        or run.get("head_branch") != EXECUTION_BASE_BRANCH
+        or run.get("path") != TRUSTED_REVIEWER_WORKFLOW_PATH
+    ):
+        raise ValueError("trusted reviewer workflow run identity is invalid")
+    run_head = transport._require_commit_sha(
+        run.get("head_sha"), field="trusted reviewer workflow SHA"
+    )
+    if run_head != TRUSTED_REVIEWER_AUTHORITY_COMMIT:
+        raise ValueError("trusted reviewer workflow run identity is invalid")
+    if not isinstance(jobs, list):
+        raise ValueError("trusted reviewer job inventory is malformed")
+    by_name: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        if not isinstance(job, dict) or not isinstance(job.get("name"), str):
+            continue
+        if job["name"] in by_name:
+            raise ValueError("trusted reviewer job inventory has duplicate names")
+        by_name[job["name"]] = job
+    attested_jobs = attestation.get("trusted_verification_jobs")
+    if not isinstance(attested_jobs, dict) or set(attested_jobs) != set(
+        _TRUSTED_JOB_NAMES
+    ):
+        raise ValueError("trusted reviewer attested job roster is malformed")
+    for key, name in _TRUSTED_JOB_NAMES.items():
+        job = by_name.get(name)
+        if (
+            job is None
+            or job.get("status") != "completed"
+            or job.get("conclusion") != "success"
+            or transport._strict_positive_int(
+                job.get("id"), field=f"trusted reviewer {key} job id"
+            )
+            != transport._strict_positive_int(
+                attested_jobs.get(key), field=f"attested {key} job id"
+            )
+        ):
+            raise ValueError(f"trusted reviewer verification job is invalid: {key}")
+    review_job = by_name.get("Trusted Gemini semantic review")
+    if (
+        review_job is None
+        or review_job.get("status") != "completed"
+        or review_job.get("conclusion") != "success"
+    ):
+        raise ValueError("trusted Gemini semantic review job is not Green")
+    if (
+        attestation.get("schema") != TRUSTED_REVIEWER_ATTESTATION_SCHEMA
+        or attestation.get("review_protocol") != TRUSTED_REVIEW_PROTOCOL
+        or attestation.get("review_identity_digest") != expected_identity
+        or attestation.get("repository") != repository
+        or attestation.get("repository_id") != TRUSTED_REPOSITORY_ID
+        or attestation.get("reviewed_code_sha") != reviewed
+        or attestation.get("review_tag") != source.get("review_tag")
+        or attestation.get("review_tag_object_sha")
+        != source.get("review_tag_object_sha")
+        or attestation.get("trusted_workflow_sha") != run_head
+        or attestation.get("trusted_workflow_ref")
+        != (f"{repository}/{TRUSTED_REVIEWER_WORKFLOW_PATH}@refs/heads/main")
+        or attestation.get("trusted_workflow_file_sha256")
+        != TRUSTED_REVIEWER_WORKFLOW_SHA256
+        or attestation.get("trusted_runner_sha256") != TRUSTED_REVIEWER_RUNNER_SHA256
+        or attestation.get("reviewer_run_id") != expected_run_id
+        or attestation.get("reviewer_run_attempt") != expected_attempt
+        or attestation.get("request_pull_number") != pull_number
+        or attestation.get("requester_permission") not in {"write", "admin"}
+        or attestation.get("result_blind") is not True
+        or attestation.get("reviewer_context") != TRUSTED_REVIEWER_CONTEXT
+        or attestation.get("reviewer_provider") != TRUSTED_REVIEWER_PROVIDER
+        or attestation.get("g0") != "PASS"
+        or attestation.get("g1") != "PASS"
+        or attestation.get("g2") not in {"PASS", "EVIDENCE_BOUND"}
+        or attestation.get("disposition") != "G0_G1_CLEAR_G2_EVIDENCE_BOUND"
+        or attestation.get("blocking_findings") != []
+    ):
+        raise ValueError("trusted reviewer attestation does not authorize execution")
+    for field in ("reviewer_model", "reviewer_response_id", "requester_login"):
+        value = attestation.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"trusted reviewer attestation {field} is missing")
+    if (
+        source.get("review_identity_digest") != expected_identity
+        or source.get("reviewer_provider") != attestation.get("reviewer_provider")
+        or source.get("reviewer_model") != attestation.get("reviewer_model")
+        or source.get("reviewer_response_id") != attestation.get("reviewer_response_id")
+        or source.get("reviewer_context") != attestation.get("reviewer_context")
+        or source.get("result_blind") != attestation.get("result_blind")
+        or source.get("g0") != attestation.get("g0")
+        or source.get("g1") != attestation.get("g1")
+        or source.get("g2") != attestation.get("g2")
+        or source.get("disposition") != attestation.get("disposition")
+        or source.get("blocking_findings") != attestation.get("blocking_findings")
+    ):
+        raise ValueError("source review differs from trusted reviewer attestation")
+    return attestation
+
+
+def _canonical_trusted_attestation(
+    path: Path,
+    *,
+    expected_sha256: str,
+) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("trusted reviewer attestation is missing")
+    raw = path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    expected = transport._require_sha256(
+        expected_sha256,
+        field="trusted reviewer attestation SHA-256",
+    )
+    if actual != expected:
+        raise ValueError("trusted reviewer attestation SHA-256 mismatch")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("trusted reviewer attestation is invalid JSON") from None
+    if not isinstance(value, dict) or canonical_json_bytes(value) != raw:
+        raise ValueError("trusted reviewer attestation is not canonical JSON")
+    return value
+
+
+def _require_trusted_reviewer_lineage(
+    *,
+    repository: str,
+    identity_digest: str,
+    expected_run_id: int,
+    expected_run_attempt: int,
+    token: str,
+    deadline: float,
+) -> None:
+    identity = transport._require_sha256(
+        identity_digest,
+        field="trusted review identity digest",
+    )
+    run_id = transport._strict_positive_int(
+        expected_run_id,
+        field="trusted reviewer run id",
+    )
+    run_attempt = transport._strict_positive_int(
+        expected_run_attempt,
+        field="trusted reviewer run attempt",
+    )
+    repo_path = transport._repo_path(repository)
+    matches: set[tuple[int, int]] = set()
+    exhausted = False
+    for page in range(1, _MAX_TRUSTED_ARTIFACT_PAGES + 1):
+        payload = transport._api_json(
+            "https://api.github.com/repos/"
+            f"{repo_path}/actions/artifacts?per_page=100&page={page}",
+            token=token,
+            deadline=deadline,
+        )
+        artifacts = payload.get("artifacts")
+        if not isinstance(artifacts, list):
+            raise ValueError("trusted review lineage artifact inventory is malformed")
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            name = artifact.get("name")
+            if not isinstance(name, str):
+                continue
+            match = _TRUSTED_PACKET_ARTIFACT_RE.fullmatch(name)
+            if match is None or match.group("identity") != identity:
+                continue
+            if artifact.get("expired") is not False:
+                raise ValueError(
+                    "trusted review lineage expiry status is missing or expired"
+                )
+            parsed_run = int(match.group("run"))
+            parsed_attempt = int(match.group("attempt"))
+            workflow_run = artifact.get("workflow_run")
+            if (
+                not isinstance(workflow_run, dict)
+                or transport._strict_positive_int(
+                    workflow_run.get("id"),
+                    field="trusted review lineage workflow run id",
+                )
+                != parsed_run
+            ):
+                raise ValueError(
+                    "trusted review lineage artifact identity is malformed"
+                )
+            key = (parsed_run, parsed_attempt)
+            if key in matches:
+                raise ValueError("trusted review lineage contains duplicate attempts")
+            matches.add(key)
+        if len(artifacts) < 100:
+            exhausted = True
+            break
+    if not exhausted:
+        raise ValueError(
+            "trusted review lineage artifact inventory exceeds page budget"
+        )
+    if not matches:
+        raise ValueError("trusted review lineage evidence is missing")
+    if any(candidate_run != run_id for candidate_run, _ in matches):
+        raise ValueError("trusted review lineage contains another workflow run")
+    if any(candidate_attempt > run_attempt for _, candidate_attempt in matches):
+        raise ValueError("trusted review lineage contains a later attempt")
+    if (run_id, run_attempt) not in matches:
+        raise ValueError("trusted review lineage does not contain the selected attempt")
+
+
+def _require_trusted_reviewer_attestation(
+    source: dict[str, Any],
+    *,
+    repository: str,
+    pull_number: int,
+    reviewed_code_sha: str,
+    token: str | None = None,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    if not token:
+        raise ValueError("trusted reviewer GitHub token is required")
+    if deadline is None:
+        raise ValueError("trusted reviewer deadline is required")
+    run_id = transport._strict_positive_int(
+        source.get("trusted_reviewer_run_id"),
+        field="trusted reviewer run id",
+    )
+    run_attempt = transport._strict_positive_int(
+        source.get("trusted_reviewer_run_attempt"),
+        field="trusted reviewer run attempt",
+    )
+    artifact_id = transport._strict_positive_int(
+        source.get("trusted_reviewer_artifact_id"),
+        field="trusted reviewer artifact id",
+    )
+    artifact_sha = transport._require_sha256(
+        source.get("trusted_reviewer_artifact_sha256"),
+        field="trusted reviewer artifact SHA-256",
+    )
+    attestation_sha = transport._require_sha256(
+        source.get("trusted_reviewer_attestation_sha256"),
+        field="trusted reviewer attestation SHA-256",
+    )
+    expected_identity = _review_identity_digest(
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed_code_sha,
+    )
+    if source.get("review_identity_digest") != expected_identity:
+        raise ValueError("trusted review identity digest differs")
+    _require_trusted_reviewer_lineage(
+        repository=repository,
+        identity_digest=expected_identity,
+        expected_run_id=run_id,
+        expected_run_attempt=run_attempt,
+        token=token,
+        deadline=deadline,
+    )
+    repo_path = transport._repo_path(repository)
+    run = transport._api_json(
+        f"https://api.github.com/repos/{repo_path}/actions/runs/{run_id}",
+        token=token,
+        deadline=deadline,
+    )
+    jobs_payload = transport._api_json(
+        "https://api.github.com/repos/"
+        f"{repo_path}/actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100",
+        token=token,
+        deadline=deadline,
+    )
+    jobs = jobs_payload.get("jobs")
+    reference = transport.ArtifactReference(
+        artifact_id=artifact_id,
+        run_id=run_id,
+        sha256=artifact_sha,
+    )
+    expected_name = f"{TRUSTED_REVIEWER_ARTIFACT_PREFIX}-{run_id}-{run_attempt}"
+    with tempfile.TemporaryDirectory(prefix="ppo-4h-trusted-review-") as temp:
+        root = Path(temp)
+        archive = root / "review.zip"
+        metadata = transport.download_artifact_archive(
+            repository,
+            reference,
+            repository_id=TRUSTED_REPOSITORY_ID,
+            token=token,
+            destination=archive,
+            deadline=deadline,
+        )
+        if metadata.get("name") != expected_name:
+            raise ValueError("trusted reviewer artifact name differs")
+        extracted = root / "review"
+        transport.safe_extract_zip(archive, extracted)
+        files = {
+            path.relative_to(extracted).as_posix()
+            for path in extracted.rglob("*")
+            if path.is_file()
+        }
+        if files != _TRUSTED_REVIEWER_ARTIFACT_FILES:
+            raise ValueError("trusted reviewer artifact file roster differs")
+        attestation = _canonical_trusted_attestation(
+            extracted / TRUSTED_REVIEWER_ATTESTATION_PATH,
+            expected_sha256=attestation_sha,
+        )
+    return validate_trusted_reviewer_attestation(
+        attestation,
+        source,
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed_code_sha,
+        run=run,
+        jobs=jobs,
+    )
 
 
 def _git(*args: str) -> str:
@@ -73,6 +528,12 @@ def _canonical_review(path: Path) -> dict[str, Any]:
         "static_contract_digest",
         "review_tag",
         "review_tag_object_sha",
+        "review_identity_digest",
+        "trusted_reviewer_run_id",
+        "trusted_reviewer_run_attempt",
+        "trusted_reviewer_artifact_id",
+        "trusted_reviewer_artifact_sha256",
+        "trusted_reviewer_attestation_sha256",
         "source_review_url",
         "source_review_body_sha256",
         "reviewer_surface",
@@ -109,9 +570,17 @@ def _canonical_source_review(body: str) -> dict[str, Any]:
         "static_contract_digest",
         "review_tag",
         "review_tag_object_sha",
+        "review_identity_digest",
+        "trusted_reviewer_run_id",
+        "trusted_reviewer_run_attempt",
+        "trusted_reviewer_artifact_id",
+        "trusted_reviewer_artifact_sha256",
+        "trusted_reviewer_attestation_sha256",
         "reviewer_independence",
         "reviewer_kind",
+        "reviewer_provider",
         "reviewer_model",
+        "reviewer_response_id",
         "reviewer_context",
         "result_blind",
         "g0",
@@ -279,46 +748,6 @@ def _review_inventory(
         page += 1
 
 
-def _require_review_not_superseded(
-    record: object,
-    inventory: list[object],
-) -> None:
-    reviewer_id = _github_principal_id(record, field="source review")
-    if not isinstance(record, dict):
-        raise ValueError("source review GitHub record is malformed")
-    review_id = transport._strict_positive_int(
-        record.get("id"), field="source review id"
-    )
-    for candidate in reversed(inventory):
-        try:
-            candidate_reviewer_id = _github_principal_id(
-                candidate, field="source review"
-            )
-        except ValueError:
-            continue
-        if candidate_reviewer_id != reviewer_id:
-            continue
-        if not isinstance(candidate, dict):
-            raise ValueError("source review authorization was superseded")
-        try:
-            candidate_id = transport._strict_positive_int(
-                candidate.get("id"), field="source review id"
-            )
-        except ValueError:
-            raise ValueError("source review authorization was superseded") from None
-        if candidate_id != review_id:
-            raise ValueError("source review authorization was superseded")
-        for field in ("html_url", "body", "commit_id", "state"):
-            if candidate.get(field) != record.get(field):
-                raise ValueError("source review changed during authorization check")
-        if _github_principal_login(
-            candidate, field="source review"
-        ) != _github_principal_login(record, field="source review"):
-            raise ValueError("source review changed during authorization check")
-        return
-    raise ValueError("source review is missing from current review inventory")
-
-
 def _require_current_main_contained(
     *,
     repository: str,
@@ -428,7 +857,7 @@ def _validate_source_review_record(
         raise ValueError("source review commit differs from reviewed code SHA")
     if record.get("state") not in {"COMMENTED", "APPROVED"}:
         raise ValueError("source review state does not authorize execution")
-    author_id = _validate_execution_pull(
+    _validate_execution_pull(
         pull,
         repository=repository,
         pull_number=pull_number,
@@ -438,24 +867,53 @@ def _validate_source_review_record(
             else expected_pull_head_sha
         ),
     )
-    reviewer_id = _github_principal_id(record, field="source review")
-    if reviewer_id == author_id:
-        raise ValueError("source review principal is not independent from PR author")
 
     source = _canonical_source_review(body)
     if source.get("reviewed_code_sha") != reviewed_code_sha:
         raise ValueError("source review payload binds a different code SHA")
     if source.get("static_contract_digest") != expected_static_digest:
         raise ValueError("source review payload binds a different static contract")
+    expected_identity = _review_identity_digest(
+        repository=repository,
+        pull_number=pull_number,
+        reviewed_code_sha=reviewed_code_sha,
+    )
+    if source.get("review_identity_digest") != expected_identity:
+        raise ValueError("source review identity digest differs")
+    transport._strict_positive_int(
+        source.get("trusted_reviewer_run_id"),
+        field="trusted reviewer run id",
+    )
+    transport._strict_positive_int(
+        source.get("trusted_reviewer_run_attempt"),
+        field="trusted reviewer run attempt",
+    )
+    transport._strict_positive_int(
+        source.get("trusted_reviewer_artifact_id"),
+        field="trusted reviewer artifact id",
+    )
+    transport._require_sha256(
+        source.get("trusted_reviewer_artifact_sha256"),
+        field="trusted reviewer artifact SHA-256",
+    )
+    transport._require_sha256(
+        source.get("trusted_reviewer_attestation_sha256"),
+        field="trusted reviewer attestation SHA-256",
+    )
     if source.get("reviewer_independence") != "ESTABLISHED":
         raise ValueError("source review independence is not established")
     if source.get("reviewer_kind") != "external_ai":
         raise ValueError("source review is not from an external AI reviewer")
+    if source.get("reviewer_provider") != TRUSTED_REVIEWER_PROVIDER:
+        raise ValueError("source review is not from Google Gemini")
+    reviewer_response_id = source.get("reviewer_response_id")
+    if not isinstance(reviewer_response_id, str) or not reviewer_response_id.strip():
+        raise ValueError("source review response identity is missing")
     reviewer_model = source.get("reviewer_model")
     if not isinstance(reviewer_model, str) or not reviewer_model.strip():
         raise ValueError("source review model provenance is missing")
-    if source.get("reviewer_context") != "fresh_read_only":
-        raise ValueError("source review did not use a fresh read-only context")
+    if source.get("reviewer_context") != TRUSTED_REVIEWER_CONTEXT:
+        raise ValueError("source review did not use the trusted read-only context")
     if source.get("result_blind") is not True:
         raise ValueError("source review is not result-blind")
     if source.get("g0") != "PASS":
@@ -536,15 +994,7 @@ def find_authorizing_source_review(
         deadline=deadline,
     )
 
-    seen_reviewers: set[int] = set()
     for record in reversed(inventory):
-        try:
-            reviewer_id = _github_principal_id(record, field="source review")
-        except ValueError:
-            continue
-        if reviewer_id in seen_reviewers:
-            continue
-        seen_reviewers.add(reviewer_id)
         try:
             source = validate_independent_review_status(
                 record,
@@ -563,6 +1013,14 @@ def find_authorizing_source_review(
             _require_reviewer_write_permission(
                 record,
                 repository=repository,
+                token=token,
+                deadline=deadline,
+            )
+            _require_trusted_reviewer_attestation(
+                source,
+                repository=repository,
+                pull_number=pull_number,
+                reviewed_code_sha=reviewed,
                 token=token,
                 deadline=deadline,
             )
@@ -741,13 +1199,14 @@ def validate_review_gate(
         token=token,
         deadline=deadline,
     )
-    inventory = _review_inventory(
+    _require_trusted_reviewer_attestation(
+        source,
         repository=repository,
         pull_number=pull_number,
+        reviewed_code_sha=reviewed,
         token=token,
         deadline=deadline,
     )
-    _require_review_not_superseded(record, inventory)
     _require_current_main_contained(
         repository=repository,
         reviewed_code_sha=reviewed,
@@ -756,6 +1215,12 @@ def validate_review_gate(
     )
 
     for field in (
+        "review_identity_digest",
+        "trusted_reviewer_run_id",
+        "trusted_reviewer_run_attempt",
+        "trusted_reviewer_artifact_id",
+        "trusted_reviewer_artifact_sha256",
+        "trusted_reviewer_attestation_sha256",
         "result_blind",
         "g0",
         "g1",

@@ -404,12 +404,15 @@ def _load_with_evidence(
     ):
         raise ValueError("candidate PPO observation contract mismatch")
     candidate_config = summary.get("candidate_config")
-    if result_schema == _RESULT_SCHEMA_V2:
+    if result_schema in {_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2}:
         if (
             isinstance(candidate_config, dict)
             and "forecast_switch_cost" in candidate_config
         ):
-            raise ValueError("candidate forecast switch cost is invalid for result v2")
+            schema_suffix = result_schema[-2:]
+            raise ValueError(
+                f"candidate forecast switch cost is invalid for result {schema_suffix}"
+            )
     elif result_schema == _RESULT_SCHEMA_V3:
         if (
             not isinstance(candidate_config, dict)

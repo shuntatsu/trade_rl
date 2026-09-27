@@ -184,13 +184,13 @@ def _jobs(**updates: object) -> list[dict[str, object]]:
 
 def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
     assert actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT == (
-        "1147a97536f505162cb89217db35578d0437741e"
+        "7d1f8f687b31f83f64a91bffa512804f9b6c4402"
     )
     assert actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 == (
         "98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17"
     )
     assert actions.TRUSTED_REVIEWER_RUNNER_SHA256 == (
-        "2cb17eb9c9fe292431255f85a3dbdc591344a498b788422ee4d2d478245dd335"
+        "d5951f8a500c686fe8647bdd07ea13ef41f67454e19957fc120ca93ee40ebeab"
     )
     assert actions.SOURCE_REVIEW_SCHEMA == "ppo_4h_indicator_source_review_v4"
     assert actions.REVIEW_SCHEMA == "ppo_4h_indicator_smoke_review_v3"

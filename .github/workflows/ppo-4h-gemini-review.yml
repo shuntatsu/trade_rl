@@ -1,0 +1,341 @@
+name: PPO 4h Gemini Review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  request:
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '<!-- ppo-4h-gemini-review-request-v1 -->')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      reviewed_sha: ${{ steps.request.outputs.reviewed_sha }}
+      review_tag: ${{ steps.request.outputs.review_tag }}
+      review_tag_object_sha: ${{ steps.request.outputs.review_tag_object_sha }}
+      review_identity_digest: ${{ steps.request.outputs.review_identity_digest }}
+      request_body_sha256: ${{ steps.request.outputs.request_body_sha256 }}
+      packet_sha256: ${{ steps.packet.outputs.packet_sha256 }}
+    steps:
+      - name: Checkout trusted reviewer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate canonical review request
+        id: request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 trusted/tools/ppo_4h_gemini_review.py request >> "$GITHUB_OUTPUT"
+
+      - name: Checkout untrusted review evidence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.request.outputs.reviewed_sha }}
+          path: evidence
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build canonical result-blind packet
+        id: packet
+        env:
+          REVIEWED_SHA: ${{ steps.request.outputs.reviewed_sha }}
+          REVIEW_TAG: ${{ steps.request.outputs.review_tag }}
+          REVIEW_TAG_OBJECT_SHA: ${{ steps.request.outputs.review_tag_object_sha }}
+          TARGET_ROOT: evidence
+          PACKET_PATH: output/review-packet.json
+        run: python3 trusted/tools/ppo_4h_gemini_review.py packet >> "$GITHUB_OUTPUT"
+
+      - name: Upload canonical review packet
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-4h-review-packet-${{ steps.request.outputs.review_identity_digest }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/review-packet.json
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  core:
+    name: Trusted Lean Core verification
+    needs: request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact reviewed code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.reviewed_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          working-directory: target
+
+      - name: Install
+        working-directory: target
+        run: uv sync --extra dev
+
+      - name: Ruff
+        working-directory: target
+        run: uv run ruff check trade_rl tests tools
+
+      - name: Format
+        working-directory: target
+        run: uv run ruff format --check trade_rl tests tools
+
+      - name: Mypy
+        working-directory: target
+        run: uv run mypy trade_rl
+
+      - name: Repository tooling types
+        working-directory: target
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+
+      - name: Checkpoint transport types
+        working-directory: target
+        run: >-
+          uv run mypy
+          tools/ppo_checkpoint_actions.py
+          tools/ppo_4h_indicator_smoke_actions.py
+
+      - name: Core tests
+        working-directory: target
+        run: uv run pytest -q tests
+
+      - name: Build
+        working-directory: target
+        run: uv build
+
+      - name: Distribution source closure and sdist rebuild
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+
+      - name: Package identity
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  ppo-runtime:
+    name: Trusted PPO Runtime verification
+    needs: request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact reviewed code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.reviewed_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          working-directory: target
+
+      - name: Install PPO runtime
+        working-directory: target
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Real SB3 PPO integration
+        working-directory: target
+        run: >-
+          uv run pytest -q
+          tests/strategies/test_ppo_*.py
+          tests/strategies/test_a2c_*.py
+          tests/integrations/test_ppo_sb3_runtime.py
+          tests/integrations/test_a2c_sb3_runtime.py
+
+  guide:
+    name: Trusted Human Guide verification
+    needs: request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GUIDE_SOURCE_REV: ${{ needs.request.outputs.reviewed_sha }}
+    steps:
+      - name: Checkout exact reviewed code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.request.outputs.reviewed_sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: target/guide/package-lock.json
+
+      - name: Install Guide dependencies
+        working-directory: target/guide
+        run: npm ci
+
+      - name: Guide source contract
+        working-directory: target/guide
+        run: npm run source-check
+
+      - name: Guide lint
+        working-directory: target/guide
+        run: npm run lint
+
+      - name: Guide typecheck
+        working-directory: target/guide
+        run: npm run typecheck
+
+      - name: Guide unit tests
+        working-directory: target/guide
+        run: npm run test
+
+      - name: Guide build
+        working-directory: target/guide
+        run: npm run build
+
+      - name: Install Chromium
+        working-directory: target/guide
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser UX and accessibility
+        working-directory: target/guide
+        run: npm run e2e
+
+  review:
+    name: Trusted Gemini semantic review
+    needs: [request, core, ppo-runtime, guide]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted reviewer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download canonical review packet
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
+        with:
+          name: ppo-4h-review-packet-${{ needs.request.outputs.review_identity_digest }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: request-evidence
+
+      - name: Call Gemini reviewer
+        id: provider
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.PPO_GEMINI_REVIEW_MODEL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEWED_SHA: ${{ needs.request.outputs.reviewed_sha }}
+          REVIEW_TAG: ${{ needs.request.outputs.review_tag }}
+          REVIEW_TAG_OBJECT_SHA: ${{ needs.request.outputs.review_tag_object_sha }}
+          REVIEW_IDENTITY_DIGEST: ${{ needs.request.outputs.review_identity_digest }}
+          REQUEST_PULL_NUMBER: ${{ github.event.issue.number }}
+          REQUEST_COMMENT_ID: ${{ github.event.comment.id }}
+          REQUESTER_LOGIN: ${{ github.event.comment.user.login }}
+          REQUEST_BODY_SHA256: ${{ needs.request.outputs.request_body_sha256 }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRUSTED_ROOT: trusted
+          PACKET_PATH: request-evidence/review-packet.json
+          EXPECTED_PACKET_SHA256: ${{ needs.request.outputs.packet_sha256 }}
+          REVIEW_OUTPUT: output
+        run: python3 trusted/tools/ppo_4h_gemini_review.py
+
+      - name: Upload immutable Gemini review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ppo-4h-gemini-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/reviewer-attestation.json
+            output/review-packet.json
+            output/gemini-request.json
+            output/gemini-response.json
+            output/reviewer-disposition.txt
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+      - name: Propagate reviewer disposition
+        if: always()
+        env:
+          PROVIDER_OUTCOME: ${{ steps.provider.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$PROVIDER_OUTCOME" != "success" ]]; then
+            echo "Gemini reviewer transport failed; inspect the uploaded evidence."
+            exit 1
+          fi
+          disposition="$(cat output/reviewer-disposition.txt)"
+          if [[ "$disposition" != "G0_G1_CLEAR_G2_EVIDENCE_BOUND" ]]; then
+            echo "Gemini semantic review blocked authorization: $disposition"
+            exit 1
+          fi

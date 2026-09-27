@@ -9,21 +9,35 @@ from tests.integrations.test_binance_forward import NOW
 from trade_rl.evaluation.paper import operations
 from trade_rl.evaluation.paper.engine import PaperEngine
 
+FIRST_ATTEMPT_LINEAGE = {
+    "schema": "carry_paper_attempt_lineage_v2",
+    "attempt_number": 1,
+    "predecessor": None,
+}
+
 
 def test_economic_seal_fixes_duration_costs_and_requires_future_notice(tmp_path):
     root = tmp_path / "study"
     start = NOW + timedelta(minutes=5)
-    digest = operations.seal_paper_study(root, start_at=start, clock=lambda: NOW)
+    digest = operations.seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     protocol = json.loads((root / "protocol.json").read_bytes())["protocol"]
     assert len(digest) == 64
     assert protocol["settings"]["close_at"] == (start + timedelta(days=90)).isoformat()
     assert protocol["settings"]["initial_capital"] == 10000
     assert protocol["settings"]["spot_fee_bps"] == 10
     assert protocol["settings"]["perpetual_fee_bps"] == 5
-    assert protocol["study"]["research_plan"]["schema"] == "carry_paper_screen_v1"
+    assert protocol["study"]["research_plan"]["schema"] == "carry_paper_screen_v2"
     with pytest.raises(ValueError, match="five minutes"):
         operations.seal_paper_study(
-            tmp_path / "late", start_at=start, clock=lambda: NOW + timedelta(seconds=1)
+            tmp_path / "late",
+            start_at=start,
+            attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+            clock=lambda: NOW + timedelta(seconds=1),
         )
     assert not (tmp_path / "late").exists()
 
@@ -32,12 +46,110 @@ def test_seal_normalizes_local_start_to_ninety_utc_days(tmp_path):
     from datetime import timezone
 
     start = (NOW + timedelta(minutes=5)).astimezone(timezone(timedelta(hours=9)))
-    operations.seal_paper_study(tmp_path / "study", start_at=start, clock=lambda: NOW)
+    operations.seal_paper_study(
+        tmp_path / "study",
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     settings = json.loads((tmp_path / "study/protocol.json").read_bytes())["protocol"][
         "settings"
     ]
     assert settings["start_at"] == (NOW + timedelta(minutes=5)).isoformat()
     assert settings["close_at"] == (NOW + timedelta(minutes=5, days=90)).isoformat()
+
+
+def test_successor_seal_binds_the_failed_predecessor_attempt(tmp_path):
+    lineage = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 2,
+        "predecessor": {
+            "attempt_number": 1,
+            "protocol_sha256": "a" * 64,
+            "final_tip_sha256": "b" * 64,
+            "disposition": "invalidated",
+            "reason_codes": ["observation_gap"],
+            "last_observed_at": (NOW - timedelta(seconds=181)).isoformat(),
+        },
+    }
+    root = tmp_path / "successor"
+    operations.seal_paper_study(
+        root,
+        start_at=NOW + timedelta(minutes=5),
+        attempt_lineage=lineage,
+        clock=lambda: NOW,
+    )
+
+    protocol = json.loads((root / "protocol.json").read_bytes())["protocol"]
+    assert protocol["study"]["research_plan"]["attempt_lineage"] == lineage
+
+
+@pytest.mark.parametrize(
+    "lineage",
+    [
+        {
+            "schema": "carry_paper_attempt_lineage_v2",
+            "attempt_number": 2,
+            "predecessor": None,
+        },
+        {
+            "schema": "carry_paper_attempt_lineage_v2",
+            "attempt_number": 3,
+            "predecessor": {
+                "attempt_number": 1,
+                "protocol_sha256": "a" * 64,
+                "final_tip_sha256": "b" * 64,
+                "disposition": "invalidated",
+                "reason_codes": ["observation_gap"],
+                "last_observed_at": NOW.isoformat(),
+            },
+        },
+    ],
+)
+def test_successor_seal_rejects_missing_or_skipped_predecessor(tmp_path, lineage):
+    root = tmp_path / "invalid-successor"
+    with pytest.raises(ValueError, match="predecessor"):
+        operations.seal_paper_study(
+            root,
+            start_at=NOW + timedelta(minutes=5),
+            attempt_lineage=lineage,
+            clock=lambda: NOW,
+        )
+    assert not root.exists()
+
+
+@pytest.mark.parametrize(
+    "disposition,reason_codes",
+    [
+        ("screen_passed", []),
+        ("screen_rejected", ["nonpositive_net_profit"]),
+        ("invalidated", ["nonpositive_net_profit"]),
+    ],
+)
+def test_lineage_rejects_prior_economic_outcome_labels(
+    tmp_path, disposition, reason_codes
+):
+    lineage = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 2,
+        "predecessor": {
+            "attempt_number": 1,
+            "protocol_sha256": "a" * 64,
+            "final_tip_sha256": "b" * 64,
+            "disposition": disposition,
+            "reason_codes": reason_codes,
+            "last_observed_at": NOW.isoformat(),
+        },
+    }
+    root = tmp_path / "result-bearing-successor"
+    with pytest.raises(ValueError, match="non-economic"):
+        operations.seal_paper_study(
+            root,
+            start_at=NOW + timedelta(minutes=5),
+            attempt_lineage=lineage,
+            clock=lambda: NOW,
+        )
+    assert not root.exists()
 
 
 def test_runner_uses_future_slots_and_preserves_real_round_trip(tmp_path, monkeypatch):
@@ -112,7 +224,10 @@ def test_cadence_clock_reversal_halts_instead_of_waiting_away_the_evidence(
 def test_status_empty_journal_preserves_initial_capital(tmp_path):
     root = tmp_path / "study"
     digest = operations.seal_paper_study(
-        root, start_at=NOW + timedelta(minutes=5), clock=lambda: NOW
+        root,
+        start_at=NOW + timedelta(minutes=5),
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
     )
     state = operations.collection_status(root, expected_protocol_sha256=digest)
     assert state["events"] == 0 and state["tip"] == digest

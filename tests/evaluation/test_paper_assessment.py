@@ -7,6 +7,12 @@ from tests.integrations.test_binance_forward import NOW
 from trade_rl.evaluation.paper import assessment
 from trade_rl.evaluation.paper.operations import seal_paper_study
 
+FIRST_ATTEMPT_LINEAGE = {
+    "schema": "carry_paper_attempt_lineage_v2",
+    "attempt_number": 1,
+    "predecessor": None,
+}
+
 
 def good_measurements():
     return assessment.Measurements(
@@ -24,11 +30,25 @@ def good_measurements():
         quality_failures=(),
         unpaid_funding=(),
         filled_symbols=(0, 1, 2, 3),
+        post_close_funding=False,
     )
 
 
 def test_paper_screen_passes_only_complete_profitable_observation_metrics():
     assert assessment.screen_reasons(good_measurements()) == []
+
+
+def test_canonical_screen_plan_lists_each_required_instrument_fill():
+    from trade_rl.evaluation.paper.operations import screen_plan
+
+    plan = screen_plan(attempt_lineage=FIRST_ATTEMPT_LINEAGE)
+    assert plan["schema"] == "carry_paper_screen_v2"
+    assert plan.get("required_fill_coverage") == [
+        {"symbol_index": 0, "symbol": "BTCUSDT", "venue": "spot"},
+        {"symbol_index": 1, "symbol": "BTCUSDT", "venue": "perpetual"},
+        {"symbol_index": 2, "symbol": "ETHUSDT", "venue": "spot"},
+        {"symbol_index": 3, "symbol": "ETHUSDT", "venue": "perpetual"},
+    ]
 
 
 @pytest.mark.parametrize(
@@ -39,6 +59,7 @@ def test_paper_screen_passes_only_complete_profitable_observation_metrics():
         ({"block_returns": (0.01, -0.001, 0.01)}, "nonpositive_block_return"),
         ({"block_returns": (0.01, float("nan"), 0.01)}, "nonfinite_metrics"),
         ({"block_funding_counts": (10, 0, 10)}, "missing_block_funding"),
+        ({"post_close_funding": True}, "post_close_funding"),
         ({"maximum_drawdown": 0.1}, "drawdown_limit"),
         ({"first_delay_seconds": 181}, "initial_coverage_gap"),
         ({"maximum_gap_seconds": 181}, "observation_coverage_gap"),
@@ -60,7 +81,12 @@ def test_early_economic_evaluation_cannot_qualify_even_with_a_pinned_empty_tip(
 ):
     start = NOW + timedelta(minutes=5)
     root = tmp_path / "paper"
-    digest = seal_paper_study(root, start_at=start, clock=lambda: NOW)
+    digest = seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     with pytest.raises(ValueError, match="terminal deadline"):
         assessment.evaluate_paper_study(
             root,
@@ -81,7 +107,7 @@ def test_short_software_collection_cannot_be_relabelled_as_a_qualified_study(tmp
         settings=PaperSettings(
             start_at=NOW + timedelta(minutes=5), close_at=NOW + timedelta(minutes=6)
         ),
-        research_plan=screen_plan(),
+        research_plan=screen_plan(attempt_lineage=FIRST_ATTEMPT_LINEAGE),
         clock=lambda: NOW,
     )
     with pytest.raises(ValueError, match="fixed prospective settings"):
@@ -136,6 +162,72 @@ def test_block_marks_are_causal_and_final_block_includes_exit_costs():
         (0.01, 10200 / 10100 - 1, 10250 / 10200 - 1)
     )
     assert metrics.maximum_gap_seconds > 180
+
+
+@pytest.mark.parametrize("settlement_delta", [timedelta(), timedelta(seconds=1)])
+def test_terminal_grace_funding_blocks_follow_settlement_time_not_receipt_time(
+    settlement_delta,
+):
+    start_at = NOW
+    close_at = start_at + timedelta(days=90)
+    received_at = close_at + timedelta(seconds=121)
+
+    def event(at, equity, funding=()):
+        return {
+            "event": {
+                "kind": "decision",
+                "payload": {
+                    "request": {"at": at.isoformat()},
+                    "result": {
+                        "account": {"equity": equity},
+                        "funding": list(funding),
+                        "fills": [],
+                    },
+                },
+            }
+        }
+
+    records = [
+        event(start_at + timedelta(seconds=1), 10001),
+        event(start_at + timedelta(days=30) - timedelta(seconds=1), 10100),
+        event(start_at + timedelta(days=60) - timedelta(seconds=1), 10200),
+        event(
+            received_at,
+            10250,
+            (
+                {
+                    "funding_at": (close_at - timedelta(seconds=1)).isoformat(),
+                    "known_at": received_at.isoformat(),
+                    "amount": 1.0,
+                },
+                {
+                    "funding_at": (close_at + settlement_delta).isoformat(),
+                    "known_at": received_at.isoformat(),
+                    "amount": 1.0,
+                },
+            ),
+        ),
+    ]
+    status = {
+        "account": {"equity": 10250, "total_cost": 20, "maximum_drawdown": 0.01},
+        "terminal_flat": True,
+        "pending": False,
+        "stop_reason": "terminal_close",
+        "quality_failures": [],
+    }
+
+    metrics = assessment.measure_observations(
+        records,
+        status,
+        start_at=start_at,
+        close_at=close_at,
+        unpaid_funding=[],
+    )
+
+    # Both payments first arrive in block 3's terminal grace. Only the settlement
+    # that actually occurred before the ninety-day close belongs to block 3.
+    assert metrics.block_funding_counts == (0, 0, 1)
+    assert "post_close_funding" in assessment.screen_reasons(metrics)
 
 
 def completed_software_collection(tmp_path, monkeypatch):
@@ -209,7 +301,12 @@ def test_assessment_excludes_active_collector_then_rejects_empty_complete_period
 
     root = tmp_path / "study"
     start = NOW + timedelta(minutes=5)
-    digest = seal_paper_study(root, start_at=start, clock=lambda: NOW)
+    digest = seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     arguments = dict(
         expected_protocol_sha256=digest,
         expected_tip=digest,
@@ -230,7 +327,12 @@ def test_assessment_excludes_active_collector_then_rejects_empty_complete_period
 def test_final_assessment_requires_the_original_source_runtime(tmp_path, monkeypatch):
     root = tmp_path / "study"
     start = NOW + timedelta(minutes=5)
-    digest = seal_paper_study(root, start_at=start, clock=lambda: NOW)
+    digest = seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     monkeypatch.setattr(
         assessment, "build_candidate_run_provenance", lambda: {"changed": True}
     )
@@ -253,7 +355,12 @@ def test_final_assessment_rechecks_identity_after_full_replay(
 
     root = tmp_path / "study"
     start = NOW + timedelta(minutes=5)
-    digest = seal_paper_study(root, start_at=start, clock=lambda: NOW)
+    digest = seal_paper_study(
+        root,
+        start_at=start,
+        attempt_lineage=FIRST_ATTEMPT_LINEAGE,
+        clock=lambda: NOW,
+    )
     with PaperCollector(root, expected_protocol_sha256=digest):
         pass
     original = assessment.PaperEngine.unsettled_funding

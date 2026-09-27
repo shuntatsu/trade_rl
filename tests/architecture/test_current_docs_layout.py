@@ -164,6 +164,7 @@ def test_only_permanent_workflows_remain() -> None:
         "deploy-guide.yml",
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
+        "ppo-normalization-execution.yml",
     }
 
 

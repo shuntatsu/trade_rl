@@ -106,8 +106,21 @@ the collector was launched before start. Its source implementation digest is
 `5e093425ee775639b2ac840831e8a71f30c34966b6150367e40bdc0b7f6ed349`
 and runtime environment digest is
 `0c56fc67d16f583d49b5dea7a3878e3fcba0f58e6abd0e9dd66e51393c994cc9`.
-The declared period is not complete. No future profit or deployment qualification
-has been established, and neither a partial return nor software CI can pass it.
+The collector produced 188 observations; its last committed observation was
+`2026-09-17T23:11:01Z`. A 2026-09-27 audit found the recorded PID 23548
+absent and no `collection-failure.json`. Journal-only status verification
+confirmed 188 events through tip
+`1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b`.
+The last stored status retains quantities `0.016`, `-0.016`, `0.509`, and
+`-0.509`, marked equity 9993.9707, zero funding income, and `terminal_flat=false`.
+No shutdown reason was recorded; operational status is not an economic replay.
+
+The observation gap now exceeds the frozen 180-second limit, so this protocol
+cannot qualify. Preserve its incomplete evidence without resuming or backfilling
+it; this operational journal does not establish whether an economic replay ran.
+Any successor needs a separately sealed
+protocol with a new future start and current source/runtime identity. Prospective
+profitability remains unproven.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
@@ -230,27 +243,45 @@ reloaded policies must report exactly 262,144 timesteps.
 
 The implementation deliberately commits `ppo_normalization_activation.json` with
 `activation_sha256=null`. This non-Python authority file is outside the Python-only
-candidate implementation digest, so a later result-blind activation commit can bind
-the exact reviewed activation without creating a self-referential implementation
-hash. The future activation also has to bind immutable implementation-seal,
-fresh-reconstruction, and assurance-review digests. A local `verified.json` does
-not count as independent verification by itself: comparison publication additionally
-requires all ten verification identities to be bound by a fresh verifier artifact
-authority carrying repository/run/artifact identity, raw SHA-256 and matching API
-digest. The verifier runtime contract matches Python implementation/version, machine
-architecture, OS family, and the complete bound package map while treating kernel
-release as recorded provenance rather than an equality gate.
+candidate implementation digest, so a result-blind activation can bind the exact
+reviewed implementation without creating a self-referential implementation hash.
+The activation must bind the immutable implementation-seal, fresh-reconstruction,
+and assurance-review digests. A local `verified.json` does not count as independent
+verification by itself: comparison publication additionally requires all ten
+verification identities to be bound by a fresh verifier artifact authority carrying
+repository/run/artifact identity, raw SHA-256 and matching API digest. The verifier
+runtime contract matches Python implementation/version, machine architecture, OS
+family, and the complete bound package map while treating kernel release as recorded
+provenance rather than an equality gate.
+
+The repository now has a separate authenticated one-shot transport capability in
+`tools/ppo_normalization_actions.py` and
+`.github/workflows/ppo-normalization-execution.yml`. It accepts only an open Draft
+execution-request PR whose sole delta is the canonical request record, requires that
+exact HEAD to contain current `main` and pass Core / real-PPO / Guide / generic
+independent-review gates, revalidates the merged implementation seal/review tags and
+the frozen source Artifact, and requires the static repository activation tag to be
+absent. The request HEAD is not the economic implementation authority: the canonical
+request separately binds the reviewed source SHA from #770, and execution/verifier jobs
+checkout that sealed source even when current `main` has moved. The execution job builds
+the activation from that sealed source plus its own runtime provenance, creates the
+repository-global activation tag before any slot is consumed, and keeps all ten fits on
+that exact source/runtime. Complete execution evidence is uploaded only
+after all ten slots finish; a failed activated run can expose only a non-economic
+failure receipt. A separate no-refit verifier re-downloads the complete execution
+artifact by id/run/raw digest, and the finalizer reveals the comparison only after a
+fresh verification artifact is itself API/digest-bound.
 
 The training mechanism still uses one-active-symbol episodes with
 `risk_config=None`, whereas evaluation uses the maintained shared-cash directional
 account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
 arms and therefore does not change the normalization-only factor, but it limits the
-absolute claim. Per-root immutability also does not establish repository-global
-exactly-once execution; the later authenticated one-shot transport must own global
-uniqueness and partial-result non-disclosure. Until the activation authority and
-those external authorities are sealed, no corrected-economics fit, replay,
-comparison result, unused future evaluation, production eligibility, or live
-authorization is established by this software work.
+absolute claim. The one-shot transport capability closes the previously missing
+repository-global uniqueness / partial-disclosure software boundary, but it has not
+been activated: the committed authority remains `activation_sha256=null`, no
+execution-request activation tag has been created, and no corrected-economics fit,
+replay, comparison result, unused future evaluation, production eligibility, or live
+authorization is established at this status.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same

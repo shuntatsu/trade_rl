@@ -1462,10 +1462,13 @@ def verify_replication_slot(
         stop_index=stop,
         spec=spec,
     )
+    # Slot publication replaces the directional evaluator's top-level schema
+    # with the slot-result schema, so the replay's schema has no stored peer.
+    replay_payload = {key: value for key, value in replay.items() if key != "schema"}
     recorded_replay = {
         key: value for key, value in result.items() if key not in _RESULT_METADATA
     }
-    if canonical_json_bytes(replay) != canonical_json_bytes(recorded_replay):
+    if canonical_json_bytes(replay_payload) != canonical_json_bytes(recorded_replay):
         raise ValueError("fresh bundle replay differs from published result")
     if _source_identity_snapshot(source) != source_snapshot:
         raise ValueError("replication source changed during verifier replay")

@@ -243,27 +243,45 @@ reloaded policies must report exactly 262,144 timesteps.
 
 The implementation deliberately commits `ppo_normalization_activation.json` with
 `activation_sha256=null`. This non-Python authority file is outside the Python-only
-candidate implementation digest, so a later result-blind activation commit can bind
-the exact reviewed activation without creating a self-referential implementation
-hash. The future activation also has to bind immutable implementation-seal,
-fresh-reconstruction, and assurance-review digests. A local `verified.json` does
-not count as independent verification by itself: comparison publication additionally
-requires all ten verification identities to be bound by a fresh verifier artifact
-authority carrying repository/run/artifact identity, raw SHA-256 and matching API
-digest. The verifier runtime contract matches Python implementation/version, machine
-architecture, OS family, and the complete bound package map while treating kernel
-release as recorded provenance rather than an equality gate.
+candidate implementation digest, so a result-blind activation can bind the exact
+reviewed implementation without creating a self-referential implementation hash.
+The activation must bind the immutable implementation-seal, fresh-reconstruction,
+and assurance-review digests. A local `verified.json` does not count as independent
+verification by itself: comparison publication additionally requires all ten
+verification identities to be bound by a fresh verifier artifact authority carrying
+repository/run/artifact identity, raw SHA-256 and matching API digest. The verifier
+runtime contract matches Python implementation/version, machine architecture, OS
+family, and the complete bound package map while treating kernel release as recorded
+provenance rather than an equality gate.
+
+The repository now has a separate authenticated one-shot transport capability in
+`tools/ppo_normalization_actions.py` and
+`.github/workflows/ppo-normalization-execution.yml`. It accepts only an open Draft
+execution-request PR whose sole delta is the canonical request record, requires that
+exact HEAD to contain current `main` and pass Core / real-PPO / Guide / generic
+independent-review gates, revalidates the merged implementation seal/review tags and
+the frozen source Artifact, and requires the static repository activation tag to be
+absent. The request HEAD is not the economic implementation authority: the canonical
+request separately binds the reviewed source SHA from #770, and execution/verifier jobs
+checkout that sealed source even when current `main` has moved. The execution job builds
+the activation from that sealed source plus its own runtime provenance, creates the
+repository-global activation tag before any slot is consumed, and keeps all ten fits on
+that exact source/runtime. Complete execution evidence is uploaded only
+after all ten slots finish; a failed activated run can expose only a non-economic
+failure receipt. A separate no-refit verifier re-downloads the complete execution
+artifact by id/run/raw digest, and the finalizer reveals the comparison only after a
+fresh verification artifact is itself API/digest-bound.
 
 The training mechanism still uses one-active-symbol episodes with
 `risk_config=None`, whereas evaluation uses the maintained shared-cash directional
 account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
 arms and therefore does not change the normalization-only factor, but it limits the
-absolute claim. Per-root immutability also does not establish repository-global
-exactly-once execution; the later authenticated one-shot transport must own global
-uniqueness and partial-result non-disclosure. Until the activation authority and
-those external authorities are sealed, no corrected-economics fit, replay,
-comparison result, unused future evaluation, production eligibility, or live
-authorization is established by this software work.
+absolute claim. The one-shot transport capability closes the previously missing
+repository-global uniqueness / partial-disclosure software boundary, but it has not
+been activated: the committed authority remains `activation_sha256=null`, no
+execution-request activation tag has been created, and no corrected-economics fit,
+replay, comparison result, unused future evaluation, production eligibility, or live
+authorization is established at this status.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same
@@ -821,7 +839,7 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 現行datasetのglobal regimeは全dataset symbolから集計されるため、fit-symbol subset外の情報がtrainingへ混入しないよう初回M2のpolicy inputから除外した。Observation v2は空のglobal rosterをsemantic identityへ明示bindする。global contextは、fit-scope-safeなreference universeを事前固定できる場合にだけ別Controlled Factorとして検証する。
 
-PPO fitの既定layoutは既存互換の`sequential`である。複数fit symbolを宣言するsequential fitでは、SB3の2048-step rollout丸め後の実効budgetが全fit symbolへ最低1 full agent episodeずつ届くことをfit前に要求し、後半symbolが0 transitionになる設定をfail closedにする。これは最低coverage保証であり、完全なsample均等化や性能改善を意味しない。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。 `PPOTradingEnv`は実際にepisodeで売買するactive symbol scopeと、selected featureが参照してよいinformation symbol scopeを分離する。direct constructionではinformation scopeを省略するとactive scopeと同一として検証し、fitter経由ではsequential/interleavedとも全fit symbol rosterをinformation scopeとして明示する。したがってinterleavedの各slotが1銘柄activeでも、fit内reference-relative featureを誤ってrejectせず、fit外symbol依存は#707の共有validatorで拒否する。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、hard risk、network、entropy係数を変更しない。Directional PPOではfitとdevelopment replayが同じbase execution economicsを共有し、Dataset由来のborrowを両方で課す。さらにcurrent directional fitはfinite-horizon末尾を無料resetにせず、latencyを考慮して最後のagent decision後にcanonical FLAT settlement区間を予約する。settlementはagent actionではなくenvironment terminal transitionとしてrisk/executionを通し、内部settlement barへ追加discountを掛けず、その実現log wealth changeをterminal rewardへ加算する。capacity等で残余が残ればflatと偽装しない。これはper-symbol training endpointの補正であり、shared-cash evaluationとのcross-symbol accounting差は別途残る。旧interleaved prereg/evaluatorはこのborrow修正前のimplementation authorityへbindされているため、current economicsでの実行authorityとしてはobsoleteであり、結果を見ずにfresh protocolを作り直す必要がある。なおSB3はwhole rollout単位で学習するため、同じcaller `total_timesteps`でもlayoutごとのrealized `model.num_timesteps`はわずかに異なり得る。実比較では両方をevidenceへ保存する。また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
+PPO fitの既定layoutは既存互換の`sequential`である。複数fit symbolを宣言するsequential fitでは、SB3の2048-step rollout丸め後の実効budgetが全fit symbolへ最低1 full agent episodeずつ届くことをfit前に要求し、後半symbolが0 transitionになる設定をfail closedにする。これは最低coverage保証であり、完全なsample均等化や性能改善を意味しない。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。 `PPOTradingEnv`は実際にepisodeで売買するactive symbol scopeと、selected featureが参照してよいinformation symbol scopeを分離する。direct constructionではinformation scopeを省略するとactive scopeと同一として検証し、fitter経由ではsequential/interleavedとも全fit symbol rosterをinformation scopeとして明示する。したがってinterleavedの各slotが1銘柄activeでも、fit内reference-relative featureを誤ってrejectせず、fit外symbol依存は#707の共有validatorで拒否する。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、hard risk、network、entropy係数を変更しない。Directional PPOではfitとdevelopment replayが同じbase execution economicsを共有し、Dataset由来のborrowを両方で課す。さらにcurrent directional fitはfinite-horizon末尾を無料resetにせず、latencyを考慮して最後のagent decision後にcanonical FLAT settlement区間を予約する。settlementはagent actionではなくenvironment terminal transitionとしてrisk/executionを通し、内部settlement barへ追加discountを掛けず、その実現log wealth changeをterminal rewardへ加算する。capacity等で残余が残ればflatと偽装しない。これはper-symbol training endpointの補正であり、shared-cash evaluationとのcross-symbol accounting差は別途残る。旧interleaved prereg/evaluatorはこのborrow修正前のimplementation authorityへbindされているため、current economicsでの実行authorityとしてはobsoleteであり、結果を見ずにfresh protocolを作り直す必要がある。`expected_ppo_realized_timesteps`はlayoutごとのrollout丸めを定義し、fit後の`model.num_timesteps`とcandidate artifactのrequested/realized transition evidenceを照合する。Controlled Factor `PPO_TRAINING_LAYOUT`はlayoutとrollout長を同時に変更し、paired comparisonでは両条件のrealized transition数も同じにする。結果盲検のCPU synthetic fit（2銘柄、各513 bars、8 features、2,048 requested transitions、seed 11、warm-up後3回交互測定）では、sequential中央値2.9377秒（2,048 realized transitions）に対しinterleaved/512中央値2.5308秒（同2,048）で約13.9%短かった。layout間でpolicy hashも変わるため、これは速度と利益品質のどちらの実データ証拠でもない。新factorのeconomic comparisonは未実行である。また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
 
 PPOのconstructor/policy constructionについて、current implementationが実際に依存する主要defaultはsourceへ明示bindする。対象はlearning rate、rollout長、batch、epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KL、およびMlpPolicyのTanh・orthogonal init・FlattenExtractor・shared extractor・Adam epsである。これは値を変更する探索ではなく、pinned runtimeで既に有効だった値をsource contractへ昇格する変更である。一方、SB3/PyTorch内部algorithm implementationまでrepositoryへ複製したわけではないため、library versionとruntime provenanceは引き続きtraining implementation identityの一部であり、dependency変更時のsemantic equivalenceを自動仮定しない。
 
@@ -874,8 +892,8 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
 - fit-scope-safe PPO Observation v2（local values + availability/finite mask + normalized staleness + portfolio state、global policy rosterは空）
-- `lean_candidate_result_v2`によるObservation contractのRun evidence bindingとhistorical v1 reader互換
-- `resolved_run_config_v2`によるStudy identity binding、historical v1 read互換、v1 Studyへのv2 mutation拒否
+- `lean_candidate_result_v3`によるObservation / requested-vs-realized PPO transition bindingとhistorical v1/v2 reader互換
+- `resolved_run_config_v3`によるObservation / PPO layout Study identity binding、historical v1/v2 read互換、legacy schema mutation拒否
 - 全symbol独立comparison
 - shared candidate config resolution
 - in-memory candidate execution seam

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -39,10 +40,13 @@ class FakePPO:
         self.env = env
         self.kwargs = kwargs
         self.learn_timesteps: int | None = None
+        self.num_timesteps = 0
         FakePPO.last = self
 
     def learn(self, total_timesteps: int) -> FakePPO:
         self.learn_timesteps = total_timesteps
+        rollout = int(self.kwargs["n_steps"]) * int(getattr(self.env, "num_envs", 1))
+        self.num_timesteps = math.ceil(total_timesteps / rollout) * rollout
         return self
 
     def predict(self, observation: np.ndarray, *, deterministic: bool = True):

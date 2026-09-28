@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
 from trade_rl.evaluation.runs.config import (
     CandidateRunConfig,
     resolve_candidate_run_spec,
@@ -70,7 +71,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
 
     dataset = market()
     spec = resolved_spec(dataset)
-    comparison = object()
+    comparison = UniversalStrategyComparison(by_symbol=(), ppo_training_timesteps=2048)
     calls: list[tuple[object, object, dict[str, object]]] = []
 
     def fake_suite(loaded, lean_config, **kwargs):
@@ -84,6 +85,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert result.spec is spec
     assert result.symbols == dataset.symbols
     assert result.comparison is comparison
+    assert result.ppo_training_timesteps == 2048
     assert len(calls) == 1
     loaded, lean_config, kwargs = calls[0]
     assert loaded is dataset

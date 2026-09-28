@@ -35,11 +35,15 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。execution rootはprepareだけがstagingからatomicに公開し、slot claim/failureはprepared rootのidentityから導出します。bundleはmanifestとparent pathを安全に確認してから読込み、fit/reloadとも262,144 timestepsを必須にします。source/runtimeも長いfit/replay後、resultを保存する前に再確認します。
 
-economic activationは非Pythonのcanonical `ppo_normalization_activation.json` で別管理し、現在は `activation_sha256=null` のためfail-closedです。後続activationはreview済みimplementationに加えてimplementation seal・fresh reconstruction・result-blind assurance reviewのdigestをbindする必要があります。またlocal `verified.json` だけではindependent verificationとは扱わず、10 slotsのverification identityをfresh verifierのrun/artifact/API digest authorityへbindしてからcomparisonを公開します。
+economic activationは非Pythonのcanonical `ppo_normalization_activation.json` で別管理し、現在も `activation_sha256=null` のためfail-closedです。activationはreview済みimplementationに加えてimplementation seal・fresh reconstruction・result-blind assurance reviewのdigestをbindします。さらにone-shot transport capabilityを別に実装し、current `main` を含むopen Draft request PR、exact-head Core / real-PPO / Guide / independent-review Green、固定source Artifact、未使用のstatic activation tagを再検証してから初めてactivationを作る契約にしています。request PR HEADは承認provenanceでありeconomic sourceではありません。request recordが#770のreview/seal済みsource SHAを別にbindし、fit/replayとno-refit verifierはそのsealed sourceをcheckoutするため、後からcurrent `main` に入ったPython変更を実験factorへ混入させません。10 slotsは同じactivation runtimeで実行し、全slot完了まではexecution artifactを公開しません。途中失敗で公開できるのは経済値を含まないfailure receiptだけです。
 
-trainingは既存のone-active-symbol episode / `risk_config=None`、evaluationはshared-cash accountと10%/20% drawdown hard riskという共通のtrain/eval差を残します。この差は両arm共通なのでnormalization-only比較のfactorは変えませんが、shared-cash問題そのものを学習済みだという主張はできません。per-root immutabilityもrepository-global exactly-onceを証明しません。したがって、この境界の実装完了はcorrected-economicsのP&L、profitability、unused-data validation、production/live適格性を意味しません。
+local `verified.json` だけではindependent verificationとは扱わず、complete execution artifactを別のno-refit verifierがid/run/raw digest付きで再取得し、10 slotsのverification identityをfresh verifier artifact authorityへbindした後だけfinalizerがcomparisonを公開します。ただし、このtransportが実装済みであること自体はeconomic authorizationではありません。現在はrequest activation tagも作成されておらず、corrected-economicsのfit/replay/P&Lは未実行です。
+
+trainingは既存のone-active-symbol episode / `risk_config=None`、evaluationはshared-cash accountと10%/20% drawdown hard riskという共通のtrain/eval差を残します。この差は両arm共通なのでnormalization-only比較のfactorは変えませんが、shared-cash問題そのものを学習済みだという主張はできません。したがって、この境界の実装完了はprofitability、unused-data validation、production/live適格性を意味しません。
 
 次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
+
+PPOには、既定sequentialを維持したままlayoutだけを比較できるopt-in要因も追加しました。合成CPUデータで同じ2,048 transitionsを学習した速度確認ではinterleaved/512の中央値が13.9%短くなりましたが、policy hashは異なり、実データの速度・経済性は未検証です。この結果だけではPPOの利益性や採用可否を判断せず、正式比較では実際のtransition数を揃えます。
 
 ## まだ主張しないこと
 

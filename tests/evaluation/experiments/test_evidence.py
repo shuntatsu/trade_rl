@@ -149,6 +149,7 @@ def _fake_execute(*, drift_trend: bool = False, fail_seed: int | None = None):
             spec=spec,
             symbols=tuple(dataset.symbols),
             comparison=comparison,
+            ppo_training_timesteps=2048,
         )
 
     return execute

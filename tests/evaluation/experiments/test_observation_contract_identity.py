@@ -45,6 +45,14 @@ def _v2_payload() -> dict[str, object]:
     return payload
 
 
+def _v3_payload() -> dict[str, object]:
+    payload = _v2_payload()
+    payload["schema_version"] = "resolved_run_config_v3"
+    payload["ppo_training_layout"] = "sequential"
+    payload["ppo_rollout_steps_per_env"] = None
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -83,6 +91,16 @@ def test_resolved_run_v2_round_trips_and_study_digest_binds_observation() -> Non
     assert resolved.to_payload() == payload
     assert plan.to_payload()["baseline_config"] == payload
     assert plan.digest == content_digest(plan.to_payload())
+
+
+def test_resolved_run_v3_round_trips_default_training_layout_fields() -> None:
+    payload = _v3_payload()
+
+    resolved = _resolved_from_payload(payload, field="current")
+
+    assert resolved.to_payload() == payload
+    assert resolved.ppo_training_layout == "sequential"
+    assert resolved.ppo_rollout_steps_per_env is None
 
 
 def test_resolved_run_v2_rejects_tampered_global_observation_roster() -> None:

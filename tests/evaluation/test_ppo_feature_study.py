@@ -5,9 +5,11 @@ import hashlib
 import json
 import weakref
 from copy import deepcopy
+from io import BytesIO
 from math import nan, prod
 from pathlib import Path
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 import numpy as np
 import pytest
@@ -102,6 +104,33 @@ _PROTOCOL = {
         "stress_names": ["cost_2x", "latency_1"],
     },
 }
+
+
+def test_source_snapshot_uses_canonical_python_source_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_root = tmp_path / "trade_rl"
+    module_path = package_root / "evaluation" / "ppo_feature_study.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_bytes(b"")
+    source_path = package_root / "example.py"
+    source_path.write_bytes(b"VALUE = 1\r\n")
+    monkeypatch.setattr(feature_study, "__file__", str(module_path))
+    manifest = {
+        "implementation": {
+            "files": [
+                {
+                    "path": "example.py",
+                    "sha256": hashlib.sha256(b"VALUE = 1\n").hexdigest(),
+                }
+            ]
+        }
+    }
+
+    snapshot = feature_study._source_snapshot_bytes(manifest)
+
+    with ZipFile(BytesIO(snapshot)) as archive:
+        assert archive.read("trade_rl/example.py") == b"VALUE = 1\n"
 
 
 def _endpoint_drawdown(returns: tuple[float, ...]) -> float:

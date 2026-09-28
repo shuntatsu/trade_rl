@@ -14,6 +14,10 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+)
 
 LEGACY_DATASET_EXECUTION_OVERLAY = "zero_overlay_dataset_fields_authoritative"
 CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY = (
@@ -53,6 +57,8 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
+        "ppo_training_layout",
+        "ppo_rollout_steps_per_env",
     )
 
     signal_name: str
@@ -69,6 +75,8 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
+    ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
+    ppo_rollout_steps_per_env: int | None = None
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -119,6 +127,26 @@ class CandidateRunConfig:
             or self.ppo_seed < 0
         ):
             raise ValueError("ppo_seed must be a non-negative integer")
+        if not isinstance(
+            self.ppo_training_layout, str
+        ) or self.ppo_training_layout not in {
+            PPO_TRAINING_LAYOUT_SEQUENTIAL,
+            PPO_TRAINING_LAYOUT_INTERLEAVED,
+        }:
+            raise ValueError("unsupported ppo_training_layout")
+        if self.ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+            if self.ppo_rollout_steps_per_env is not None:
+                raise ValueError(
+                    "sequential training does not accept ppo_rollout_steps_per_env"
+                )
+        elif (
+            isinstance(self.ppo_rollout_steps_per_env, bool)
+            or not isinstance(self.ppo_rollout_steps_per_env, int)
+            or self.ppo_rollout_steps_per_env <= 0
+        ):
+            raise ValueError(
+                "interleaved training requires positive ppo_rollout_steps_per_env"
+            )
         gross_budget = _require_finite(self.gross_budget, field="gross_budget")
         initial_capital = _require_finite(
             self.initial_capital,
@@ -246,6 +274,15 @@ def _required_int(raw: Mapping[str, object], name: str) -> int:
     return value
 
 
+def _optional_positive_int(raw: Mapping[str, object], name: str) -> int | None:
+    value = raw.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer or null")
+    return value
+
+
 def _required_string_tuple(
     raw: Mapping[str, object],
     name: str,
@@ -271,6 +308,9 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     unknown = sorted(set(raw) - set(CandidateRunConfig.JSON_FIELDS))
     if unknown:
         raise ValueError(f"unknown config keys: {', '.join(unknown)}")
+    training_layout = raw.get("ppo_training_layout", PPO_TRAINING_LAYOUT_SEQUENTIAL)
+    if not isinstance(training_layout, str):
+        raise ValueError("ppo_training_layout must be a string")
     return CandidateRunConfig(
         signal_name=_required_string(raw, "signal_name"),
         feature_names=_required_string_tuple(raw, "feature_names"),
@@ -287,6 +327,11 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         forecast_exit_threshold=_required_float(raw, "forecast_exit_threshold"),
         ppo_total_timesteps=_required_int(raw, "ppo_total_timesteps"),
         ppo_seed=_required_int(raw, "ppo_seed"),
+        ppo_training_layout=training_layout,
+        ppo_rollout_steps_per_env=_optional_positive_int(
+            raw,
+            "ppo_rollout_steps_per_env",
+        ),
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
     )
@@ -370,6 +415,8 @@ def resolve_candidate_run_spec(
         forecast_exit_threshold=config.forecast_exit_threshold,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
+        ppo_training_layout=config.ppo_training_layout,
+        ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

@@ -61,7 +61,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         calls["ppo_dataset"] = args[0]
         calls["ppo_kwargs"] = kwargs
         return SimpleNamespace(
-            policy=object(),
+            policy=SimpleNamespace(num_timesteps=512),
             feature_indices=(0,),
             feature_names=("signal",),
             feature_normalizer=None,
@@ -112,6 +112,8 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        ppo_training_layout="interleaved",
+        ppo_rollout_steps_per_env=512,
         fit_symbol_indices=(0,),
     )
 
@@ -125,6 +127,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     )
 
     assert result.by_symbol == ()
+    assert result.ppo_training_timesteps == 512
     assert calls["ridge"] == 1
     assert calls["lightgbm"] == 1
     assert calls["ppo"] == 1
@@ -134,6 +137,8 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ppo_kwargs"]["training_layout"] == "interleaved"
+    assert calls["ppo_kwargs"]["rollout_steps_per_env"] == 512
     assert calls["ppo_wrapper_kwargs"]["feature_names"] == ("signal",)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == StudyPlan.STRATEGY_NAMES

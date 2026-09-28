@@ -37,12 +37,19 @@ from trade_rl.strategies.rl.ppo_normalization import (
     PPOFeatureNormalizer,
     fit_ppo_feature_normalizer,
 )
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_N_STEPS,
+    PPO_MINIBATCH_SIZE,
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    expected_ppo_realized_timesteps,
+    validated_interleaved_rollout_steps,
+    validated_training_layout,
+)
 
-PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
-PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
 _PPO_LEARNING_RATE = 3e-4
-_PPO_DEFAULT_N_STEPS = 2048
-_PPO_BATCH_SIZE = 64
+_PPO_DEFAULT_N_STEPS = PPO_DEFAULT_N_STEPS
+_PPO_BATCH_SIZE = PPO_MINIBATCH_SIZE
 _PPO_N_EPOCHS = 10
 _PPO_GAMMA = 0.99
 _PPO_GAE_LAMBDA = 0.95
@@ -61,17 +68,7 @@ def _validated_training_layout(
     training_layout: str,
     rollout_steps_per_env: int | None,
 ) -> str:
-    if training_layout not in {
-        PPO_TRAINING_LAYOUT_SEQUENTIAL,
-        PPO_TRAINING_LAYOUT_INTERLEAVED,
-    }:
-        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
-    if (
-        training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
-        and rollout_steps_per_env is not None
-    ):
-        raise ValueError("sequential training does not accept rollout_steps_per_env")
-    return training_layout
+    return validated_training_layout(training_layout, rollout_steps_per_env)
 
 
 def _validated_interleaved_rollout_steps(
@@ -79,19 +76,10 @@ def _validated_interleaved_rollout_steps(
     *,
     n_envs: int,
 ) -> int:
-    if (
-        isinstance(rollout_steps_per_env, bool)
-        or not isinstance(rollout_steps_per_env, int)
-        or rollout_steps_per_env <= 0
-    ):
-        raise ValueError(
-            "rollout_steps_per_env must be a positive integer for interleaved training"
-        )
-    if rollout_steps_per_env * n_envs % _PPO_BATCH_SIZE != 0:
-        raise ValueError(
-            "interleaved rollout batch must be divisible by PPO batch_size=64"
-        )
-    return rollout_steps_per_env
+    return validated_interleaved_rollout_steps(
+        rollout_steps_per_env,
+        n_envs=n_envs,
+    )
 
 
 def _validate_sequential_symbol_coverage(
@@ -741,6 +729,15 @@ def fit_ppo_strategy(
         verbose=0,
     )
     model.learn(total_timesteps=total_timesteps)
+    realized_timesteps = getattr(model, "num_timesteps", None)
+    expected_timesteps = expected_ppo_realized_timesteps(
+        total_timesteps,
+        training_layout=layout,
+        rollout_steps_per_env=rollout_steps_per_env,
+        n_envs=len(fit_symbols),
+    )
+    if realized_timesteps != expected_timesteps:
+        raise RuntimeError("Stable-Baselines3 PPO realized an unexpected step count")
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
@@ -756,6 +753,7 @@ __all__ = [
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",
     "PPOIntentStrategy",
     "PPOTradingEnv",
+    "expected_ppo_realized_timesteps",
     "fit_ppo_strategy",
     "ppo_observation_contract_payload",
 ]

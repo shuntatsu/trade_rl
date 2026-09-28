@@ -19,6 +19,7 @@ from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
+    expected_ppo_realized_timesteps,
     fit_ppo_strategy,
 )
 from trade_rl.strategies.rl.ppo_artifact import (
@@ -27,6 +28,47 @@ from trade_rl.strategies.rl.ppo_artifact import (
     save_normalized_ppo,
     save_ppo_inference_bundle,
 )
+
+
+def test_expected_realized_timesteps_are_equal_only_for_aligned_layout_budget() -> None:
+    assert (
+        expected_ppo_realized_timesteps(
+            262_144,
+            training_layout="sequential",
+            rollout_steps_per_env=None,
+            n_envs=5,
+        )
+        == 262_144
+    )
+    assert (
+        expected_ppo_realized_timesteps(
+            262_144,
+            training_layout="interleaved",
+            rollout_steps_per_env=512,
+            n_envs=5,
+        )
+        == 263_680
+    )
+
+    requested = 266_240
+    assert (
+        expected_ppo_realized_timesteps(
+            requested,
+            training_layout="sequential",
+            rollout_steps_per_env=None,
+            n_envs=5,
+        )
+        == requested
+    )
+    assert (
+        expected_ppo_realized_timesteps(
+            requested,
+            training_layout="interleaved",
+            rollout_steps_per_env=512,
+            n_envs=5,
+        )
+        == requested
+    )
 
 
 def test_real_checkpoint_reuses_fit_and_replays_identically_after_reload(

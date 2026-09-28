@@ -27,11 +27,15 @@ from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
+from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
 
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
-_RESULT_SCHEMA = _RESULT_SCHEMA_V2
-_SUPPORTED_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2})
+_RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
+_RESULT_SCHEMA = _RESULT_SCHEMA_V3
+_SUPPORTED_RESULT_SCHEMAS = frozenset(
+    {_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
+)
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
 _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
 
@@ -181,6 +185,9 @@ def _result_payload(
             "forecast_exit_threshold": lean_config.forecast_exit_threshold,
             "ppo_total_timesteps": lean_config.ppo_total_timesteps,
             "ppo_seed": lean_config.ppo_seed,
+            "ppo_training_layout": lean_config.ppo_training_layout,
+            "ppo_rollout_steps_per_env": lean_config.ppo_rollout_steps_per_env,
+            "ppo_training_timesteps": result.ppo_training_timesteps,
         },
         "evaluation": {
             "start": str(config.evaluation_start),
@@ -330,6 +337,43 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
     return frozenset(keys)
 
 
+def _validate_ppo_training_evidence(summary: Mapping[str, object]) -> None:
+    candidate_config = summary.get("candidate_config")
+    if not isinstance(candidate_config, Mapping):
+        raise ValueError("candidate PPO training config is malformed")
+    requested = candidate_config.get("ppo_total_timesteps")
+    realized = candidate_config.get("ppo_training_timesteps")
+    layout = candidate_config.get("ppo_training_layout")
+    rollout_steps = candidate_config.get("ppo_rollout_steps_per_env")
+    fit_symbols = candidate_config.get("fit_symbol_indices")
+    if (
+        isinstance(requested, bool)
+        or not isinstance(requested, int)
+        or isinstance(realized, bool)
+        or not isinstance(realized, int)
+        or not isinstance(layout, str)
+        or (rollout_steps is not None and isinstance(rollout_steps, bool))
+        or (rollout_steps is not None and not isinstance(rollout_steps, int))
+        or not isinstance(fit_symbols, list)
+        or not fit_symbols
+        or any(
+            isinstance(index, bool) or not isinstance(index, int) or index < 0
+            for index in fit_symbols
+        )
+    ):
+        raise ValueError("candidate PPO training evidence is malformed")
+    if len(set(fit_symbols)) != len(fit_symbols):
+        raise ValueError("candidate PPO fit symbol roster is duplicated")
+    expected = expected_ppo_realized_timesteps(
+        requested,
+        training_layout=layout,
+        rollout_steps_per_env=rollout_steps,
+        n_envs=len(fit_symbols),
+    )
+    if realized != expected:
+        raise ValueError("candidate PPO realized timesteps do not match rollout budget")
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -395,10 +439,12 @@ def _load_with_evidence(
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
     if (
-        result_schema == _RESULT_SCHEMA_V2
+        result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()
     ):
         raise ValueError("candidate PPO observation contract mismatch")
+    if result_schema == _RESULT_SCHEMA_V3:
+        _validate_ppo_training_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")

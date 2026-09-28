@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -26,7 +26,12 @@ from trade_rl.strategies.forecasts.ridge import (
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.rl.ppo import PPOIntentStrategy, fit_ppo_strategy
+from trade_rl.strategies.rl.ppo import (
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    PPOIntentStrategy,
+    fit_ppo_strategy,
+)
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -48,6 +53,8 @@ class LeanCandidateConfig:
     forecast_exit_threshold: float
     ppo_total_timesteps: int
     ppo_seed: int = 0
+    ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
+    ppo_rollout_steps_per_env: int | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -98,6 +105,26 @@ class LeanCandidateConfig:
             raise ValueError("ppo_seed must be a non-negative integer")
         if self.ppo_seed < 0:
             raise ValueError("ppo_seed must be a non-negative integer")
+        if not isinstance(
+            self.ppo_training_layout, str
+        ) or self.ppo_training_layout not in {
+            PPO_TRAINING_LAYOUT_SEQUENTIAL,
+            PPO_TRAINING_LAYOUT_INTERLEAVED,
+        }:
+            raise ValueError("unsupported ppo_training_layout")
+        if self.ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+            if self.ppo_rollout_steps_per_env is not None:
+                raise ValueError(
+                    "sequential training does not accept ppo_rollout_steps_per_env"
+                )
+        elif (
+            isinstance(self.ppo_rollout_steps_per_env, bool)
+            or not isinstance(self.ppo_rollout_steps_per_env, int)
+            or self.ppo_rollout_steps_per_env <= 0
+        ):
+            raise ValueError(
+                "interleaved training requires positive ppo_rollout_steps_per_env"
+            )
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
@@ -162,9 +189,18 @@ def run_lean_candidate_suite(
         gross_budget=gross_budget,
         total_timesteps=config.ppo_total_timesteps,
         seed=config.ppo_seed,
+        training_layout=config.ppo_training_layout,
+        rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
     )
+    ppo_training_timesteps = getattr(ppo_strategy.policy, "num_timesteps", None)
+    if (
+        isinstance(ppo_training_timesteps, bool)
+        or not isinstance(ppo_training_timesteps, int)
+        or ppo_training_timesteps <= 0
+    ):
+        raise ValueError("fitted PPO policy has invalid realized timesteps")
 
     trend_config = TrendIntentConfig(
         signal_index=config.signal_index,
@@ -199,7 +235,7 @@ def run_lean_candidate_suite(
             feature_normalizer=ppo_strategy.feature_normalizer,
         ),
     }
-    return compare_strategy_factories_by_symbol(
+    comparison = compare_strategy_factories_by_symbol(
         dataset,
         strategy_factories,
         start_index=start_index,
@@ -209,6 +245,10 @@ def run_lean_candidate_suite(
         execution_cost=execution_cost,
         risk=risk,
     )
+    return replace(comparison, ppo_training_timesteps=ppo_training_timesteps)
 
 
-__all__ = ["LeanCandidateConfig", "run_lean_candidate_suite"]
+__all__ = [
+    "LeanCandidateConfig",
+    "run_lean_candidate_suite",
+]

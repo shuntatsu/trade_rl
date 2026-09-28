@@ -146,10 +146,16 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
         "initial_capital",
         "execution_overlay",
     }
-    if schema_version == "resolved_run_config_v2":
+    if schema_version in {
+        "resolved_run_config_v2",
+        "resolved_run_config_v3",
+    }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
+    if schema_version == "resolved_run_config_v3":
+        expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
     elif schema_version != "resolved_run_config_v1":
-        raise ArtifactIntegrityError("unsupported resolved-run config schema")
+        if schema_version != "resolved_run_config_v2":
+            raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
     try:
         return ResolvedRunConfig(
@@ -217,6 +223,23 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 )
             ),
             schema_version=schema_version,
+            ppo_training_layout=(
+                _as_string(
+                    raw["ppo_training_layout"],
+                    field=f"{field}.ppo_training_layout",
+                )
+                if schema_version == "resolved_run_config_v3"
+                else "sequential"
+            ),
+            ppo_rollout_steps_per_env=(
+                None
+                if schema_version != "resolved_run_config_v3"
+                or raw["ppo_rollout_steps_per_env"] is None
+                else _as_int(
+                    raw["ppo_rollout_steps_per_env"],
+                    field=f"{field}.ppo_rollout_steps_per_env",
+                )
+            ),
         )
     except ContractViolationError as error:
         raise ArtifactIntegrityError(
@@ -352,7 +375,7 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
 
 
 def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "signal_name": config.signal_name,
         "feature_names": list(config.feature_names),
         "fit_symbol_names": list(config.fit_symbol_names),
@@ -370,6 +393,13 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
         "gross_budget": config.gross_budget,
         "initial_capital": config.initial_capital,
     }
+    if (
+        config.ppo_training_layout != "sequential"
+        or config.ppo_rollout_steps_per_env is not None
+    ):
+        payload["ppo_training_layout"] = config.ppo_training_layout
+        payload["ppo_rollout_steps_per_env"] = config.ppo_rollout_steps_per_env
+    return payload
 
 
 def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunConfig:
@@ -391,6 +421,8 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ppo_seed=config.ppo_seed,
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
+            ppo_training_layout=config.ppo_training_layout,
+            ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         )
     except ValueError as error:
         raise ArtifactIntegrityError(

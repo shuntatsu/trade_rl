@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.rl_family_comparison.contract import fixed_comparison_contract
 from trade_rl.strategies import (
     A2CIntentStrategy,
     fit_a2c_strategy,
@@ -191,6 +192,48 @@ def test_a2c_fit_uses_explicit_cpu_config_and_five_step_rounding(
 
     model = FakeA2C.last
     assert model is not None
+    algorithm = fixed_comparison_contract()["algorithm_settings"]["a2c"]
+    policy_kwargs = model.kwargs["policy_kwargs"]
+    optimizer_kwargs = policy_kwargs["optimizer_kwargs"]
+    assert policy_kwargs["net_arch"] == {
+        "pi": algorithm["network"],
+        "vf": algorithm["network"],
+    }
+    assert {
+        "rollout_steps": model.kwargs["n_steps"],
+        "learning_rate": model.kwargs["learning_rate"],
+        "gamma": model.kwargs["gamma"],
+        "gae_lambda": model.kwargs["gae_lambda"],
+        "entropy_coefficient": model.kwargs["ent_coef"],
+        "value_coefficient": model.kwargs["vf_coef"],
+        "max_gradient_norm": model.kwargs["max_grad_norm"],
+        "rmsprop_epsilon": model.kwargs["rms_prop_eps"],
+        "normalize_advantage": model.kwargs["normalize_advantage"],
+        "optimizer": "RMSprop"
+        if policy_kwargs["optimizer_class"] is FakeRMSprop
+        else "<unexpected>",
+        "network": policy_kwargs["net_arch"]["pi"],
+        "activation": "Tanh"
+        if policy_kwargs["activation_fn"] is FakeTanh
+        else "<unexpected>",
+        "use_rms_prop": model.kwargs["use_rms_prop"],
+        "rmsprop_alpha": optimizer_kwargs["alpha"],
+        "rmsprop_momentum": optimizer_kwargs["momentum"],
+        "rmsprop_weight_decay": optimizer_kwargs["weight_decay"],
+        "rmsprop_centered": optimizer_kwargs["centered"],
+        "rmsprop_capturable": optimizer_kwargs["capturable"],
+        "rmsprop_foreach": optimizer_kwargs["foreach"],
+        "rmsprop_maximize": optimizer_kwargs["maximize"],
+        "rmsprop_differentiable": optimizer_kwargs["differentiable"],
+        "rmsprop_optimizer_epsilon": optimizer_kwargs["eps"],
+        "stats_window_size": model.kwargs["stats_window_size"],
+        "use_sde": model.kwargs["use_sde"],
+        "shared_feature_extractor": policy_kwargs["share_features_extractor"],
+        "orthogonal_initialization": policy_kwargs["ortho_init"],
+        "feature_extractor": "FlattenExtractor"
+        if policy_kwargs["features_extractor_class"] is FakeFlattenExtractor
+        else "<unexpected>",
+    } == algorithm
     assert isinstance(strategy, A2CIntentStrategy)
     assert model.policy_name == "MlpPolicy"
     assert model.learn_argument == 6

@@ -10,6 +10,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
+from trade_rl.evaluation.rl_family_comparison.contract import fixed_comparison_contract
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
@@ -559,6 +560,42 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     fitted = FakePPO.last
     assert fitted is not None
     assert fitted.policy == "MlpPolicy"
+    algorithm = fixed_comparison_contract()["algorithm_settings"]["ppo"]
+    policy_kwargs = fitted.kwargs["policy_kwargs"]
+    assert policy_kwargs["net_arch"] == {
+        "pi": algorithm["network"],
+        "vf": algorithm["network"],
+    }
+    assert {
+        "rollout_steps": fitted.kwargs["n_steps"],
+        "minibatch_size": fitted.kwargs["batch_size"],
+        "epochs": fitted.kwargs["n_epochs"],
+        "learning_rate": fitted.kwargs["learning_rate"],
+        "gamma": fitted.kwargs["gamma"],
+        "gae_lambda": fitted.kwargs["gae_lambda"],
+        "optimizer": "Adam"
+        if policy_kwargs["optimizer_class"] is FakeAdam
+        else "<unexpected>",
+        "network": policy_kwargs["net_arch"]["pi"],
+        "activation": "Tanh"
+        if policy_kwargs["activation_fn"] is FakeTanh
+        else "<unexpected>",
+        "clip_range": fitted.kwargs["clip_range"],
+        "clip_range_vf": fitted.kwargs["clip_range_vf"],
+        "normalize_advantage": fitted.kwargs["normalize_advantage"],
+        "entropy_coefficient": fitted.kwargs["ent_coef"],
+        "value_coefficient": fitted.kwargs["vf_coef"],
+        "max_gradient_norm": fitted.kwargs["max_grad_norm"],
+        "use_sde": fitted.kwargs["use_sde"],
+        "sde_sample_freq": fitted.kwargs["sde_sample_freq"],
+        "target_kl": fitted.kwargs["target_kl"],
+        "optimizer_epsilon": policy_kwargs["optimizer_kwargs"]["eps"],
+        "shared_feature_extractor": policy_kwargs["share_features_extractor"],
+        "orthogonal_initialization": policy_kwargs["ortho_init"],
+        "feature_extractor": "FlattenExtractor"
+        if policy_kwargs["features_extractor_class"] is FakeFlattenExtractor
+        else "<unexpected>",
+    } == algorithm
     assert fitted.kwargs["policy_kwargs"] == {
         "net_arch": {"pi": [64, 64], "vf": [64, 64]},
         "activation_fn": FakeTanh,

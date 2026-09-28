@@ -104,6 +104,14 @@ class StatefulOrderTransitionProcessor:
         executor = runtime.executor
         dataset = executor.dataset
         processing_index = context.processing_index
+        active_orders = runtime.order_book.active_orders
+        if not active_orders:
+            if runtime.book.insolvent:
+                # begin_bar may flatten a margin-called book by replacing its
+                # public quantities; reconcile the exact-lot view before returning.
+                _ = runtime.book.exact_quantities
+            return []
+
         actual_positions = runtime.book.exact_quantities
         projected_book = _AdmissionBookProjection.from_book(
             runtime.book,
@@ -112,7 +120,7 @@ class StatefulOrderTransitionProcessor:
         accepted: list[PendingOrder] = []
         for order in tuple(
             sorted(
-                runtime.order_book.active_orders,
+                active_orders,
                 key=lambda item: (item.intent.eligible_index, item.order_id),
             )
         ):

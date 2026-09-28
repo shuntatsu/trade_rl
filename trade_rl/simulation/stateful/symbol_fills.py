@@ -161,12 +161,18 @@ class StatefulSymbolFillProcessor:
         dataset = executor.dataset
         processing_index = context.processing_index
         attempted_order_ids: set[str] = set()
-        for symbol in range(dataset.n_symbols):
-            symbol_orders = tuple(
-                order for order in accepted if order.intent.symbol_index == symbol
-            )
-            if not symbol_orders:
-                continue
+        if not accepted:
+            return attempted_order_ids
+
+        symbol_count = dataset.n_symbols
+        orders_by_symbol: dict[int, list[PendingOrder]] = {}
+        for order in accepted:
+            symbol = order.intent.symbol_index
+            if 0 <= symbol < symbol_count:
+                orders_by_symbol.setdefault(symbol, []).append(order)
+
+        for symbol in sorted(orders_by_symbol):
+            symbol_orders = tuple(orders_by_symbol[symbol])
             directions = frozenset(
                 1 if order.remaining_quantity > 0.0 else -1 for order in symbol_orders
             )
@@ -223,8 +229,8 @@ class StatefulSymbolFillProcessor:
                     )
                     continue
 
-                prices = context.open_prices.copy()
                 assert trigger.execution_price is not None
+                prices = context.open_prices.copy()
                 prices[symbol] = trigger.execution_price
                 directions_vector = np.zeros(dataset.n_symbols, dtype=np.float64)
                 directions_vector[symbol] = order.remaining_quantity

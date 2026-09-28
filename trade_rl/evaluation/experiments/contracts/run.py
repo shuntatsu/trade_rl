@@ -18,9 +18,14 @@ from trade_rl.strategies.rl.intent import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA,
 )
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+)
 
 _RESOLVED_RUN_CONFIG_V1 = "resolved_run_config_v1"
 _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
+_RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -60,6 +65,8 @@ class ResolvedRunConfig:
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
+    ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
+    ppo_rollout_steps_per_env: int | None = None
 
     def __post_init__(self) -> None:
         signal_name = contract_text(self.signal_name, field="signal_name")
@@ -150,14 +157,26 @@ class ResolvedRunConfig:
             field="execution_overlay",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        ppo_training_layout = self.ppo_training_layout
+        ppo_rollout_steps_per_env = self.ppo_rollout_steps_per_env
         if schema_version == _RESOLVED_RUN_CONFIG_V1:
             if self.ppo_observation_schema is not None or self.ppo_global_feature_names:
                 raise ContractViolationError(
                     "resolved_run_config_v1 must not define a PPO observation contract"
                 )
+            if (
+                ppo_training_layout != PPO_TRAINING_LAYOUT_SEQUENTIAL
+                or ppo_rollout_steps_per_env is not None
+            ):
+                raise ContractViolationError(
+                    "resolved_run_config_v1 must not define a PPO training layout"
+                )
             ppo_observation_schema: str | None = None
             ppo_global_feature_names: tuple[str, ...] = ()
-        elif schema_version == _RESOLVED_RUN_CONFIG_V2:
+        elif schema_version in {
+            _RESOLVED_RUN_CONFIG_V2,
+            _RESOLVED_RUN_CONFIG_V3,
+        }:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
                 field="ppo_observation_schema",
@@ -178,6 +197,38 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "PPO global feature names do not match the frozen observation contract"
                 )
+            if schema_version == _RESOLVED_RUN_CONFIG_V2:
+                if (
+                    ppo_training_layout != PPO_TRAINING_LAYOUT_SEQUENTIAL
+                    or ppo_rollout_steps_per_env is not None
+                ):
+                    raise ContractViolationError(
+                        "resolved_run_config_v2 must not define a PPO training layout"
+                    )
+            else:
+                ppo_training_layout = contract_text(
+                    ppo_training_layout,
+                    field="ppo_training_layout",
+                )
+                if ppo_training_layout not in {
+                    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+                    PPO_TRAINING_LAYOUT_INTERLEAVED,
+                }:
+                    raise ContractViolationError("unsupported PPO training layout")
+            if schema_version == _RESOLVED_RUN_CONFIG_V3:
+                if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+                    if ppo_rollout_steps_per_env is not None:
+                        raise ContractViolationError(
+                            "sequential PPO layout cannot define rollout steps"
+                        )
+                elif (
+                    isinstance(ppo_rollout_steps_per_env, bool)
+                    or not isinstance(ppo_rollout_steps_per_env, int)
+                    or ppo_rollout_steps_per_env <= 0
+                ):
+                    raise ContractViolationError(
+                        "interleaved PPO layout requires positive rollout steps"
+                    )
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
 
@@ -202,6 +253,12 @@ class ResolvedRunConfig:
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
         object.__setattr__(self, "schema_version", schema_version)
+        object.__setattr__(self, "ppo_training_layout", ppo_training_layout)
+        object.__setattr__(
+            self,
+            "ppo_rollout_steps_per_env",
+            ppo_rollout_steps_per_env,
+        )
 
     @classmethod
     def from_candidate_spec(
@@ -233,7 +290,9 @@ class ResolvedRunConfig:
             execution_overlay=spec.execution_overlay,
             ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V2,
+            schema_version=_RESOLVED_RUN_CONFIG_V3,
+            ppo_training_layout=lean.ppo_training_layout,
+            ppo_rollout_steps_per_env=lean.ppo_rollout_steps_per_env,
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -258,9 +317,15 @@ class ResolvedRunConfig:
             "initial_capital": self.initial_capital,
             "execution_overlay": self.execution_overlay,
         }
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V2:
+        if self.schema_version in {
+            _RESOLVED_RUN_CONFIG_V2,
+            _RESOLVED_RUN_CONFIG_V3,
+        }:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V3:
+            payload["ppo_training_layout"] = self.ppo_training_layout
+            payload["ppo_rollout_steps_per_env"] = self.ppo_rollout_steps_per_env
         return payload
 
     @property

@@ -51,6 +51,8 @@ candidateの比較対象は、このreachable lineage上のbaselineです。
 
 この段階ではcandidate returnを見ません。
 
+PPO training layoutの比較では、`ppo_training_layout`と`ppo_rollout_steps_per_env`の組だけをControlled Factorとして変えます。SB3はwhole rollout単位で学習するため、requested timestep数だけでは公平な比較になりません。candidate evidenceに実際のtransition数を保存し、両条件で揃えて比べます。
+
 ## 4. Candidate EvidenceSetを生成する
 
 同じStudy authorityの下でcandidateを実行します。候補だけ別のexecution accountingや別の評価期間へ切り替えません。

@@ -43,6 +43,8 @@ def _raw_config() -> dict[str, object]:
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_training_layout": "sequential",
+        "ppo_rollout_steps_per_env": None,
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
     }
@@ -72,6 +74,8 @@ def test_candidate_run_config_owns_normalized_raw_json_payload() -> None:
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_training_layout": "sequential",
+        "ppo_rollout_steps_per_env": None,
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
     }

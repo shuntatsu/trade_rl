@@ -19,6 +19,7 @@ from trade_rl.evaluation.experiments.contracts import (
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs import LoadedCandidateRun
+from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +133,15 @@ FACTOR_RULES: Mapping[ControlledFactor, FactorRule] = MappingProxyType(
                     "lightgbm24",
                 }
             ),
+        ),
+        ControlledFactor.PPO_TRAINING_LAYOUT: FactorRule(
+            allowed_paths=frozenset(
+                {
+                    ("ppo_training_layout",),
+                    ("ppo_rollout_steps_per_env",),
+                }
+            ),
+            unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),
         ),
         ControlledFactor.GROSS_BUDGET: FactorRule(
             allowed_paths=frozenset({("gross_budget",)}),
@@ -415,6 +425,77 @@ def _unaffected_strategy_violations(
     return violations
 
 
+def _ppo_layout_timestep_violations(
+    *,
+    evidence: LoadedEvidenceSet,
+    label: str,
+) -> tuple[list[str], dict[int, int]]:
+    violations: list[str] = []
+    realized_by_seed: dict[int, int] = {}
+    semantic = evidence.semantic_config
+    for seed in evidence.evidence.ppo_seeds:
+        run = evidence.runs.get(seed)
+        if run is None:
+            continue
+        candidate_config = run.summary.get("candidate_config")
+        if not isinstance(candidate_config, Mapping):
+            violations.append(
+                f"{label} PPO training evidence is missing for seed-{seed}"
+            )
+            continue
+        requested = candidate_config.get("ppo_total_timesteps")
+        realized = candidate_config.get("ppo_training_timesteps")
+        layout = candidate_config.get("ppo_training_layout")
+        rollout_steps = candidate_config.get("ppo_rollout_steps_per_env")
+        fit_symbols = candidate_config.get("fit_symbol_indices")
+        if (
+            isinstance(requested, bool)
+            or not isinstance(requested, int)
+            or isinstance(realized, bool)
+            or not isinstance(realized, int)
+            or not isinstance(layout, str)
+            or (rollout_steps is not None and isinstance(rollout_steps, bool))
+            or (rollout_steps is not None and not isinstance(rollout_steps, int))
+            or not isinstance(fit_symbols, Sequence)
+            or isinstance(fit_symbols, (str, bytes, bytearray))
+            or not fit_symbols
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in fit_symbols
+            )
+        ):
+            violations.append(
+                f"{label} PPO training evidence is malformed for seed-{seed}"
+            )
+            continue
+        if (
+            requested != semantic.get("ppo_total_timesteps")
+            or layout != semantic.get("ppo_training_layout")
+            or rollout_steps != semantic.get("ppo_rollout_steps_per_env")
+        ):
+            violations.append(
+                f"{label} PPO training evidence differs from resolved config for seed-{seed}"
+            )
+            continue
+        try:
+            expected = expected_ppo_realized_timesteps(
+                requested,
+                training_layout=layout,
+                rollout_steps_per_env=rollout_steps,
+                n_envs=len(fit_symbols),
+            )
+        except ValueError:
+            violations.append(f"{label} PPO rollout config is invalid for seed-{seed}")
+            continue
+        if realized != expected:
+            violations.append(
+                f"{label} PPO realized timesteps mismatch for seed-{seed}"
+            )
+            continue
+        realized_by_seed[seed] = realized
+    return violations, realized_by_seed
+
+
 def verify_controlled_delta(
     *,
     plan: StudyPlan,
@@ -472,6 +553,27 @@ def verify_controlled_delta(
     if forbidden_paths:
         rendered = ", ".join(".".join(path) for path in forbidden_paths)
         violations.append(f"uncontrolled resolved delta: {rendered}")
+
+    if definition.factor is ControlledFactor.PPO_TRAINING_LAYOUT:
+        baseline_step_violations, baseline_steps = _ppo_layout_timestep_violations(
+            evidence=baseline,
+            label="baseline",
+        )
+        candidate_step_violations, candidate_steps = _ppo_layout_timestep_violations(
+            evidence=candidate,
+            label="candidate",
+        )
+        violations.extend(baseline_step_violations)
+        violations.extend(candidate_step_violations)
+        for seed in plan.ppo_seeds:
+            if (
+                seed in baseline_steps
+                and seed in candidate_steps
+                and baseline_steps[seed] != candidate_steps[seed]
+            ):
+                violations.append(
+                    f"PPO realized training transitions differ for seed-{seed}"
+                )
 
     violations.extend(
         _unaffected_strategy_violations(

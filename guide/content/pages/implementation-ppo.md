@@ -48,7 +48,7 @@ interleaved（opt-in）
   ...         ─┘
 ```
 
-これは学習データの並べ方を変える**未評価の実装能力**です。interleavedの方が儲かる、seed安定性が改善する、productionに適する、という結論はまだありません。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
+これは学習データの並べ方だけを変えるopt-in capabilityです。結果盲検のCPU synthetic timing（2銘柄、各513 bars、8 features、seed 11、2,048 requested/realized transitions、warm-up後3回交互測定）では、interleaved/512はsequentialより中央値で13.9%短かった一方、policy hashは異なりました。この速度測定は合成データ上に限られ、実データの学習時間・経済的優位性・利益を示しません。interleavedのseed安定性やproduction適性も未評価です。candidate evidenceはrequested/realized transition数を保存し、layout比較では両条件のrealized transition数を揃えます。developmentで比較するときはlayoutと`rollout_steps_per_env`を結果を見る前に別実験として固定します。学習deviceはCPUへ固定し、実行マシンのGPU有無だけでpolicy学習経路が変わらないようにします。なお、`DummyVecEnv`はsub-envへ異なるreset seedを配るため、execution乱数まで同時に変えないよう`slippage_std > 0`の確率的slippageはinterleavedではfail closedです。
 
 PPOへ渡す主要constructor/policy設定もコードで明示します。learning rate、rollout長、batch/epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KLに加え、MlpPolicyのTanh、orthogonal init、FlattenExtractor、shared feature extractor、Adam epsを固定します。これはSB3 2.3.2で既に有効だった値を明文化するもので、performanceを見た調整ではありません。ただしSB3/PyTorch内部の学習実装そのものを複製しているわけではないため、依存versionは引き続きimplementation identityの一部です。
 

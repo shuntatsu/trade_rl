@@ -29,7 +29,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "63badcf4a59d47456b78666120b533b10648930d0a3ddff87d932b31ea82adf7"
+      "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
     }
   ],
   "code_references": [
@@ -153,7 +153,7 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "ada8be0eeb98b6b0bf6c47c1125cb664690a1e9c1f8cb3badc767c2fb0ce73b0",
+      "source_sha256": "2e3802b133def0e68948c5cebb2303d6ae7e8d60bc0c906397f0fb44f13eaf72",
       "label_ja": "PPO方策を学習する",
       "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。主要なPPO constructor/policy construction値をsourceへ明示しつつ、SB3/PyTorch内部実装とdependency versionはimplementation identityの一部として残します。",
       "variables": [

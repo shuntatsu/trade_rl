@@ -118,12 +118,6 @@ No shutdown reason was recorded; operational status is not an economic replay.
 The observation gap now exceeds the frozen 180-second limit, so this protocol
 cannot qualify. Preserve its incomplete evidence without resuming or backfilling
 it; this operational journal does not establish whether an economic replay ran.
-The collector checks the elapsed gap before another public-data acquisition
-and appends a non-trading gap command when that bound is exceeded.
-It preserves quantities and marks at the gap, then allows a fresh quote for an
-actual exit attempt; the permanent quality failure still rejects the screen.
-This improves stale-restart detection but does not identify why the frozen
-collector stopped or modify that protocol's source-bound evidence.
 Any successor needs a separately sealed
 protocol with a new future start and current source/runtime identity. Prospective
 profitability remains unproven.

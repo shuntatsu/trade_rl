@@ -124,6 +124,119 @@ def test_lot_intersection_and_stress_bind_execution_identity():
     )
 
 
+def _count_base_rule_array_calls(monkeypatch, executor):
+    calls = []
+    original = executor._base_rule_array
+
+    def counted(field_name, *, floor, index):
+        calls.append((field_name, index))
+        return original(field_name, floor=floor, index=index)
+
+    monkeypatch.setattr(executor, "_base_rule_array", counted)
+    return calls
+
+
+def test_effective_rule_arrays_reuses_index_and_invalidates_replaced_inputs(
+    monkeypatch,
+):
+    dataset = replace(
+        _dataset(lot=0.01, minimum=5.0),
+        identity_payload_json=None,
+        tick_size=np.full((6, 1), 0.1),
+    )
+    cost = ExecutionCostConfig(tick_size=0.25, lot_size=0.04, minimum_notional=9.0)
+    stress = ExecutionRuleStress(
+        tick_size_factor=1.5,
+        lot_size_factor=1.5,
+        minimum_notional_factor=1.5,
+    )
+    executor = MarketExecutor(dataset, cost, rule_stress=stress)
+    calls = _count_base_rule_array_calls(monkeypatch, executor)
+
+    first = executor.effective_rule_arrays(index=1)
+    np.testing.assert_array_equal(first[0], [0.375])
+    np.testing.assert_array_equal(first[1], [0.06])
+    np.testing.assert_array_equal(first[2], [13.5])
+    call_count_after_first = len(calls)
+    second = executor.effective_rule_arrays(index=1)
+
+    assert len(calls) == call_count_after_first
+    for first_array, second_array in zip(first, second, strict=True):
+        assert first_array is not second_array
+        assert first_array.flags.writeable
+        assert second_array.flags.writeable
+        np.testing.assert_array_equal(first_array, second_array)
+
+    first[0][0] = 123.0
+    third = executor.effective_rule_arrays(index=1)
+    np.testing.assert_array_equal(third[0], [0.375])
+
+    def assert_recomputed(expected):
+        call_count_before = len(calls)
+        actual = executor.effective_rule_arrays(index=1)
+        assert len(calls) == call_count_before + 3
+        for actual_array, expected_array in zip(actual, expected, strict=True):
+            np.testing.assert_allclose(
+                actual_array, expected_array, rtol=1e-14, atol=0.0
+            )
+        executor.effective_rule_arrays(index=1)
+        assert len(calls) == call_count_before + 3
+
+    executor.dataset = replace(
+        dataset,
+        tick_size=np.full((6, 1), 0.5),
+        lot_size=np.full((6, 1), 0.08),
+        minimum_notional=np.full((6, 1), 12.0),
+    )
+    assert_recomputed(([0.75], [0.12], [18.0]))
+
+    executor.cost = replace(
+        cost,
+        tick_size=0.8,
+        lot_size=0.2,
+        minimum_notional=20.0,
+    )
+    assert_recomputed(([1.2], [0.3], [30.0]))
+
+    executor.rule_stress = ExecutionRuleStress(
+        tick_size_factor=2.0,
+        lot_size_factor=3.0,
+        minimum_notional_factor=4.0,
+    )
+    assert_recomputed(([1.6], [0.6], [80.0]))
+
+
+def test_effective_rule_arrays_cache_invalidates_replaced_market_order_profile(
+    monkeypatch,
+):
+    dataset = _dataset(lot=0.001, minimum=50.0)
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        market_order_profile=_profile(dataset, _snapshot()),
+    )
+    calls = _count_base_rule_array_calls(monkeypatch, executor)
+
+    initial = executor.effective_rule_arrays(index=1)
+    np.testing.assert_array_equal(initial[1], [0.001])
+    assert len(calls) == 3
+    executor.effective_rule_arrays(index=1)
+    assert len(calls) == 3
+
+    def change_btc_lot_rule(payload):
+        payload["symbols"][0]["filters"][2]["stepSize"] = "0.003"
+
+    executor.market_order_profile = _profile(
+        dataset,
+        _snapshot(mutate=change_btc_lot_rule),
+    )
+    replaced = executor.effective_rule_arrays(index=1)
+    assert len(calls) == 6
+    np.testing.assert_array_equal(replaced[1], [0.003])
+    executor.effective_rule_arrays(index=1)
+    assert len(calls) == 6
+
+
 def test_executor_digest_cache_invalidates_replaced_market_profile(monkeypatch):
     import trade_rl.simulation.execution as execution_module
 

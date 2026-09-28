@@ -287,10 +287,16 @@ all ten fit slots, and uploaded execution artifact `10946283192` with raw SHA-25
 `0c0d5335c389f13fe7b1ff22bd53d97025cc4b39253f280843baeba06024a81f`. The fresh
 no-refit verifier job `108745022839` failed with
 `fresh bundle replay differs from published result`; the finalizer was skipped.
-The persisted log does not identify the first differing slot or field, so the
-economic replay discrepancy remains undiagnosed. The execution artifact and failed
-verification are preserved as unverified evidence; do not re-trigger this one-shot
-request or refit these slots.
+Static source tracing found that the verifier compared incompatible envelope fields:
+slot publication replaces the directional evaluator's top-level `schema` with the
+slot-result schema, while fresh replay retains the evaluator schema. The verifier
+then compared the fresh schema against a stored payload from which `schema` had
+already been excluded, so every otherwise-matching slot failed. This PR adds a
+regression test and changes the comparison to ignore only that unpersisted replay
+schema; all other replay fields remain strict. The original execution artifact and
+failed verification remain unverified: no no-refit verification has been rerun, and
+no economic result was inspected. Do not re-trigger this one-shot request or refit
+these slots.
 
 The source authority file still has `activation_sha256=null`; the separate
 repository activation tag records the consumed run. No verified comparison or

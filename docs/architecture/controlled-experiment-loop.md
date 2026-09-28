@@ -96,7 +96,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。
+現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v3`を生成し、PPO Observation schema、global policy roster、training layoutをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。layoutを比較するStudyでは`PPO_TRAINING_LAYOUT`だけが`ppo_training_layout`と`ppo_rollout_steps_per_env`を同時に変更できる。
 
 historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
 
@@ -124,6 +124,7 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 - `FORECAST_THRESHOLDS`
 - `FIT_SYMBOL_SCOPE`
 - `PPO_TRAINING_BUDGET`
+- `PPO_TRAINING_LAYOUT` (`ppo_training_layout`と`ppo_rollout_steps_per_env`の組)
 - `GROSS_BUDGET`
 
 factorごとに影響しないstrategyのraw returnsを完全一致で検証する。dataset identity、symbol roster、Study seed policy、implementation/runtime provenance、Study-fixed fieldが変わってもINVALIDである。

@@ -46,6 +46,15 @@ class UniversalStrategyComparison:
     """Per-symbol results; no aggregate result can hide a losing symbol."""
 
     by_symbol: tuple[SymbolStrategyComparison, ...]
+    ppo_training_timesteps: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.ppo_training_timesteps is not None and (
+            isinstance(self.ppo_training_timesteps, bool)
+            or not isinstance(self.ppo_training_timesteps, int)
+            or self.ppo_training_timesteps <= 0
+        ):
+            raise ValueError("ppo_training_timesteps must be a positive integer")
 
 
 def compare_strategies(

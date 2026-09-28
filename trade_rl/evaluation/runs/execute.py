@@ -33,6 +33,15 @@ class CandidateRunResult:
     spec: ResolvedCandidateRunSpec
     symbols: tuple[str, ...]
     comparison: UniversalStrategyComparison
+    ppo_training_timesteps: int
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.ppo_training_timesteps, bool)
+            or not isinstance(self.ppo_training_timesteps, int)
+            or self.ppo_training_timesteps <= 0
+        ):
+            raise ValueError("ppo_training_timesteps must be a positive integer")
 
 
 def execute_candidate_run(
@@ -43,7 +52,7 @@ def execute_candidate_run(
 
     if dataset.dataset_id != spec.dataset_id:
         raise ValueError("dataset id does not match resolved candidate run spec")
-    comparison = run_lean_candidate_suite(
+    suite_result = run_lean_candidate_suite(
         dataset,
         spec.lean_config,
         start_index=spec.evaluation_start_index,
@@ -53,10 +62,14 @@ def execute_candidate_run(
         execution_cost=_execution_cost_for_overlay(spec.execution_overlay),
         risk=None,
     )
+    training_timesteps = suite_result.ppo_training_timesteps
+    if training_timesteps is None:
+        raise ValueError("candidate suite did not report PPO realized timesteps")
     return CandidateRunResult(
         spec=spec,
         symbols=tuple(dataset.symbols),
-        comparison=comparison,
+        comparison=suite_result,
+        ppo_training_timesteps=training_timesteps,
     )
 
 

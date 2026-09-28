@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -277,3 +278,17 @@ def test_baseline_timestamps_remain_existing_candidate_run_semantics(
     assert config.baseline.evaluation_start == np.datetime64(
         "2024-07-01T00:00:00", "ns"
     )
+
+
+def test_canonical_bootstrap_baseline_cannot_silently_change_training_layout(
+    tmp_path: Path,
+) -> None:
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+    changed_baseline = replace(
+        config.baseline,
+        ppo_training_layout="interleaved",
+        ppo_rollout_steps_per_env=512,
+    )
+
+    with pytest.raises(ValueError, match="must use the sequential PPO layout"):
+        replace(config, baseline=changed_baseline)

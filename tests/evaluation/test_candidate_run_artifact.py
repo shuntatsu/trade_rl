@@ -119,6 +119,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
             spec=spec,
             symbols=tuple(loaded.symbols),
             comparison=comparison,
+            ppo_training_timesteps=2048,
         )
 
     monkeypatch.setattr(candidate_run, "execute_candidate_run", fake_execute)
@@ -138,7 +139,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v2"
+    assert summary["schema_version"] == "lean_candidate_result_v3"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -160,6 +161,9 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_training_layout": "sequential",
+        "ppo_rollout_steps_per_env": None,
+        "ppo_training_timesteps": 2048,
     }
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",

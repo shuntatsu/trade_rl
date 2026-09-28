@@ -103,6 +103,8 @@ def _result() -> object:
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        ppo_training_layout="sequential",
+        ppo_rollout_steps_per_env=None,
     )
     metrics = SimpleNamespace(
         total_return=0.0,
@@ -157,6 +159,7 @@ def _result() -> object:
         ),
         symbols=("BTCUSDT",),
         comparison=comparison,
+        ppo_training_timesteps=2048,
     )
 
 
@@ -169,8 +172,30 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v2"
+    assert summary["schema_version"] == "lean_candidate_result_v3"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
+    loaded = load_candidate_run_artifact(artifact.root)
+    candidate_config = loaded.summary["candidate_config"]
+    assert candidate_config["ppo_training_timesteps"] == 2048
+
+
+def test_candidate_v3_rejects_inconsistent_realized_ppo_timesteps(
+    tmp_path: Path,
+) -> None:
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        _result(),  # type: ignore[arg-type]
+        _provenance(),
+    )
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["candidate_config"]["ppo_training_timesteps"] = 4096
+    artifact.summary_path.write_text(
+        json.dumps(summary, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="realized timesteps"):
+        load_candidate_run_artifact(artifact.root)
 
 
 def test_historical_candidate_v1_without_observation_contract_still_loads(

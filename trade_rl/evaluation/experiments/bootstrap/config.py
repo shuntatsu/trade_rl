@@ -25,6 +25,7 @@ from trade_rl.integrations.binance import (
     BinanceMarket,
     binance_interval_milliseconds,
 )
+from trade_rl.strategies.rl.ppo_training import PPO_TRAINING_LAYOUT_SEQUENTIAL
 
 _SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
 _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
@@ -304,6 +305,13 @@ class CanonicalM2BootstrapConfig:
             raise ValueError("canonical M2 bootstrap supports only usds-m")
         if not isinstance(self.baseline, CandidateRunConfig):
             raise ValueError("baseline must be a CandidateRunConfig")
+        if (
+            self.baseline.ppo_training_layout != PPO_TRAINING_LAYOUT_SEQUENTIAL
+            or self.baseline.ppo_rollout_steps_per_env is not None
+        ):
+            raise ValueError(
+                "canonical M2 bootstrap baseline must use the sequential PPO layout"
+            )
 
         research_question = _require_text(
             self.research_question,

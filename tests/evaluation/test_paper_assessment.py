@@ -96,6 +96,45 @@ def test_early_economic_evaluation_cannot_qualify_even_with_a_pinned_empty_tip(
         )
 
 
+def test_assessment_rejects_invalid_lineage_in_a_consistently_sealed_protocol(
+    tmp_path,
+):
+    from trade_rl.evaluation.paper.engine import PaperSettings
+    from trade_rl.evaluation.paper.operations import screen_plan
+    from trade_rl.evaluation.paper.supervisor import seal_collection
+
+    start = NOW + timedelta(minutes=5)
+    lineage = {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": 2,
+        "predecessor": {
+            "attempt_number": 1,
+            "protocol_sha256": "a" * 64,
+            "final_tip_sha256": "b" * 64,
+            "disposition": "invalidated",
+            "reason_codes": ["observation_gap"],
+            "last_observed_at": None,
+        },
+    }
+    plan = screen_plan(attempt_lineage=FIRST_ATTEMPT_LINEAGE)
+    plan["attempt_lineage"] = lineage
+    root = tmp_path / "invalid-lineage"
+    digest = seal_collection(
+        root,
+        settings=PaperSettings(start_at=start, close_at=start + timedelta(days=90)),
+        research_plan=plan,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(ValueError, match="paper attempt lineage is invalid"):
+        assessment.evaluate_paper_study(
+            root,
+            expected_protocol_sha256=digest,
+            expected_tip=digest,
+            clock=lambda: NOW,
+        )
+
+
 def test_short_software_collection_cannot_be_relabelled_as_a_qualified_study(tmp_path):
     from trade_rl.evaluation.paper.engine import PaperSettings
     from trade_rl.evaluation.paper.operations import screen_plan

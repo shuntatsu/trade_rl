@@ -16,6 +16,24 @@ FIRST_ATTEMPT_LINEAGE = {
 }
 
 
+def _successor_lineage(*, predecessor_overrides=None, attempt_number=2):
+    predecessor = {
+        "attempt_number": 1,
+        "protocol_sha256": "a" * 64,
+        "final_tip_sha256": "b" * 64,
+        "disposition": "invalidated",
+        "reason_codes": ["manual_abort"],
+        "last_observed_at": NOW.isoformat(),
+    }
+    if predecessor_overrides:
+        predecessor.update(predecessor_overrides)
+    return {
+        "schema": "carry_paper_attempt_lineage_v2",
+        "attempt_number": attempt_number,
+        "predecessor": predecessor,
+    }
+
+
 def test_economic_seal_fixes_duration_costs_and_requires_future_notice(tmp_path):
     root = tmp_path / "study"
     start = NOW + timedelta(minutes=5)
@@ -177,6 +195,68 @@ def test_lineage_rejects_prior_economic_outcome_labels(
             clock=lambda: NOW,
         )
     assert not root.exists()
+
+
+@pytest.mark.parametrize(
+    ("lineage", "message"),
+    [
+        (_successor_lineage(attempt_number=True), "positive integer"),
+        (_successor_lineage(attempt_number=2.0), "positive integer"),
+        (_successor_lineage(attempt_number=0), "positive integer"),
+        (
+            _successor_lineage(predecessor_overrides={"attempt_number": True}),
+            "consecutive",
+        ),
+        (
+            _successor_lineage(predecessor_overrides={"protocol_sha256": "g" * 64}),
+            "protocol_sha256 is invalid",
+        ),
+        (
+            _successor_lineage(predecessor_overrides={"final_tip_sha256": "B" * 64}),
+            "final_tip_sha256 is invalid",
+        ),
+        (
+            _successor_lineage(
+                predecessor_overrides={
+                    "reason_codes": ["observation_gap", "clock_reversal"]
+                }
+            ),
+            "reason codes are invalid",
+        ),
+        (
+            _successor_lineage(
+                predecessor_overrides={"reason_codes": ["manual_abort", "manual_abort"]}
+            ),
+            "reason codes are invalid",
+        ),
+        (
+            _successor_lineage(
+                predecessor_overrides={"reason_codes": ("manual_abort",)}
+            ),
+            "reason codes are invalid",
+        ),
+        (
+            _successor_lineage(
+                predecessor_overrides={
+                    "reason_codes": ["observation_gap"],
+                    "last_observed_at": None,
+                }
+            ),
+            "requires a last observation time",
+        ),
+        (
+            _successor_lineage(
+                predecessor_overrides={
+                    "last_observed_at": NOW.isoformat().replace("+00:00", "Z")
+                }
+            ),
+            "not canonical",
+        ),
+    ],
+)
+def test_attempt_lineage_rejects_malformed_predecessor_evidence(lineage, message):
+    with pytest.raises(ValueError, match=message):
+        operations.validate_attempt_lineage(lineage, sealed_at=NOW)
 
 
 def test_runner_uses_future_slots_and_preserves_real_round_trip(tmp_path, monkeypatch):

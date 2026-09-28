@@ -24,6 +24,11 @@
     },
     {
       "path": "docs/research/current-status.md",
+      "heading": "Directional development study under a 20% drawdown budget",
+      "sha256": "b4940620e99559d26e9ad1daba05b3272810e303d8c9baa6c0123a3b327b8df2"
+    },
+    {
+      "path": "docs/research/current-status.md",
       "heading": "M2 — Canonical real-data baseline and Controlled Experiment 0001 verified",
       "sha256": "14faa5b29b5f5de02266dae7ef361fa7238bafc8d1a2370faa3881dd7b3bb6b4"
     }

@@ -276,12 +276,29 @@ The training mechanism still uses one-active-symbol episodes with
 `risk_config=None`, whereas evaluation uses the maintained shared-cash directional
 account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
 arms and therefore does not change the normalization-only factor, but it limits the
-absolute claim. The one-shot transport capability closes the previously missing
-repository-global uniqueness / partial-disclosure software boundary, but it has not
-been activated: the committed authority remains `activation_sha256=null`, no
-execution-request activation tag has been created, and no corrected-economics fit,
-replay, comparison result, unused future evaluation, production eligibility, or live
-authorization is established at this status.
+absolute claim.
+
+The one-shot authorization was consumed by GitHub Actions run `36356182462` on
+2026-09-27/28. It used request HEAD `ee8dde846286` and sealed execution source
+`72ec5a082a1e`. The run created the repository tag
+`activation/ppo-normalization-corrected-v1` (annotated tag object `b2120e442833`, activation digest
+`985d34eabba5629fb934203450697a8691bea8819dfc9ac3bc7fc43b7e0652a3`), completed
+all ten fit slots, and uploaded execution artifact `10946283192` with raw SHA-256
+`0c0d5335c389f13fe7b1ff22bd53d97025cc4b39253f280843baeba06024a81f`. The fresh
+no-refit verifier job `108745022839` failed with
+`fresh bundle replay differs from published result`; the finalizer was skipped.
+The persisted log does not identify the first differing slot or field, so the
+economic replay discrepancy remains undiagnosed. The execution artifact and failed
+verification are preserved as unverified evidence; do not re-trigger this one-shot
+request or refit these slots.
+
+The source authority file still has `activation_sha256=null`; the separate
+repository activation tag records the consumed run. No verified comparison or
+economic disposition was finalized, and no unused-future evaluation was accessed.
+The activation metadata records `economic_result_inspected=false`,
+`final_test_accessed=false`, `production_eligible=false`, and
+`live_trading_authorized=false`. The run therefore establishes neither a profitable
+normalization candidate nor production/live eligibility.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same

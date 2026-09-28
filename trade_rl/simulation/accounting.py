@@ -504,10 +504,15 @@ class BookState:
             or not 0 <= symbol_index < len(self.quantities)
         ):
             raise ValueError("fill symbol index is outside the book")
+        values = list(self._quantity_values())
+        current = values[symbol_index]
         accepted = accepted_fill_quantity(
             quantity, lot_size=lot_size, lot_count=lot_count
         )
-        values = list(self._quantity_values())
+        # A projected no-lot close may sit just inside its exact Fraction. When the
+        # fill covers that full projected inventory, consume the exact position.
+        if lot_count is None and quantity == -project_quantity(current):
+            accepted = -current
         values[symbol_index] += accepted
         delta = [Fraction(0) for _ in self.quantities]
         delta[symbol_index] = accepted

@@ -274,11 +274,11 @@ class BookState:
     def clone(self) -> BookState:
         self._quantity_values()
         return BookState(
-            quantities=self.quantities.copy(),
+            quantities=self.quantities,
             cash=self.cash,
-            mark_prices=self.mark_prices.copy(),
+            mark_prices=self.mark_prices,
             peak_value=self.peak_value,
-            contract_multipliers=np.asarray(self.contract_multipliers).copy(),
+            contract_multipliers=np.asarray(self.contract_multipliers),
             max_drawdown=self.max_drawdown,
             turnover_total=self.turnover_total,
             total_cost=self.total_cost,

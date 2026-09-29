@@ -28,7 +28,7 @@ def _offenders(root: Path, forbidden_prefixes: tuple[str, ...]) -> list[str]:
             for name in imports
             for prefix in forbidden_prefixes
         ):
-            result.append(str(path.relative_to(ROOT)))
+            result.append(path.relative_to(ROOT).as_posix())
     return result
 
 
@@ -47,7 +47,7 @@ def _symbol_offenders(root: Path, forbidden_names: frozenset[str]) -> list[str]:
             elif isinstance(node, ast.Name) and node.id in forbidden_names:
                 found = True
         if found:
-            result.append(str(path.relative_to(ROOT)))
+            result.append(path.relative_to(ROOT).as_posix())
     return result
 
 

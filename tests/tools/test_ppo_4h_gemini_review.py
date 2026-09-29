@@ -325,7 +325,8 @@ def test_target_ci_must_match_trusted_default_branch_ci(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True)
         path.write_text("trusted-ci\n", encoding="utf-8")
 
-    expected = hashlib.sha256(b"trusted-ci\n").hexdigest()
+    trusted_workflow = trusted / ".github" / "workflows" / "ci.yml"
+    expected = hashlib.sha256(trusted_workflow.read_bytes()).hexdigest()
     assert review.require_trusted_ci_identity(trusted, target) == expected
 
     (target / ".github" / "workflows" / "ci.yml").write_text(

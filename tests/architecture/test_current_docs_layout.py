@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -86,9 +87,15 @@ def _assert_active_ephemeral_doc(relative: str, text: str) -> None:
 
 
 def _git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
-    header = f"blob {len(data)}\0".encode()
-    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
+    relative_path = path.relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "hash-object", f"--path={relative_path}", str(path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> (

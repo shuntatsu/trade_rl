@@ -412,6 +412,44 @@ def test_strategy_roster_fails_closed() -> None:
         replay_module.run_shared_cash_replay(dataset, (shared, shared), **common)
 
 
+def test_shared_cash_drawdown_stop_uses_combined_multi_symbol_equity() -> None:
+    dataset = _market(
+        np.asarray(
+            [
+                [100.0, 100.0],
+                [100.0, 100.0],
+                [40.0, 40.0],
+                [40.0, 40.0],
+                [40.0, 40.0],
+            ]
+        )
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.5,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG), FixedIntent(PositionIntent.LONG)),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+    )
+
+    assert result.book.max_drawdown > 0.20
+    assert result.decisions[2].target_weights == pytest.approx((0.0, 0.0))
+    assert "drawdown_deleveraging" in result.decisions[2].risk_reasons
+
+
 def test_portfolio_termination_stops_all_symbols() -> None:
     dataset = _market(
         np.asarray(

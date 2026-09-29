@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import shutil
 import tempfile
 import zipfile
 import zlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
@@ -26,15 +27,27 @@ from trade_rl.evaluation.metrics import PerformanceMetrics
 from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
-from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
+from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.intent import (
+    PPO_OBSERVATION_SCHEMA_V3,
+    ppo_observation_contract_payload,
+)
 from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
 
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
 _RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
-_RESULT_SCHEMA = _RESULT_SCHEMA_V3
+_RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
+_RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
+_RESULT_SCHEMA = _RESULT_SCHEMA_V5
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
-    {_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
+    {
+        _RESULT_SCHEMA_V1,
+        _RESULT_SCHEMA_V2,
+        _RESULT_SCHEMA_V3,
+        _RESULT_SCHEMA_V4,
+        _RESULT_SCHEMA_V5,
+    }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
 _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
@@ -136,6 +149,32 @@ def _result_payload(
                 dtype=np.float64,
             )
             diagnostics = entry.replay.diagnostics
+            final_quantities = [float(value) for value in entry.replay.book.quantities]
+            active_order_remainders = [
+                {"order_id": order_id, "remaining_quantity": float(quantity)}
+                for order_id, quantity in entry.replay.active_order_remainders
+            ]
+            terminal_order_reasons = [
+                {"order_id": order_id, "reason": reason}
+                for order_id, reason in entry.replay.terminal_order_reasons
+            ]
+            minimum_hold_audit = [
+                {
+                    "index": decision.index,
+                    "requested_intent": int(decision.intent),
+                    "effective_intent": int(decision.effective_intent),
+                    "position_age_bars": decision.position_age_bars,
+                    "position_age_bars_after": decision.position_age_bars_after,
+                    "position_quantity_before": decision.position_quantity_before,
+                    "position_quantity_after": decision.position_quantity_after,
+                    "target_weight": decision.target_weight,
+                    "minimum_hold_suppressed": decision.minimum_hold_suppressed,
+                    "minimum_hold_unlocked": decision.minimum_hold_unlocked,
+                    "risk_reasons": list(decision.risk_reasons),
+                }
+                for decision in entry.replay.decisions
+                if decision.minimum_hold_suppressed or decision.minimum_hold_unlocked
+            ]
             strategies_payload.append(
                 {
                     "name": entry.name,
@@ -149,9 +188,26 @@ def _result_payload(
                         "n_trades": diagnostics.n_trades,
                         "rebalance_events": diagnostics.rebalance_events,
                         "termination_reasons": list(diagnostics.termination_reasons),
+                        "minimum_hold_suppressed_count": sum(
+                            decision.minimum_hold_suppressed
+                            for decision in entry.replay.decisions
+                        ),
+                        "minimum_hold_unlocked_count": sum(
+                            decision.minimum_hold_unlocked
+                            for decision in entry.replay.decisions
+                        ),
                     },
                     "final_portfolio_value": entry.replay.book.portfolio_value,
                     "fill_count": entry.replay.book.fill_count,
+                    "final_quantities": final_quantities,
+                    "active_order_remainders": active_order_remainders,
+                    "terminal_order_reasons": terminal_order_reasons,
+                    "terminal_settlement_complete": (
+                        config.ppo_settle_terminal_position
+                        and not any(quantity != 0.0 for quantity in final_quantities)
+                        and not active_order_remainders
+                    ),
+                    "minimum_hold_audit": minimum_hold_audit,
                 }
             )
         symbols_payload.append(
@@ -164,7 +220,9 @@ def _result_payload(
 
     summary: dict[str, object] = {
         "schema_version": _RESULT_SCHEMA,
-        "ppo_observation": ppo_observation_contract_payload(),
+        "ppo_observation": ppo_observation_contract_payload(
+            config.ppo_observation_schema
+        ),
         "dataset_id": spec.dataset_id,
         "dataset_artifact": {
             "schema_version": spec.dataset_artifact_schema,
@@ -187,13 +245,30 @@ def _result_payload(
             "ppo_seed": lean_config.ppo_seed,
             "ppo_training_layout": lean_config.ppo_training_layout,
             "ppo_rollout_steps_per_env": lean_config.ppo_rollout_steps_per_env,
+            "ppo_minimum_hold_bars": lean_config.ppo_minimum_hold_bars,
+            "ppo_observation_schema": config.ppo_observation_schema,
+            "ppo_settle_terminal_position": config.ppo_settle_terminal_position,
+            "pretrade_risk_config": (
+                None
+                if config.pretrade_risk_config is None
+                else asdict(config.pretrade_risk_config)
+            ),
             "ppo_training_timesteps": result.ppo_training_timesteps,
+            "ppo_training_minimum_hold_suppressed_count": (
+                result.ppo_training_minimum_hold_suppressed_count
+            ),
         },
         "evaluation": {
             "start": str(config.evaluation_start),
             "stop_exclusive": str(config.evaluation_stop_exclusive),
             "gross_budget": config.gross_budget,
             "initial_capital": config.initial_capital,
+            "ppo_settle_terminal_position": config.ppo_settle_terminal_position,
+            "pretrade_risk_config": (
+                None
+                if config.pretrade_risk_config is None
+                else asdict(config.pretrade_risk_config)
+            ),
             "execution_overlay": getattr(
                 spec, "execution_overlay", LEGACY_DATASET_EXECUTION_OVERLAY
             ),
@@ -337,7 +412,11 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
     return frozenset(keys)
 
 
-def _validate_ppo_training_evidence(summary: Mapping[str, object]) -> None:
+def _validate_ppo_training_evidence(
+    summary: Mapping[str, object],
+    *,
+    result_schema: str,
+) -> None:
     candidate_config = summary.get("candidate_config")
     if not isinstance(candidate_config, Mapping):
         raise ValueError("candidate PPO training config is malformed")
@@ -346,6 +425,13 @@ def _validate_ppo_training_evidence(summary: Mapping[str, object]) -> None:
     layout = candidate_config.get("ppo_training_layout")
     rollout_steps = candidate_config.get("ppo_rollout_steps_per_env")
     fit_symbols = candidate_config.get("fit_symbol_indices")
+    minimum_hold_bars = candidate_config.get("ppo_minimum_hold_bars", 0)
+    observation_schema = candidate_config.get(
+        "ppo_observation_schema", "ppo_observation_v2"
+    )
+    settle_terminal_position = candidate_config.get(
+        "ppo_settle_terminal_position", False
+    )
     if (
         isinstance(requested, bool)
         or not isinstance(requested, int)
@@ -372,6 +458,246 @@ def _validate_ppo_training_evidence(summary: Mapping[str, object]) -> None:
     )
     if realized != expected:
         raise ValueError("candidate PPO realized timesteps do not match rollout budget")
+    if result_schema in {_RESULT_SCHEMA_V4, _RESULT_SCHEMA_V5}:
+        if not {
+            "ppo_minimum_hold_bars",
+            "ppo_observation_schema",
+            "ppo_settle_terminal_position",
+            "ppo_training_minimum_hold_suppressed_count",
+        }.issubset(candidate_config):
+            raise ValueError("candidate PPO duration config is incomplete")
+        if (
+            isinstance(minimum_hold_bars, bool)
+            or not isinstance(minimum_hold_bars, int)
+            or minimum_hold_bars < 0
+        ):
+            raise ValueError("candidate PPO minimum hold duration is malformed")
+        if not isinstance(observation_schema, str):
+            raise ValueError("candidate PPO observation schema is malformed")
+        if not isinstance(settle_terminal_position, bool):
+            raise ValueError("candidate PPO terminal settlement is malformed")
+        suppressed_count = candidate_config.get(
+            "ppo_training_minimum_hold_suppressed_count"
+        )
+        if (
+            isinstance(suppressed_count, bool)
+            or not isinstance(suppressed_count, int)
+            or suppressed_count < 0
+        ):
+            raise ValueError("candidate PPO suppression count is malformed")
+        if minimum_hold_bars > 0 and observation_schema != "ppo_observation_v3":
+            raise ValueError(
+                "candidate PPO duration requires the age-aware observation"
+            )
+        evaluation = summary.get("evaluation")
+        if not isinstance(evaluation, Mapping):
+            raise ValueError("candidate evaluation config is malformed")
+        if (
+            evaluation.get("ppo_settle_terminal_position")
+            is not settle_terminal_position
+        ):
+            raise ValueError("candidate terminal settlement config is inconsistent")
+        if summary.get("ppo_observation") != ppo_observation_contract_payload(
+            observation_schema
+        ):
+            raise ValueError("candidate PPO observation contract mismatch")
+    if result_schema == _RESULT_SCHEMA_V5:
+        if "pretrade_risk_config" not in candidate_config:
+            raise ValueError("candidate PPO risk config is incomplete")
+        risk_config = candidate_config["pretrade_risk_config"]
+        if risk_config is not None:
+            if not isinstance(risk_config, Mapping):
+                raise ValueError("candidate pre-trade risk config is malformed")
+            required_risk_fields = {
+                "max_gross",
+                "max_abs_weight",
+                "max_turnover",
+                "drawdown_start",
+                "drawdown_stop",
+                "emergency_turnover_override",
+                "fail_closed_tolerance",
+            }
+            if set(risk_config) != required_risk_fields:
+                raise ValueError("candidate pre-trade risk config is malformed")
+            numeric_fields = required_risk_fields - {
+                "max_turnover",
+                "emergency_turnover_override",
+            }
+            if any(
+                isinstance(risk_config[name], bool)
+                or not isinstance(risk_config[name], (int, float))
+                or not math.isfinite(float(risk_config[name]))
+                for name in numeric_fields
+            ):
+                raise ValueError("candidate pre-trade risk config is malformed")
+            max_turnover = risk_config["max_turnover"]
+            if max_turnover is not None and (
+                isinstance(max_turnover, bool)
+                or not isinstance(max_turnover, (int, float))
+                or not math.isfinite(float(max_turnover))
+            ):
+                raise ValueError("candidate pre-trade risk config is malformed")
+            if not isinstance(risk_config["emergency_turnover_override"], bool):
+                raise ValueError("candidate pre-trade risk config is malformed")
+            try:
+                PreTradeRiskConfig(**dict(risk_config))
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "candidate pre-trade risk config is malformed"
+                ) from error
+        evaluation = summary.get("evaluation")
+        if (
+            not isinstance(evaluation, Mapping)
+            or evaluation.get("pretrade_risk_config") != risk_config
+        ):
+            raise ValueError("candidate pre-trade risk config is inconsistent")
+        if observation_schema == PPO_OBSERVATION_SCHEMA_V3:
+            if not settle_terminal_position:
+                raise ValueError(
+                    "age-aware PPO comparison requires terminal settlement"
+                )
+            if risk_config is None:
+                raise ValueError(
+                    "age-aware PPO comparison requires explicit pre-trade risk config"
+                )
+            if float(risk_config["drawdown_stop"]) > 0.20:
+                raise ValueError("PPO drawdown stop must not exceed 20%")
+
+
+def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
+    symbols = summary.get("symbols")
+    by_symbol = summary.get("by_symbol")
+    evaluation = summary.get("evaluation")
+    if not isinstance(symbols, list) or not isinstance(by_symbol, list):
+        raise ValueError("candidate replay evidence is malformed")
+    if not isinstance(evaluation, Mapping):
+        raise ValueError("candidate replay evidence is malformed")
+    terminal_settlement = evaluation.get("ppo_settle_terminal_position")
+    if not isinstance(terminal_settlement, bool):
+        raise ValueError("candidate replay evidence is malformed")
+
+    replay_fields = {
+        "final_quantities",
+        "active_order_remainders",
+        "terminal_order_reasons",
+        "terminal_settlement_complete",
+        "minimum_hold_audit",
+    }
+    audit_fields = {
+        "index",
+        "requested_intent",
+        "effective_intent",
+        "position_age_bars",
+        "position_age_bars_after",
+        "position_quantity_before",
+        "position_quantity_after",
+        "target_weight",
+        "minimum_hold_suppressed",
+        "minimum_hold_unlocked",
+        "risk_reasons",
+    }
+    for symbol_entry in by_symbol:
+        if not isinstance(symbol_entry, Mapping):
+            raise ValueError("candidate replay evidence is malformed")
+        strategies = symbol_entry.get("strategies")
+        if not isinstance(strategies, list):
+            raise ValueError("candidate replay evidence is malformed")
+        for strategy in strategies:
+            if not isinstance(strategy, Mapping) or not replay_fields.issubset(
+                strategy
+            ):
+                raise ValueError("candidate replay evidence is incomplete")
+            quantities = strategy["final_quantities"]
+            remainders = strategy["active_order_remainders"]
+            terminal_reasons = strategy["terminal_order_reasons"]
+            terminal_complete = strategy["terminal_settlement_complete"]
+            audit = strategy["minimum_hold_audit"]
+            if (
+                not isinstance(quantities, list)
+                or len(quantities) != len(symbols)
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in quantities
+                )
+                or not isinstance(remainders, list)
+                or not isinstance(terminal_reasons, list)
+                or not isinstance(terminal_complete, bool)
+                or not isinstance(audit, list)
+            ):
+                raise ValueError("candidate replay evidence is malformed")
+            for order in remainders:
+                if (
+                    not isinstance(order, Mapping)
+                    or set(order) != {"order_id", "remaining_quantity"}
+                    or not isinstance(order["order_id"], str)
+                    or not order["order_id"]
+                    or isinstance(order["remaining_quantity"], bool)
+                    or not isinstance(order["remaining_quantity"], (int, float))
+                    or not math.isfinite(float(order["remaining_quantity"]))
+                ):
+                    raise ValueError("candidate replay order remainder is malformed")
+            for terminal_reason in terminal_reasons:
+                if (
+                    not isinstance(terminal_reason, Mapping)
+                    or set(terminal_reason) != {"order_id", "reason"}
+                    or not isinstance(terminal_reason["order_id"], str)
+                    or not terminal_reason["order_id"]
+                    or not isinstance(terminal_reason["reason"], str)
+                    or not terminal_reason["reason"]
+                ):
+                    raise ValueError("candidate terminal order evidence is malformed")
+            expected_terminal_complete = (
+                terminal_settlement
+                and all(float(value) == 0.0 for value in quantities)
+                and not remainders
+            )
+            if terminal_complete is not expected_terminal_complete:
+                raise ValueError(
+                    "candidate terminal settlement evidence is inconsistent"
+                )
+            for event in audit:
+                if (
+                    not isinstance(event, Mapping)
+                    or set(event) != audit_fields
+                    or isinstance(event["index"], bool)
+                    or not isinstance(event["index"], int)
+                    or event["index"] < 0
+                    or any(
+                        isinstance(event[field], bool)
+                        or not isinstance(event[field], int)
+                        or event[field] < 0
+                        for field in ("position_age_bars", "position_age_bars_after")
+                    )
+                    or any(
+                        isinstance(event[field], bool)
+                        or not isinstance(event[field], int)
+                        or event[field] not in {-1, 0, 1}
+                        for field in ("requested_intent", "effective_intent")
+                    )
+                    or any(
+                        isinstance(event[field], bool)
+                        or not isinstance(event[field], (int, float))
+                        or not math.isfinite(float(event[field]))
+                        for field in (
+                            "position_quantity_before",
+                            "position_quantity_after",
+                            "target_weight",
+                        )
+                    )
+                    or not isinstance(event["minimum_hold_suppressed"], bool)
+                    or not isinstance(event["minimum_hold_unlocked"], bool)
+                    or not (
+                        event["minimum_hold_suppressed"]
+                        or event["minimum_hold_unlocked"]
+                    )
+                    or not isinstance(event["risk_reasons"], list)
+                    or any(
+                        not isinstance(reason, str) for reason in event["risk_reasons"]
+                    )
+                ):
+                    raise ValueError("candidate minimum-hold audit is malformed")
 
 
 def _load_returns(
@@ -444,7 +770,12 @@ def _load_with_evidence(
     ):
         raise ValueError("candidate PPO observation contract mismatch")
     if result_schema == _RESULT_SCHEMA_V3:
-        _validate_ppo_training_evidence(summary)
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+    if result_schema == _RESULT_SCHEMA_V4:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+    if result_schema == _RESULT_SCHEMA_V5:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v5_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")

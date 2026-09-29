@@ -47,6 +47,7 @@ class UniversalStrategyComparison:
 
     by_symbol: tuple[SymbolStrategyComparison, ...]
     ppo_training_timesteps: int | None = None
+    ppo_training_minimum_hold_suppressed_count: int | None = None
 
     def __post_init__(self) -> None:
         if self.ppo_training_timesteps is not None and (
@@ -55,6 +56,14 @@ class UniversalStrategyComparison:
             or self.ppo_training_timesteps <= 0
         ):
             raise ValueError("ppo_training_timesteps must be a positive integer")
+        if self.ppo_training_minimum_hold_suppressed_count is not None and (
+            isinstance(self.ppo_training_minimum_hold_suppressed_count, bool)
+            or not isinstance(self.ppo_training_minimum_hold_suppressed_count, int)
+            or self.ppo_training_minimum_hold_suppressed_count < 0
+        ):
+            raise ValueError(
+                "ppo_training_minimum_hold_suppressed_count must be a non-negative integer"
+            )
 
 
 def compare_strategies(
@@ -68,6 +77,7 @@ def compare_strategies(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    settle_terminal_position: bool = False,
 ) -> StrategyComparison:
     """Evaluate named strategies with identical replay and metric semantics."""
 
@@ -88,6 +98,7 @@ def compare_strategies(
             initial_capital=initial_capital,
             execution_cost=execution_cost,
             risk=risk,
+            settle_terminal_position=settle_terminal_position,
         )
         diagnostics = replay.diagnostics
         metrics = evaluate_performance(
@@ -121,6 +132,7 @@ def compare_strategies_by_symbol(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    settle_terminal_position: bool = False,
 ) -> UniversalStrategyComparison:
     """Replay the same strategy objects independently on every dataset symbol."""
 
@@ -138,6 +150,7 @@ def compare_strategies_by_symbol(
                 initial_capital=initial_capital,
                 execution_cost=execution_cost,
                 risk=risk,
+                settle_terminal_position=settle_terminal_position,
             ),
         )
         for symbol_index, symbol in enumerate(dataset.symbols)
@@ -155,6 +168,7 @@ def compare_strategy_factories_by_symbol(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    settle_terminal_position: bool = False,
 ) -> UniversalStrategyComparison:
     """Replay fresh strategy adapters per symbol while sharing frozen model state."""
 
@@ -196,6 +210,7 @@ def compare_strategy_factories_by_symbol(
                     initial_capital=initial_capital,
                     execution_cost=execution_cost,
                     risk=risk,
+                    settle_terminal_position=settle_terminal_position,
                 ),
             )
         )

@@ -2,11 +2,11 @@
 
 PPOは何を観測し、actionをどう売買意図へ変え、どの時点でhard risk・約定・reward計算を通るのか。
 
-学習時だけ使える情報をpolicyへ混ぜず、実行時も同じObservation v2を使うことが中心契約です。
+学習時だけ使える情報をpolicyへ混ぜず、実行時も同じObservation schemaを使うことが中心契約です。歴史的なv2は5区分、保有期間を扱うv3は約定後の保有年齢を追加します。
 
-## PPO Observation v2は5区分
+## PPO Observation v2/v3
 
-policy inputは次の固定順序です。
+Observation v2のpolicy inputは次の5区分を固定順序で持ちます。
 
 | 順番 | 区分 | 意味 |
 | ---: | --- | --- |
@@ -15,6 +15,7 @@ policy inputは次の固定順序です。
 | 3 | `local_staleness` | 選択featureと同じ順序の鮮度遅延 |
 | 4 | `current_intent` | 現在のSHORT / FLAT / LONG状態 |
 | 5 | `current_weight` | 現在のportfolio weight |
+| 6 | `position_age_bars`（v3のみ） | 実際の約定数量から数えた保有年齢 |
 
 ```text
 local_values
@@ -22,13 +23,23 @@ local_values
     + local_staleness
     + current_intent
     + current_weight
+    + position_age_bars (v3)
               ↓
        _encode_observation
               ↓
       PPO observation vector
 ```
 
+Observation v3はv2の5区分をそのまま保ち、末尾に
+`min(position_age_bars, 504) / 504` を加えます。年齢は直近のactionではなく実際のsigned fillから更新します。最初の非ゼロfillは1、保有が続く区間は1ずつ進み、実際にflatになれば0、保有方向が反転したら1へ戻ります。
+
 初回canonical M2のpolicy inputにはsymbol IDやdataset-global aggregateを入れません。さらにfit対象を一部銘柄へ絞る場合、選択したlocal featureもfit-scope外symbolへ依存していないかDataset build identityから確認します。cross-sectional rank/dispersionはstrict subsetではrejectし、reference-relative featureはreference symbolがfit scope内にある場合だけ許します。これはrowを除くだけでholdout symbolの情報が残る経路を閉じるためです。
+
+## PPOの最小保有期間
+
+`minimum_hold_bars`は、実際の保有年齢が指定bar数に達するまで、policyが自発的にFLATまたは反対方向へ変える意図を抑えます。年齢は予測actionではなく実約定数量から進めるため、partial fillやflattenも状態へ反映します。hard riskは期間中も常に適用され、必要なら縮小・flattenできます。したがって最小保有期間は取引を必ずその長さ保持する保証ではありません。
+
+正の保有期間には、年齢を観測できるObservation v3が必要です。比較ではH=0のbaselineも候補と同じv3を使い、seedごとにPPOを新しく学習します。この要因が測るのは同じ売買を単純に長く持つ効果だけではなく、最低滞在ルールを与えたPPOシステム全体の変化です。
 
 ## 学習時の銘柄スケジュールは2方式
 
@@ -36,7 +47,7 @@ local_values
 
 fit対象が複数銘柄なら、requested `total_timesteps`をSB3の2048-step rollout単位へ切り上げた実効budgetが、全fit銘柄へ最低1 full agent episodeずつ届くことも事前に確認します。足りなければ学習を始めずfail closedにします。terminal settlementの内部barはagentがactionを選ばないため、このcoverage step数には含めません。
 
-`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。 各envの**active symbol**は1銘柄ですが、featureが参照してよい**information scope**は全fit銘柄rosterです。envを直接作る場合はinformation scopeを省略するとactive symbolだけをscopeとして検証するため、holdout依存のcross-asset featureを迂回できません。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Observation v2、reward、hard risk、約定・会計、network、entropy係数は変えません。
+`interleaved`は明示的に選ぶ別layoutです。fit対象の各銘柄について1銘柄だけに固定した同じ`PPOTradingEnv`を1個ずつ作り、`DummyVecEnv`で同じPPO policyへ渡します。 各envの**active symbol**は1銘柄ですが、featureが参照してよい**information scope**は全fit銘柄rosterです。envを直接作る場合はinformation scopeを省略するとactive symbolだけをscopeとして検証するため、holdout依存のcross-asset featureを迂回できません。`rollout_steps_per_env`はcallerが明示し、全envを合わせたrollout sample数がminibatch size 64で割り切れなければfail closedにします。`total_timesteps`、Studyで固定したObservation schema、reward、hard risk、約定・会計、network、entropy係数は変えません。
 
 ```text
 sequential（既定）
@@ -57,7 +68,7 @@ PPOへ渡す主要constructor/policy設定もコードで明示します。learn
 ```text
 現在時点の市場・portfolio状態
             │
-            │ 1. Observation v2を符号化
+            │ 1. 選択したObservation v2/v3を符号化
             ▼
       PPO observation
             │
@@ -79,7 +90,7 @@ PPOへ渡す主要constructor/policy設定もコードで明示します。learn
             │
             │ 6. reward = log1p(interval_net_return)
             ▼
-      次のObservation v2
+      次のObservation
 ```
 
 actionが直接rewardになるわけではありません。必ずriskとexecution/accountingを通ります。
@@ -90,13 +101,13 @@ actionが直接rewardになるわけではありません。必ずriskとexecuti
 
 入力値の標準化は明示的に選べる追加機能です。学習対象の期間・銘柄だけで平均と標準偏差を計算し、学習中も評価中も同じ係数を使います。欠損値は標準化後も0とし、利用可否・鮮度・保有状態の意味は変えません。既定では従来の値をそのまま使います。
 
-保存したPPOは、標準化の有無にかかわらずモデルbytesだけでは再利用しません。fit済みstrategy自身がtraining Datasetから得た選択feature名を保持し、inference bundleへObservation v2、選択featureのindex/name、model bytes、必要なら標準化係数を一つのdigestで固定します。保存時はcallerが渡したfeedの選択feature名をstrategy自身のbindingと照合し、読み込み時もmanifestからそのbindingを復元して現在のfeature順序と照合します。featureの意味がずれた、model bytesが置き換わった、必要な係数が一致しない、といった場合はpolicyを読み込む前にfail closedにします。過去のnormalized-only bundleは読み取り互換を維持しますが、単独のhistorical `model.zip`を自動的に安全なdeployment artifactへ昇格させません。利益が改善するかは、別の実データ比較で判定します。
+保存したPPOは、標準化の有無にかかわらずモデルbytesだけでは再利用しません。fit済みstrategy自身がtraining Datasetから得た選択feature名を保持し、inference bundleへObservation schema、選択featureのindex/name、model bytes、必要なら標準化係数を一つのdigestで固定します。保存時はcallerが渡したfeedの選択feature名をstrategy自身のbindingと照合し、読み込み時もmanifestからそのbindingを復元して現在のfeature順序と照合します。featureの意味がずれた、model bytesが置き換わった、必要な係数が一致しない、といった場合はpolicyを読み込む前にfail closedにします。過去のnormalized-only bundleは読み取り互換を維持しますが、単独のhistorical `model.zip`を自動的に安全なdeployment artifactへ昇格させません。利益が改善するかは、別の実データ比較で判定します。
 
 このcontractを固定することで、学習時にだけ便利な情報を後から追加してバックテストを有利にする余地を減らします。
 
 ## 2. policyがactionを選ぶ
 
-PPO policyはObservation v2から離散actionを返します。このactionはまだ注文ではありません。
+PPO policyは選択されたObservation schemaから離散actionを返します。このactionはまだ注文ではありません。
 
 ## 3. actionを売買意図へ変換する
 
@@ -138,7 +149,7 @@ reward = log1p(interval_net_return)
 
 ## 学習時と実行時で同じ観測契約を使う
 
-`PPOIntentStrategy`の実行時は`StrategyObservation`を`_encode_observation`へ渡します。学習時の`PPOTradingEnv`は、同じObservation v2の入力フィールドをデータセットから直接読み、`_encode_observation_fields`で符号化します。学習中は公開レコードの生成を省きますが、policyへ渡すベクトルの意味と順序は実行時と一致します。
+`PPOIntentStrategy`の実行時は`StrategyObservation`を`_encode_observation`へ渡します。学習時の`PPOTradingEnv`は、Studyで選んだ同じObservation schemaの入力フィールドをデータセットから直接読み、`_encode_observation_fields`で符号化します。学習中は公開レコードの生成を省きますが、policyへ渡すベクトルの意味と順序は実行時と一致します。
 
 ```text
 学習時: feature slices + availability + staleness + current intent/weight → _encode_observation_fields → PPO
@@ -149,7 +160,7 @@ reward = log1p(interval_net_return)
 
 ## 不変条件
 
-- policy inputはObservation v2の固定5区分。
+- policy inputはv2の5区分またはv3の6区分で、Study内では同じschemaを使う。
 - unavailable/non-finite valueはそのままpolicyへ渡さない。
 - fit-scope外symbol由来のdataset-global aggregateを初回policy inputへ入れない。
 - PPO actionを直接P&L/rewardへ変換しない。

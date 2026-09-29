@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from statistics import median
+from statistics import mean, median
 from typing import cast
 
 import numpy as np
@@ -23,8 +23,13 @@ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 _ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
 _LEGACY_COMPARISON_SCHEMA = "controlled_evidence_comparison_v1"
 _COMPARISON_SCHEMA = "controlled_evidence_comparison_v2"
+PPO_HOLDING_DURATION_COMPARISON_SCHEMA = "controlled_evidence_comparison_v3"
 _SUPPORTED_COMPARISON_SCHEMAS = frozenset(
-    {_LEGACY_COMPARISON_SCHEMA, _COMPARISON_SCHEMA}
+    {
+        _LEGACY_COMPARISON_SCHEMA,
+        _COMPARISON_SCHEMA,
+        PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    }
 )
 
 
@@ -34,6 +39,7 @@ class _Cell:
     strategy: str
     returns: ReturnSeries
     metrics: Mapping[str, object]
+    terminal_settlement_complete: bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,11 +180,20 @@ def _run_matrix(
                     "candidate symbol × strategy cell is duplicated"
                 )
             metrics = cast(Mapping[str, object], metrics_raw)
+            terminal_settlement_complete = strategy.get("terminal_settlement_complete")
+            if terminal_settlement_complete is not None and not isinstance(
+                terminal_settlement_complete,
+                bool,
+            ):
+                raise ArtifactIntegrityError(
+                    "candidate terminal-settlement state is malformed"
+                )
             matrix[key] = _Cell(
                 symbol=expected_symbol,
                 strategy=name,
                 returns=_return_series(values, metrics),
                 metrics=metrics,
+                terminal_settlement_complete=terminal_settlement_complete,
             )
         if tuple(names) != StudyPlan.STRATEGY_NAMES:
             raise ArtifactIntegrityError("candidate strategy roster/order mismatch")
@@ -355,6 +370,22 @@ def compare_evidence_sets(
     cross_inputs: dict[str, tuple[list[float], list[_CandidateMetrics]]] = {
         strategy: ([], []) for strategy in StudyPlan.STRATEGY_NAMES
     }
+    cross_seed_ppo_inputs: dict[int, dict[str, list[float]]] = {
+        seed: {
+            "candidate_total_return": [],
+            "candidate_max_drawdown": [],
+            "baseline_max_drawdown": [],
+            "excess_total_return": [],
+        }
+        for seed in baseline_seeds
+    }
+    cross_seed_terminal_counts: dict[int, dict[str, int]] = {
+        seed: {
+            "baseline_terminal_settlement_complete_account_count": 0,
+            "candidate_terminal_settlement_complete_account_count": 0,
+        }
+        for seed in baseline_seeds
+    }
     for symbol in baseline_symbols:
         strategy_payloads: dict[str, object] = {}
         for strategy in StudyPlan.STRATEGY_NAMES:
@@ -364,9 +395,10 @@ def compare_evidence_sets(
                 candidate_cells: list[_Cell] = []
                 for seed in baseline_seeds:
                     candidate_cell = candidate[seed][(symbol, strategy)]
+                    baseline_cell = baseline[seed][(symbol, strategy)]
                     paired = _paired_payload(
                         candidate_cell.returns,
-                        baseline[seed][(symbol, strategy)].returns,
+                        baseline_cell.returns,
                         n_bootstrap=n_bootstrap,
                         seed=bootstrap_seed + seed,
                     )
@@ -375,6 +407,51 @@ def compare_evidence_sets(
                         _require_metric_number(paired, "excess_total_return")
                     )
                     candidate_cells.append(candidate_cell)
+                    if schema_version == PPO_HOLDING_DURATION_COMPARISON_SCHEMA:
+                        seed_inputs = cross_seed_ppo_inputs[seed]
+                        seed_inputs["candidate_total_return"].append(
+                            _require_metric_number(
+                                candidate_cell.metrics,
+                                "total_return",
+                            )
+                        )
+                        seed_inputs["candidate_max_drawdown"].append(
+                            _require_metric_number(
+                                candidate_cell.metrics,
+                                "max_drawdown",
+                            )
+                        )
+                        seed_inputs["baseline_max_drawdown"].append(
+                            _require_metric_number(
+                                baseline_cell.metrics,
+                                "max_drawdown",
+                            )
+                        )
+                        seed_inputs["excess_total_return"].append(
+                            _require_metric_number(
+                                paired,
+                                "excess_total_return",
+                            )
+                        )
+                        if not isinstance(
+                            baseline_cell.terminal_settlement_complete,
+                            bool,
+                        ) or not isinstance(
+                            candidate_cell.terminal_settlement_complete,
+                            bool,
+                        ):
+                            raise ArtifactIntegrityError(
+                                "PPO holding-duration comparison lacks terminal-settlement evidence"
+                            )
+                        terminal_counts = cross_seed_terminal_counts[seed]
+                        if baseline_cell.terminal_settlement_complete:
+                            terminal_counts[
+                                "baseline_terminal_settlement_complete_account_count"
+                            ] += 1
+                        if candidate_cell.terminal_settlement_complete:
+                            terminal_counts[
+                                "candidate_terminal_settlement_complete_account_count"
+                            ] += 1
                 aggregate = {
                     "positive_seed_count": sum(value > 0.0 for value in excesses),
                     "negative_seed_count": sum(value < 0.0 for value in excesses),
@@ -418,14 +495,78 @@ def compare_evidence_sets(
     for strategy, (excesses, metrics) in cross_inputs.items():
         cross_symbol[strategy] = _candidate_metrics_summary(metrics, excesses=excesses)
 
-    return _with_digest(
-        {
-            "schema_version": schema_version,
-            "seeds": list(baseline_seeds),
-            "by_symbol": by_symbol,
-            "cross_symbol": cross_symbol,
+    result: dict[str, object] = {
+        "schema_version": schema_version,
+        "by_symbol": by_symbol,
+        "cross_symbol": cross_symbol,
+    }
+    if schema_version == PPO_HOLDING_DURATION_COMPARISON_SCHEMA:
+        cross_seed_by_seed: dict[str, object] = {}
+        candidate_seed_means: list[float] = []
+        excess_seed_means: list[float] = []
+        seed_worst_drawdowns: list[float] = []
+        seed_worst_baseline_drawdowns: list[float] = []
+        for seed in baseline_seeds:
+            inputs = cross_seed_ppo_inputs[seed]
+            candidate_returns = inputs["candidate_total_return"]
+            drawdowns = inputs["candidate_max_drawdown"]
+            baseline_drawdowns = inputs["baseline_max_drawdown"]
+            excesses = inputs["excess_total_return"]
+            if not (
+                len(candidate_returns)
+                == len(drawdowns)
+                == len(baseline_drawdowns)
+                == len(excesses)
+                == len(baseline_symbols)
+            ):
+                raise ArtifactIntegrityError(
+                    "PPO holding-duration seed-symbol comparison is incomplete"
+                )
+            candidate_mean = float(mean(candidate_returns))
+            excess_mean = float(mean(excesses))
+            worst_drawdown = max(drawdowns)
+            worst_baseline_drawdown = max(baseline_drawdowns)
+            worst_account_drawdown = max(worst_drawdown, worst_baseline_drawdown)
+            terminal_counts = cross_seed_terminal_counts[seed]
+            cross_seed_by_seed[str(seed)] = {
+                "mean_candidate_total_return": candidate_mean,
+                "mean_excess_total_return": excess_mean,
+                "worst_candidate_max_drawdown": worst_drawdown,
+                "worst_baseline_max_drawdown": worst_baseline_drawdown,
+                "worst_account_max_drawdown": worst_account_drawdown,
+                "symbol_count": len(baseline_symbols),
+                **terminal_counts,
+            }
+            candidate_seed_means.append(candidate_mean)
+            excess_seed_means.append(excess_mean)
+            seed_worst_drawdowns.append(worst_drawdown)
+            seed_worst_baseline_drawdowns.append(worst_baseline_drawdown)
+        result["cross_seed"] = {
+            "ppo": {
+                "seed_count": len(baseline_seeds),
+                "symbol_count": len(baseline_symbols),
+                "by_seed": cross_seed_by_seed,
+                "median_candidate_total_return": float(median(candidate_seed_means)),
+                "median_excess_total_return": float(median(excess_seed_means)),
+                "worst_candidate_max_drawdown": max(seed_worst_drawdowns),
+                "worst_baseline_max_drawdown": max(seed_worst_baseline_drawdowns),
+                "worst_account_max_drawdown": max(
+                    max(seed_worst_drawdowns),
+                    max(seed_worst_baseline_drawdowns),
+                ),
+                "baseline_terminal_settlement_complete_account_count": sum(
+                    counts["baseline_terminal_settlement_complete_account_count"]
+                    for counts in cross_seed_terminal_counts.values()
+                ),
+                "candidate_terminal_settlement_complete_account_count": sum(
+                    counts["candidate_terminal_settlement_complete_account_count"]
+                    for counts in cross_seed_terminal_counts.values()
+                ),
+            }
         }
-    )
+
+    result["seeds"] = list(baseline_seeds)
+    return _with_digest(result)
 
 
 __all__ = ["analyze_evidence_set", "compare_evidence_sets"]

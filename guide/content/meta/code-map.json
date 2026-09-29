@@ -82,7 +82,7 @@
       "kind": "function",
       "source_sha256": "9a4a65912487638effff0c36414fc44929a726a9c00bdbd2a3a9794cae64eb68",
       "label_ja": "共通評価リプレイ",
-      "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。",
+      "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"

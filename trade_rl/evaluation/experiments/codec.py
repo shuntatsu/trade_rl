@@ -23,6 +23,7 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
     StudyResearchContext,
 )
 from trade_rl.evaluation.experiments.delta import (
@@ -34,6 +35,7 @@ from trade_rl.evaluation.experiments.errors import (
     ContractViolationError,
 )
 from trade_rl.evaluation.runs import CandidateRunConfig
+from trade_rl.risk import PreTradeRiskConfig
 
 _ANALYSIS_BINDING_SCHEMA = "controlled_evidence_analysis_binding_v1"
 _WITHIN_ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
@@ -99,6 +101,59 @@ def _as_float(value: object, *, field: str) -> float:
     return resolved
 
 
+def _pretrade_risk_from_payload(
+    value: object,
+    *,
+    field: str,
+) -> PreTradeRiskConfig | None:
+    if value is None:
+        return None
+    raw = _as_dict(value, field=field)
+    _expect_keys(
+        raw,
+        {
+            "max_gross",
+            "max_abs_weight",
+            "max_turnover",
+            "drawdown_start",
+            "drawdown_stop",
+            "emergency_turnover_override",
+            "fail_closed_tolerance",
+        },
+        label=field,
+    )
+    override = raw["emergency_turnover_override"]
+    if not isinstance(override, bool):
+        raise ArtifactIntegrityError(
+            f"{field}.emergency_turnover_override must be boolean"
+        )
+    try:
+        return PreTradeRiskConfig(
+            max_gross=_as_float(raw["max_gross"], field=f"{field}.max_gross"),
+            max_abs_weight=_as_float(
+                raw["max_abs_weight"], field=f"{field}.max_abs_weight"
+            ),
+            max_turnover=(
+                None
+                if raw["max_turnover"] is None
+                else _as_float(raw["max_turnover"], field=f"{field}.max_turnover")
+            ),
+            drawdown_start=_as_float(
+                raw["drawdown_start"], field=f"{field}.drawdown_start"
+            ),
+            drawdown_stop=_as_float(
+                raw["drawdown_stop"], field=f"{field}.drawdown_stop"
+            ),
+            emergency_turnover_override=override,
+            fail_closed_tolerance=_as_float(
+                raw["fail_closed_tolerance"],
+                field=f"{field}.fail_closed_tolerance",
+            ),
+        )
+    except ValueError as error:
+        raise ArtifactIntegrityError(f"{field} is invalid") from error
+
+
 def _as_string_tuple(value: object, *, field: str) -> tuple[str, ...]:
     values = _as_list(value, field=field)
     return tuple(_as_string(item, field=field) for item in values)
@@ -149,14 +204,34 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
     if schema_version in {
         "resolved_run_config_v2",
         "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
     }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
-    if schema_version == "resolved_run_config_v3":
+    if schema_version in {
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
         expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
+    if schema_version in {"resolved_run_config_v4", "resolved_run_config_v5"}:
+        expected.update({"ppo_minimum_hold_bars", "ppo_settle_terminal_position"})
+    if schema_version == "resolved_run_config_v5":
+        expected.add("pretrade_risk_config")
     elif schema_version != "resolved_run_config_v1":
-        if schema_version != "resolved_run_config_v2":
+        if schema_version not in {
+            "resolved_run_config_v2",
+            "resolved_run_config_v3",
+            "resolved_run_config_v4",
+            "resolved_run_config_v5",
+        }:
             raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
+    terminal_settlement: object = raw.get("ppo_settle_terminal_position", False)
+    if not isinstance(terminal_settlement, bool):
+        raise ArtifactIntegrityError(
+            f"{field}.ppo_settle_terminal_position must be boolean"
+        )
     try:
         return ResolvedRunConfig(
             signal_name=_as_string(raw["signal_name"], field=f"{field}.signal_name"),
@@ -228,17 +303,48 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     raw["ppo_training_layout"],
                     field=f"{field}.ppo_training_layout",
                 )
-                if schema_version == "resolved_run_config_v3"
+                if schema_version
+                in {
+                    "resolved_run_config_v3",
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                }
                 else "sequential"
             ),
             ppo_rollout_steps_per_env=(
                 None
-                if schema_version != "resolved_run_config_v3"
+                if schema_version
+                not in {
+                    "resolved_run_config_v3",
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                }
                 or raw["ppo_rollout_steps_per_env"] is None
                 else _as_int(
                     raw["ppo_rollout_steps_per_env"],
                     field=f"{field}.ppo_rollout_steps_per_env",
                 )
+            ),
+            ppo_minimum_hold_bars=(
+                0
+                if schema_version
+                not in {
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                }
+                else _as_int(
+                    raw["ppo_minimum_hold_bars"],
+                    field=f"{field}.ppo_minimum_hold_bars",
+                )
+            ),
+            ppo_settle_terminal_position=terminal_settlement,
+            pretrade_risk_config=(
+                _pretrade_risk_from_payload(
+                    raw["pretrade_risk_config"],
+                    field=f"{field}.pretrade_risk_config",
+                )
+                if schema_version == "resolved_run_config_v5"
+                else None
             ),
         )
     except ContractViolationError as error:
@@ -289,6 +395,8 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                     "final_evaluation_stop_exclusive",
                 }
             )
+    elif schema_version == "controlled_study_plan_v4":
+        expected.add("protocol")
     elif schema_version != "controlled_study_plan_v1":
         raise ArtifactIntegrityError("unsupported StudyPlan schema_version")
     _expect_keys(payload, expected, label="plan.json")
@@ -319,6 +427,15 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
         except ContractViolationError as error:
             raise ArtifactIntegrityError(
                 "plan.json research_context violates contract"
+            ) from error
+
+    protocol: StudyProtocol | None = None
+    if schema_version == "controlled_study_plan_v4":
+        try:
+            protocol = StudyProtocol(_as_string(payload["protocol"], field="protocol"))
+        except ValueError as error:
+            raise ArtifactIntegrityError(
+                "Study contains unsupported protocol"
             ) from error
 
     try:
@@ -368,6 +485,7 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 else None
             ),
             research_context=research_context,
+            protocol=protocol,
             schema_version=schema_version,
         )
     except ContractViolationError as error:
@@ -390,6 +508,26 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
         "forecast_exit_threshold": config.forecast_exit_threshold,
         "ppo_total_timesteps": config.ppo_total_timesteps,
         "ppo_seed": config.ppo_seed,
+        "ppo_minimum_hold_bars": config.ppo_minimum_hold_bars,
+        "ppo_observation_schema": config.ppo_observation_schema,
+        "ppo_settle_terminal_position": config.ppo_settle_terminal_position,
+        "pretrade_risk_config": (
+            None
+            if config.pretrade_risk_config is None
+            else {
+                "max_gross": config.pretrade_risk_config.max_gross,
+                "max_abs_weight": config.pretrade_risk_config.max_abs_weight,
+                "max_turnover": config.pretrade_risk_config.max_turnover,
+                "drawdown_start": config.pretrade_risk_config.drawdown_start,
+                "drawdown_stop": config.pretrade_risk_config.drawdown_stop,
+                "emergency_turnover_override": (
+                    config.pretrade_risk_config.emergency_turnover_override
+                ),
+                "fail_closed_tolerance": (
+                    config.pretrade_risk_config.fail_closed_tolerance
+                ),
+            }
+        ),
         "gross_budget": config.gross_budget,
         "initial_capital": config.initial_capital,
     }
@@ -423,6 +561,12 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             initial_capital=config.initial_capital,
             ppo_training_layout=config.ppo_training_layout,
             ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
+            ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
+            ppo_observation_schema=(
+                config.ppo_observation_schema or "ppo_observation_v2"
+            ),
+            ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+            pretrade_risk_config=config.pretrade_risk_config,
         )
     except ValueError as error:
         raise ArtifactIntegrityError(

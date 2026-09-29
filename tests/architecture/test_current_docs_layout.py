@@ -341,6 +341,8 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
         "StudyResearchContext",
         "controlled_study_plan_v3",
+        "controlled_study_plan_v4",
+        "ppo_holding_duration_v1",
         "canonical_m2_bootstrap_config_v4",
     ):
         assert required in contract
@@ -385,6 +387,8 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "one-shot" in controlled_loop
     assert "canonical_m2_bootstrap_config_v4" in controlled_loop
     assert "controlled_study_plan_v3" in controlled_loop
+    assert "controlled_study_plan_v4" in controlled_loop
+    assert "ppo_holding_duration_v1" in controlled_loop
     assert "historical bootstrap v3" in controlled_loop
 
     research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
@@ -392,6 +396,8 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "final economic evaluation自体は未実行" in research
     assert "canonical_m2_bootstrap_config_v4" in research
     assert "controlled_study_plan_v3" in research
+    assert "controlled_study_plan_v4" in research
+    assert "ppo_holding_duration_v1" in research
     assert "StudyResearchContext" in research
     assert "既存artifactは当時の意味を維持" in research
 

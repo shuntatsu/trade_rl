@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 
 import pytest
 
@@ -28,11 +28,13 @@ from trade_rl.evaluation.experiments.inspection import (
     _find_evidence,
     _reconstruct,
 )
+from trade_rl.evaluation.experiments.protocols import ppo_holding_metrics
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 
 LEGACY_SCHEMA = "controlled_evidence_comparison_v1"
 CURRENT_SCHEMA = "controlled_evidence_comparison_v2"
+HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v3"
 
 
 def _with_ppo_execution_metrics(
@@ -60,6 +62,33 @@ def _with_ppo_execution_metrics(
         turnover = turnover_by_symbol[symbol_index][seed]
         metrics["turnover_total"] = turnover
         metrics["total_cost"] = turnover * 0.125 + float(symbol_index)
+    return LoadedCandidateRun(
+        root=run.root,
+        summary=summary,
+        returns=run.returns,
+        provenance=run.provenance,
+    )
+
+
+def _with_terminal_settlement(
+    run: LoadedCandidateRun,
+    *,
+    complete: bool = True,
+) -> LoadedCandidateRun:
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    by_symbol = summary.get("by_symbol")
+    assert isinstance(by_symbol, list)
+    for symbol_entry in by_symbol:
+        assert isinstance(symbol_entry, dict)
+        strategies = symbol_entry.get("strategies")
+        assert isinstance(strategies, list)
+        ppo = next(
+            strategy
+            for strategy in strategies
+            if isinstance(strategy, dict) and strategy.get("name") == "ppo"
+        )
+        ppo["terminal_settlement_complete"] = complete
     return LoadedCandidateRun(
         root=run.root,
         summary=summary,
@@ -216,6 +245,152 @@ def test_ppo_cross_symbol_aggregation_is_invariant_to_seed_mapping_insertion_ord
     )
 
     assert reverse == forward
+
+
+def test_holding_protocol_score_aggregates_symbols_within_each_seed_first() -> None:
+    seeds = (0, 1, 2, 3, 4)
+    candidate_shifts = (0.02, -0.03, 0.01, 0.04, -0.015)
+    baseline = {seed: _with_terminal_settlement(_run(seed)) for seed in seeds}
+    candidate = {
+        seed: _with_terminal_settlement(
+            _run(seed, candidate_shift=candidate_shifts[seed])
+        )
+        for seed in seeds
+    }
+
+    payload = compare_evidence_sets(
+        baseline,
+        candidate,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=HOLDING_PROTOCOL_SCHEMA,
+    )
+
+    symbols = tuple(candidate[seeds[0]].summary["symbols"])
+    per_seed_candidate_means = {
+        seed: mean(
+            _ppo_metric(candidate[seed], symbol_index, "total_return")
+            for symbol_index in range(len(symbols))
+        )
+        for seed in seeds
+    }
+    by_symbol = payload["by_symbol"]
+    per_seed_excess_means = {
+        seed: mean(
+            by_symbol[symbol]["strategies"]["ppo"]["by_seed"][str(seed)][
+                "excess_total_return"
+            ]
+            for symbol in symbols
+        )
+        for seed in seeds
+    }
+    expected_worst_drawdown = max(
+        _ppo_metric(candidate[seed], symbol_index, "max_drawdown")
+        for seed in seeds
+        for symbol_index in range(len(symbols))
+    )
+    expected_worst_baseline_drawdown = max(
+        _ppo_metric(baseline[seed], symbol_index, "max_drawdown")
+        for seed in seeds
+        for symbol_index in range(len(symbols))
+    )
+
+    summary = payload["cross_seed"]["ppo"]
+    assert payload["schema_version"] == HOLDING_PROTOCOL_SCHEMA
+    assert summary["median_candidate_total_return"] == median(
+        per_seed_candidate_means.values()
+    )
+    assert summary["median_excess_total_return"] == median(
+        per_seed_excess_means.values()
+    )
+    assert summary["worst_candidate_max_drawdown"] == expected_worst_drawdown
+    assert summary["worst_baseline_max_drawdown"] == expected_worst_baseline_drawdown
+    assert summary["worst_account_max_drawdown"] == max(
+        expected_worst_drawdown,
+        expected_worst_baseline_drawdown,
+    )
+    assert summary["symbol_count"] == len(symbols)
+    assert summary["baseline_terminal_settlement_complete_account_count"] == len(
+        seeds
+    ) * len(symbols)
+    assert summary["candidate_terminal_settlement_complete_account_count"] == len(
+        seeds
+    ) * len(symbols)
+    assert summary["by_seed"] == {
+        str(seed): {
+            "mean_candidate_total_return": per_seed_candidate_means[seed],
+            "mean_excess_total_return": per_seed_excess_means[seed],
+            "worst_candidate_max_drawdown": max(
+                _ppo_metric(candidate[seed], symbol_index, "max_drawdown")
+                for symbol_index in range(len(symbols))
+            ),
+            "worst_baseline_max_drawdown": max(
+                _ppo_metric(baseline[seed], symbol_index, "max_drawdown")
+                for symbol_index in range(len(symbols))
+            ),
+            "worst_account_max_drawdown": max(
+                max(
+                    _ppo_metric(candidate[seed], symbol_index, "max_drawdown")
+                    for symbol_index in range(len(symbols))
+                ),
+                max(
+                    _ppo_metric(baseline[seed], symbol_index, "max_drawdown")
+                    for symbol_index in range(len(symbols))
+                ),
+            ),
+            "symbol_count": len(symbols),
+            "baseline_terminal_settlement_complete_account_count": len(symbols),
+            "candidate_terminal_settlement_complete_account_count": len(symbols),
+        }
+        for seed in seeds
+    }
+
+
+def test_holding_protocol_records_incomplete_terminal_accounts() -> None:
+    seeds = (0, 1, 2, 3, 4)
+    shifts = (0.02, -0.03, 0.01, 0.04, -0.015)
+    baseline = {seed: _with_terminal_settlement(_run(seed)) for seed in seeds}
+    candidate = {
+        seed: _with_terminal_settlement(
+            _run(seed, candidate_shift=shifts[seed]),
+            complete=seed != 2,
+        )
+        for seed in seeds
+    }
+
+    payload = compare_evidence_sets(
+        baseline,
+        candidate,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=HOLDING_PROTOCOL_SCHEMA,
+    )
+
+    ppo = payload["cross_seed"]["ppo"]
+    assert ppo["candidate_terminal_settlement_complete_account_count"] == 8
+    assert (
+        ppo["by_seed"]["2"]["candidate_terminal_settlement_complete_account_count"] == 0
+    )
+    factor_digest = payload["analysis_digest"]
+    assert isinstance(factor_digest, str)
+    comparison = ExperimentComparison(
+        study_digest="a" * 64,
+        experiment_digest="b" * 64,
+        baseline_evidence_digest="c" * 64,
+        candidate_evidence_digest="d" * 64,
+        verification_digest="e" * 64,
+        baseline_analysis_digest="f" * 64,
+        candidate_analysis_digest="1" * 64,
+        factor_effect_digest=factor_digest,
+        factor_effect=payload,
+    )
+    metrics = ppo_holding_metrics(
+        comparison,
+        expected_symbols=("BTCUSDT", "ETHUSDT"),
+        expected_seeds=seeds,
+    )
+    assert not metrics.terminal_settlement_complete
+    assert not metrics.eligible
 
 
 def test_explicit_legacy_v1_reproduces_first_seed_candidate_metric_semantics() -> None:

@@ -49,7 +49,11 @@ def _created_study(
         research_question="Does one preregistered factor improve development evidence?",
         baseline_config=_config(),
         ppo_seeds=(2, 5),
-        allowed_factors=tuple(ControlledFactor),
+        allowed_factors=tuple(
+            factor
+            for factor in ControlledFactor
+            if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+        ),
         max_experiments=max_experiments,
         n_bootstrap=32,
         bootstrap_seed=17,

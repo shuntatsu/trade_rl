@@ -15,6 +15,7 @@ from trade_rl.data import (
     load_market_dataset_artifact,
 )
 from trade_rl.evaluation.experiments.analysis import (
+    PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
     analyze_evidence_set,
     compare_evidence_sets,
 )
@@ -28,6 +29,7 @@ from trade_rl.evaluation.experiments.codec import (
     _semantic_without_seed,
 )
 from trade_rl.evaluation.experiments.contracts import (
+    PPO_HOLDING_DURATION_HORIZONS,
     ControlledFactor,
     ExperimentComparison,
     ExperimentDecision,
@@ -38,7 +40,11 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
     StudyResearchContext,
+)
+from trade_rl.evaluation.experiments.contracts.study import (
+    PPO_HOLDING_DURATION_SELECTION_RULE,
 )
 from trade_rl.evaluation.experiments.delta import (
     ControlledVerification,
@@ -65,6 +71,11 @@ from trade_rl.evaluation.experiments.inspection import (
     _reconstruct,
     _StudyState,
     inspect_study,
+)
+from trade_rl.evaluation.experiments.protocols import (
+    ppo_holding_expected_decision,
+    ppo_holding_metrics,
+    ppo_holding_winner_digest,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs import (
@@ -182,6 +193,7 @@ def create_study(
     final_evaluation_start: str | None = None,
     final_evaluation_stop_exclusive: str | None = None,
     research_context: StudyResearchContext | None = None,
+    protocol: StudyProtocol | str | None = None,
     execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY,
 ) -> StudySnapshot:
     """Create one immutable Study plan without executing development evidence."""
@@ -207,7 +219,15 @@ def create_study(
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
-        if research_context is not None:
+        resolved_protocol: StudyProtocol | None = None
+        if protocol is not None:
+            try:
+                resolved_protocol = StudyProtocol(protocol)
+            except (TypeError, ValueError) as error:
+                raise ContractViolationError("unsupported Study protocol") from error
+        if resolved_protocol is not None:
+            plan_schema = "controlled_study_plan_v4"
+        elif research_context is not None:
             plan_schema = "controlled_study_plan_v3"
         else:
             plan_schema = (
@@ -216,8 +236,23 @@ def create_study(
                 and final_evaluation_stop_exclusive is None
                 else "controlled_study_plan_v2"
             )
+        resolved_research_question = research_question
+        if resolved_protocol is StudyProtocol.PPO_HOLDING_DURATION:
+            if (
+                not isinstance(resolved_research_question, str)
+                or not resolved_research_question.strip()
+            ):
+                raise ContractViolationError("research_question is required")
+            resolved_research_question = resolved_research_question.strip()
+            if not resolved_research_question.endswith(
+                PPO_HOLDING_DURATION_SELECTION_RULE
+            ):
+                resolved_research_question = (
+                    f"{resolved_research_question}\n\n"
+                    f"{PPO_HOLDING_DURATION_SELECTION_RULE}"
+                )
         plan = StudyPlan(
-            research_question=research_question,
+            research_question=resolved_research_question,
             dataset_id=dataset.dataset_id,
             dataset_artifact_schema=artifact.schema_version,
             dataset_artifact_digest=artifact.artifact_digest,
@@ -239,6 +274,7 @@ def create_study(
             final_evaluation_start=final_evaluation_start,
             final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
             research_context=research_context,
+            protocol=resolved_protocol,
             schema_version=plan_schema,
         )
         if plan.final_evaluation_start is not None:
@@ -312,6 +348,16 @@ def define_experiment(
         sequence = len(state.experiments) + 1
         if sequence > state.plan.max_experiments:
             raise ExperimentBudgetExceededError("Study Experiment budget is exhausted")
+        if state.plan.is_ppo_holding_duration_study:
+            expected_horizon = PPO_HOLDING_DURATION_HORIZONS[sequence - 1]
+            if (
+                factor is not ControlledFactor.PPO_MINIMUM_HOLD
+                or candidate_config.ppo_minimum_hold_bars != expected_horizon
+            ):
+                raise ContractViolationError(
+                    "PPO holding-duration protocol requires horizon "
+                    f"{expected_horizon} at sequence {sequence}"
+                )
         if candidate_config.ppo_seed != state.plan.ppo_seeds[0]:
             raise ContractViolationError(
                 "candidate config ppo_seed must equal first frozen Study seed"
@@ -357,6 +403,12 @@ def run_experiment(
         state = _reconstruct(store)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
+        if state.plan.is_ppo_holding_duration_study and tuple(
+            item.sequence for item in state.experiments
+        ) != tuple(range(1, len(PPO_HOLDING_DURATION_HORIZONS) + 1)):
+            raise InvalidExperimentStateError(
+                "all four PPO holding-duration horizons must be registered before any run"
+            )
         if experiment.failure is not None:
             raise InvalidExperimentStateError("FAILED experiment cannot be executed")
         if (
@@ -454,13 +506,19 @@ def compare_experiment(
         baseline, baseline_analysis = _find_evidence(
             state, experiment.definition.baseline_evidence_digest
         )
+        expected_schema = (
+            PPO_HOLDING_DURATION_COMPARISON_SCHEMA
+            if state.plan.is_ppo_holding_duration_study
+            else _FACTOR_EFFECT_SCHEMA
+        )
         factor_effect = compare_evidence_sets(
             baseline.runs,
             experiment.candidate.runs,
             n_bootstrap=state.plan.n_bootstrap,
             bootstrap_seed=state.plan.bootstrap_seed,
+            schema_version=expected_schema,
         )
-        if factor_effect.get("schema_version") != _FACTOR_EFFECT_SCHEMA:
+        if factor_effect.get("schema_version") != expected_schema:
             raise ArtifactIntegrityError("unsupported factor-effect comparison schema")
         factor_digest = _as_string(
             factor_effect.get("analysis_digest"),
@@ -510,6 +568,20 @@ def decide_experiment(
             raise InvalidExperimentStateError("comparison is required before decision")
         if experiment.decision is not None:
             raise InvalidExperimentStateError("decision is already published")
+        if state.plan.is_ppo_holding_duration_study:
+            assert experiment.comparison is not None
+            metrics = ppo_holding_metrics(
+                experiment.comparison,
+                expected_symbols=state.plan.symbols,
+                expected_seeds=state.plan.ppo_seeds,
+            )
+            expected_decision = ppo_holding_expected_decision(metrics)
+            if decision is not expected_decision:
+                raise InvalidExperimentStateError(
+                    "PPO holding-duration decision must follow complete flat "
+                    "terminal settlement, positive paired improvement, and the "
+                    "20% realized drawdown gate"
+                )
         resolved = ExperimentDecision(
             study_digest=state.plan.digest,
             experiment_digest=experiment.definition.digest,
@@ -596,6 +668,58 @@ def freeze_study(
             raise InvalidExperimentStateError(
                 "Study contains nonterminal Experiment and cannot freeze"
             )
+        if state.plan.is_ppo_holding_duration_study:
+            expected_sequences = tuple(range(1, len(PPO_HOLDING_DURATION_HORIZONS) + 1))
+            if all_sequences != expected_sequences:
+                raise InvalidExperimentStateError(
+                    "PPO holding-duration Study requires all four registered horizons"
+                )
+            eligible_candidates: list[tuple[int, float, str]] = []
+            for item in state.experiments:
+                if (
+                    item.failure is not None
+                    or item.candidate is None
+                    or item.comparison is None
+                    or item.decision is None
+                ):
+                    raise InvalidExperimentStateError(
+                        "all four PPO holding-duration arms need complete decisions"
+                    )
+                metrics = ppo_holding_metrics(
+                    item.comparison,
+                    expected_symbols=state.plan.symbols,
+                    expected_seeds=state.plan.ppo_seeds,
+                )
+                expected_decision = ppo_holding_expected_decision(metrics)
+                if item.decision.decision is not expected_decision:
+                    raise InvalidExperimentStateError(
+                        "PPO holding-duration decisions must follow the frozen eligibility rule"
+                    )
+                if metrics.eligible:
+                    eligible_candidates.append(
+                        (
+                            item.definition.candidate_config.ppo_minimum_hold_bars,
+                            metrics.score,
+                            item.candidate.evidence.fingerprint,
+                        )
+                    )
+            winner_digest = ppo_holding_winner_digest(eligible_candidates)
+            if outcome is StudyOutcome.WINNER:
+                if winner_digest is None:
+                    raise InvalidExperimentStateError(
+                        "PPO holding-duration Study has no eligible winner"
+                    )
+                if (
+                    selected_evidence_digest != winner_digest
+                    or selected_strategy != "ppo"
+                ):
+                    raise InvalidExperimentStateError(
+                        "PPO holding-duration winner must be the highest-scoring eligible horizon"
+                    )
+            elif winner_digest is not None:
+                raise InvalidExperimentStateError(
+                    "PPO holding-duration Study must select its highest-scoring eligible horizon"
+                )
         decision_digests = tuple(
             item.decision.digest
             for item in state.experiments

@@ -83,6 +83,38 @@ unavailableまたはnon-finiteなlocal valueは0へmaskする。stalenessはsele
 
 Observation contractは暗黙のimplementation detailにしない。新規Candidate Runと新規Studyのresolved configはObservation schema、staleness利用、空のglobal rosterをsemantic identityへbindする。execution economics、reward、action、risk、PPO network architectureはObservation v2のpolicy inputへ追加しない。
 
+### PPO Observation v3 and minimum-hold treatment
+
+Observation v3 keeps the v2 tensor prefix and appends
+`min(position_age_bars, 504) / 504`. Age comes from the actual signed filled
+quantity, not the last requested action. The first nonzero fill starts an
+episode at age 1; partial/no fills and same-side changes advance age once per
+completed hourly interval; actual flat resets it to 0; a sign crossing starts a
+new episode at 1. For the hourly comparison, `minimum_hold_bars=H` unlocks
+voluntary target intents at `age >= H`, counting the first filled interval as
+age 1. The freshly trained H=0 baseline uses the same v3 observation.
+
+While locked, a raw FLAT or opposite-side intent is recorded as requested but
+maps to the current filled side and exact signed quantity. This cancels any
+unfilled order remainder and prevents new exposure during the lock. At unlock,
+the current intent is reapplied even when it matches the held side, so a partial
+entry does not remain stuck at its earlier fill size. Hard-risk projection runs
+after this voluntary-action constraint and can always reduce or flatten. PPO
+training info and replay decisions retain requested/effective intents,
+suppression/unlock flags, and suppression counts; new candidate artifacts
+record those counts. SB3 still samples its ordinary three-action distribution
+and retains sampled actions/log-probabilities. The constraint changes the
+environment transition, not the economic action contract.
+
+Minimum-hold duration requires Observation v3. A duration Study binds the same
+v3 observation, terminal settlement, explicit `PreTradeRiskConfig`, Dataset,
+execution overlay, capital, and evaluation window for its H=0 baseline and all
+candidates. New `resolved_run_config_v5` and `lean_candidate_result_v5`
+identities bind these values; H alone is the `PPO_MINIMUM_HOLD` factor. The
+explicit risk config is shared by PPO training and every strategy replay. A
+drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
+or terminal move cannot exceed 20% realized drawdown.
+
 ### PPO training layout
 
 `fit_ppo_strategy(normalize_features=True)` explicitly fits one immutable
@@ -131,9 +163,11 @@ fit symbolが複数あるsequential trainingでは、requested `total_timesteps`
 
 Directional PPOはfinite-horizon endpointをdevelopment replayと揃えるため `settle_terminal_position=True` を明示する。agent decisionは `stop_index - order_latency_bars - 1` より前だけで行い、その後の予約区間では環境が `FLAT` proposalを同じ `PreTradeRisk` と `MarketExecutor` へ1 barずつ流す。forced settlementをagent actionとして偽装せず、settlement区間はagent transitionではなくepisode末尾のterminal economic costとして1つのterminal transitionへ畳み込む。このためsettlement内部へPPOのdiscount factorを別途適用せず、terminal rewardにはagent intervalのlog returnとsettlement各intervalの実現log wealth changeを加算する。capacity / turnover / venue admissionで完全flatにならない場合は残余を隠さない。normalizerはagentが実際に観測するdecision rowsだけでfit/validateする。これはper-symbol training endpointの補正であり、developmentのshared-cash cross-symbol accountingまで同一になったとは主張しない。generic PPOの既定は `settle_terminal_position=False` のままである。
 
+Age-aware Observation v3の保有期間比較は、generic PPO既定値をそのまま使わない。candidate-run、resolved-run、candidate-suite、candidate-result各境界は、v3なら `settle_terminal_position=True` と明示的な `PreTradeRiskConfig` を要求し、`drawdown_stop` が20%を超える設定を拒否する。学習と全symbol replayは同じrisk configを受け取る。これは注文前のstopであり、gapや執行損で実現drawdownが20%を超えない保証ではない。
+
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
-Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
+Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。新規のduration/risk Runは`lean_candidate_result_v5`を使い、保有期間、Observation schema、terminal settlement、training suppression count、明示pre-trade risk configも記録・検証する。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
 
 `A2CIntentStrategy` と `fit_a2c_strategy` は、PPOと同じprivate 3-action intent adapter、`PPOTradingEnv`、Observation v2、fit-scope専用 `PPOFeatureNormalizer` を再利用する。A2Cはsequential layoutだけを許し、各fit symbolに最低1 nominal full-window episode分のstep budgetを割り当てられるか、rollout `n_steps=5` 単位へ切り上げたeffective step数でfit前に検証する。このcoverageはbudget上の容量であり、risk termination等が起きる実行中に各symbolのtransitionを観測した証拠ではない。
 

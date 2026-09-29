@@ -4,6 +4,12 @@
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
+## PPO中期保有期間の次期設計
+
+現在はPPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較する結果盲検protocolを実装しています。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。
+
+StudyPlanと採点検査を実装・検証している段階で、この期間の学習・経済リプレイはまだ実行していません。したがってPPO利益や保有期間の勝者は未確認で、利益性の主張には別の未使用期間評価が必要です。
+
 ## 検証済みの証拠
 
 - `market_build_v3` と `portable_feature_numerics_v1` を固定。

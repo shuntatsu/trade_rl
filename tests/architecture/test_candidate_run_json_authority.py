@@ -45,6 +45,10 @@ def _raw_config() -> dict[str, object]:
         "ppo_seed": 7,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_observation_schema": "ppo_observation_v2",
+        "ppo_settle_terminal_position": False,
+        "pretrade_risk_config": None,
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
     }
@@ -76,6 +80,10 @@ def test_candidate_run_config_owns_normalized_raw_json_payload() -> None:
         "ppo_seed": 7,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_observation_schema": "ppo_observation_v2",
+        "ppo_settle_terminal_position": False,
+        "pretrade_risk_config": None,
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
     }

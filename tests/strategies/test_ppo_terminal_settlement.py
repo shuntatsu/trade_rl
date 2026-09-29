@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import replace
 
 import numpy as np
@@ -79,6 +80,51 @@ def test_terminal_settlement_matches_directional_close_at_end_economics() -> Non
     expected = np.log1p(replay.returns.values)
     assert first_reward == pytest.approx(expected[0])
     assert final_reward == pytest.approx(expected[1] + expected[2])
+
+
+def test_terminal_settlement_option_matches_training_environment_replay() -> None:
+    replay_parameters = inspect.signature(run_single_symbol_replay).parameters
+    assert "settle_terminal_position" in replay_parameters, (
+        "evaluation replay must support the same terminal settlement as training"
+    )
+
+    dataset = _flat_cost_market()
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        settle_terminal_position=True,
+    )
+    env.reset(seed=31)
+    env_rewards = [env.step(2)[1], env.step(2)[1]]
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy((PositionIntent.LONG, PositionIntent.LONG)),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        initial_capital=1_000.0,
+        execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
+        settle_terminal_position=True,
+    )
+
+    assert env_rewards == pytest.approx(
+        [
+            np.log1p(replay.returns.values[0]),
+            np.log1p(replay.returns.values[1:]).sum(),
+        ]
+    )
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert replay.book.quantities[0] == pytest.approx(0.0)
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+    assert env.book.total_cost == pytest.approx(replay.book.total_cost)
+    assert len(replay.returns.values) == 3
+    assert replay.active_order_remainders == ()
 
     with pytest.raises(RuntimeError, match="terminated"):
         env.step(1)

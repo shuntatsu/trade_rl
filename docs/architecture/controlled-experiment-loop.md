@@ -94,9 +94,11 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `controlled_study_plan_v1` / `controlled_study_plan_v2` はhistorical Studyのread/inspection互換として維持し、後から `research_context` を追加して新しい意味へ再分類しない。bootstrap v1/v2からはv1 Plan、historical bootstrap v3からはv2 Plan、新規bootstrap v4からはcontext-bound v3 Planを作る。v3 Planは直接のdevelopment-only Studyではfinal windowなしでもよいが、bootstrap v4はfinal-eligible contractとしてfinal windowを必須にする。
 
+`controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、drawdown stopが20%以下のrisk configを必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。
+
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v3`を生成し、PPO Observation schema、global policy roster、training layoutをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。layoutを比較するStudyでは`PPO_TRAINING_LAYOUT`だけが`ppo_training_layout`と`ppo_rollout_steps_per_env`を同時に変更できる。
+Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v5`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, and optional explicit pre-trade risk config. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v5` and record the risk config plus training/replay suppression counts.
 
 historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
 
@@ -125,9 +127,12 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 - `FIT_SYMBOL_SCOPE`
 - `PPO_TRAINING_BUDGET`
 - `PPO_TRAINING_LAYOUT` (`ppo_training_layout`と`ppo_rollout_steps_per_env`の組)
+- `PPO_MINIMUM_HOLD` (`ppo_minimum_hold_bars` only; Observation v3 remains Study-fixed)
 - `GROSS_BUDGET`
 
 factorごとに影響しないstrategyのraw returnsを完全一致で検証する。dataset identity、symbol roster、Study seed policy、implementation/runtime provenance、Study-fixed fieldが変わってもINVALIDである。
+
+`ppo_holding_duration_v1` はsequence 1〜4をそれぞれ72 / 168 / 336 / 504本の1時間barへ固定する。4件すべてのdefinitionを保存するまでcandidate実行を拒否し、freezeには4 armすべてのcomplete evidenceとdecisionを要求する。各armはPPOだけで評価し、H=0 baselineとcandidateの全seed-symbol accountが完了し、共通terminal settlement後に全口座がflatでactive order remainderがなく、全accountのrealized maximum drawdownが20%以下で、seedごとにsymbol平均したH=0比paired total-return差のseed中央値が正の場合だけeligibleにする。絶対returnが正であることはこのdevelopment screeningのeligibility条件に追加しない。eligible armのprimary scoreは、seedごとのequal-weight symbol mean total returnのseed中央値である。最高scoreを選び、完全同点は短い保有期間を選ぶ。eligible armがない場合だけ `NO_WINNER` を許す。StudyPlanの `research_question` にはこの全selection ruleを結果生成前に含める。これらの条件はdecisionとfreezeの両方で再検証し、保存artifactの直接改変もinspectionで拒否する。
 
 ## Analysis semantics
 
@@ -137,7 +142,8 @@ factorごとに影響しないstrategyのraw returnsを完全一致で検証す�
 - PPOはStudyで登録した同一seedをbaseline/candidateでpaired比較する。
 - seedごとの結果を保持し、複数seedから単一の架空p-valueを合成しない。
 - PPOのcross-symbol candidate metricsは各symbol内でfrozen seedを先に集約する。total return / turnover / total costはseed中央値、maximum drawdownはseed内worstを使い、その後にsymbol間のdescriptive summaryを計算する。これによりseed数をsymbol weightへ変換しない。
-- 新規factor-effect payloadは`controlled_evidence_comparison_v2`を使う。persisted `controlled_evidence_comparison_v1`はhistorical first-seed candidate-metric semanticsでread/inspection再計算し、immutable comparisonを暗黙migrationしない。
+- `controlled_evidence_comparison_v2`のcross-symbol summaryはdescriptiveで、symbolごとにseedを集約してからsymbol間summaryを作る。`ppo_holding_duration_v1`だけは`controlled_evidence_comparison_v3`のcross-seed summaryを選定に使う。primary total returnとpaired excessは各seedでsymbolを等重みに平均し、そのseed間medianを取る。drawdownは全seed-symbol accountのmaximumを取る。v3には各seedの値とcell countも保持し、protocolは登録済みseed/symbol rosterとsummary式を再検査する。
+- 一般Studyの新規factor-effect payloadは`controlled_evidence_comparison_v2`を使う。persisted `controlled_evidence_comparison_v1`はhistorical first-seed candidate-metric semanticsでread/inspection再計算し、immutable comparisonを暗黙migrationしない。duration protocolのinspectionはv3を要求し、v1/v2へのdowngradeを拒否する。
 - symbolは同calendar shockを共有し得るため、cross-symbol significance claimを作らない。
 - symbol別結果、正負count、median、worst/best、drawdown/cost/turnover等はdescriptive evidenceとして保持する。
 

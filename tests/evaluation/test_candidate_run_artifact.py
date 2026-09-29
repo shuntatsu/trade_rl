@@ -8,9 +8,11 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
+from trade_rl.evaluation.runs import artifact as candidate_artifact
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
 
 
@@ -139,7 +141,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v3"
+    assert summary["schema_version"] == "lean_candidate_result_v5"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -163,13 +165,39 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "ppo_seed": 7,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_observation_schema": "ppo_observation_v2",
+        "ppo_settle_terminal_position": False,
         "ppo_training_timesteps": 2048,
+        "ppo_training_minimum_hold_suppressed_count": 0,
+        "pretrade_risk_config": None,
     }
+
+    age_aware_without_risk = dict(summary)
+    age_aware_without_risk["candidate_config"] = {
+        **summary["candidate_config"],
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
+        "ppo_settle_terminal_position": True,
+    }
+    age_aware_without_risk["evaluation"] = {
+        **summary["evaluation"],
+        "ppo_settle_terminal_position": True,
+    }
+    age_aware_without_risk["ppo_observation"] = ppo_observation_contract_payload(
+        PPO_OBSERVATION_SCHEMA_V3
+    )
+    with pytest.raises(ValueError, match="explicit.*risk"):
+        candidate_artifact._validate_ppo_training_evidence(
+            age_aware_without_risk,
+            result_schema="lean_candidate_result_v5",
+        )
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",
         "stop_exclusive": "2026-01-01T07:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
+        "ppo_settle_terminal_position": False,
+        "pretrade_risk_config": None,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
     }
     assert [item["symbol"] for item in summary["by_symbol"]] == [

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-27 (JST)
+更新基準: 2026-09-29 (JST)
 
 ## 結論
 
@@ -14,6 +14,64 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Active PPO medium-term holding-duration design
+
+The user's direction is to keep PPO as the main learner and compare multi-day
+to multi-week holding treatments under a 20% maximum-drawdown guardrail. The
+current design compares a freshly trained, Observation-v3 H=0 PPO with
+minimum-hold horizons of 72, 168, 336, and 504 hourly bars (3, 7, 14, and 21
+days). This estimates the effect of assigning a PPO system a minimum-dwell
+rule; separate PPO training means the trades and later actions may also change.
+
+All arms must bind the same Dataset/time scope, selected features and fit
+symbols, PPO seed roster and realized training budget, initial capital,
+execution costs/funding/borrow, execution overlay, risk config, and terminal
+settlement. The planned risk profile uses max gross 0.5, max absolute weight
+0.1, drawdown deleveraging at 10%, and hard stop at 20%, identically in PPO
+training and every strategy replay. Each symbol remains an independent account;
+the 20% stop cannot guarantee the realized drawdown stays below 20% after a
+price gap.
+
+The age-aware run resolver requires a continuous, exactly regular one-hour
+clock, and low-level PPO APIs reject positive minimum-hold durations with the
+age-blind Observation v2 schema. Candidate artifacts preserve the suppressed
+and unlocked replay events, actual age and quantities, post-risk target, risk
+reasons, final inventory, and active/terminal order state. A terminal-settlement
+flag does not by itself prove that the account finished flat.
+
+The result-blind code path and focused contract tests are under development on
+the `codex/ppo-holding-duration` work branch. No PPO training or economic replay
+has been run for these horizons. `controlled_study_plan_v4` binds the named
+`ppo_holding_duration_v1` protocol: H=0 with Observation v3, five ordered PPO
+seeds, only `PPO_MINIMUM_HOLD`, four experiments, and the shared risk config.
+It fixes the ordered candidates at 72 / 168 / 336 / 504 one-hour bars and refuses
+to run any arm until all four have been preregistered.
+
+The duration protocol stores its pre-registered selection rule in the immutable
+StudyPlan before outcomes. Eligibility requires every H=0 and candidate
+seed-symbol account to complete terminal settlement flat with no active order
+remainder, every account's realized maximum drawdown to stay at or below 20%,
+and positive median paired excess return versus H=0. Both the primary score and
+paired excess first take an equal-weight mean across symbols within each seed,
+then the median across the five seeds. The eligible arm with the highest
+primary score wins; exact ties go to the shorter hold. Absolute return is not
+an extra development-screen eligibility gate. If no arm qualifies, the Study
+freezes as NO_WINNER. `controlled_evidence_comparison_v3` stores the per-seed
+cells and aggregate needed for independent reconstruction; protocol inspection
+rejects a downgraded v1/v2 comparison. This remains a development screen, not a
+profitability claim; a frozen winner still needs separate one-shot sealed
+unused-future evaluation.
+
+G0 is not established until the exact Dataset/window and all result-blind
+conditions are bound into a new immutable StudyPlan before outcomes exist. G2
+still needs a fresh independent review of this protocol implementation and a
+human review of the updated Guide descriptions before its freshness fingerprint
+can be refreshed. No new PPO training or economics has started. G4 remains
+blocked; existing M2 results are not evidence for this duration question. The
+next allowed step is to finish those design/review gates, then create the Study
+and freshly train H=0 under Observation v3 before any candidate result is
+generated.
 
 ## 研究目的
 

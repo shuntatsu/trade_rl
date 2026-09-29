@@ -26,6 +26,11 @@ from trade_rl.strategies.forecasts.ridge import (
 )
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.intent import (
+    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    PPO_OBSERVATION_SCHEMAS,
+)
 from trade_rl.strategies.rl.ppo import (
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
@@ -55,6 +60,9 @@ class LeanCandidateConfig:
     ppo_seed: int = 0
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
+    ppo_minimum_hold_bars: int = 0
+    ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
+    ppo_settle_terminal_position: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -125,6 +133,21 @@ class LeanCandidateConfig:
             raise ValueError(
                 "interleaved training requires positive ppo_rollout_steps_per_env"
             )
+        if (
+            isinstance(self.ppo_minimum_hold_bars, bool)
+            or not isinstance(self.ppo_minimum_hold_bars, int)
+            or self.ppo_minimum_hold_bars < 0
+        ):
+            raise ValueError("ppo_minimum_hold_bars must be a non-negative integer")
+        if self.ppo_observation_schema not in PPO_OBSERVATION_SCHEMAS:
+            raise ValueError("unsupported PPO observation schema")
+        if (
+            self.ppo_minimum_hold_bars > 0
+            and self.ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+        ):
+            raise ValueError("PPO minimum hold requires the age-aware observation")
+        if not isinstance(self.ppo_settle_terminal_position, bool):
+            raise ValueError("ppo_settle_terminal_position must be boolean")
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
@@ -140,6 +163,26 @@ def _ppo_training_stop_index(
     return int(eligible[-1])
 
 
+def require_age_aware_hourly_clock(
+    dataset: MarketDataset,
+    *,
+    observation_schema: str,
+) -> None:
+    """Require an exact hourly clock for bar-count PPO duration semantics."""
+
+    if observation_schema != PPO_OBSERVATION_SCHEMA_V3:
+        return
+    if not dataset.regular_cadence or not math.isclose(
+        dataset.bar_hours,
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        raise ValueError(
+            "age-aware PPO comparison requires exactly regular one-hour bars"
+        )
+
+
 def run_lean_candidate_suite(
     dataset: MarketDataset,
     config: LeanCandidateConfig,
@@ -153,6 +196,19 @@ def run_lean_candidate_suite(
 ) -> UniversalStrategyComparison:
     """Fit one universal candidate set and compare it independently by symbol."""
 
+    if config.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
+        if not config.ppo_settle_terminal_position:
+            raise ValueError("age-aware PPO comparison requires terminal settlement")
+        if risk is None:
+            raise ValueError(
+                "age-aware PPO comparison requires explicit pre-trade risk config"
+            )
+        if risk.config.drawdown_stop > 0.20:
+            raise ValueError("PPO drawdown stop must not exceed 20%")
+    require_age_aware_hourly_clock(
+        dataset,
+        observation_schema=config.ppo_observation_schema,
+    )
     if config.signal_index >= dataset.n_features:
         raise ValueError("signal_index is outside dataset features")
     if max(config.feature_indices) >= dataset.n_features:
@@ -193,6 +249,10 @@ def run_lean_candidate_suite(
         rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
+        risk_config=None if risk is None else risk.config,
+        settle_terminal_position=config.ppo_settle_terminal_position,
+        minimum_hold_bars=config.ppo_minimum_hold_bars,
+        observation_schema=config.ppo_observation_schema,
     )
     ppo_training_timesteps = getattr(ppo_strategy.policy, "num_timesteps", None)
     if (
@@ -233,6 +293,11 @@ def run_lean_candidate_suite(
             feature_indices=ppo_strategy.feature_indices,
             feature_names=ppo_strategy.feature_names,
             feature_normalizer=ppo_strategy.feature_normalizer,
+            observation_schema=ppo_strategy.observation_schema,
+            minimum_hold_bars=config.ppo_minimum_hold_bars,
+            training_minimum_hold_suppressed_count=(
+                ppo_strategy.training_minimum_hold_suppressed_count
+            ),
         ),
     }
     comparison = compare_strategy_factories_by_symbol(
@@ -244,11 +309,19 @@ def run_lean_candidate_suite(
         initial_capital=initial_capital,
         execution_cost=execution_cost,
         risk=risk,
+        settle_terminal_position=config.ppo_settle_terminal_position,
     )
-    return replace(comparison, ppo_training_timesteps=ppo_training_timesteps)
+    return replace(
+        comparison,
+        ppo_training_timesteps=ppo_training_timesteps,
+        ppo_training_minimum_hold_suppressed_count=(
+            ppo_strategy.training_minimum_hold_suppressed_count
+        ),
+    )
 
 
 __all__ = [
     "LeanCandidateConfig",
+    "require_age_aware_hourly_clock",
     "run_lean_candidate_suite",
 ]

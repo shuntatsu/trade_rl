@@ -25,10 +25,15 @@ from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
+from trade_rl.strategies.position_duration import (
+    constrain_intent_for_minimum_hold,
+    next_position_age_bars,
+)
 from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +42,14 @@ class ReplayDecision:
     intent: PositionIntent
     changed_intent: bool
     target_weight: float
+    effective_intent: PositionIntent = PositionIntent.FLAT
+    minimum_hold_suppressed: bool = False
+    minimum_hold_unlocked: bool = False
+    position_age_bars: int = 0
+    position_age_bars_after: int = 0
+    position_quantity_before: float = 0.0
+    position_quantity_after: float = 0.0
+    risk_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +246,7 @@ def _observation(
     symbol_index: int,
     book: BookState,
     current_intent: PositionIntent,
+    position_age_bars: int = 0,
 ) -> StrategyObservation:
     return StrategyObservation(
         index=index,
@@ -249,7 +263,25 @@ def _observation(
         ],
         current_intent=current_intent,
         current_weight=float(book.weights[symbol_index]),
+        position_age_bars=position_age_bars,
     )
+
+
+def _agent_stop_index(
+    *,
+    start_index: int,
+    stop_index: int,
+    execution_cost: ExecutionCostConfig,
+    settle_terminal_position: bool,
+) -> int:
+    if not settle_terminal_position:
+        return stop_index
+    agent_stop_index = stop_index - execution_cost.order_latency_bars - 1
+    if agent_stop_index <= start_index:
+        raise ValueError(
+            "terminal settlement requires at least one agent interval before the close"
+        )
+    return agent_stop_index
 
 
 def run_single_symbol_replay(
@@ -263,6 +295,8 @@ def run_single_symbol_replay(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    minimum_hold_bars: int | None = None,
+    settle_terminal_position: bool = False,
 ) -> SingleSymbolReplayResult:
     """Replay one selected symbol while every other symbol remains flat.
 
@@ -288,6 +322,26 @@ def run_single_symbol_replay(
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
     if not math.isfinite(initial_capital) or initial_capital <= 0.0:
         raise ValueError("initial_capital must be finite and positive")
+    if not isinstance(settle_terminal_position, bool):
+        raise ValueError("settle_terminal_position must be boolean")
+    resolved_minimum_hold_bars = (
+        getattr(strategy, "minimum_hold_bars", 0)
+        if minimum_hold_bars is None
+        else minimum_hold_bars
+    )
+    if (
+        isinstance(resolved_minimum_hold_bars, bool)
+        or not isinstance(resolved_minimum_hold_bars, int)
+        or resolved_minimum_hold_bars < 0
+    ):
+        raise ValueError("minimum_hold_bars must be a non-negative integer")
+    strategy_observation_schema = getattr(strategy, "observation_schema", None)
+    if (
+        resolved_minimum_hold_bars > 0
+        and strategy_observation_schema is not None
+        and strategy_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+    ):
+        raise ValueError("PPO minimum hold requires the age-aware observation")
     target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)
 
     initial_prices = dataset.resolved_array("mark_price")[start_index]
@@ -303,9 +357,16 @@ def run_single_symbol_replay(
         nonlocal latest_execution_observation
         latest_execution_observation = observation
 
+    resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
+    agent_stop_index = _agent_stop_index(
+        start_index=start_index,
+        stop_index=stop_index,
+        execution_cost=resolved_execution_cost,
+        settle_terminal_position=settle_terminal_position,
+    )
     executor = MarketExecutor(
         dataset,
-        execution_cost or ExecutionCostConfig.zero(),
+        resolved_execution_cost,
         execution_observer=observe_execution,
     )
     risk_controller = risk or PreTradeRisk.default_for_execution(
@@ -313,24 +374,39 @@ def run_single_symbol_replay(
     )
     _validate_risk_execution_compatibility(risk_controller, executor)
     current_intent = PositionIntent.FLAT
+    position_age_bars = 0
+    minimum_hold_locked = False
     desired_quantity = 0.0
     decisions: list[ReplayDecision] = []
     returns: list[float] = []
     index = start_index
 
-    while index < stop_index:
+    while index < agent_stop_index:
+        quantity_before = float(book.quantities[symbol_index])
+        position_age_before = position_age_bars
         observation = _observation(
             dataset,
             index=index,
             symbol_index=symbol_index,
             book=book,
             current_intent=current_intent,
+            position_age_bars=position_age_bars,
         )
-        intent = strategy.decide(observation)
-        if not isinstance(intent, PositionIntent):
+        requested_intent = strategy.decide(observation)
+        if not isinstance(requested_intent, PositionIntent):
             raise TypeError("strategy.decide must return PositionIntent")
+        hold_decision = constrain_intent_for_minimum_hold(
+            requested_intent,
+            current_quantity=quantity_before,
+            position_age_bars=position_age_bars,
+            minimum_hold_bars=resolved_minimum_hold_bars,
+        )
+        minimum_hold_unlocked = minimum_hold_locked and not hold_decision.suppressed
+        intent = hold_decision.effective_intent
         changed_intent = intent is not current_intent
-        if changed_intent:
+        if hold_decision.target_quantity_override is not None:
+            desired_quantity = hold_decision.target_quantity_override
+        elif changed_intent or minimum_hold_unlocked:
             proposal_weight = target_weight_for_intent(
                 intent,
                 gross_budget=gross_budget,
@@ -359,14 +435,6 @@ def run_single_symbol_replay(
                 target_weight,
                 symbol_index=symbol_index,
             )
-        decisions.append(
-            ReplayDecision(
-                index=index,
-                intent=intent,
-                changed_intent=changed_intent,
-                target_weight=target_weight,
-            )
-        )
         execution = executor.execute_interval(
             book,
             constrained.weights,
@@ -376,11 +444,67 @@ def run_single_symbol_replay(
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
         book = execution.book
+        position_age_bars = next_position_age_bars(
+            position_age_bars,
+            previous_quantity=quantity_before,
+            filled_quantity=float(book.quantities[symbol_index]),
+        )
+        decisions.append(
+            ReplayDecision(
+                index=index,
+                intent=requested_intent,
+                changed_intent=changed_intent,
+                target_weight=target_weight,
+                effective_intent=intent,
+                minimum_hold_suppressed=hold_decision.suppressed,
+                minimum_hold_unlocked=minimum_hold_unlocked,
+                position_age_bars=position_age_before,
+                position_age_bars_after=position_age_bars,
+                position_quantity_before=quantity_before,
+                position_quantity_after=float(book.quantities[symbol_index]),
+                risk_reasons=tuple(constrained.reasons),
+            )
+        )
         returns.append(execution.interval_net_return)
         current_intent = intent
+        minimum_hold_locked = (
+            hold_decision.suppressed and float(book.quantities[symbol_index]) != 0.0
+        )
         index = execution.next_index
         if book.termination_reason is not None:
             break
+
+    if (
+        settle_terminal_position
+        and book.termination_reason is None
+        and index >= agent_stop_index
+    ):
+        current_intent = PositionIntent.FLAT
+        desired_quantity = 0.0
+        while index < stop_index and book.termination_reason is None:
+            quantity_before = float(book.quantities[symbol_index])
+            flat_target = np.zeros(dataset.n_symbols, dtype=np.float64)
+            constrained = risk_controller.constrain(
+                flat_target,
+                current=book.weights,
+                drawdown=book.max_drawdown,
+            )
+            execution = executor.execute_interval(
+                book,
+                constrained.weights,
+                start_index=index,
+                bars=1,
+            )
+            if execution.next_index <= index:
+                raise RuntimeError("terminal settlement did not advance replay")
+            book = execution.book
+            position_age_bars = next_position_age_bars(
+                position_age_bars,
+                previous_quantity=quantity_before,
+                filled_quantity=float(book.quantities[symbol_index]),
+            )
+            returns.append(execution.interval_net_return)
+            index = execution.next_index
 
     termination_reasons: tuple[str, ...] = ()
     reason = book.termination_reason

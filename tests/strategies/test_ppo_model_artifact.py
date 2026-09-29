@@ -8,6 +8,7 @@ import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
@@ -21,8 +22,11 @@ class Policy:
     loaded = False
     load_device = None
     load_path = None
-    observation_space = SimpleNamespace(shape=(5,))
+    observation_shape = (5,)
     action_space = SimpleNamespace(n=3, start=0)
+
+    def __init__(self):
+        self.observation_space = SimpleNamespace(shape=self.observation_shape)
 
     def save(self, path):
         Path(path).write_bytes(b"policy bytes")
@@ -181,6 +185,56 @@ def test_raw_ppo_inference_bundle_roundtrip_binds_feed_feature_schema(
             feature_names=("wrong", "unused"),
         )
     assert not Policy.loaded
+
+
+@pytest.mark.parametrize("minimum_hold_bars", (0, 168))
+def test_observation_v3_inference_bundle_roundtrip_preserves_hold_contract(
+    tmp_path, monkeypatch, minimum_hold_bars
+) -> None:
+    Policy.loaded = False
+    monkeypatch.setattr(Policy, "observation_shape", (6,))
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        minimum_hold_bars=minimum_hold_bars,
+    )
+    root = tmp_path / "observation-v3-policy"
+
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=("signal",),
+    )
+
+    assert manifest["schema"] == "ppo_inference_bundle_v2"
+    assert manifest["observation"]["schema_version"] == PPO_OBSERVATION_SCHEMA_V3
+    assert manifest["minimum_hold_bars"] == minimum_hold_bars
+    assert loaded.observation_schema == PPO_OBSERVATION_SCHEMA_V3
+    assert loaded.minimum_hold_bars == minimum_hold_bars
+
+
+def test_inference_bundle_rejects_minimum_hold_without_age_observation() -> None:
+    with pytest.raises(ValueError, match="age-aware observation"):
+        PPOIntentStrategy(
+            Policy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            minimum_hold_bars=168,
+        )
 
 
 def test_normalized_ppo_inference_bundle_roundtrip_preserves_transform(

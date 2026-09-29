@@ -80,6 +80,104 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: PPO medium-term minimum-hold comparison
+
+This is an active result-blind design for a new development Study. It has not
+generated or inspected economic results, and it does not reuse the historical
+Observation-v2 PPO baseline as its control.
+
+### G0 — question, hypothesis, and falsifiers
+
+The question is whether assigning a freshly trained, age-aware PPO controller a
+minimum-hold treatment improves net return under the user's 20% drawdown limit.
+The primary hypothesis is that some crypto price continuation persists over
+several days, while hourly exits and reversals can pay avoidable execution cost.
+This mechanism is plausible but is not established by the current data or this
+software. With a separately retrained PPO in each arm, the estimand is the
+effect of assigning the **PPO system** a minimum-dwell rule, including changed
+entries and later actions; it is not the isolated effect of holding identical
+trades longer.
+
+The result-blind candidate horizons are 72, 168, 336, and 504 completed hourly
+bars (3, 7, 14, and 21 days), compared with a freshly trained H=0 PPO. Every arm
+uses Observation v3, so position age is available to the baseline as well. The
+primary score for horizon H is the median across the preregistered five PPO
+seeds of the equal-weight mean across symbols of each independent account's
+after-cost total return over the same evaluation window. A horizon is eligible
+only when every seed-symbol cell completes, every H=0 and candidate account is
+flat with no active order remainder after terminal settlement, every account's
+realized maximum drawdown is at most 20%, and its median paired per-seed return
+difference from H=0 is positive. Select the eligible horizon with the highest primary score;
+an exact tie goes to the shorter hold. If none is eligible, record NO_WINNER.
+
+This is a fixed maximum-of-four development selection rule, not a significance
+test. Do not report unadjusted p-values or describe the selected development
+score as evidence of profitability. The four-way selection bias is addressed
+by treating this as screening only: a profitability claim requires a frozen
+winner to pass the separate one-shot, sealed unused-future evaluation. The
+primary metric and this full selection rule must appear in the immutable
+StudyPlan `research_question` before any outcome is generated. Until the exact
+Dataset/window and that StudyPlan digest are sealed, G0 is specified but NOT
+ESTABLISHED and no economic run is authorized. Falsifiers include failure to
+beat H=0 after costs, incomplete seed-symbol cells, or any account exceeding
+the drawdown guardrail. Even a pass cannot establish a shared-cash portfolio
+edge or live-trading eligibility.
+
+### G1 — fixed mechanism and claim limits
+
+The planned base clock is 1h and each PPO is freshly fitted on the same causal
+Dataset and ordered fit scope. Features, seed roster, requested/realized PPO
+budget, initial capital, fees/funding/borrow assumptions, execution overlay,
+evaluation timestamps, and terminal settlement are identical. Only
+`ppo_minimum_hold_bars` changes. The current intended explicit risk config is
+`max_gross=0.5`, `max_abs_weight=0.1`, `max_turnover=null`,
+`drawdown_start=0.10`, `drawdown_stop=0.20`, with the remaining
+`PreTradeRiskConfig` defaults. The same object is used in training and every
+strategy replay. These limits apply independently to each symbol account; they
+do not create joint shared cash or portfolio-wide drawdown control. A hard stop
+cannot prevent a gap from realizing more than 20% drawdown. All arms settle the
+terminal position through the same executor and costs.
+
+Every age-aware candidate resolver requires exactly regular one-hour bars, so
+72/168/336/504 mean 3/7/14/21 elapsed days rather than an arbitrary number of
+bars on another clock. Low-level PPO training and inference paths also reject a
+positive hold duration paired with Observation v2.
+
+During age `< H`, voluntary PPO intents preserve the exact actual signed filled
+quantity and cancel outstanding target remainders. Risk projection runs
+afterward and may reduce or flatten. At age `H`, the current sampled target
+intent becomes effective, including reapplying same-side target size after an
+earlier partial fill. PPO still uses raw sampled actions and log-probabilities;
+the constraint is part of the environment transition. Therefore suppressed
+actions and exact train/replay semantics must be audited rather than hidden.
+
+### G2 — semantic invariants and independent oracles
+
+- Position age is based on actual signed filled quantity: first nonzero fill is
+  age 1, same-side no-fill/add/reduction advances once per interval, flat resets
+  to 0, and a sign crossing restarts at 1. Independent expected-value tests
+  check these transitions and the H-1/H boundary.
+- While locked, FLAT/flip cannot close, reverse, add exposure, or leave an
+  unfilled order remainder active. A small executor-level ledger oracle checks
+  quantities and active orders. The unlock case checks same-side retarget after
+  partial entry. A separate risk path proves the hard risk exit still wins.
+- Training and replay are different callers of the shared treatment. A scripted
+  policy on the same synthetic market compares per-bar age, intent, target,
+  fills, return, terminal cash, and final residual/order state. Training evidence
+  records the suppression count. Replay artifacts record every suppressed or
+  unlocked decision with raw/effective intent, age before/after, filled quantity
+  before/after, post-risk target, risk reasons, final inventory, and active or
+  terminal order state. Any non-flat residual or active order remainder makes
+  the arm ineligible; terminal settlement alone does not imply flatness.
+- Terminal settlement has a separate expected-cash/cost check, confirms the
+  same exclusive end and latency window, and reports any residual exposure.
+
+The current implementation and focused tests are still undergoing independent
+result-blind review. G2 remains NOT ESTABLISHED until that review and the full
+contract checks pass. No G4 economic result may be generated before G0-G2 are
+closed and the complete StudyPlan, including the selection rule above, is
+sealed.
+
 ## Research-specific contract: corrected PPO fit-only normalization replication
 
 This contract applies only to the sealed corrected-economics comparison owned by

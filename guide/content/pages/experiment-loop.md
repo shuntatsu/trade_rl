@@ -32,6 +32,17 @@ final evaluationへ進める可能性を持つ新規Studyでは、unused window�
 
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。
 
+### PPOの中期保有期間を比較する場合
+
+`ppo_holding_duration_v1`は、同じDataset・評価期間・費用・資金・リスク条件で、Observation v3を使うH=0 PPOと72 / 168 / 336 / 504本の1時間bar（3 / 7 / 14 / 21日）を比較します。5 seedと4つの保有期間を先にStudyPlanへ固定し、4期間すべて登録するまでcandidateを実行しません。各symbolは独立口座として採点し、StudyPlanには次のselection rule全体を結果前に保存します。
+
+- H=0と全candidateのseed × symbol口座が終端決済後にフラットで、未約定注文がなく、各口座の実現最大DDが20%以下。
+- seedごとにsymbolのafter-cost total returnを等重み平均し、その5 seedの中央値をprimary scoreとする。
+- 同じseed内でH=0との差をsymbol平均してから5 seedの中央値を取り、正の場合にeligibleとする。
+- eligibleの中でprimary score最大を選び、同点は短い期間。eligibleなしは`NO_WINNER`。
+
+絶対returnが正かどうかはこのrelative development screenの追加条件にしません。4候補の選定は利益証明ではなく、winner候補にも別のone-shot sealed unused-future評価が必要です。現在の実装はこの事前設計とテストを整備中で、これらの期間のPPO学習・経済replay結果はまだありません。
+
 ## 2. Baseline EvidenceSetを固定する
 
 複数seedのCandidate Runをまとめ、baseline fingerprintを変更不能なevidenceとして残します。

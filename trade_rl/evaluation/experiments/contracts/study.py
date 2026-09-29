@@ -66,6 +66,31 @@ class StudyOutcome(StrEnum):
     NO_WINNER = "NO_WINNER"
 
 
+class StudyProtocol(StrEnum):
+    PPO_HOLDING_DURATION = "ppo_holding_duration_v1"
+
+
+PPO_HOLDING_DURATION_HORIZONS = (72, 168, 336, 504)
+PPO_HOLDING_DURATION_SEED_COUNT = 5
+PPO_HOLDING_DURATION_MAX_DRAWDOWN = 0.20
+PPO_HOLDING_DURATION_SELECTION_RULE = (
+    "PPO holding-duration preregistered selection rule: compare a freshly trained "
+    "H=0 PPO with 72, 168, 336, and 504 completed one-hour bars on the same "
+    "Dataset, evaluation window, costs, initial capital, and risk settings. "
+    "Primary score: median across the five registered seeds of the equal-weight "
+    "mean across symbols of each independent account's after-cost total return. "
+    "An arm is eligible only if every H=0 and candidate seed-symbol account "
+    "completes terminal settlement flat with no active order remainder, every "
+    "account's realized maximum drawdown is at most 20%, and the median across "
+    "seeds of the equal-weight mean across symbols of paired total-return "
+    "differences versus H=0 is positive. Select the eligible arm with the "
+    "highest primary score; break exact ties toward the shorter hold. If no arm "
+    "is eligible, record NO_WINNER. This four-arm development screen is not a "
+    "profitability claim; do not report unadjusted p-values, and require a "
+    "separate one-shot sealed unused-future evaluation for any profitability claim."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class StudyPlan:
     """Frozen development Study contract and adaptive-iteration budget."""
@@ -79,6 +104,8 @@ class StudyPlan:
         "schema_version",
         "ppo_observation_schema",
         "ppo_global_feature_names",
+        "ppo_settle_terminal_position",
+        "pretrade_risk_config",
     )
 
     STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (
@@ -106,6 +133,7 @@ class StudyPlan:
     final_evaluation_start: str | None = None
     final_evaluation_stop_exclusive: str | None = None
     research_context: StudyResearchContext | None = None
+    protocol: StudyProtocol | None = None
     schema_version: str = "controlled_study_plan_v1"
 
     def __post_init__(self) -> None:
@@ -164,6 +192,7 @@ class StudyPlan:
         final_start = self.final_evaluation_start
         final_stop = self.final_evaluation_stop_exclusive
         research_context = self.research_context
+        protocol = self.protocol
 
         if schema_version == "controlled_study_plan_v1":
             if final_start is not None or final_stop is not None:
@@ -192,8 +221,52 @@ class StudyPlan:
                 raise ContractViolationError(
                     "controlled_study_plan_v3 requires both final evaluation fields or neither"
                 )
+        elif schema_version == "controlled_study_plan_v4":
+            if final_start is not None or final_stop is not None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v4 forbids final evaluation fields"
+                )
+            if research_context is not None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v4 forbids research_context"
+                )
+            if protocol is not StudyProtocol.PPO_HOLDING_DURATION:
+                raise ContractViolationError(
+                    "controlled_study_plan_v4 requires a supported Study protocol"
+                )
         else:
             raise ContractViolationError("unsupported StudyPlan schema_version")
+
+        if schema_version != "controlled_study_plan_v4" and protocol is not None:
+            raise ContractViolationError(
+                "Study protocol requires controlled_study_plan_v4"
+            )
+        if (
+            ControlledFactor.PPO_MINIMUM_HOLD in allowed
+            and protocol is not StudyProtocol.PPO_HOLDING_DURATION
+        ):
+            raise ContractViolationError(
+                "PPO_MINIMUM_HOLD requires a versioned Study protocol"
+            )
+        if protocol is StudyProtocol.PPO_HOLDING_DURATION:
+            if (
+                allowed != (ControlledFactor.PPO_MINIMUM_HOLD,)
+                or max_experiments != len(PPO_HOLDING_DURATION_HORIZONS)
+                or len(ppo_seeds) != PPO_HOLDING_DURATION_SEED_COUNT
+                or self.baseline_config.ppo_minimum_hold_bars != 0
+                or self.baseline_config.ppo_observation_schema != "ppo_observation_v3"
+                or not self.baseline_config.ppo_settle_terminal_position
+                or self.baseline_config.pretrade_risk_config is None
+                or self.baseline_config.pretrade_risk_config.drawdown_stop
+                > PPO_HOLDING_DURATION_MAX_DRAWDOWN
+            ):
+                raise ContractViolationError(
+                    "StudyPlan violates the PPO holding-duration protocol"
+                )
+            if not research_question.endswith(PPO_HOLDING_DURATION_SELECTION_RULE):
+                raise ContractViolationError(
+                    "PPO holding-duration StudyPlan must preregister the full selection rule"
+                )
 
         if final_start is not None and final_stop is not None:
             final_start = _canonical_ns_timestamp(
@@ -249,6 +322,7 @@ class StudyPlan:
         object.__setattr__(self, "final_evaluation_start", final_start)
         object.__setattr__(self, "final_evaluation_stop_exclusive", final_stop)
         object.__setattr__(self, "research_context", research_context)
+        object.__setattr__(self, "protocol", protocol)
         object.__setattr__(self, "schema_version", schema_version)
 
     @property
@@ -258,6 +332,10 @@ class StudyPlan:
     @property
     def control_strategy_names(self) -> tuple[str, ...]:
         return CONTROL_STRATEGY_NAMES
+
+    @property
+    def is_ppo_holding_duration_study(self) -> bool:
+        return self.protocol is StudyProtocol.PPO_HOLDING_DURATION
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -283,6 +361,11 @@ class StudyPlan:
         if self.schema_version == "controlled_study_plan_v3":
             assert self.research_context is not None
             payload["research_context"] = self.research_context.to_payload()
+        if self.schema_version == "controlled_study_plan_v4":
+            assert self.protocol is not None
+            payload["protocol"] = self.protocol.value
+            if self.research_context is not None:
+                payload["research_context"] = self.research_context.to_payload()
         if self.final_evaluation_start is not None:
             payload["final_evaluation_start"] = self.final_evaluation_start
             payload["final_evaluation_stop_exclusive"] = (
@@ -370,6 +453,10 @@ class StudyFreeze:
 __all__ = [
     "CANDIDATE_STRATEGY_NAMES",
     "CONTROL_STRATEGY_NAMES",
+    "PPO_HOLDING_DURATION_HORIZONS",
+    "PPO_HOLDING_DURATION_MAX_DRAWDOWN",
+    "PPO_HOLDING_DURATION_SEED_COUNT",
+    "PPO_HOLDING_DURATION_SELECTION_RULE",
     "StudyFreeze",
     "StudyOutcome",
     "StudyPlan",

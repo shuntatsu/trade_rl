@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import math
 import sys
 from dataclasses import dataclass, replace
@@ -10,7 +11,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
-from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
@@ -19,7 +20,10 @@ from trade_rl.simulation.execution import (
 )
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.rl.intent import _encode_observation
+from trade_rl.strategies.rl.intent import (
+    PPO_OBSERVATION_SCHEMA_V3,
+    _encode_observation,
+)
 from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
@@ -280,6 +284,443 @@ def test_env_default_unconstrained_risk_matches_canonical_replay(
     np.testing.assert_array_equal(return_history, replay.returns.values)
     assert env.book.quantities == replay.book.quantities
     assert env.book.portfolio_value == replay.book.portfolio_value
+
+
+def test_minimum_hold_training_and_replay_unlock_on_same_filled_bar() -> None:
+    env_parameters = inspect.signature(PPOTradingEnv).parameters
+    replay_parameters = inspect.signature(run_single_symbol_replay).parameters
+    assert "minimum_hold_bars" in env_parameters, (
+        "PPOTradingEnv must expose the registered minimum-hold treatment"
+    )
+    assert "minimum_hold_bars" in replay_parameters, (
+        "replay must expose the same registered minimum-hold treatment"
+    )
+
+    dataset = market()
+    hold_bars = 2
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=hold_bars,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=17)
+    _, first_reward, _, _, first_info = env.step(2)
+    first_fill_quantity = float(env.book.quantities[0])
+    _, second_reward, _, _, second_info = env.step(1)
+    _, third_reward, _, _, third_info = env.step(1)
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(
+            (PositionIntent.LONG, PositionIntent.FLAT, PositionIntent.FLAT)
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=hold_bars,
+    )
+
+    assert first_info["position_age_bars"] == 1
+    assert second_info["minimum_hold_suppressed"] is True
+    assert second_info["effective_intent"] is PositionIntent.LONG
+    assert float(second_info["target_quantity_override"]) == pytest.approx(
+        first_fill_quantity
+    )
+    assert second_info["position_age_bars"] == hold_bars
+    assert env.minimum_hold_suppressed_count == 1
+    assert env.minimum_hold_decision_count == 3
+    assert third_info["minimum_hold_suppressed"] is False
+    assert third_info["effective_intent"] is PositionIntent.FLAT
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert [decision.minimum_hold_suppressed for decision in replay.decisions] == [
+        False,
+        True,
+        False,
+    ]
+    assert [decision.effective_intent for decision in replay.decisions] == [
+        PositionIntent.LONG,
+        PositionIntent.LONG,
+        PositionIntent.FLAT,
+    ]
+    assert replay.book.quantities[0] == pytest.approx(env.book.quantities[0])
+    assert np.log1p(replay.returns.values).tolist() == pytest.approx(
+        [first_reward, second_reward, third_reward]
+    )
+
+
+def drawdown_market() -> MarketDataset:
+    close = np.asarray([[100.0], [100.0], [50.0], [50.0], [50.0]])
+    return MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(5) * np.timedelta64(1, "h"),
+        features=np.arange(5, dtype=np.float32).reshape(5, 1, 1),
+        global_features=np.zeros((5, 1), dtype=np.float32),
+        open=np.vstack((close[0], close[:-1])),
+        high=np.maximum(close, np.vstack((close[0], close[:-1]))),
+        low=np.minimum(close, np.vstack((close[0], close[:-1]))),
+        close=close,
+        volume=np.full((5, 1), 1_000_000.0),
+        funding_rate=np.zeros((5, 1)),
+        tradable=np.ones((5, 1), dtype=np.bool_),
+        feature_available=np.ones((5, 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        mark_price=close.copy(),
+    )
+
+
+def test_minimum_hold_cancels_partial_entry_remainder_in_training_and_replay() -> None:
+    dataset = market()
+    dataset = replace(
+        dataset,
+        max_participation_rate=np.full_like(dataset.close, 1e-6),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=2,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=21)
+    env.step(2)
+    first_fill_quantity = float(env.book.quantities[0])
+    assert first_fill_quantity > 0.0
+    assert env.executor.compatibility_order_book.active_orders
+
+    _, _, _, _, info = env.step(1)
+
+    assert info["minimum_hold_suppressed"] is True
+    assert env.book.quantities[0] == pytest.approx(first_fill_quantity)
+    assert env.executor.compatibility_order_book.active_orders == ()
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy((PositionIntent.LONG, PositionIntent.FLAT)),
+        start_index=0,
+        stop_index=2,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=2,
+    )
+    assert replay.book.quantities[0] == pytest.approx(first_fill_quantity)
+    assert replay.active_order_remainders == ()
+
+
+def test_minimum_hold_unlock_reapplies_same_side_after_cancelled_partial_entry() -> (
+    None
+):
+    base = market()
+    dataset = replace(
+        base,
+        max_participation_rate=np.full_like(base.close, 1e-6),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=2,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=22)
+    first_info = env.step(2)[4]
+    first_fill_quantity = float(env.book.quantities[0])
+    first_locked_info = env.step(1)[4]
+    first_locked_quantity = float(env.book.quantities[0])
+    assert env.executor.compatibility_order_book.active_orders == ()
+
+    _, _, _, _, unlock_info = env.step(2)
+    unlocked_quantity = float(env.book.quantities[0])
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(
+            (PositionIntent.LONG, PositionIntent.FLAT, PositionIntent.LONG)
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=2,
+    )
+
+    assert unlock_info["minimum_hold_suppressed"] is False
+    assert unlock_info["minimum_hold_unlocked"] is True
+    assert unlock_info["target_weight"] == pytest.approx(0.5)
+    assert env.book.quantities[0] > first_fill_quantity
+    assert env.executor.compatibility_order_book.active_orders
+    assert replay.decisions[2].minimum_hold_unlocked is True
+    assert replay.decisions[2].target_weight == pytest.approx(0.5)
+    assert replay.book.quantities[0] == pytest.approx(env.book.quantities[0])
+    assert unlock_info["position_age_bars"] == (
+        first_locked_info["position_age_bars"] + 1
+    )
+    assert [
+        info["position_age_bars"]
+        for info in (first_info, first_locked_info, unlock_info)
+    ] == [decision.position_age_bars_after for decision in replay.decisions]
+    np.testing.assert_allclose(
+        [first_fill_quantity, first_locked_quantity, unlocked_quantity],
+        [decision.position_quantity_after for decision in replay.decisions],
+    )
+
+
+def test_hard_drawdown_risk_can_flatten_during_minimum_hold() -> None:
+    dataset = drawdown_market()
+    risk_config = PreTradeRiskConfig(
+        max_gross=1.0,
+        max_abs_weight=0.5,
+        max_turnover=None,
+        drawdown_start=0.10,
+        drawdown_stop=0.20,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=risk_config,
+        minimum_hold_bars=10,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=23)
+    env.step(2)
+    env.step(2)
+    _, _, _, _, risk_exit = env.step(1)
+    _, _, _, _, after_risk = env.step(1)
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(
+            (
+                PositionIntent.LONG,
+                PositionIntent.LONG,
+                PositionIntent.FLAT,
+                PositionIntent.FLAT,
+            )
+        ),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(risk_config),
+        minimum_hold_bars=10,
+    )
+
+    assert risk_exit["minimum_hold_suppressed"] is True
+    assert "drawdown_deleveraging" in risk_exit["risk_reasons"]
+    assert risk_exit["target_weight"] == pytest.approx(0.0)
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert after_risk["minimum_hold_unlocked"] is False
+    assert replay.decisions[2].minimum_hold_suppressed is True
+    assert replay.decisions[2].target_weight == pytest.approx(0.0)
+    assert replay.decisions[3].minimum_hold_unlocked is False
+    assert replay.book.quantities[0] == pytest.approx(0.0)
+
+
+def test_partial_risk_reduction_preserves_locked_age_in_training_and_replay() -> None:
+    dataset = drawdown_market()
+    risk_config = PreTradeRiskConfig(
+        max_gross=1.0,
+        max_abs_weight=0.5,
+        max_turnover=None,
+        drawdown_start=0.10,
+        drawdown_stop=0.40,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=risk_config,
+        minimum_hold_bars=10,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=25)
+    infos: list[dict[str, object]] = []
+    quantities: list[float] = []
+    for action in (2, 2, 1):
+        info = env.step(action)[4]
+        infos.append(info)
+        quantities.append(float(env.book.quantities[0]))
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(
+            (PositionIntent.LONG, PositionIntent.LONG, PositionIntent.FLAT)
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(risk_config),
+        minimum_hold_bars=10,
+    )
+
+    reduced_quantity = float(replay.decisions[2].position_quantity_after)
+    assert infos[2]["minimum_hold_suppressed"] is True
+    assert "drawdown_deleveraging" in infos[2]["risk_reasons"]
+    assert quantities[2] == pytest.approx(reduced_quantity)
+    assert 0.0 < reduced_quantity < quantities[1]
+    assert infos[2]["position_age_bars"] == infos[1]["position_age_bars"] + 1
+    assert [info["position_age_bars"] for info in infos] == [
+        decision.position_age_bars_after for decision in replay.decisions
+    ]
+    np.testing.assert_allclose(
+        quantities,
+        [decision.position_quantity_after for decision in replay.decisions],
+    )
+    assert replay.decisions[2].minimum_hold_suppressed is True
+    assert "drawdown_deleveraging" in replay.decisions[2].risk_reasons
+
+
+def test_fill_based_reversal_restarts_age_when_executor_crosses_flat() -> None:
+    base = drawdown_market()
+    prices = np.full((5, 1), 100.0)
+    dataset = replace(
+        base,
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        volume=np.full_like(prices, 100.0),
+        max_participation_rate=np.asarray([[1.0], [1.0], [0.025], [0.025], [0.025]]),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=1,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=26)
+    infos: list[dict[str, object]] = []
+    quantities: list[float] = []
+    for action in (2, 0, 0, 0):
+        info = env.step(action)[4]
+        infos.append(info)
+        quantities.append(float(env.book.quantities[0]))
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy(
+            (
+                PositionIntent.LONG,
+                PositionIntent.SHORT,
+                PositionIntent.SHORT,
+                PositionIntent.SHORT,
+            )
+        ),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=1,
+    )
+
+    assert quantities[0] > 0.0
+    assert quantities[1] > 0.0
+    assert quantities[2] == pytest.approx(0.0)
+    assert quantities[3] < 0.0
+    assert [info["position_age_bars"] for info in infos] == [1, 2, 0, 1]
+    assert [info["position_age_bars"] for info in infos] == [
+        decision.position_age_bars_after for decision in replay.decisions
+    ]
+    np.testing.assert_allclose(
+        quantities,
+        [decision.position_quantity_after for decision in replay.decisions],
+    )
+    assert replay.decisions[1].position_quantity_before > 0.0
+    assert replay.decisions[1].position_quantity_after > 0.0
+    assert replay.decisions[2].position_quantity_after == pytest.approx(0.0)
+    assert replay.decisions[3].position_quantity_before == pytest.approx(0.0)
+    assert replay.decisions[3].position_quantity_after < 0.0
+
+
+def test_terminal_settlement_overrides_an_active_minimum_hold_in_both_paths() -> None:
+    dataset = market()
+    risk_config = PreTradeRiskConfig(
+        max_gross=0.5,
+        max_abs_weight=0.1,
+        max_turnover=None,
+        drawdown_start=0.10,
+        drawdown_stop=0.20,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk_config=risk_config,
+        settle_terminal_position=True,
+        minimum_hold_bars=10,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=24)
+    env.step(2)
+    _, _, terminated, truncated, info = env.step(1)
+
+    replay = run_single_symbol_replay(
+        dataset,
+        SequenceStrategy((PositionIntent.LONG, PositionIntent.FLAT)),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(risk_config),
+        minimum_hold_bars=10,
+        settle_terminal_position=True,
+    )
+
+    assert info["minimum_hold_suppressed"] is True
+    assert info["terminal_settlement_intervals"] == 1
+    assert float(info["terminal_settlement_start_weight"]) > 0.0
+    assert float(info["terminal_settlement_final_weight"]) == pytest.approx(0.0)
+    assert terminated is True
+    assert truncated is False
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert replay.book.quantities[0] == pytest.approx(0.0)
+    assert env.book.portfolio_value == pytest.approx(replay.book.portfolio_value)
+    np.testing.assert_allclose(env.book.returns_history, replay.returns.values)
 
 
 def test_env_custom_risk_still_projects_proposed_targets(

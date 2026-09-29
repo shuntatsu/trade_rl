@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from numbers import Integral
 from typing import Protocol
 
 import numpy as np
@@ -33,6 +34,7 @@ class StrategyObservation:
     current_intent: PositionIntent
     current_weight: float
     feature_staleness: np.ndarray | None = None
+    position_age_bars: int = 0
 
     def __post_init__(self) -> None:
         if (
@@ -47,6 +49,14 @@ class StrategyObservation:
             raise TypeError("current_intent must be a PositionIntent")
         if not math.isfinite(self.current_weight):
             raise ValueError("current_weight must be finite")
+        age_bars: object = self.position_age_bars
+        if (
+            isinstance(age_bars, bool)
+            or not isinstance(age_bars, Integral)
+            or age_bars < 0
+        ):
+            raise ValueError("position_age_bars must be a non-negative integer")
+        object.__setattr__(self, "position_age_bars", int(age_bars))
 
         features = _readonly_vector(self.features, field="features")
         feature_available = (

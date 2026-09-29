@@ -32,7 +32,7 @@
       "id": "ppo-holding-study-plan",
       "symbol": "trade_rl.evaluation.experiments.contracts.study.StudyPlan",
       "kind": "class",
-      "source_sha256": "529acb296eeae0d287b7a56d32b96a29341663f29c0be0557c3f3926072be675",
+      "source_sha256": "b7cf763fcb8c42bf48388a154e938f8a4f16ac8b025512c001a9bb84af0d25e4",
       "label_ja": "比較protocolとrisk条件を固定するStudyPlan",
       "description_ja": "PPO保有期間protocol identity、horizon/seed/selection条件、完全一致のrisk profileを結果を見る前に不変Studyへbindします。",
       "variables": [],

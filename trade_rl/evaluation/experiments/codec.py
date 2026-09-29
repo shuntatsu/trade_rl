@@ -397,6 +397,15 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
             )
     elif schema_version == "controlled_study_plan_v4":
         expected.add("protocol")
+    elif schema_version == "controlled_study_plan_v5":
+        expected.update(
+            {
+                "protocol",
+                "research_context",
+                "final_evaluation_start",
+                "final_evaluation_stop_exclusive",
+            }
+        )
     elif schema_version != "controlled_study_plan_v1":
         raise ArtifactIntegrityError("unsupported StudyPlan schema_version")
     _expect_keys(payload, expected, label="plan.json")
@@ -419,7 +428,10 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
             ) from error
 
     research_context: StudyResearchContext | None = None
-    if schema_version == "controlled_study_plan_v3":
+    if schema_version in {
+        "controlled_study_plan_v3",
+        "controlled_study_plan_v5",
+    }:
         try:
             research_context = StudyResearchContext.from_payload(
                 _as_dict(payload["research_context"], field="research_context")
@@ -430,7 +442,10 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
             ) from error
 
     protocol: StudyProtocol | None = None
-    if schema_version == "controlled_study_plan_v4":
+    if schema_version in {
+        "controlled_study_plan_v4",
+        "controlled_study_plan_v5",
+    }:
         try:
             protocol = StudyProtocol(_as_string(payload["protocol"], field="protocol"))
         except ValueError as error:

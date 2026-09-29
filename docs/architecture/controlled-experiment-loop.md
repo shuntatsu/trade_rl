@@ -50,7 +50,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `bootstrap_canonical_m2_study` は次の順序を固定する。
 
-1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。final-eligibleな**新規research line**では `canonical_m2_bootstrap_config_v4` を使い、execution economicsと `final_evaluation_start` / `final_evaluation_stop_exclusive` に加えて、既に消費したdevelopment evidenceを表す `StudyResearchContext` をresult前に固定する。historical v1-v3 configは既存artifactのread/inspection semanticsを維持する。
+1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。一般のfinal-eligibleな新規research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext`を固定する。PPO保有期間プロトコルでは `canonical_m2_bootstrap_config_v5` を使い、同じfinal boundaryに加えてprotocolとObservation / minimum-hold / terminal settlement / riskを含む明示baselineを固定する。historical v1-v3 configは既存artifactのread/inspection semanticsを維持する。
 2. Binance exchange-infoのraw bytesと、そのsource URI・retrieval time・SHA-256をfreezeする。
 3. pre-registrationから決まる`vision-plan.json`をprimary source planとして固定する。primary monthly kline archiveのtimestamp coverageに欠損がある場合だけ、欠損UTC dayのofficial daily archiveをdeterministic repairとして取得し、`vision-resolution.json`へsymbol/timeframe・missing open timestamp・repair URLを記録する。repair判断にprice/return/P&Lを使わず、補間・synthetic OHLC・REST kline repairは禁止する。primary + repairの実使用raw archiveをURL・SHA-256・sizeのordered rosterとしてfreezeする。
 4. source同期後はmarket-data transportを`allow_network=False`で再構成し、dataset buildをcache-onlyへ切る。cache missやREST fallbackによるnetwork accessは失敗とする。
@@ -94,7 +94,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `controlled_study_plan_v1` / `controlled_study_plan_v2` はhistorical Studyのread/inspection互換として維持し、後から `research_context` を追加して新しい意味へ再分類しない。bootstrap v1/v2からはv1 Plan、historical bootstrap v3からはv2 Plan、新規bootstrap v4からはcontext-bound v3 Planを作る。v3 Planは直接のdevelopment-only Studyではfinal windowなしでもよいが、bootstrap v4はfinal-eligible contractとしてfinal windowを必須にする。
 
-`controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、drawdown stopが20%以下のrisk configを必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。
+`controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、drawdown stopが20%以下のrisk configを必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。`controlled_study_plan_v5` は同じprotocol ruleを保ちつつ両方のfinal-window timestampと `StudyResearchContext` を必須化する。v5はfinal startがdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後であることを要求し、frozen WINNER後のone-shot authorizationで参照できる。
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 

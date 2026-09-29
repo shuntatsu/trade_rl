@@ -226,7 +226,13 @@ def create_study(
             except (TypeError, ValueError) as error:
                 raise ContractViolationError("unsupported Study protocol") from error
         if resolved_protocol is not None:
-            plan_schema = "controlled_study_plan_v4"
+            plan_schema = (
+                "controlled_study_plan_v5"
+                if final_evaluation_start is not None
+                or final_evaluation_stop_exclusive is not None
+                or research_context is not None
+                else "controlled_study_plan_v4"
+            )
         elif research_context is not None:
             plan_schema = "controlled_study_plan_v3"
         else:

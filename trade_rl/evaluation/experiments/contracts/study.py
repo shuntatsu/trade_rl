@@ -234,12 +234,32 @@ class StudyPlan:
                 raise ContractViolationError(
                     "controlled_study_plan_v4 requires a supported Study protocol"
                 )
+        elif schema_version == "controlled_study_plan_v5":
+            if final_start is None or final_stop is None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v5 requires both final evaluation fields"
+                )
+            if not isinstance(research_context, StudyResearchContext):
+                raise ContractViolationError(
+                    "controlled_study_plan_v5 requires research_context"
+                )
+            if protocol is not StudyProtocol.PPO_HOLDING_DURATION:
+                raise ContractViolationError(
+                    "controlled_study_plan_v5 requires a supported Study protocol"
+                )
         else:
             raise ContractViolationError("unsupported StudyPlan schema_version")
 
-        if schema_version != "controlled_study_plan_v4" and protocol is not None:
+        if (
+            schema_version
+            not in {
+                "controlled_study_plan_v4",
+                "controlled_study_plan_v5",
+            }
+            and protocol is not None
+        ):
             raise ContractViolationError(
-                "Study protocol requires controlled_study_plan_v4"
+                "Study protocol requires controlled_study_plan_v4 or v5"
             )
         if (
             ControlledFactor.PPO_MINIMUM_HOLD in allowed
@@ -361,7 +381,10 @@ class StudyPlan:
         if self.schema_version == "controlled_study_plan_v3":
             assert self.research_context is not None
             payload["research_context"] = self.research_context.to_payload()
-        if self.schema_version == "controlled_study_plan_v4":
+        if self.schema_version in {
+            "controlled_study_plan_v4",
+            "controlled_study_plan_v5",
+        }:
             assert self.protocol is not None
             payload["protocol"] = self.protocol.value
             if self.research_context is not None:

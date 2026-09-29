@@ -30,6 +30,10 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     CanonicalM2BootstrapConfig,
     load_canonical_m2_bootstrap_config,
 )
+from trade_rl.evaluation.experiments.contracts import StudyProtocol
+from trade_rl.evaluation.experiments.contracts.study import (
+    PPO_HOLDING_DURATION_SELECTION_RULE,
+)
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
 from trade_rl.evaluation.runs import (
     ResolvedCandidateRunSpec,
@@ -276,7 +280,14 @@ def _validate_study_against_config(
         raise ValueError("bootstrap Study must remain before baseline execution")
     if (snapshot.root / "baseline").exists():
         raise ValueError("bootstrap Study unexpectedly contains baseline evidence")
-    if plan.research_question != config.research_question:
+    expected_research_question = config.research_question
+    if config.study_protocol is StudyProtocol.PPO_HOLDING_DURATION and not (
+        expected_research_question.endswith(PPO_HOLDING_DURATION_SELECTION_RULE)
+    ):
+        expected_research_question = (
+            f"{expected_research_question}\n\n{PPO_HOLDING_DURATION_SELECTION_RULE}"
+        )
+    if plan.research_question != expected_research_question:
         raise ValueError("Study research question differs from bootstrap config")
     if plan.dataset_id != dataset.dataset_id:
         raise ValueError("Study dataset id differs from dataset artifact")
@@ -299,7 +310,9 @@ def _validate_study_against_config(
 
     expected_final_start = _study_final_timestamp(config.final_evaluation_start)
     expected_final_stop = _study_final_timestamp(config.final_evaluation_stop_exclusive)
-    if config.research_context is not None:
+    if config.study_protocol is not None:
+        expected_plan_schema = "controlled_study_plan_v5"
+    elif config.research_context is not None:
         expected_plan_schema = "controlled_study_plan_v3"
     else:
         expected_plan_schema = (
@@ -315,6 +328,8 @@ def _validate_study_against_config(
         raise ValueError("Study final evaluation stop differs from bootstrap config")
     if plan.research_context != config.research_context:
         raise ValueError("Study research context differs from bootstrap config")
+    if plan.protocol is not config.study_protocol:
+        raise ValueError("Study protocol differs from bootstrap config")
 
     _validate_dataset_range(config, dataset)
     _validate_execution_economics(config, dataset)
@@ -339,6 +354,26 @@ def _validate_study_against_config(
         ),
         (frozen.fit_symbol_indices, lean.fit_symbol_indices, "fit_symbol_indices"),
         (frozen.ppo_seed, config.ppo_seeds[0], "ppo_seed"),
+        (
+            frozen.ppo_observation_schema,
+            config.baseline.ppo_observation_schema,
+            "ppo_observation_schema",
+        ),
+        (
+            frozen.ppo_minimum_hold_bars,
+            config.baseline.ppo_minimum_hold_bars,
+            "ppo_minimum_hold_bars",
+        ),
+        (
+            frozen.ppo_settle_terminal_position,
+            config.baseline.ppo_settle_terminal_position,
+            "ppo_settle_terminal_position",
+        ),
+        (
+            frozen.pretrade_risk_config,
+            config.baseline.pretrade_risk_config,
+            "pretrade_risk_config",
+        ),
     )
     for observed, expected, field in expected_pairs:
         if observed != expected:
@@ -631,6 +666,7 @@ def bootstrap_canonical_m2_study(
                 config.final_evaluation_stop_exclusive
             ),
             research_context=config.research_context,
+            protocol=config.study_protocol,
         )
         study_digest, plan_implementation, plan_runtime = (
             _validate_study_against_config(

@@ -42,11 +42,21 @@ flag does not by itself prove that the account finished flat.
 
 The result-blind code path and focused contract tests are under development on
 the `codex/ppo-holding-duration` work branch. No PPO training or economic replay
-has been run for these horizons. `controlled_study_plan_v4` binds the named
-`ppo_holding_duration_v1` protocol: H=0 with Observation v3, five ordered PPO
-seeds, only `PPO_MINIMUM_HOLD`, four experiments, and the shared risk config.
-It fixes the ordered candidates at 72 / 168 / 336 / 504 one-hour bars and refuses
-to run any arm until all four have been preregistered.
+has been run for these horizons. `controlled_study_plan_v4` remains the
+development-only protocol form. A new `canonical_m2_bootstrap_config_v5` /
+`controlled_study_plan_v5` path now binds the same `ppo_holding_duration_v1`
+protocol together with a
+preregistered final window and `StudyResearchContext`, plus explicit Observation,
+minimum-hold, terminal-settlement, and risk fields in the baseline. This makes a
+future frozen winner structurally eligible for the existing separate
+unused-future authorization gate; it does not itself authorize or run a final
+test. The v5 bootstrap path currently has synthetic/mock integration coverage
+only, and has not been run against fresh Binance data.
+
+The protocol fixes H=0 with Observation v3, five ordered PPO seeds, only
+`PPO_MINIMUM_HOLD`, four experiments, and the shared risk config. It fixes the
+ordered candidates at 72 / 168 / 336 / 504 one-hour bars and refuses to run any
+arm until all four have been preregistered.
 
 The duration protocol stores its pre-registered selection rule in the immutable
 StudyPlan before outcomes. Eligibility requires every H=0 and candidate

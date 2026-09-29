@@ -76,13 +76,14 @@ unused-future evaluation.
 
 G0 is not established until the exact Dataset/window and all result-blind
 conditions are bound into a new immutable StudyPlan before outcomes exist. G2
-still needs a fresh independent review of this protocol implementation and a
-human review of the updated Guide descriptions before its freshness fingerprint
-can be refreshed. No new PPO training or economics has started. G4 remains
-blocked; existing M2 results are not evidence for this duration question. The
-next allowed step is to finish those design/review gates, then create the Study
-and freshly train H=0 under Observation v3 before any candidate result is
-generated.
+remains NOT ESTABLISHED until a fresh independent result-blind review of this
+protocol implementation and the complete contract checks pass. Human review of
+updated Guide descriptions is a separate documentation gate required before
+their source fingerprints are refreshed; it is not a G2 oracle. No new PPO
+training or economics has started. G4 remains blocked; existing M2 results are
+not evidence for this duration question. The next allowed step is to finish
+those design/review gates, then create the Study and freshly train H=0 under
+Observation v3 before any candidate result is generated.
 
 ## 研究目的
 

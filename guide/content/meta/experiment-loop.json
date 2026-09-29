@@ -18,12 +18,17 @@
     {
       "path": "docs/architecture/controlled-experiment-loop.md",
       "heading": "Controlled Experiment",
-      "sha256": "b2d95d8e9ba68283086f7d5983714acdb414f6692aaa693d3d1363c1f4e9576c"
+      "sha256": "48be0f2aecf37a8205ef8862483ae9fe211567dceb6d6df1814ef0e612a8c1ad"
     },
     {
       "path": "docs/architecture/controlled-experiment-loop.md",
       "heading": "State machine and lineage",
       "sha256": "aea54983333177472e9db0f7ea7a89f9c070504e6cb77113ac56f24a604cedb8"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Research assurance prerequisite",
+      "sha256": "d1be0913eb80d1fc2e7e7343295c04821746c7816f9d9f0f7ee3dd331aee887b"
     }
   ],
   "code_references": []

@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "cbf5f0a13b21146985facc58603e10494ae204352a5be893e3623f4691b58651"
+      "sha256": "694d0ff89868974361e32ac588b0efe2bb26f82aea987b07b9f95155d340e093"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -28,6 +28,19 @@
     }
   ],
   "code_references": [
+    {
+      "id": "ppo-holding-study-plan",
+      "symbol": "trade_rl.evaluation.experiments.contracts.study.StudyPlan",
+      "kind": "class",
+      "source_sha256": "529acb296eeae0d287b7a56d32b96a29341663f29c0be0557c3f3926072be675",
+      "label_ja": "比較protocolとrisk条件を固定するStudyPlan",
+      "description_ja": "PPO保有期間protocol identity、horizon/seed/selection条件、完全一致のrisk profileを結果を見る前に不変Studyへbindします。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/experiments/test_ppo_holding_protocol.py",
+        "tests/evaluation/experiments/bootstrap/test_ppo_holding_protocol.py"
+      ]
+    },
     {
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
@@ -80,7 +93,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "9a4a65912487638effff0c36414fc44929a726a9c00bdbd2a3a9794cae64eb68",
+      "source_sha256": "625e86fc9525385b4440a3ddc49f30c0b3d9966be6db5f010f823bfb03a1a538",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],

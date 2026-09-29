@@ -24,7 +24,12 @@
     {
       "path": "docs/architecture/controlled-experiment-loop.md",
       "heading": "Canonical M2 bootstrap preparation",
-      "sha256": "7b243cf34fe62c2a05ba301229928e373d4a36bf85c7b1d993a02096db1dd208"
+      "sha256": "215392a6706d7753fbcd306ff1852ab6881d8fd0fd522fc1f0de2c26cabe68f4"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Research assurance prerequisite",
+      "sha256": "d1be0913eb80d1fc2e7e7343295c04821746c7816f9d9f0f7ee3dd331aee887b"
     }
   ],
   "code_references": []

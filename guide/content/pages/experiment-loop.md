@@ -24,11 +24,13 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 途中でoperational failureが起きた場合は`FAILED`、一因子契約を破った場合は`INVALID`としてfail closedにします。
 
+新しい経済仮説やobservation、risk、execution semanticsを変えるStudyでは、結果を作る前にG0-G2の問い・機構・反証条件を固定し、freshなresult-blind AI reviewと独立oracleを通します。G3のevidence検証はこの前提審査の代わりになりません。条件が未確立の間はStudyPlanの準備までに留め、baselineやcandidateの経済結果は生成しません。
+
 ## 1. Studyを作る
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
 
-final evaluationへ進める可能性を持つ新規Studyでは、unused windowもdevelopment resultより前にbootstrap v3で事前登録し、StudyPlan v2のdigestへ固定します。historical StudyPlan v1へ後からfinal windowを追加することはしません。 また、final startはdevelopment Datasetに含まれる最後のtimestampより後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
+final evaluationへ進める一般の新規Studyでは、execution economics、unused window、`StudyResearchContext`をbootstrap config v4へ事前登録し、context-bound StudyPlan v3へ固定します。PPO保有期間protocolはbootstrap config v5とStudyPlan v5を使い、protocolと明示baseline/riskも同じ事前登録へbindします。historical StudyPlan v1/v2へ後からfinal windowやcontextを追加することはしません。final startはdevelopment Datasetに含まれる最後のtimestampと申告済みconsumed-evidence scopeの両方より後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
 
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。
 
@@ -96,7 +98,7 @@ side effectは開示しますが、formal targetを書き換える理由には�
 
 実験budgetを使い終え、未完了Experimentがなくなった段階でStudyをfreezeします。WINNERを選ぶ場合は、ACCEPT_CANDIDATEとして正当に到達したevidenceだけが候補です。
 
-freeze後もControlled Experiment Loop自身はunused futureへ触れません。結果前にunused windowをbindしたStudyPlan v2がWINNERになった場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・その事前登録windowをone-shot authorizationへbindします。authorization時に別windowへ差し替えることはできません。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
+freeze後もControlled Experiment Loop自身はunused futureへ触れません。結果前にunused windowをbindしたStudyPlan v3またはPPO保有期間用v5がWINNERになった場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・その事前登録windowをone-shot authorizationへbindします。authorization時に別windowへ差し替えることはできません。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
 
 ## FAILUREとINVALID
 

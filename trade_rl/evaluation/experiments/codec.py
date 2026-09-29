@@ -507,7 +507,11 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
         raise ArtifactIntegrityError("plan.json violates StudyPlan contract") from error
 
 
-def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
+def _candidate_config_payload(
+    config: CandidateRunConfig | ResolvedRunConfig,
+    *,
+    resolved_schema_version: str,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "signal_name": config.signal_name,
         "feature_names": list(config.feature_names),
@@ -523,10 +527,18 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
         "forecast_exit_threshold": config.forecast_exit_threshold,
         "ppo_total_timesteps": config.ppo_total_timesteps,
         "ppo_seed": config.ppo_seed,
-        "ppo_minimum_hold_bars": config.ppo_minimum_hold_bars,
-        "ppo_observation_schema": config.ppo_observation_schema,
-        "ppo_settle_terminal_position": config.ppo_settle_terminal_position,
-        "pretrade_risk_config": (
+        "gross_budget": config.gross_budget,
+        "initial_capital": config.initial_capital,
+    }
+    if resolved_schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
+        payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
+        payload["ppo_observation_schema"] = config.ppo_observation_schema
+        payload["ppo_settle_terminal_position"] = config.ppo_settle_terminal_position
+    if resolved_schema_version == "resolved_run_config_v5":
+        payload["pretrade_risk_config"] = (
             None
             if config.pretrade_risk_config is None
             else {
@@ -542,10 +554,7 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
                     config.pretrade_risk_config.fail_closed_tolerance
                 ),
             }
-        ),
-        "gross_budget": config.gross_budget,
-        "initial_capital": config.initial_capital,
-    }
+        )
     if (
         config.ppo_training_layout != "sequential"
         or config.ppo_rollout_steps_per_env is not None
@@ -628,10 +637,12 @@ def _definition_from_payload(payload: dict[str, object]) -> ExperimentDefinition
         raise ArtifactIntegrityError(
             "definition.json violates ExperimentDefinition contract"
         ) from error
-    reconstructed = _candidate_config_from_resolved(definition.candidate_config)
-    if content_digest(_candidate_config_payload(reconstructed)) != (
-        definition.candidate_requested_config_digest
-    ):
+    if content_digest(
+        _candidate_config_payload(
+            definition.candidate_config,
+            resolved_schema_version=definition.candidate_config.schema_version,
+        )
+    ) != (definition.candidate_requested_config_digest):
         raise ArtifactIntegrityError(
             "definition requested-config digest does not match resolved configuration"
         )

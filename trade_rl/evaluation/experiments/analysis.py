@@ -181,6 +181,8 @@ def _run_matrix(
                 )
             metrics = cast(Mapping[str, object], metrics_raw)
             terminal_settlement_complete = strategy.get("terminal_settlement_complete")
+            if not run.has_verified_full_evaluation_coverage:
+                terminal_settlement_complete = False
             if terminal_settlement_complete is not None and not isinstance(
                 terminal_settlement_complete,
                 bool,

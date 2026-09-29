@@ -109,7 +109,7 @@ environment transition, not the economic action contract.
 Minimum-hold duration requires Observation v3. A duration Study binds the same
 v3 observation, terminal settlement, explicit `PreTradeRiskConfig`, Dataset,
 execution overlay, capital, and evaluation window for its H=0 baseline and all
-candidates. New `resolved_run_config_v5` and `lean_candidate_result_v5`
+candidates. New `resolved_run_config_v5` and `lean_candidate_result_v6`
 identities bind these values; H alone is the `PPO_MINIMUM_HOLD` factor. The
 explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
@@ -167,7 +167,7 @@ Age-aware Observation v3の保有期間比較は、generic PPO既定値をその
 
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
-Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。新規のduration/risk Runは`lean_candidate_result_v5`を使い、保有期間、Observation schema、terminal settlement、training suppression count、明示pre-trade risk configも記録・検証する。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
+Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。新規のduration/risk Runは`lean_candidate_result_v6`を使い、保有期間、Observation schema、terminal settlement、全評価期間のカバレッジ、training suppression count、明示pre-trade risk configも記録・検証する。従来のv5 artifactは互換読込するが、全期間カバレッジ検証済みとは扱わない。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
 
 `A2CIntentStrategy` と `fit_a2c_strategy` は、PPOと同じprivate 3-action intent adapter、`PPOTradingEnv`、Observation v2、fit-scope専用 `PPOFeatureNormalizer` を再利用する。A2Cはsequential layoutだけを許し、各fit symbolに最低1 nominal full-window episode分のstep budgetを割り当てられるか、rollout `n_steps=5` 単位へ切り上げたeffective step数でfit前に検証する。このcoverageはbudget上の容量であり、risk termination等が起きる実行中に各symbolのtransitionを観測した証拠ではない。
 

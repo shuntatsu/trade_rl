@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -178,6 +179,8 @@ def _result() -> object:
             dataset_id="b" * 64,
             dataset_artifact_schema="market_dataset_artifact_v3",
             dataset_artifact_digest="d" * 64,
+            evaluation_start_index=0,
+            evaluation_stop_index=1,
         ),
         symbols=("BTCUSDT",),
         comparison=comparison,
@@ -207,6 +210,7 @@ def _holding_result(
     result.spec.lean_config.ppo_seed = seed
     result.spec.lean_config.ppo_observation_schema = PPO_OBSERVATION_SCHEMA_V3
     result.spec.lean_config.ppo_minimum_hold_bars = minimum_hold_bars
+    result.spec.evaluation_stop_index = len(ppo_returns)
 
     diagnostics = SimpleNamespace(
         turnover_total=0.0,
@@ -254,14 +258,14 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v5"
+    assert summary["schema_version"] == "lean_candidate_result_v6"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     loaded = load_candidate_run_artifact(artifact.root)
     candidate_config = loaded.summary["candidate_config"]
     assert candidate_config["ppo_training_timesteps"] == 2048
 
 
-def test_candidate_v5_binds_age_observation_and_holding_duration_and_risk(
+def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
     tmp_path: Path,
 ) -> None:
     result = _result()
@@ -299,7 +303,7 @@ def test_candidate_v5_binds_age_observation_and_holding_duration_and_risk(
     )
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v5"
+    assert summary["schema_version"] == "lean_candidate_result_v6"
     assert summary["ppo_observation"] == ppo_observation_contract_payload(
         PPO_OBSERVATION_SCHEMA_V3
     )
@@ -329,7 +333,7 @@ def test_candidate_v5_binds_age_observation_and_holding_duration_and_risk(
     assert ppo_summary["active_order_remainders"] == []
 
     loaded = load_candidate_run_artifact(artifact.root)
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v5"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v6"
 
 
 @pytest.mark.parametrize(
@@ -421,7 +425,128 @@ def test_loaded_terminal_inventory_or_remainder_rejects_holding_arm(
     assert metrics.eligible is False
 
 
-def test_candidate_v5_rejects_inconsistent_typed_risk_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("ppo_returns", "termination_reasons", "termination_count"),
+    [
+        ((0.01, 0.01), (), 0),
+        ((0.01, 0.01, 0.01, 0.01), ("drawdown_stop",), 1),
+    ],
+)
+def test_terminal_settlement_requires_full_unterminated_evaluation(
+    tmp_path: Path,
+    ppo_returns: tuple[float, ...],
+    termination_reasons: tuple[str, ...],
+    termination_count: int,
+) -> None:
+    result = _holding_result(seed=7, ppo_returns=ppo_returns)
+    result.spec.evaluation_stop_index = 4
+    result.comparison.by_symbol[0].comparison.entries[
+        0
+    ].replay.diagnostics.termination_reasons = termination_reasons
+    for entry in result.comparison.by_symbol[0].comparison.entries:
+        entry.metrics = replace(
+            entry.metrics,
+            termination_count=termination_count,
+        )
+
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        result,  # type: ignore[arg-type]
+        _provenance(),
+    )
+    loaded = load_candidate_run_artifact(artifact.root)
+
+    ppo_summary = loaded.summary["by_symbol"][0]["strategies"][-1]
+    assert ppo_summary["terminal_settlement_complete"] is False
+
+
+def test_historical_v5_candidate_artifact_remains_readable(tmp_path: Path) -> None:
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        _holding_result(seed=7, ppo_returns=(0.01, 0.01, 0.01, 0.01)),  # type: ignore[arg-type]
+        _provenance(),
+    )
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = "lean_candidate_result_v5"
+    summary["evaluation"].pop("expected_periods")
+    artifact.summary_path.write_text(
+        json.dumps(summary, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+
+    loaded = load_candidate_run_artifact(artifact.root)
+
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v5"
+
+
+def test_historical_v5_terminal_flag_is_not_full_coverage_evidence(
+    tmp_path: Path,
+) -> None:
+    baseline_runs = {}
+    candidate_runs = {}
+    for seed in (2, 7):
+        runs = []
+        for name, minimum_hold_bars, returns in (
+            ("baseline", 0, (0.0, 0.0, 0.0, 0.0)),
+            ("candidate", 168, (0.01, 0.01, 0.01, 0.01)),
+        ):
+            artifact = publish_candidate_run(
+                tmp_path / name / f"seed-{seed}",
+                _holding_result(
+                    seed=seed,
+                    ppo_returns=returns,
+                    minimum_hold_bars=minimum_hold_bars,
+                ),  # type: ignore[arg-type]
+                _provenance(),
+            )
+            summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+            summary["schema_version"] = "lean_candidate_result_v5"
+            summary["evaluation"].pop("expected_periods")
+            artifact.summary_path.write_text(
+                json.dumps(summary, sort_keys=True, indent=2),
+                encoding="utf-8",
+            )
+            runs.append(load_candidate_run_artifact(artifact.root))
+        baseline_runs[seed], candidate_runs[seed] = runs
+
+    assert (
+        candidate_runs[2].summary["by_symbol"][0]["strategies"][-1][
+            "terminal_settlement_complete"
+        ]
+        is True
+    )
+    effect = compare_evidence_sets(
+        baseline_runs,
+        candidate_runs,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    )
+
+    assert (
+        effect["cross_seed"]["ppo"][
+            "candidate_terminal_settlement_complete_account_count"
+        ]
+        == 0
+    )
+
+
+def test_v6_loader_rejects_return_array_shorter_than_summary(tmp_path: Path) -> None:
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        _holding_result(seed=7, ppo_returns=(0.01, 0.01, 0.01, 0.01)),  # type: ignore[arg-type]
+        _provenance(),
+    )
+    with np.load(artifact.returns_path, allow_pickle=False) as archive:
+        arrays = {key: archive[key].copy() for key in archive.files}
+    arrays["symbol_0_strategy_0"] = arrays["symbol_0_strategy_0"][:-1]
+    np.savez_compressed(artifact.returns_path, **arrays)
+
+    with pytest.raises(ValueError, match="return period count"):
+        load_candidate_run_artifact(artifact.root)
+
+
+def test_candidate_v6_rejects_inconsistent_typed_risk_config(tmp_path: Path) -> None:
     result = _result()
     result.spec.config.ppo_observation_schema = PPO_OBSERVATION_SCHEMA_V3
     result.spec.config.ppo_settle_terminal_position = True

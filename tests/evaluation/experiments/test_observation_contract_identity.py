@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
@@ -153,7 +155,12 @@ def test_resolved_run_v4_binds_holding_duration_and_terminal_settlement() -> Non
 def test_experiment_definition_v5_reconstructs_exact_candidate_semantics() -> None:
     resolved = _resolved_from_payload(_v5_payload(), field="candidate_config")
     candidate = _candidate_config_from_resolved(resolved)
-    requested_digest = content_digest(_candidate_config_payload(candidate))
+    requested_digest = content_digest(
+        _candidate_config_payload(
+            candidate,
+            resolved_schema_version=resolved.schema_version,
+        )
+    )
     payload = {
         "schema_version": "controlled_experiment_definition_v1",
         "study_digest": "a" * 64,
@@ -175,6 +182,63 @@ def test_experiment_definition_v5_reconstructs_exact_candidate_semantics() -> No
         definition.candidate_config.pretrade_risk_config
         == resolved.pretrade_risk_config
     )
+
+
+@pytest.mark.parametrize(
+    ("resolved_config_payload", "has_holding_fields"),
+    [
+        pytest.param(_v1_payload, False, id="v1"),
+        pytest.param(_v2_payload, False, id="v2"),
+        pytest.param(_v3_payload, False, id="v3"),
+        pytest.param(_v4_payload, True, id="v4"),
+    ],
+)
+def test_legacy_experiment_definition_keeps_requested_config_digest(
+    resolved_config_payload: Callable[[], dict[str, object]],
+    has_holding_fields: bool,
+) -> None:
+    resolved = _resolved_from_payload(
+        resolved_config_payload(), field="candidate_config"
+    )
+    legacy_candidate_payload = {
+        "signal_name": resolved.signal_name,
+        "feature_names": list(resolved.feature_names),
+        "fit_symbol_names": list(resolved.fit_symbol_names),
+        "fit_cutoff": resolved.fit_cutoff,
+        "evaluation_start": resolved.evaluation_start,
+        "evaluation_stop_exclusive": resolved.evaluation_stop_exclusive,
+        "rule_entry_threshold": resolved.rule_entry_threshold,
+        "rule_exit_threshold": resolved.rule_exit_threshold,
+        "forecast_entry_threshold": resolved.forecast_entry_threshold,
+        "forecast_exit_threshold": resolved.forecast_exit_threshold,
+        "ppo_total_timesteps": resolved.ppo_total_timesteps,
+        "ppo_seed": resolved.ppo_seed,
+        "gross_budget": resolved.gross_budget,
+        "initial_capital": resolved.initial_capital,
+    }
+    if has_holding_fields:
+        legacy_candidate_payload.update(
+            {
+                "ppo_minimum_hold_bars": resolved.ppo_minimum_hold_bars,
+                "ppo_observation_schema": resolved.ppo_observation_schema,
+                "ppo_settle_terminal_position": (resolved.ppo_settle_terminal_position),
+            }
+        )
+    legacy_digest = content_digest(legacy_candidate_payload)
+    payload = {
+        "schema_version": "controlled_experiment_definition_v1",
+        "study_digest": "a" * 64,
+        "sequence": 1,
+        "hypothesis": "The frozen feature set improves net returns.",
+        "baseline_evidence_digest": "b" * 64,
+        "factor": ControlledFactor.FEATURE_SET.value,
+        "candidate_requested_config_digest": legacy_digest,
+        "candidate_config": resolved.to_payload(),
+    }
+
+    definition = _definition_from_payload(payload)
+
+    assert definition.candidate_config.to_payload() == resolved.to_payload()
 
 
 def test_resolved_run_v5_binds_explicit_pretrade_risk() -> None:

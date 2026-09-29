@@ -141,7 +141,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v5"
+    assert summary["schema_version"] == "lean_candidate_result_v6"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -189,7 +189,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     with pytest.raises(ValueError, match="explicit.*risk"):
         candidate_artifact._validate_ppo_training_evidence(
             age_aware_without_risk,
-            result_schema="lean_candidate_result_v5",
+            result_schema="lean_candidate_result_v6",
         )
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",
@@ -197,6 +197,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
         "ppo_settle_terminal_position": False,
+        "expected_periods": 3,
         "pretrade_risk_config": None,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
     }

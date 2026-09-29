@@ -77,6 +77,8 @@ def _with_terminal_settlement(
 ) -> LoadedCandidateRun:
     summary = to_json_value(run.summary)
     assert isinstance(summary, dict)
+    summary["schema_version"] = "lean_candidate_result_v6"
+    summary["evaluation"] = {"expected_periods": 4}
     by_symbol = summary.get("by_symbol")
     assert isinstance(by_symbol, list)
     for symbol_entry in by_symbol:

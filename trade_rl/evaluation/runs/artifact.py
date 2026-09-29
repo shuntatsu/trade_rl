@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -39,7 +39,8 @@ _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
 _RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
 _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
-_RESULT_SCHEMA = _RESULT_SCHEMA_V5
+_RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
+_RESULT_SCHEMA = _RESULT_SCHEMA_V6
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -47,6 +48,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V3,
         _RESULT_SCHEMA_V4,
         _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -95,6 +97,53 @@ class LoadedCandidateRun:
         object.__setattr__(self, "returns", MappingProxyType(immutable_returns))
         object.__setattr__(self, "provenance", frozen_provenance)
 
+    @property
+    def has_verified_full_evaluation_coverage(self) -> bool:
+        """Whether this artifact schema verifies every requested evaluation period."""
+        if self.summary.get("schema_version") != _RESULT_SCHEMA_V6:
+            return False
+        evaluation = self.summary.get("evaluation")
+        by_symbol = self.summary.get("by_symbol")
+        if (
+            not isinstance(evaluation, Mapping)
+            or not isinstance(by_symbol, Sequence)
+            or isinstance(by_symbol, (str, bytes, bytearray))
+        ):
+            return False
+        expected_periods = evaluation.get("expected_periods")
+        if (
+            isinstance(expected_periods, bool)
+            or not isinstance(expected_periods, int)
+            or expected_periods <= 0
+        ):
+            return False
+        for symbol in by_symbol:
+            strategies = (
+                symbol.get("strategies") if isinstance(symbol, Mapping) else None
+            )
+            if not isinstance(strategies, Sequence) or isinstance(
+                strategies, (str, bytes, bytearray)
+            ):
+                return False
+            for strategy in strategies:
+                if not isinstance(strategy, Mapping):
+                    return False
+                metrics = strategy.get("metrics")
+                key = strategy.get("return_key")
+                values = self.returns.get(key) if isinstance(key, str) else None
+                n_periods = (
+                    metrics.get("n_periods") if isinstance(metrics, Mapping) else None
+                )
+                if (
+                    values is None
+                    or isinstance(n_periods, bool)
+                    or not isinstance(n_periods, int)
+                    or n_periods != expected_periods
+                    or values.size != expected_periods
+                ):
+                    return False
+        return True
+
 
 @dataclass(frozen=True, slots=True)
 class CandidateRunArtifactIdentity:
@@ -136,6 +185,9 @@ def _result_payload(
     spec = result.spec
     config = spec.config
     lean_config = spec.lean_config
+    expected_periods = spec.evaluation_stop_index - spec.evaluation_start_index
+    if expected_periods <= 0:
+        raise ValueError("candidate evaluation must contain at least one interval")
     returns: dict[str, np.ndarray] = {}
     symbols_payload: list[dict[str, object]] = []
     for symbol_result in result.comparison.by_symbol:
@@ -206,6 +258,9 @@ def _result_payload(
                         config.ppo_settle_terminal_position
                         and not any(quantity != 0.0 for quantity in final_quantities)
                         and not active_order_remainders
+                        and len(entry.replay.returns.values) == expected_periods
+                        and entry.metrics.termination_count == 0
+                        and not diagnostics.termination_reasons
                     ),
                     "minimum_hold_audit": minimum_hold_audit,
                 }
@@ -261,6 +316,7 @@ def _result_payload(
         "evaluation": {
             "start": str(config.evaluation_start),
             "stop_exclusive": str(config.evaluation_stop_exclusive),
+            "expected_periods": expected_periods,
             "gross_budget": config.gross_budget,
             "initial_capital": config.initial_capital,
             "ppo_settle_terminal_position": config.ppo_settle_terminal_position,
@@ -458,7 +514,7 @@ def _validate_ppo_training_evidence(
     )
     if realized != expected:
         raise ValueError("candidate PPO realized timesteps do not match rollout budget")
-    if result_schema in {_RESULT_SCHEMA_V4, _RESULT_SCHEMA_V5}:
+    if result_schema in {_RESULT_SCHEMA_V4, _RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6}:
         if not {
             "ppo_minimum_hold_bars",
             "ppo_observation_schema",
@@ -501,7 +557,7 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema == _RESULT_SCHEMA_V5:
+    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6}:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -564,7 +620,11 @@ def _validate_ppo_training_evidence(
                 raise ValueError("PPO drawdown stop must not exceed 20%")
 
 
-def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
+def _validate_replay_evidence(
+    summary: Mapping[str, object],
+    *,
+    require_full_coverage: bool,
+) -> None:
     symbols = summary.get("symbols")
     by_symbol = summary.get("by_symbol")
     evaluation = summary.get("evaluation")
@@ -575,6 +635,16 @@ def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
     terminal_settlement = evaluation.get("ppo_settle_terminal_position")
     if not isinstance(terminal_settlement, bool):
         raise ValueError("candidate replay evidence is malformed")
+    expected_periods: int | None = None
+    if require_full_coverage:
+        raw_expected_periods = evaluation.get("expected_periods")
+        if (
+            isinstance(raw_expected_periods, bool)
+            or not isinstance(raw_expected_periods, int)
+            or raw_expected_periods <= 0
+        ):
+            raise ValueError("candidate replay expected-period evidence is malformed")
+        expected_periods = raw_expected_periods
 
     replay_fields = {
         "final_quantities",
@@ -607,6 +677,38 @@ def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
                 strategy
             ):
                 raise ValueError("candidate replay evidence is incomplete")
+            n_periods: int | None = None
+            termination_count: int | None = None
+            termination_reasons: list[object] | None = None
+            if require_full_coverage:
+                metrics = strategy.get("metrics")
+                diagnostics = strategy.get("diagnostics")
+                if not isinstance(metrics, Mapping) or not isinstance(
+                    diagnostics, Mapping
+                ):
+                    raise ValueError("candidate replay metrics are malformed")
+                raw_n_periods = metrics.get("n_periods")
+                raw_termination_count = metrics.get("termination_count")
+                raw_termination_reasons = diagnostics.get("termination_reasons")
+                if (
+                    isinstance(raw_n_periods, bool)
+                    or not isinstance(raw_n_periods, int)
+                    or raw_n_periods < 0
+                    or isinstance(raw_termination_count, bool)
+                    or not isinstance(raw_termination_count, int)
+                    or raw_termination_count < 0
+                    or not isinstance(raw_termination_reasons, list)
+                    or any(
+                        not isinstance(reason, str) or not reason
+                        for reason in raw_termination_reasons
+                    )
+                ):
+                    raise ValueError(
+                        "candidate replay completion evidence is malformed"
+                    )
+                n_periods = raw_n_periods
+                termination_count = raw_termination_count
+                termination_reasons = raw_termination_reasons
             quantities = strategy["final_quantities"]
             remainders = strategy["active_order_remainders"]
             terminal_reasons = strategy["terminal_order_reasons"]
@@ -653,6 +755,13 @@ def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
                 and all(float(value) == 0.0 for value in quantities)
                 and not remainders
             )
+            if require_full_coverage:
+                expected_terminal_complete = (
+                    expected_terminal_complete
+                    and n_periods == expected_periods
+                    and termination_count == 0
+                    and not termination_reasons
+                )
             if terminal_complete is not expected_terminal_complete:
                 raise ValueError(
                     "candidate terminal settlement evidence is inconsistent"
@@ -700,6 +809,14 @@ def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
                     raise ValueError("candidate minimum-hold audit is malformed")
 
 
+def _validate_v5_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_replay_evidence(summary, require_full_coverage=False)
+
+
+def _validate_v6_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_replay_evidence(summary, require_full_coverage=True)
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -728,6 +845,47 @@ def _load_returns(
     except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
+
+
+def _validate_v6_return_coverage(
+    summary: Mapping[str, object],
+    returns: Mapping[str, np.ndarray],
+) -> None:
+    evaluation = summary.get("evaluation")
+    if not isinstance(evaluation, Mapping):
+        raise ValueError("candidate return coverage evidence is malformed")
+    expected_periods = evaluation.get("expected_periods")
+    by_symbol = summary.get("by_symbol")
+    if (
+        isinstance(expected_periods, bool)
+        or not isinstance(expected_periods, int)
+        or expected_periods <= 0
+        or not isinstance(by_symbol, list)
+    ):
+        raise ValueError("candidate return coverage evidence is malformed")
+    for symbol in by_symbol:
+        if not isinstance(symbol, Mapping) or not isinstance(
+            symbol.get("strategies"), list
+        ):
+            raise ValueError("candidate return coverage evidence is malformed")
+        for strategy in symbol["strategies"]:
+            if not isinstance(strategy, Mapping):
+                raise ValueError("candidate return coverage evidence is malformed")
+            key = strategy.get("return_key")
+            metrics = strategy.get("metrics")
+            values = returns.get(key) if isinstance(key, str) else None
+            n_periods = (
+                metrics.get("n_periods") if isinstance(metrics, Mapping) else None
+            )
+            if (
+                values is None
+                or isinstance(n_periods, bool)
+                or not isinstance(n_periods, int)
+                or n_periods < 0
+                or n_periods > expected_periods
+                or values.size != n_periods
+            ):
+                raise ValueError("candidate return period count is inconsistent")
 
 
 def _semantic_returns_payload(
@@ -776,6 +934,9 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V5:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v5_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V6:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v6_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -785,6 +946,8 @@ def _load_with_evidence(
         returns_bytes,
         expected_keys=_expected_return_keys(summary),
     )
+    if result_schema == _RESULT_SCHEMA_V6:
+        _validate_v6_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,

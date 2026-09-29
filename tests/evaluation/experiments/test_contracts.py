@@ -187,6 +187,37 @@ def test_study_plan_v2_binds_preregistered_final_window() -> None:
     assert plan.digest == content_digest(payload)
 
 
+def test_study_plan_preserves_legacy_positional_schema_version() -> None:
+    expected = study_plan(
+        final_evaluation_start="2026-03-01T00:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        schema_version="controlled_study_plan_v2",
+    )
+
+    plan = StudyPlan(
+        expected.research_question,
+        expected.dataset_id,
+        expected.dataset_artifact_schema,
+        expected.dataset_artifact_digest,
+        expected.symbols,
+        expected.baseline_config,
+        expected.ppo_seeds,
+        expected.allowed_factors,
+        expected.max_experiments,
+        expected.n_bootstrap,
+        expected.bootstrap_seed,
+        expected.implementation_digest,
+        expected.runtime_environment_digest,
+        expected.final_evaluation_start,
+        expected.final_evaluation_stop_exclusive,
+        expected.research_context,
+        expected.schema_version,
+    )
+
+    assert plan.schema_version == "controlled_study_plan_v2"
+    assert plan.protocol is None
+
+
 def test_study_plan_v1_forbids_final_window_fields() -> None:
     with pytest.raises(ContractViolationError, match="v1.*final|final.*v1"):
         study_plan(

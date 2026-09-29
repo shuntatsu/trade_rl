@@ -141,8 +141,8 @@ class StudyPlan:
     final_evaluation_start: str | None = None
     final_evaluation_stop_exclusive: str | None = None
     research_context: StudyResearchContext | None = None
-    protocol: StudyProtocol | None = None
     schema_version: str = "controlled_study_plan_v1"
+    protocol: StudyProtocol | None = None
 
     def __post_init__(self) -> None:
         research_question = contract_text(

@@ -385,7 +385,10 @@ def define_experiment(
             baseline_evidence_digest=baseline_evidence_digest,
             factor=factor,
             candidate_requested_config_digest=content_digest(
-                _candidate_config_payload(candidate_config)
+                _candidate_config_payload(
+                    candidate_config,
+                    resolved_schema_version=resolved.schema_version,
+                )
             ),
             candidate_config=resolved,
         )

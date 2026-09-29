@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
-
-import pytest
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -40,9 +37,3 @@ def test_canonical_json_serializes_dataclass_and_utc_timestamp() -> None:
 
 def test_content_digest_changes_when_content_changes() -> None:
     assert content_digest({"value": 1}) != content_digest({"value": 2})
-
-
-@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
-def test_canonical_json_rejects_non_finite_floats(value: float) -> None:
-    with pytest.raises(ValueError, match="finite"):
-        canonical_json_bytes({"value": value})

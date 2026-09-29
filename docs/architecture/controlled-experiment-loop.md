@@ -94,7 +94,7 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `controlled_study_plan_v1` / `controlled_study_plan_v2` はhistorical Studyのread/inspection互換として維持し、後から `research_context` を追加して新しい意味へ再分類しない。bootstrap v1/v2からはv1 Plan、historical bootstrap v3からはv2 Plan、新規bootstrap v4からはcontext-bound v3 Planを作る。v3 Planは直接のdevelopment-only Studyではfinal windowなしでもよいが、bootstrap v4はfinal-eligible contractとしてfinal windowを必須にする。
 
-`controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、drawdown stopが20%以下のrisk configを必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。`controlled_study_plan_v5` は同じprotocol ruleを保ちつつ両方のfinal-window timestampと `StudyResearchContext` を必須化する。v5はfinal startがdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後であることを要求し、frozen WINNER後のone-shot authorizationで参照できる。
+`controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、および完全一致するrisk config（max gross 0.5、max absolute weight 0.1、turnover capなし、drawdown deleveraging 10%、stop 20%、その他は既定値）を必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。`controlled_study_plan_v5` は同じprotocol ruleを保ちつつ両方のfinal-window timestampと `StudyResearchContext` を必須化する。v5はfinal startがdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後であることを要求し、frozen WINNER後のone-shot authorizationで参照できる。
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 

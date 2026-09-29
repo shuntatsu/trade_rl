@@ -25,6 +25,7 @@ from trade_rl.evaluation.experiments.contracts.experiment import ControlledFacto
 from trade_rl.evaluation.experiments.contracts.research import StudyResearchContext
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.risk import PreTradeRiskConfig
 
 CANDIDATE_STRATEGY_NAMES = (
     "trend",
@@ -73,6 +74,13 @@ class StudyProtocol(StrEnum):
 PPO_HOLDING_DURATION_HORIZONS = (72, 168, 336, 504)
 PPO_HOLDING_DURATION_SEED_COUNT = 5
 PPO_HOLDING_DURATION_MAX_DRAWDOWN = 0.20
+PPO_HOLDING_DURATION_RISK_CONFIG = PreTradeRiskConfig(
+    max_gross=0.5,
+    max_abs_weight=0.1,
+    max_turnover=None,
+    drawdown_start=0.10,
+    drawdown_stop=PPO_HOLDING_DURATION_MAX_DRAWDOWN,
+)
 PPO_HOLDING_DURATION_SELECTION_RULE = (
     "PPO holding-duration preregistered selection rule: compare a freshly trained "
     "H=0 PPO with 72, 168, 336, and 504 completed one-hour bars on the same "
@@ -276,9 +284,8 @@ class StudyPlan:
                 or self.baseline_config.ppo_minimum_hold_bars != 0
                 or self.baseline_config.ppo_observation_schema != "ppo_observation_v3"
                 or not self.baseline_config.ppo_settle_terminal_position
-                or self.baseline_config.pretrade_risk_config is None
-                or self.baseline_config.pretrade_risk_config.drawdown_stop
-                > PPO_HOLDING_DURATION_MAX_DRAWDOWN
+                or self.baseline_config.pretrade_risk_config
+                != PPO_HOLDING_DURATION_RISK_CONFIG
             ):
                 raise ContractViolationError(
                     "StudyPlan violates the PPO holding-duration protocol"
@@ -478,6 +485,7 @@ __all__ = [
     "CONTROL_STRATEGY_NAMES",
     "PPO_HOLDING_DURATION_HORIZONS",
     "PPO_HOLDING_DURATION_MAX_DRAWDOWN",
+    "PPO_HOLDING_DURATION_RISK_CONFIG",
     "PPO_HOLDING_DURATION_SEED_COUNT",
     "PPO_HOLDING_DURATION_SELECTION_RULE",
     "StudyFreeze",

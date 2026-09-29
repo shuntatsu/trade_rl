@@ -27,11 +27,12 @@ rule; separate PPO training means the trades and later actions may also change.
 All arms must bind the same Dataset/time scope, selected features and fit
 symbols, PPO seed roster and realized training budget, initial capital,
 execution costs/funding/borrow, execution overlay, risk config, and terminal
-settlement. The planned risk profile uses max gross 0.5, max absolute weight
-0.1, drawdown deleveraging at 10%, and hard stop at 20%, identically in PPO
-training and every strategy replay. Each symbol remains an independent account;
-the 20% stop cannot guarantee the realized drawdown stays below 20% after a
-price gap.
+settlement. The protocol fixes max gross 0.5, max absolute weight 0.1, no
+turnover cap, drawdown deleveraging at 10%, and hard stop at 20%, with other
+`PreTradeRiskConfig` fields at their defaults. This exact profile is enforced
+identically in PPO training and every strategy replay. Each symbol remains an
+independent account; the 20% stop cannot guarantee the realized drawdown stays
+below 20% after a price gap.
 
 The age-aware run resolver requires a continuous, exactly regular one-hour
 clock, and low-level PPO APIs reject positive minimum-hold durations with the

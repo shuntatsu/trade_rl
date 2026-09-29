@@ -20,7 +20,7 @@ from trade_rl.evaluation.experiments.contracts import (
 )
 from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_HORIZONS,
-    PPO_HOLDING_DURATION_MAX_DRAWDOWN,
+    PPO_HOLDING_DURATION_RISK_CONFIG,
     PPO_HOLDING_DURATION_SEED_COUNT,
 )
 from trade_rl.evaluation.runs import (
@@ -482,8 +482,7 @@ class CanonicalM2BootstrapConfig:
                 or self.baseline.ppo_minimum_hold_bars != 0
                 or self.baseline.ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
                 or not self.baseline.ppo_settle_terminal_position
-                or risk is None
-                or risk.drawdown_stop > PPO_HOLDING_DURATION_MAX_DRAWDOWN
+                or risk != PPO_HOLDING_DURATION_RISK_CONFIG
             ):
                 raise ValueError(
                     "bootstrap config violates the PPO holding-duration protocol"

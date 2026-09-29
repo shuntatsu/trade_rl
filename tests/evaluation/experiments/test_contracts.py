@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 
 import pytest
@@ -19,11 +19,15 @@ from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
+    PPO_HOLDING_DURATION_SELECTION_RULE,
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
 
 
 def resolved_config(*, ppo_seed: int = 2) -> ResolvedRunConfig:
@@ -110,6 +114,39 @@ def test_study_plan_rejects_invalid_contract(
 def test_study_plan_requires_baseline_seed_to_equal_first_registered_seed() -> None:
     with pytest.raises(ContractViolationError, match="baseline.*ppo_seed"):
         study_plan(baseline_config=resolved_config(ppo_seed=5), ppo_seeds=(2, 5))
+
+
+def test_ppo_holding_study_plan_requires_the_exact_preregistered_risk_profile() -> None:
+    baseline = replace(
+        resolved_config(ppo_seed=0),
+        schema_version="resolved_run_config_v5",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_minimum_hold_bars=0,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.1,
+            max_turnover=1.0,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        ),
+    )
+
+    with pytest.raises(
+        ContractViolationError,
+        match="violates the PPO holding-duration protocol",
+    ):
+        study_plan(
+            research_question=(
+                "Compare PPO hold durations.\n\n" + PPO_HOLDING_DURATION_SELECTION_RULE
+            ),
+            baseline_config=baseline,
+            ppo_seeds=(0, 1, 2, 3, 4),
+            allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+            max_experiments=4,
+            protocol=StudyProtocol.PPO_HOLDING_DURATION,
+            schema_version="controlled_study_plan_v4",
+        )
 
 
 def test_study_plan_binds_fixed_candidate_and_control_rosters() -> None:

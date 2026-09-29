@@ -55,6 +55,7 @@ def _ppo_holding_v5_payload() -> dict[str, object]:
         pretrade_risk_config=PreTradeRiskConfig(
             max_gross=0.5,
             max_abs_weight=0.1,
+            max_turnover=None,
             drawdown_start=0.1,
             drawdown_stop=0.2,
         ),
@@ -100,6 +101,7 @@ def test_v5_config_round_trips_protocol_and_complete_ppo_baseline(
     assert config.baseline.pretrade_risk_config == PreTradeRiskConfig(
         max_gross=0.5,
         max_abs_weight=0.1,
+        max_turnover=None,
         drawdown_start=0.1,
         drawdown_stop=0.2,
     )
@@ -115,6 +117,32 @@ def test_v5_baseline_requires_explicit_age_risk_and_settlement_fields(
     del baseline["pretrade_risk_config"]
 
     with pytest.raises(ValueError, match="baseline keys differ.*missing"):
+        load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_gross", 0.6),
+        ("max_abs_weight", 0.2),
+        ("max_turnover", 0.5),
+        ("drawdown_start", 0.05),
+        ("drawdown_stop", 0.15),
+    ],
+)
+def test_v5_rejects_deviations_from_the_preregistered_risk_profile(
+    tmp_path: Path,
+    field: str,
+    value: float,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    baseline = payload["baseline"]
+    assert isinstance(baseline, dict)
+    risk = baseline["pretrade_risk_config"]
+    assert isinstance(risk, dict)
+    risk[field] = value
+
+    with pytest.raises(ValueError, match="violates the PPO holding-duration protocol"):
         load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
 
 

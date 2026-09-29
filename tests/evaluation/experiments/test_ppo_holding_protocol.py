@@ -48,6 +48,7 @@ def _holding_config():
         pretrade_risk_config=PreTradeRiskConfig(
             max_gross=0.5,
             max_abs_weight=0.1,
+            max_turnover=None,
             drawdown_start=0.1,
             drawdown_stop=0.2,
         ),

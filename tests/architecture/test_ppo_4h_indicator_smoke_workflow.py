@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 TRIGGER = "run: execute 4h PPO indicator smoke"
-BRANCH = "refs/heads/research/ppo-4h-indicator-smoke"
+BRANCH = "refs/heads/research/ppo-4h-indicator-smoke-execution"
 
 
 def test_smoke_trigger_is_scoped_inside_permanent_fast_push_workflow() -> None:
@@ -59,17 +59,21 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert "gh api --paginate" not in smoke
     assert "independent-research-review-audit" not in smoke
     assert (
-        "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'"
+        "github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke-execution'"
         in smoke
     )
     assert (
-        "github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'"
+        "github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke-execution'"
         in generic
     )
     assert "name: Generic Independent Research Review" in generic
     assert "name: Independent Research Review" in smoke
     assert "gh api --paginate" in generic
     assert "independent-research-review-audit" in generic
+    action_source = (ROOT / "tools" / "ppo_4h_indicator_smoke_actions.py").read_text(
+        encoding="utf-8"
+    )
+    assert "REVIEW_PULL_NUMBER = 758" not in action_source
 
 
 def test_review_events_repeat_full_software_verification_before_status() -> None:

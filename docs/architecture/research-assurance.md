@@ -202,30 +202,102 @@ review-evidence record. The source artifact is downloaded by immutable
 artifact id/run/raw-ZIP SHA-256 and revalidated before fitting.
 
 A fresh result-blind reviewer must inspect the exact code HEAD and report G0,
-G1 and G2 status before the trigger commit is created. For this smoke,
-authorization evidence must be a formal GitHub PR review on the smoke's owning
-pull request from a GitHub principal distinct from that pull request's author,
-and the review's `commit_id`
-must equal the exact reviewed code HEAD. The committed trigger record declares
-`reviewer_surface=github_pr_review_v2` and binds the exact review URL and body
-SHA-256. The review body must end in one canonical
-`ppo_4h_indicator_source_review_v2` payload that binds the same code HEAD and
-static contract, records reviewer independence and result blindness, carries the
-actual G0/G1/G2 outcomes, has no blocking findings, and explicitly authorizes
-only this development smoke. Author-controlled trigger JSON cannot override a
-FAIL, NOT_ESTABLISHED, blocking disposition, different PR, or changed source-review bytes.
+G1 and G2 status before the trigger commit is created. The preregistration/code
+PR may already be merged; economic authorization therefore uses a dedicated
+**open draft execution PR** whose head is the exact reviewed code commit on
+`research/ppo-4h-indicator-smoke-execution` and whose base is `main`. The PR must remain Draft through review authorization and the evidence-only trigger transition so an unprotected repository cannot merge it before the independent-review gate is satisfied. Both the visible review-status check and the authenticated trigger also refetch current `main` and require the reviewed code SHA to contain it; a main advance therefore makes earlier CI/review evidence stale and blocks execution until the execution branch is resynchronized and re-reviewed.
+Authorization evidence is transported by a formal GitHub PR review on that execution PR,
+and the review's `commit_id` must equal the exact reviewed code HEAD. The posting
+GitHub principal is only an authenticated transport and may be the same account as the
+execution PR author. Same-principal posting is never sufficient by itself: the canonical
+source-review payload must reference immutable evidence produced by the frozen trusted
+Google Gemini reviewer authority frozen by
+`seal/ppo-4h-gemini-review-authority-20260927-v5`. The consumer pins that seal's bootstrap-reviewed authority commit together with workflow SHA-256
+`98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`,
+and runner SHA-256
+`be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5`.
+A review body, tag, or `reviewer_independence=ESTABLISHED` assertion that is not backed
+by a matching trusted reviewer run/artifact/attestation therefore fails closed.
 
-The owning pull request exposes this dependency as a dedicated
-`Independent Research Review` GitHub check. That check is evaluated only after
-the exact-head Lean Core suite, real-SB3 PPO Runtime integration, and Human Guide
-build/browser checks all succeed. A pull-request review submission, edit, or
-dismissal repeats those software checks before reevaluating review status. The
-status check refetches the current formal-review inventory and accepts only a
-review that passes the same distinct-principal, exact-`commit_id`, canonical
-payload, result-blind G0/G1/G2 semantics used by the execution gate. `PENDING` blocks the workflow;
-`READY` only means the review-evidence transition may be created. It does not
-itself authorize economic execution or replace the authenticated one-shot
-trigger.
+The committed trigger record uses the versioned
+`ppo_4h_indicator_smoke_review_v3` schema and
+`reviewer_surface=github_pr_review_v3`. The review body must end in one canonical
+`ppo_4h_indicator_source_review_v4` payload that binds the exact code/static-contract
+identity, `review_tag`, `review_tag_object_sha`, the stable
+`review_identity_digest`, trusted reviewer run id/attempt, GitHub artifact id/raw-ZIP
+SHA-256, canonical attestation SHA-256, Google Gemini provider/model/response provenance,
+`reviewer_context=trusted_default_branch_read_only`, result blindness, G0/G1/G2,
+disposition, blocking findings, and the development-only authorization flags. The
+concrete Gemini model version remains provenance rather than a validator allow-list.
+
+The trusted reviewer attestation is independently refetched by the execution gate. The
+gate refetches the exact GitHub Actions run and attempt, requires workflow name
+`PPO 4h Gemini Review`, event `issue_comment`, completed/success status, and the frozen workflow path. The run head may advance beyond the bootstrap-reviewed authority commit only when GitHub's compare API proves the run head contains that commit with `behind_by=0`; the gate then independently refetches the workflow and runner bytes at that exact run head and requires their SHA-256 digests to equal the frozen authority values. Thus unrelated main advances do not invalidate the reviewer, while any reviewer-byte drift fails closed. It refetches
+the same-run job inventory and requires exactly the attested
+`Trusted Lean Core verification`, `Trusted PPO Runtime verification`, and
+`Trusted Human Guide verification` jobs to be Green together with a Green
+`Trusted Gemini semantic review` job. It then downloads the named
+`ppo-4h-gemini-review-<run>-<attempt>` artifact, binds its GitHub metadata/raw ZIP
+SHA-256 to the source review, safely extracts an exact five-file roster, verifies the
+canonical `reviewer-attestation.json` digest, and checks the frozen workflow/runner
+content digests plus request/tag/packet/Gemini-response identities. A manually authored
+JSON body or locally fabricated attestation cannot substitute for the GitHub-hosted
+trusted run.
+
+The review tag must be named `review/ppo-4h-indicator-smoke-vN` with positive
+integer `N` and must be an annotated tag. Authorization identity is the tuple
+**tag name + annotated tag object SHA + reviewed commit SHA**. Both review-status
+and trigger-time validation resolve the GitHub tag ref, require that it still points
+to the recorded annotated tag object, resolve that tag object, require its target to
+be the exact reviewed commit, and then refetch the tag ref to confirm that it did not
+move during the identity check. Lightweight tags, deleted tags, retargeted same-name
+tags, changed tag objects, tags targeting another commit, and mid-check ref mutation
+therefore fail closed. The stable semantic-review identity is additionally derived
+from repository id + execution PR + exact reviewed SHA + frozen review protocol, so a
+different tag version cannot create a second authoritative semantic review for
+unchanged code.
+
+The default-branch trusted reviewer workflow separates authority by job. Its request
+job refetches the canonical request/comment, requester write/admin authority, exact
+Draft execution PR, current-main containment, annotated tag identity, and prior
+review lineage before building a result-blind packet from target bytes as data only.
+Its Core / PPO Runtime / Human Guide jobs execute fixed verification commands on the
+exact reviewed SHA without the Gemini credential. The fresh secret-bearing review job
+executes no target code and consumes only the request job's canonical packet artifact.
+The packet excludes mutable result-status documentation, checks every path component
+against symlink/path escape, and uses fence-aware Markdown section extraction. Gemini
+receives a trusted system instruction separate from untrusted target evidence, and
+non-terminal provider responses cannot authorize. The trusted attestation binds the
+system instruction, Gemini request bytes, raw provider response bytes, returned
+`modelVersion`/`responseId`, and the semantic G0/G1/G2 result.
+
+The open execution PR exposes this dependency as a dedicated
+`Independent Research Review` check after exact-head Lean Core, real-SB3 PPO Runtime,
+and Human Guide verification. The visible GitHub review is a transport reference to the
+trusted reviewer evidence; later ordinary reviews by the same GitHub account do not
+supersede a terminal trusted Gemini decision. Review-shopping protection lives in the
+trusted review lineage, not in the posting principal: another run for the same stable
+review identity is rejected, while a retry of the same run/attempt lineage is allowed
+only before a terminal provider response. Expired matching lineage evidence fails
+closed because safe retry/non-reuse can no longer be proven.
+
+Before the evidence transition the open PR head equals the reviewed code SHA. The one
+allowed transition appends only the canonical review-evidence file; during the trigger
+run the PR head is that evidence-only trigger commit while the formal review
+`commit_id` remains bound to its exact code parent. Trigger-time validation refetches
+the source review, annotated tag, frozen trusted reviewer run/artifact/attestation, and
+current-main containment immediately before economic execution. `PENDING` blocks the
+workflow; `READY` means only that the review-evidence transition may be created. It
+does not itself authorize production/live trading or replace the authenticated
+one-shot trigger.
+
+If a trusted Gemini semantic review is BLOCKED, the reviewed source must change before
+a new semantic-review identity can become authoritative; a new tag/comment on unchanged
+bytes is not a new decision opportunity. Git refs do not provide a trusted creation-time
+authority, so creating the review tag only after the exact reviewed source has completed
+the required software verification remains a procedural timing invariant. No review
+evidence authorizes unused/final data access, profitability claims, promotion, or
+production/live use.
 
 ## Research-specific contract: PPO BTC-relative feature ablation
 

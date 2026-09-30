@@ -131,6 +131,12 @@ def test_ppo_minimum_hold_terminal_close_matches_reference_cash_ledger() -> None
 def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
     initial_cash = 1_000.0
     fee_rate = 0.001
+    dataset_fee_rate = 0.0005
+    execution_spread_rate = 0.001
+    dataset_spread_rate = 0.002
+    unit_cost_rate = (
+        fee_rate + dataset_fee_rate + execution_spread_rate + dataset_spread_rate
+    )
     prices = np.asarray((100.0, 100.0, 110.0, 110.0)).reshape(-1, 1)
     dataset = replace(
         _flat_price_market(),
@@ -139,6 +145,8 @@ def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
         low=prices.copy(),
         close=prices.copy(),
         mark_price=prices.copy(),
+        fee_rate=np.full_like(prices, dataset_fee_rate),
+        spread_rate=np.full_like(prices, dataset_spread_rate),
     )
     env = PPOTradingEnv(
         dataset,
@@ -150,7 +158,7 @@ def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
         execution_cost=ExecutionCostConfig(
             fee_rate=fee_rate,
             taker_fee_rate=0.0,
-            spread_rate=0.0,
+            spread_rate=execution_spread_rate,
             impact_rate=0.0,
             max_participation_rate=1.0,
             borrow_rate_multiplier=0.0,
@@ -166,8 +174,8 @@ def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
     # The entry fills at 100. The reserved latency window closes five units at
     # 110, then marks the flat account through the exclusive stop.
     entry_quantity = initial_cash * 0.5 / 100.0
-    entry_cost = entry_quantity * 100.0 * fee_rate
-    exit_cost = entry_quantity * 110.0 * fee_rate
+    entry_cost = entry_quantity * 100.0 * unit_cost_rate
+    exit_cost = entry_quantity * 110.0 * unit_cost_rate
     expected_cash = (
         initial_cash
         - entry_quantity * 100.0

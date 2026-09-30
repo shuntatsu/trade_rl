@@ -194,6 +194,7 @@ def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
         expected_cash / equity_at_settlement - 1.0
     )
     assert env.book.quantities[0] == pytest.approx(0.0)
+    assert env.executor.compatibility_order_book.active_orders == ()
     assert env.book.total_cost == pytest.approx(entry_cost + exit_cost)
     assert env.book.cash == pytest.approx(expected_cash)
     assert env.book.portfolio_value == pytest.approx(expected_cash)
@@ -267,6 +268,7 @@ def test_ppo_partial_delayed_terminal_close_matches_reference_cash_ledger() -> N
     )
     assert info["terminal_settlement_final_weight"] == pytest.approx(0.0)
     assert env.book.quantities[0] == pytest.approx(0.0)
+    assert env.executor.compatibility_order_book.active_orders == ()
     assert env.book.total_cost == pytest.approx(
         entry_cost + first_exit_cost + final_exit_cost
     )
@@ -275,3 +277,48 @@ def test_ppo_partial_delayed_terminal_close_matches_reference_cash_ledger() -> N
     assert reward == pytest.approx(math.log(expected_cash / initial_cash))
     assert terminated is True
     assert truncated is False
+
+
+def test_ppo_minimum_hold_cancels_partially_filled_entry_remainder() -> None:
+    initial_cash = 1_000.0
+    fee_rate = 0.001
+    capacity_rates = np.asarray((1.0, 3.0 / 1_000_000.0, 1.0, 1.0)).reshape(-1, 1)
+    dataset = replace(_flat_price_market(), max_participation_rate=capacity_rates)
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=initial_cash,
+        execution_cost=ExecutionCostConfig(
+            fee_rate=fee_rate,
+            taker_fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            borrow_rate_multiplier=0.0,
+            maintenance_margin_rate=0.0,
+        ),
+        minimum_hold_bars=3,
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+    )
+    env.reset(seed=37)
+
+    _, _, _, _, entry_info = env.step(2)
+    entry_quantity = float(env.book.quantities[0])
+    entry_cash = float(env.book.cash)
+    entry_orders = env.executor.compatibility_order_book.active_orders
+
+    assert entry_info["minimum_hold_suppressed"] is False
+    assert entry_quantity == pytest.approx(3.0)
+    assert entry_cash == pytest.approx(initial_cash - 300.0 - 300.0 * fee_rate)
+    assert len(entry_orders) == 1
+    assert entry_orders[0].remaining_quantity == pytest.approx(2.0)
+
+    _, _, _, _, held_info = env.step(0)
+
+    assert held_info["minimum_hold_suppressed"] is True
+    assert env.book.quantities[0] == pytest.approx(entry_quantity)
+    assert env.book.cash == pytest.approx(entry_cash)
+    assert env.executor.compatibility_order_book.active_orders == ()

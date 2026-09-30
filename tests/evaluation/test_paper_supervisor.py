@@ -246,23 +246,44 @@ def test_capture_crossing_terminal_grace_cannot_execute_extra_exits(
         clock.value = NOW + timedelta(seconds=239.5)
         feed.delay = 0.06
         finished = active.cycle()
+    status = PaperEngine(root, expected_protocol_sha256=digest).status()
     assert finished["phase"] == "finished"
-    assert finished["status"]["account"]["fill_count"] == 4
-    assert (
-        finished["status"]["account"]["quantities"] == initial["account"]["quantities"]
-    )
-    assert not finished["status"]["terminal_flat"]
+    assert status["account"]["fill_count"] == 4
+    assert status["account"]["quantities"] == initial["account"]["quantities"]
+    assert not status["terminal_flat"]
+    assert "observation_gap" in status["quality_failures"]
 
 
-def test_rule_evidence_refreshes_before_expiry(tmp_path, monkeypatch):
+def test_stale_observation_is_recorded_before_rules_refresh(tmp_path, monkeypatch):
     root, digest, clock, feed = setup(tmp_path, monkeypatch, close_seconds=7200)
     with collector(root, digest, clock, feed) as active:
         clock.value = NOW + timedelta(seconds=2)
-        active.cycle()
+        initial = active.cycle()["status"]
+        pre_capture_status = []
+        original_request = feed._request_bytes
+
+        def inspect_before_request(url):
+            if not pre_capture_status:
+                pre_capture_status.append(
+                    PaperEngine(root, expected_protocol_sha256=digest).status()
+                )
+            return original_request(url)
+
+        feed._request_bytes = inspect_before_request
         clock.value = NOW + timedelta(seconds=3402)
         outcome = active.cycle()
     assert sum("exchangeInfo" in url for url in feed.urls) == 4
-    assert "observation_gap" in outcome["status"]["quality_failures"]
+    assert pre_capture_status
+    assert (
+        pre_capture_status[0]["account"]["exact_quantities"]
+        == initial["account"]["exact_quantities"]
+    )
+    assert "observation_gap" in pre_capture_status[0]["quality_failures"]
+    status = PaperEngine(root, expected_protocol_sha256=digest).status()
+    assert "observation_gap" in status["quality_failures"]
+    assert status["terminal_flat"]
+    assert outcome["status"]["terminal_flat"]
+    assert not (root / "collection-failure.json").exists()
 
 
 def test_failed_acknowledgement_reconciles_committed_fills_before_gap(
@@ -320,6 +341,67 @@ with supervisor.PaperCollector(sys.argv[1], expected_protocol_sha256=sys.argv[2]
         if child.poll() is None:
             child.kill()
         child.communicate(timeout=10)
+
+
+def test_reopen_after_stale_completed_cycle_records_gap_before_transport(
+    tmp_path, monkeypatch
+):
+    import subprocess
+    import sys
+
+    root, digest, clock, feed = setup(tmp_path, monkeypatch, close_seconds=600)
+    script = """
+import os, sys
+from datetime import timedelta
+from tests.evaluation.test_paper_supervisor import Clock, FeedTransport, NOW
+from trade_rl.evaluation.paper import supervisor
+supervisor.build_candidate_run_provenance = lambda: {'source': 'original'}
+clock = Clock()
+clock.value = NOW + timedelta(seconds=2)
+feed = FeedTransport(clock)
+with supervisor.PaperCollector(sys.argv[1], expected_protocol_sha256=sys.argv[2], clock=clock, transport=feed, monotonic=lambda: 0) as active:
+    active.cycle()
+    os._exit(0)
+"""
+    crashed = subprocess.run(
+        [sys.executable, "-c", script, str(root), digest],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert crashed.returncode == 0, crashed.stderr
+    initial = PaperEngine(root, expected_protocol_sha256=digest).status()
+
+    assert not initial["terminal_flat"]
+    quantities = initial["account"]["exact_quantities"]
+    request_count = len(feed.urls)
+    pre_capture_status = []
+    original_request = feed._request_bytes
+
+    def inspect_before_request(url):
+        if not pre_capture_status:
+            pre_capture_status.append(
+                PaperEngine(root, expected_protocol_sha256=digest).status()
+            )
+        return original_request(url)
+
+    feed._request_bytes = inspect_before_request
+
+    # Keep the stale restart inside the collection window; it must not be
+    # mistaken for the normal terminal-grace completion path.
+    clock.value = NOW + timedelta(seconds=185)
+    with collector(root, digest, clock, feed) as resumed:
+        result = resumed.cycle()
+
+    status = PaperEngine(root, expected_protocol_sha256=digest).status()
+    assert pre_capture_status
+    assert pre_capture_status[0]["account"]["exact_quantities"] == quantities
+    assert "observation_gap" in pre_capture_status[0]["quality_failures"]
+    assert len(feed.urls) > request_count
+    assert status["account"]["fill_count"] == 8
+    assert status["terminal_flat"] and result["status"]["terminal_flat"]
+    assert "observation_gap" in status["quality_failures"]
+    assert not (root / "collection-failure.json").exists()
 
 
 def test_protocol_drift_halts_before_any_new_acquisition(tmp_path, monkeypatch):

@@ -8,7 +8,7 @@ Portable Controlled Experiment 0001は独立再検証まで完了し、formal de
 
 現在はPPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較する結果盲検protocolを実装しています。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。
 
-StudyPlanと採点検査はresult-blindに実装していますが、G0は正確なDataset/windowとimmutable StudyPlanが揃うまで未確立です。G2も新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。Guide説明の人間確認はfingerprint更新前に必要な別の文書ゲートで、G2 oracleとは別です。final-eligibleな保有期間研究のbootstrap v5 / StudyPlan v5はfinal window、`StudyResearchContext`、protocolと明示riskをbindしますが、実Binanceでの準備も学習・経済リプレイもまだ実行していません。PPO利益や保有期間の勝者は未確認で、利益性の主張には別の未使用期間評価が必要です。
+StudyPlanと採点検査はresult-blindに実装していますが、G0は正確なDataset/windowとimmutable StudyPlanが揃うまで未確立です。result-blindなbootstrapでStudyPlanを先に固定し、その後G0-G2のレビューとcontract checksを閉じてからH=0の学習へ進みます。Study workflowは外部レビューを認証するgateを持たず、書き手が用意したレビューJSONも承認証拠として受け付けません。G0-G2が閉じるまでは実行者が学習・候補実行を止める必要があります。G2は新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。Guide説明の人間確認はfingerprint更新前に必要な別の文書ゲートで、G2 oracleとは別です。final-eligibleな保有期間研究のbootstrap v5 / StudyPlan v5はfinal window、`StudyResearchContext`、protocolと明示riskをbindしますが、実Binanceでの準備も学習・経済リプレイもまだ実行していません。PPO利益や保有期間の勝者は未確認で、利益性の主張には別の未使用期間評価が必要です。
 
 ## 検証済みの証拠
 

@@ -249,7 +249,7 @@ def test_sequence_budget_and_gap_are_fail_closed(
         inspect_study(gap_root)
 
 
-def test_invalid_verification_is_terminal_visible_and_budgeted(
+def test_uncontrolled_delta_is_rejected_before_evidence_and_does_not_consume_budget(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -259,22 +259,29 @@ def test_invalid_verification_is_terminal_visible_and_budgeted(
         max_experiments=1,
     )
     assert snapshot.baseline is not None
+    with pytest.raises(
+        ContractViolationError,
+        match="uncontrolled resolved delta: rule_entry_threshold",
+    ):
+        define_experiment(
+            root,
+            dataset_root=dataset_root,
+            hypothesis="Deliberately declare the wrong factor.",
+            factor=ControlledFactor.PPO_TRAINING_BUDGET,
+            candidate_config=replace(_config(), rule_entry_threshold=0.20),
+            baseline_evidence_digest=snapshot.baseline.fingerprint,
+        )
+    assert not (root / "experiments" / "0001" / "definition.json").exists()
+
     define_experiment(
         root,
         dataset_root=dataset_root,
-        hypothesis="Deliberately declare the wrong factor to prove INVALID visibility.",
+        hypothesis="Register the declared PPO training-budget change.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
-        candidate_config=replace(_config(), rule_entry_threshold=0.20),
+        candidate_config=replace(_config(), ppo_total_timesteps=96),
         baseline_evidence_digest=snapshot.baseline.fingerprint,
     )
-    run_experiment(root, 1, dataset_root=dataset_root)
-
-    verification = verify_experiment(root, 1)
-
-    assert verification.status is ControlledVerificationStatus.INVALID
-    assert (root / "experiments" / "0001" / "verification.json").is_file()
-    with pytest.raises(InvalidExperimentStateError, match="CONTROLLED|INVALID"):
-        compare_experiment(root, 1)
+    assert inspect_study(root).experiment_sequences == (1,)
     with pytest.raises(ExperimentBudgetExceededError):
         define_experiment(
             root,

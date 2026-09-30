@@ -19,7 +19,7 @@ from typing import cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
-from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
 from trade_rl.artifacts.canonical import freeze_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
@@ -366,7 +366,7 @@ def publish_candidate_run(
         np.savez_compressed(buffer, **returns)
         atomic_write_bytes(staging / "returns.npz", buffer.getvalue())
         atomic_write_bytes(staging / "provenance.json", _json_bytes(provenance_payload))
-        staging.rename(output)
+        atomic_rename_directory(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

@@ -49,6 +49,7 @@ from trade_rl.evaluation.experiments.contracts.study import (
 from trade_rl.evaluation.experiments.delta import (
     ControlledVerification,
     ControlledVerificationStatus,
+    validate_candidate_config_delta,
     verify_controlled_delta,
 )
 from trade_rl.evaluation.experiments.errors import (
@@ -203,6 +204,20 @@ def create_study(
         names = {entry.name for entry in store.root.iterdir()}
         if names != {".mutation.lock"}:
             raise InvalidExperimentStateError("Study root already contains artifacts")
+        resolved_protocol: StudyProtocol | None = None
+        if protocol is not None:
+            try:
+                resolved_protocol = StudyProtocol(protocol)
+            except (TypeError, ValueError) as error:
+                raise ContractViolationError("unsupported Study protocol") from error
+        if resolved_protocol is StudyProtocol.PPO_HOLDING_DURATION and (
+            final_evaluation_start is None
+            or final_evaluation_stop_exclusive is None
+            or research_context is None
+        ):
+            raise ContractViolationError(
+                "PPO holding-duration protocol requires a final window and research context"
+            )
         try:
             artifact = inspect_published_market_dataset_artifact(dataset_root)
             dataset = load_market_dataset_artifact(dataset_root)
@@ -219,20 +234,8 @@ def create_study(
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
-        resolved_protocol: StudyProtocol | None = None
-        if protocol is not None:
-            try:
-                resolved_protocol = StudyProtocol(protocol)
-            except (TypeError, ValueError) as error:
-                raise ContractViolationError("unsupported Study protocol") from error
         if resolved_protocol is not None:
-            plan_schema = (
-                "controlled_study_plan_v5"
-                if final_evaluation_start is not None
-                or final_evaluation_stop_exclusive is not None
-                or research_context is not None
-                else "controlled_study_plan_v4"
-            )
+            plan_schema = "controlled_study_plan_v5"
         elif research_context is not None:
             plan_schema = "controlled_study_plan_v3"
         else:
@@ -378,6 +381,12 @@ def define_experiment(
         )
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         _validate_fixed_fields(state.plan, resolved)
+        baseline_evidence, _ = _find_evidence(state, baseline_evidence_digest)
+        validate_candidate_config_delta(
+            factor=factor,
+            baseline_config=baseline_evidence.semantic_config,
+            candidate_config=resolved.to_payload(),
+        )
         definition = ExperimentDefinition(
             study_digest=state.plan.digest,
             sequence=sequence,
@@ -425,6 +434,15 @@ def run_experiment(
             or (store.root / _experiment_dir(sequence) / "candidate").exists()
         ):
             raise InvalidExperimentStateError("candidate evidence is already published")
+        baseline_evidence, _ = _find_evidence(
+            state,
+            experiment.definition.baseline_evidence_digest,
+        )
+        validate_candidate_config_delta(
+            factor=experiment.definition.factor,
+            baseline_config=baseline_evidence.semantic_config,
+            candidate_config=experiment.definition.candidate_config.to_payload(),
+        )
         _validate_dataset_root(dataset_root, state.plan)
         config = _candidate_config_from_resolved(experiment.definition.candidate_config)
         target = _experiment_dir(sequence) / "candidate"

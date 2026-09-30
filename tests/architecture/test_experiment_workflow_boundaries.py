@@ -234,5 +234,5 @@ def test_inspection_exports_preserve_existing_module_identity() -> None:
     assert experiments.inspect_study is inspection.inspect_study
 
 
-def test_experiment_package_public_api_is_unchanged() -> None:
+def test_experiment_package_public_api_is_explicit() -> None:
     assert set(experiments.__all__) == EXPECTED_PUBLIC_API

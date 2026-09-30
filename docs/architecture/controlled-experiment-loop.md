@@ -15,6 +15,8 @@
 - G2でsemantic invariant、Counterexample、independent oracle、Known limitationsを用意する。
 - **AI semantic review is mandatory**。G0-G2 packetをeconomic result valuesから隔離し、fresh/read-only AI adversarial reviewerへ渡してpremise、mechanism mismatch、missing oracle、claim downgradeを反証させる。新規・変更mechanismについてAI reviewが未実施、result-blindでない、またはG0/G1に未解決の`FAIL` / 必要な`NOT ESTABLISHED`がある間は **G4 authorization is blocked**。`create_study`等のresult-blind preparationは行えても、`run_baseline` / `run_experiment`等のeconomic result生成へ進まない。AIの肯定だけでmachine evidenceを代替しない。
 
+G0-G2はStudyのcaller-writable status fieldではない。現時点でStudy workflowには外部reviewを認証するimport/gateがなく、`record_study_assurance_review`や`assurance-review.json`による自己申告も受け付けない。したがって、G0-G2を閉じる独立reviewとoracle checksは実行者が守るrelease prerequisiteであり、これらが閉じる前に`run_baseline` / `run_experiment`を呼び出してはならない。将来自動gateを追加する場合は、投稿者が選ぶboolやURLではなく、信頼済みのexact-Study evidenceに結び付いたreview provenanceを検証する。
+
 `verify_experiment` はcontrolled factor、Study-fixed field、identity/provenance等のG3 evidence validityを厳密に検証するが、G0-G2の代替ではない。G0-G2がFAILまたはNOT ESTABLISHEDのmechanismを、development P&Lが良いことだけで有効化しない。既存のimmutable Study artifactは遡及変更せず、新しいassurance requirementがStudy-fixed semanticsへ影響する場合は新しいStudy/lineageで扱う。
 
 ## Responsibility boundary
@@ -96,6 +98,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `controlled_study_plan_v4` はdevelopment-onlyのversioned protocolを明示する。現行の `ppo_holding_duration_v1` は、H=0のObservation-v3 PPO baseline、5個の事前登録seed、`PPO_MINIMUM_HOLD`だけのcontrolled factor、最大実験数4、および完全一致するrisk config（max gross 0.5、max absolute weight 0.1、turnover capなし、drawdown deleveraging 10%、stop 20%、その他は既定値）を必須とする。v4はfinal-evaluation windowと `StudyResearchContext` を持たず、既存のfinal authorization contractには参加しない。`controlled_study_plan_v5` は同じprotocol ruleを保ちつつ両方のfinal-window timestampと `StudyResearchContext` を必須化する。v5はfinal startがdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後であることを要求し、frozen WINNER後のone-shot authorizationで参照できる。
 
+Canonical bootstrapではDatasetの最終timestampが `data_stop_exclusive` と一致するため、v5 configは `final_evaluation_start > data_stop_exclusive` をsource取得前に検証する。bootstrap v1-v4 configの境界semanticsは変えない。
+
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
 Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v5`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, and optional explicit pre-trade risk config. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v6` and record the risk config, full evaluation-period coverage, plus training/replay suppression counts. Historical v5 results remain readable without claiming verified full coverage.
@@ -116,7 +120,7 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 
 `ExperimentDefinition` はcandidate実行前に存在し、sequenceを即時に消費する。sequenceは1始まりで連続し、`max_experiments`を越えない。
 
-各Experimentは1つの `ControlledFactor` だけを宣言する。verificationはbaseline/candidateのresolved semantic configを比較し、宣言factorに対応するpath以外の差分を拒否する。no-opもINVALIDである。
+各Experimentは1つの `ControlledFactor` だけを宣言する。`define_experiment` と `run_experiment` はresolved semantic configを使い、no-opや宣言factor以外の変更を候補定義の公開・candidate実行より前に拒否するため、無効な設定で学習費用を使わず、budgetも消費しない。verificationは実行済みEvidenceSetを独立に再照合し、raw-return invariant driftや保存artifactの差分が見つかれば `INVALID` として記録する。`INVALID` evidenceはlineageに入らない。
 
 現行factor:
 

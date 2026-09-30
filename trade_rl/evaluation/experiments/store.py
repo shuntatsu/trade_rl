@@ -11,7 +11,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from trade_rl.artifacts.atomic_write import _temporary_name_suffix
+from trade_rl.artifacts.atomic_write import (
+    _temporary_name_suffix,
+    atomic_rename_directory,
+)
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
@@ -201,7 +204,7 @@ class StudyStore:
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
-            staging.rename(target)
+            atomic_rename_directory(staging, target)
         finally:
             if staging.exists() or staging.is_symlink():
                 if staging.is_dir() and not staging.is_symlink():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from trade_rl.evaluation.experiments import (
     run_experiment,
     verify_experiment,
 )
+from trade_rl.evaluation.experiments.contracts import StudyResearchContext
 from trade_rl.evaluation.experiments.protocols import (
     PPOHoldingDurationMetrics,
     ppo_holding_winner_digest,
@@ -35,6 +37,17 @@ from trade_rl.evaluation.experiments.protocols import (
 
 _HORIZONS = (72, 168, 336, 504)
 _NOW = datetime(2026, 9, 29, tzinfo=UTC)
+
+
+def _holding_final_window() -> dict[str, object]:
+    return {
+        "final_evaluation_start": "2026-01-02T00:00:00.000000000",
+        "final_evaluation_stop_exclusive": "2026-01-02T02:00:00.000000000",
+        "research_context": StudyResearchContext(
+            parent_context_digests=(),
+            consumed_evidence=(),
+        ),
+    }
 
 
 def _holding_config():
@@ -74,6 +87,7 @@ def _holding_study(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         n_bootstrap=32,
         bootstrap_seed=17,
         protocol="ppo_holding_duration_v1",
+        **_holding_final_window(),
     )
     return root, dataset_root, snapshot
 
@@ -83,6 +97,37 @@ def _holding_baseline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     baseline = run_baseline(root, dataset_root=dataset_root)
     assert baseline.baseline is not None
     return root, dataset_root, baseline
+
+
+def test_handwritten_review_record_is_not_an_authoritative_assurance_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _, snapshot = _holding_study(tmp_path, monkeypatch)
+    (root / "assurance-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "study_assurance_review_v1",
+                "study_digest": snapshot.plan.digest,
+                "dataset_artifact_digest": snapshot.plan.dataset_artifact_digest,
+                "implementation_digest": snapshot.plan.implementation_digest,
+                "runtime_environment_digest": snapshot.plan.runtime_environment_digest,
+                "reviewer_identity": "caller-controlled",
+                "review_reference": "https://github.com/example/fake-review",
+                "review_evidence_digest": "a" * 64,
+                "reviewer_independence_established": True,
+                "result_blind": True,
+                "g0": "PASS",
+                "g1": "PASS",
+                "g2": "PASS",
+                "reviewed_at": "2026-09-29T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="unexpected Study root entries"):
+        inspect_study(root)
 
 
 def _define_all_horizons(root: Path, dataset_root: Path, baseline) -> None:
@@ -105,7 +150,7 @@ def test_holding_protocol_is_bound_into_the_immutable_study_plan(
 ) -> None:
     root, _, snapshot = _holding_study(tmp_path, monkeypatch)
 
-    assert snapshot.plan.schema_version == "controlled_study_plan_v4"
+    assert snapshot.plan.schema_version == "controlled_study_plan_v5"
     assert snapshot.plan.protocol.value == "ppo_holding_duration_v1"
     assert snapshot.plan.allowed_factors == (ControlledFactor.PPO_MINIMUM_HOLD,)
     assert snapshot.plan.max_experiments == 4
@@ -119,6 +164,35 @@ def test_holding_protocol_is_bound_into_the_immutable_study_plan(
             snapshot.plan, research_question="Does minimum holding improve returns?"
         )
     assert (root / "plan.json").is_file()
+
+
+def test_new_holding_study_cannot_bypass_final_window_and_research_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    dataset = _dataset()
+    dataset_root = tmp_path / "dataset"
+    publish_market_dataset_artifact(dataset_root, dataset)
+    monkeypatch.setattr(evidence_module, "execute_candidate_run", _fake_execute())
+    root = tmp_path / "study"
+
+    with pytest.raises(ContractViolationError, match="final window.*research context"):
+        create_study(
+            root,
+            dataset_root=dataset_root,
+            research_question="A holding study must bind its final boundary.",
+            baseline_config=_holding_config(),
+            ppo_seeds=(2, 5, 9, 13, 17),
+            allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+            max_experiments=len(_HORIZONS),
+            n_bootstrap=32,
+            bootstrap_seed=17,
+            protocol="ppo_holding_duration_v1",
+        )
+
+    assert not (root / "plan.json").exists()
 
 
 def test_minimum_hold_factor_cannot_bypass_the_versioned_protocol(
@@ -178,6 +252,7 @@ def test_holding_protocol_rejects_a_noncanonical_roster_or_budget(
             n_bootstrap=32,
             bootstrap_seed=17,
             protocol="ppo_holding_duration_v1",
+            **_holding_final_window(),
         )
 
 
@@ -285,6 +360,85 @@ def test_holding_protocol_preregisters_all_horizons_and_enforces_realized_drawdo
         decided_at=_NOW,
     )
     assert kept.decision is ExperimentDecisionKind.KEEP_BASELINE
+
+
+def test_holding_definition_rejects_unregistered_training_budget_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, dataset_root, baseline = _holding_baseline(tmp_path, monkeypatch)
+    config = _holding_config()
+
+    with pytest.raises(ContractViolationError, match="ppo_total_timesteps"):
+        define_experiment(
+            root,
+            dataset_root=dataset_root,
+            hypothesis="PPO minimum hold is 72 one-hour bars.",
+            factor=ControlledFactor.PPO_MINIMUM_HOLD,
+            candidate_config=replace(
+                config,
+                ppo_minimum_hold_bars=72,
+                ppo_total_timesteps=config.ppo_total_timesteps + 1,
+            ),
+            baseline_evidence_digest=baseline.baseline.fingerprint,
+        )
+
+    assert not (root / "experiments" / "0001" / "definition.json").exists()
+
+
+def test_candidate_execution_rechecks_persisted_factor_delta_before_building(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.experiments import workflow
+    from trade_rl.evaluation.experiments.codec import _candidate_config_payload
+
+    root, dataset_root, baseline = _holding_baseline(tmp_path, monkeypatch)
+    assert baseline.baseline is not None
+    definition = define_experiment(
+        root,
+        dataset_root=dataset_root,
+        hypothesis="PPO minimum hold is 72 one-hour bars.",
+        factor=ControlledFactor.PPO_MINIMUM_HOLD,
+        candidate_config=replace(_holding_config(), ppo_minimum_hold_bars=72),
+        baseline_evidence_digest=baseline.baseline.fingerprint,
+    )
+    for horizon in _HORIZONS[1:]:
+        define_experiment(
+            root,
+            dataset_root=dataset_root,
+            hypothesis=f"PPO minimum hold is {horizon} one-hour bars.",
+            factor=ControlledFactor.PPO_MINIMUM_HOLD,
+            candidate_config=replace(_holding_config(), ppo_minimum_hold_bars=horizon),
+            baseline_evidence_digest=baseline.baseline.fingerprint,
+        )
+    tampered_config = replace(
+        definition.candidate_config,
+        ppo_total_timesteps=definition.candidate_config.ppo_total_timesteps + 1,
+    )
+    tampered_payload = definition.to_payload()
+    tampered_payload["candidate_config"] = tampered_config.to_payload()
+    tampered_payload["candidate_requested_config_digest"] = content_digest(
+        _candidate_config_payload(
+            tampered_config,
+            resolved_schema_version=tampered_config.schema_version,
+        )
+    )
+    definition_path = root / "experiments" / "0001" / "definition.json"
+    definition_path.write_text(
+        json.dumps(tampered_payload, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    def fail_if_candidate_builds(*args, **kwargs) -> None:
+        pytest.fail("candidate evidence builder ran before delta validation")
+
+    monkeypatch.setattr(workflow, "_build_evidence_node", fail_if_candidate_builds)
+    with pytest.raises(ContractViolationError, match="ppo_total_timesteps"):
+        run_experiment(root, 1, dataset_root=dataset_root)
+
+    assert not (root / "experiments" / "0001" / "candidate").exists()
 
 
 def test_inspection_rejects_a_self_consistent_v2_comparison_downgrade(

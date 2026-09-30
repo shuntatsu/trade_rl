@@ -75,15 +75,21 @@ profitability claim; a frozen winner still needs separate one-shot sealed
 unused-future evaluation.
 
 G0 is not established until the exact Dataset/window and all result-blind
-conditions are bound into a new immutable StudyPlan before outcomes exist. G2
-remains NOT ESTABLISHED until a fresh independent result-blind review of this
-protocol implementation and the complete contract checks pass. Human review of
-updated Guide descriptions is a separate documentation gate required before
-their source fingerprints are refreshed; it is not a G2 oracle. No new PPO
-training or economics has started. G4 remains blocked; existing M2 results are
-not evidence for this duration question. The next allowed step is to finish
-those design/review gates, then create the Study and freshly train H=0 under
-Observation v3 before any candidate result is generated.
+conditions are bound into a new immutable StudyPlan before outcomes exist. The
+result-blind bootstrap may create that Dataset and StudyPlan before G0-G2 are
+closed; it does not execute the baseline or any candidate. G2 remains NOT
+ESTABLISHED until a fresh independent result-blind review of this protocol
+implementation and the complete contract checks pass. Human review of updated
+Guide descriptions is a separate documentation gate required before their
+source fingerprints are refreshed; it is not a G2 oracle. No new PPO training
+or economics has started. G4 remains blocked; existing M2 results are not
+evidence for this duration question. The next sequence is to create and inspect
+the exact v5 Dataset/window/StudyPlan result-blind, close G0-G2, then freshly
+train H=0 under Observation v3 before any candidate result is generated.
+The local Study workflow does not authenticate an external G0-G2 review; this
+remains an operator release prerequisite, and `run_baseline` / `run_experiment`
+must not be called until it is closed. Caller-written `assurance-review.json`
+is rejected as an unexpected Study artifact and cannot establish approval.
 
 ## 研究目的
 
@@ -948,7 +954,9 @@ Canonical M2 bootstrapはresearch runそのものではなく、real development
 - allowed controlled factors / experiment budget
 - bootstrap count / seed
 - bootstrap v2では明示的なexecution economics profile
-- final-eligibleな新規Studyを作るbootstrap v3では、さらにunused `final_evaluation_start` / `final_evaluation_stop_exclusive`
+- 一般のfinal-eligibleな新規Studyを作るbootstrap v4では、unused `final_evaluation_start` / `final_evaluation_stop_exclusive` と `StudyResearchContext` を固定する。PPO保有期間protocolのbootstrap v5は、これらに加えてprotocolとObservation / minimum-hold / terminal-settlement / riskを含むbaselineを固定する。
+
+PPO保有期間のbootstrap v5ではDatasetの最終timestampが`data_stop_exclusive`と一致するため、`final_evaluation_start`は`data_stop_exclusive`より厳密に後でなければならない。v5 config readerがsource取得前にこの境界を拒否する。bootstrap v1-v4 configの境界semanticsは維持する。
 
 baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
 

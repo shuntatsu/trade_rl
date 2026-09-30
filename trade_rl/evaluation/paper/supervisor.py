@@ -76,6 +76,7 @@ class PaperCollector:
         self.engine: PaperEngine | None = None
         self._lock: sqlite3.Connection | None = None
         self._study: dict[str, Any] = {}
+        self._maximum_gap_seconds: float = 180.0
         self._rule: EvidenceRef | None = None
         self._rule_at: datetime | None = None
         self._control: CollectionControl | None = None
@@ -101,6 +102,7 @@ class PaperCollector:
         ):
             raise ValueError("unsupported public collection protocol")
         self._study = study
+        self._maximum_gap_seconds = float(protocol["settings"]["maximum_gap_seconds"])
         self.start_at = timestamp(protocol["settings"]["start_at"])
         self.close_at = timestamp(protocol["settings"]["close_at"])
         if timestamp(study["created_at"]) >= self.start_at:
@@ -258,6 +260,14 @@ class PaperCollector:
                 raise ValueError("collector clock moved backwards")
             if at < self.start_at:
                 return dict(phase="waiting", status=self.engine.status())
+            if (
+                at - timestamp(status["last_command_at"])
+            ).total_seconds() > self._maximum_gap_seconds:
+                self.engine.gap(
+                    f"observation-gap-{uuid.uuid4().hex}",
+                    at=at,
+                    reason="observation_gap",
+                )
             if self._finish_if_due(at):
                 return dict(phase="finished", status=self.engine.status())
             assert self._control is not None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -123,5 +124,154 @@ def test_ppo_minimum_hold_terminal_close_matches_reference_cash_ledger() -> None
     assert env.book.cash == pytest.approx(final_cash)
     assert env.book.portfolio_value == pytest.approx(final_cash)
     assert terminal_reward == pytest.approx(math.log(final_cash / equity_after_entry))
+    assert terminated is True
+    assert truncated is False
+
+
+def test_ppo_delayed_terminal_close_matches_reference_cash_ledger() -> None:
+    initial_cash = 1_000.0
+    fee_rate = 0.001
+    prices = np.asarray((100.0, 100.0, 110.0, 110.0)).reshape(-1, 1)
+    dataset = replace(
+        _flat_price_market(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=initial_cash,
+        execution_cost=ExecutionCostConfig(
+            fee_rate=fee_rate,
+            taker_fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            borrow_rate_multiplier=0.0,
+            maintenance_margin_rate=0.0,
+            order_latency_bars=1,
+        ),
+        settle_terminal_position=True,
+    )
+    env.reset(seed=29)
+
+    _, reward, terminated, truncated, info = env.step(2)
+
+    # The entry fills at 100. The reserved latency window closes five units at
+    # 110, then marks the flat account through the exclusive stop.
+    entry_quantity = initial_cash * 0.5 / 100.0
+    entry_cost = entry_quantity * 100.0 * fee_rate
+    exit_cost = entry_quantity * 110.0 * fee_rate
+    expected_cash = (
+        initial_cash
+        - entry_quantity * 100.0
+        - entry_cost
+        + entry_quantity * 110.0
+        - exit_cost
+    )
+    equity_at_settlement = initial_cash - entry_cost
+
+    assert info["terminal_settlement_intervals"] == 2
+    assert info["terminal_settlement_start_weight"] == pytest.approx(
+        entry_quantity * 100.0 / equity_at_settlement
+    )
+    assert info["terminal_settlement_cost_amount"] == pytest.approx(exit_cost)
+    assert info["terminal_settlement_funding_amount"] == pytest.approx(0.0)
+    assert info["terminal_settlement_requested_turnover"] == pytest.approx(
+        entry_quantity * 100.0 / equity_at_settlement
+    )
+    assert info["terminal_settlement_filled_turnover"] == pytest.approx(
+        entry_quantity * 110.0 / equity_at_settlement
+    )
+    assert info["terminal_settlement_final_weight"] == pytest.approx(0.0)
+    assert info["terminal_settlement_net_return"] == pytest.approx(
+        expected_cash / equity_at_settlement - 1.0
+    )
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert env.book.total_cost == pytest.approx(entry_cost + exit_cost)
+    assert env.book.cash == pytest.approx(expected_cash)
+    assert env.book.portfolio_value == pytest.approx(expected_cash)
+    assert reward == pytest.approx(math.log(expected_cash / initial_cash))
+    assert terminated is True
+    assert truncated is False
+
+
+def test_ppo_partial_delayed_terminal_close_matches_reference_cash_ledger() -> None:
+    initial_cash = 1_000.0
+    fee_rate = 0.001
+    prices = np.asarray((100.0, 100.0, 110.0, 110.0)).reshape(-1, 1)
+    capacity_rates = np.asarray(
+        (1.0, 1.0, 300.0 / (110.0 * 1_000_000.0), 300.0 / (110.0 * 1_000_000.0))
+    ).reshape(-1, 1)
+    dataset = replace(
+        _flat_price_market(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        max_participation_rate=capacity_rates,
+    )
+    env = PPOTradingEnv(
+        dataset,
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=initial_cash,
+        execution_cost=ExecutionCostConfig(
+            fee_rate=fee_rate,
+            taker_fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            borrow_rate_multiplier=0.0,
+            maintenance_margin_rate=0.0,
+            order_latency_bars=1,
+        ),
+        settle_terminal_position=True,
+    )
+    env.reset(seed=31)
+
+    _, reward, terminated, truncated, info = env.step(2)
+
+    # The close order can sell $300 at each of its two eligible bars. The
+    # remaining quantity after the first fill is therefore 250 / 110 units.
+    entry_quantity = initial_cash * 0.5 / 100.0
+    first_exit_notional = 300.0
+    residual_quantity = entry_quantity - first_exit_notional / 110.0
+    final_exit_notional = residual_quantity * 110.0
+    entry_cost = entry_quantity * 100.0 * fee_rate
+    first_exit_cost = first_exit_notional * fee_rate
+    final_exit_cost = final_exit_notional * fee_rate
+    expected_cash = (
+        initial_cash
+        - entry_quantity * 100.0
+        - entry_cost
+        + first_exit_notional
+        - first_exit_cost
+        + final_exit_notional
+        - final_exit_cost
+    )
+
+    assert final_exit_notional == pytest.approx(250.0)
+    assert info["terminal_settlement_intervals"] == 2
+    assert info["terminal_settlement_cost_amount"] == pytest.approx(
+        first_exit_cost + final_exit_cost
+    )
+    assert info["terminal_settlement_final_weight"] == pytest.approx(0.0)
+    assert env.book.quantities[0] == pytest.approx(0.0)
+    assert env.book.total_cost == pytest.approx(
+        entry_cost + first_exit_cost + final_exit_cost
+    )
+    assert env.book.cash == pytest.approx(expected_cash)
+    assert env.book.portfolio_value == pytest.approx(expected_cash)
+    assert reward == pytest.approx(math.log(expected_cash / initial_cash))
     assert terminated is True
     assert truncated is False

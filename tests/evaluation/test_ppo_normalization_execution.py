@@ -652,7 +652,7 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     )
 
     replay = {
-        "schema": "directional_market_profile_arm_v1",
+        "schema": "directional_arm_v1",
         "metrics": {"total_return": 0.01},
         "ledger_max_drawdown": 0.05,
         "terminal_flat": True,

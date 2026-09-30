@@ -189,6 +189,15 @@ after a source failure file or after a successful capture but before its command
 Never discard an unconsumed observation by silently trying another one. Existing
 source directories without their control database are rejected. This control
 record owns operational acknowledgements, never cash, fills or P&L.
+Before beginning any new cycle, compare the collector clock with the last
+committed paper command (or the frozen start when none exists). If the elapsed
+gap exceeds the configured maximum, append a non-trading gap command before
+source acquisition. Preserve exact holdings and the last actual marks at that
+gap; do not backfill or infer why the prior process stopped. A fresh current
+quote may then be used to attempt actual exits, but the permanent quality failure
+keeps the screen ineligible. This also records a stale restart after the last
+cycle was fully acknowledged. A later source or transport error still writes a
+collection failure and halts acquisition.
 An incomplete cycle also blocks another cycle in the same process. Set an
 irreversible in-memory halt before attempting failure-file I/O, so even a failed
 failure-file write cannot permit additional requests.

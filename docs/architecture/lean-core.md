@@ -421,7 +421,15 @@ only fully committed cycles; restart with an unfinished cycle halts even if the
 process died before the top-level failure marker. Untracked existing captures
 are rejected. Failures preserve a permanent marker and, when the verified journal
 can accept it, a gap command after reconciling any uncertain commit. No automatic
-retry follows a collection failure. Pending decisions expire after ten seconds;
+retry follows a collection failure. Before beginning another cycle, compare the
+collector clock with the last committed command (or the frozen start before the
+first command); an elapsed gap above the configured maximum is recorded as a
+non-trading gap before network acquisition, preserving exact holdings and the
+last actual marks at that time. No missed observations are backfilled. A fresh
+quote can still be used to attempt actual exits, while the permanent quality
+failure prevents the screen from qualifying. This detects a stale wake after a
+completed cycle without claiming why the prior process stopped. Pending decisions
+expire after ten seconds;
 the terminal observation window ends 180 seconds after the fixed close, including
 when acquisition itself crosses that boundary. These are operational controls,
 not evidence that a prospective economic gate passed.

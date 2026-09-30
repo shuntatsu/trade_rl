@@ -16,6 +16,7 @@ from tests.evaluation.experiments.bootstrap.test_research_context_config import 
     _workflow_v4_payload,
 )
 from trade_rl.evaluation.experiments import inspect_study
+from trade_rl.evaluation.experiments.bootstrap import workflow as bootstrap_workflow
 from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
@@ -106,6 +107,71 @@ def test_v5_config_round_trips_protocol_and_complete_ppo_baseline(
         drawdown_stop=0.2,
     )
     assert config.to_payload() == payload
+
+
+def test_v5_rejects_final_start_at_dataset_stop_before_bootstrap(
+    tmp_path: Path,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    payload["final_evaluation_start"] = payload["data_stop_exclusive"]
+
+    with pytest.raises(
+        ValueError,
+        match="final_evaluation_start must be strictly later than data_stop_exclusive",
+    ):
+        load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+
+def test_v5_boundary_rejection_precedes_source_and_dataset_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    payload["final_evaluation_start"] = payload["data_stop_exclusive"]
+    config_path = _write_config(tmp_path, payload)
+    output = tmp_path / "canonical-ppo-holding"
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("invalid config reached source or dataset work")
+
+    monkeypatch.setattr(bootstrap_workflow, "_freeze_binance_source", fail_if_called)
+    monkeypatch.setattr(
+        bootstrap_workflow, "build_binance_market_dataset", fail_if_called
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="final_evaluation_start must be strictly later than data_stop_exclusive",
+    ):
+        bootstrap_canonical_m2_study(config_path, output)
+
+    assert not output.exists()
+
+
+def test_v5_requires_hourly_base_timeframe_before_source_and_dataset_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _ppo_holding_v5_payload()
+    payload["base_timeframe"] = "15m"
+    config_path = _write_config(tmp_path, payload)
+    output = tmp_path / "canonical-ppo-holding"
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("non-hourly config reached source or dataset work")
+
+    monkeypatch.setattr(bootstrap_workflow, "_freeze_binance_source", fail_if_called)
+    monkeypatch.setattr(
+        bootstrap_workflow, "build_binance_market_dataset", fail_if_called
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="PPO holding-duration protocol requires base_timeframe '1h'",
+    ):
+        bootstrap_canonical_m2_study(config_path, output)
+
+    assert not output.exists()
 
 
 def test_v5_baseline_requires_explicit_age_risk_and_settlement_fields(

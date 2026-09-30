@@ -412,9 +412,13 @@ class CanonicalM2BootstrapConfig:
                 field="final_evaluation_stop_exclusive",
                 timeframes=timeframes,
             )
-            if final_start < data_stop:
+            if final_start < data_stop or (
+                self.schema_version == _SCHEMA_VERSION_V5 and final_start == data_stop
+            ):
                 raise ValueError(
-                    "final_evaluation_start must not precede data_stop_exclusive"
+                    "final_evaluation_start must be strictly later than data_stop_exclusive"
+                    if self.schema_version == _SCHEMA_VERSION_V5
+                    else "final_evaluation_start must not precede data_stop_exclusive"
                 )
             if final_stop <= final_start:
                 raise ValueError(
@@ -475,6 +479,10 @@ class CanonicalM2BootstrapConfig:
 
         if self.study_protocol is StudyProtocol.PPO_HOLDING_DURATION:
             risk = self.baseline.pretrade_risk_config
+            if base_timeframe != "1h":
+                raise ValueError(
+                    "PPO holding-duration protocol requires base_timeframe '1h'"
+                )
             if (
                 allowed_factors != (ControlledFactor.PPO_MINIMUM_HOLD,)
                 or max_experiments != len(PPO_HOLDING_DURATION_HORIZONS)

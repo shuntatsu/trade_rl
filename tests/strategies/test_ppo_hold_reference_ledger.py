@@ -290,8 +290,17 @@ def test_ppo_partial_delayed_terminal_close_matches_reference_cash_ledger() -> N
 def test_ppo_minimum_hold_cancels_partially_filled_entry_remainder() -> None:
     initial_cash = 1_000.0
     fee_rate = 0.001
+    prices = np.asarray((100.0, 100.0, 110.0, 110.0)).reshape(-1, 1)
     capacity_rates = np.asarray((1.0, 3.0 / 1_000_000.0, 1.0, 1.0)).reshape(-1, 1)
-    dataset = replace(_flat_price_market(), max_participation_rate=capacity_rates)
+    dataset = replace(
+        _flat_price_market(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        max_participation_rate=capacity_rates,
+    )
     env = PPOTradingEnv(
         dataset,
         feature_indices=(0,),
@@ -324,9 +333,23 @@ def test_ppo_minimum_hold_cancels_partially_filled_entry_remainder() -> None:
     assert len(entry_orders) == 1
     assert entry_orders[0].remaining_quantity == pytest.approx(2.0)
 
-    _, _, _, _, held_info = env.step(0)
+    _, held_reward, _, _, held_info = env.step(0)
+
+    entry_cost = entry_quantity * 100.0 * fee_rate
+    equity_before_hold = entry_cash + entry_quantity * 100.0
+    equity_after_hold = entry_cash + entry_quantity * 110.0
 
     assert held_info["minimum_hold_suppressed"] is True
     assert env.book.quantities[0] == pytest.approx(entry_quantity)
     assert env.book.cash == pytest.approx(entry_cash)
+    assert held_info["interval_cost_amount"] == pytest.approx(0.0)
+    assert held_info["interval_net_return"] == pytest.approx(
+        equity_after_hold / equity_before_hold - 1.0
+    )
+    assert env.book.total_cost == pytest.approx(entry_cost)
+    assert env.book.mark_prices[0] == pytest.approx(110.0)
+    assert env.book.portfolio_value == pytest.approx(equity_after_hold)
+    assert held_reward == pytest.approx(
+        math.log(equity_after_hold / equity_before_hold)
+    )
     assert env.executor.compatibility_order_book.active_orders == ()

@@ -164,6 +164,13 @@ CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
 `load_normalized_ppo`; historical standalone research `model.zip` evidence is
 not silently promoted to an inference-safe bundle.
 
+The no-refit replication verifier validates the stored slot-result schema
+separately from the replay payload. Slot publication replaces the directional
+evaluator's top-level `schema`, so fresh replay has no persisted schema peer; the
+verifier excludes only that replay field before canonical payload comparison and
+still requires every other field to match exactly. This repairs a verifier
+comparison contract and does not by itself verify an existing execution artifact.
+
 PPO environment/fitter callers can explicitly provide an immutable
 `PreTradeRiskConfig` via `risk_config`. The same configuration applies when the
 environment is created and after every reset, in both sequential and interleaved

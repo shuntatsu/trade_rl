@@ -52,6 +52,7 @@ test("published Guide exposes PPO contract without interaction", async ({ page }
     "local_staleness",
     "current_intent",
     "current_weight",
+    "position_age_bars",
   ]) {
     await expect(table.getByText(new RegExp(segment))).toBeVisible();
   }

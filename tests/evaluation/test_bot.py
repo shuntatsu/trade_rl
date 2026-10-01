@@ -6,6 +6,8 @@ from trade_rl.evaluation.bot import (
     generate_demo_dataset,
     optimize_bot_parameters,
     run_trading_bot,
+    tune_all_strategies,
+    tune_for_maximum_profit,
 )
 
 
@@ -66,3 +68,33 @@ def test_adaptive_strategy_bot_execution() -> None:
     assert report.initial_capital == 20_000.0
     assert report.final_equity > 0.0
     assert len(result.decisions) == dataset.n_bars - 2
+
+
+def test_tune_for_maximum_profit_finds_improvements() -> None:
+    dataset = generate_demo_dataset(n_bars=80, n_symbols=2, seed=42)
+    tuning_res = tune_for_maximum_profit(
+        dataset,
+        strategy_name="adaptive",
+        initial_capital=10_000.0,
+        objective="profit",
+        max_combinations=20,
+    )
+    assert tuning_res.strategy_name == "adaptive"
+    assert tuning_res.evaluated_combinations > 0
+    assert tuning_res.optimized_report.final_equity > 0.0
+    assert tuning_res.optimized_report.net_pnl >= tuning_res.baseline_report.net_pnl
+
+
+def test_tune_all_strategies_executes_and_ranks() -> None:
+    dataset = generate_demo_dataset(n_bars=80, n_symbols=2, seed=42)
+    ranked = tune_all_strategies(
+        dataset,
+        initial_capital=10_000.0,
+        objective="profit",
+        max_combinations_per_strategy=5,
+    )
+    assert len(ranked) >= 4
+    for i in range(len(ranked) - 1):
+        assert (
+            ranked[i].optimized_report.net_pnl >= ranked[i + 1].optimized_report.net_pnl
+        )

@@ -52,6 +52,26 @@ class BotConfig:
     exit_threshold: float = 0.002
     max_gross: float = 1.0
     max_abs_weight: float = 0.40
+    take_profit_threshold: float = 0.0
+    stop_loss_threshold: float = 0.0
+    trailing_stop_threshold: float = 0.0
+    volatility_regime_threshold: float = 0.010
+    max_holding_bars: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class TuningResult:
+    """Summary of strategy hyperparameter tuning and profit maximization."""
+
+    strategy_name: str
+    objective: str
+    baseline_config: BotConfig
+    baseline_report: BotReport
+    optimized_config: BotConfig
+    optimized_report: BotReport
+    profit_improvement_pct: float
+    alpha_dollars: float
+    evaluated_combinations: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +203,11 @@ def create_strategy_instances(
                 trend_exit_threshold=config.exit_threshold,
                 reversion_entry_threshold=config.entry_threshold * 1.2,
                 reversion_exit_threshold=config.exit_threshold * 1.2,
+                volatility_regime_threshold=config.volatility_regime_threshold,
+                take_profit_threshold=config.take_profit_threshold,
+                stop_loss_threshold=config.stop_loss_threshold,
+                trailing_stop_threshold=config.trailing_stop_threshold,
+                max_holding_bars=config.max_holding_bars,
             )
             instances.append(RegimeAdaptiveStrategy(a_cfg))
         elif name == "constant_long":
@@ -320,42 +345,164 @@ def compare_all_strategies(
     return reports
 
 
+def tune_for_maximum_profit(
+    dataset: MarketDataset,
+    strategy_name: str = "adaptive",
+    initial_capital: float = 100_000.0,
+    objective: str = "profit",
+    max_combinations: int = 150,
+) -> TuningResult:
+    """Systematically explore hyperparameter configurations to maximize profit or Sharpe.
+
+    Explores entry/exit thresholds, hold durations, portfolio gross budget,
+    and adaptive profit-taking / trailing stop parameters.
+    """
+    baseline_cfg = BotConfig(
+        strategy_name=strategy_name,
+        initial_capital=initial_capital,
+    )
+    _, baseline_rep = run_trading_bot(dataset, baseline_cfg)
+
+    strat_name = strategy_name.lower()
+
+    if strat_name == "adaptive":
+        entry_candidates = [0.005, 0.008, 0.012, 0.018]
+        exit_multipliers = [0.2, 0.4]
+        hold_candidates = [2, 4, 6]
+        budget_candidates = [0.15, 0.25, 0.35]
+        tp_candidates = [0.0, 0.015, 0.030]
+        ts_candidates = [0.0, 0.010]
+        vol_regime_candidates = [0.008, 0.012]
+    else:
+        entry_candidates = [0.005, 0.010, 0.015, 0.020]
+        exit_multipliers = [0.2, 0.5]
+        hold_candidates = [2, 4, 8]
+        budget_candidates = [0.15, 0.25, 0.35]
+        tp_candidates = [0.0]
+        ts_candidates = [0.0]
+        vol_regime_candidates = [0.010]
+
+    best_cfg = baseline_cfg
+    best_rep = baseline_rep
+
+    def score_report(rep: BotReport) -> float:
+        if objective == "profit":
+            return rep.net_pnl
+        if objective == "sharpe":
+            return (
+                rep.sharpe_ratio if rep.net_pnl > 0 else -100.0 + rep.net_pnl / 1000.0
+            )
+        if objective == "balanced":
+            dd_penalty = max(0.0, 1.0 - rep.max_drawdown_pct / 100.0)
+            pf_bonus = min(rep.profit_factor, 3.0)
+            return rep.net_pnl * dd_penalty * (1.0 + pf_bonus)
+        return rep.net_pnl
+
+    best_score = score_report(baseline_rep)
+    count = 0
+
+    for entry in entry_candidates:
+        for mult in exit_multipliers:
+            exit_th = entry * mult
+            for hold in hold_candidates:
+                for budget in budget_candidates:
+                    for tp in tp_candidates:
+                        for ts in ts_candidates:
+                            for vol_regime in vol_regime_candidates:
+                                count += 1
+                                if count > max_combinations:
+                                    break
+                                test_cfg = BotConfig(
+                                    strategy_name=strategy_name,
+                                    initial_capital=initial_capital,
+                                    gross_budget=budget,
+                                    minimum_hold_bars=hold,
+                                    entry_threshold=entry,
+                                    exit_threshold=exit_th,
+                                    take_profit_threshold=tp,
+                                    trailing_stop_threshold=ts,
+                                    volatility_regime_threshold=vol_regime,
+                                )
+                                _, rep = run_trading_bot(dataset, test_cfg)
+                                score = score_report(rep)
+                                if score > best_score:
+                                    best_score = score
+                                    best_cfg = test_cfg
+                                    best_rep = rep
+                            if count > max_combinations:
+                                break
+                        if count > max_combinations:
+                            break
+                    if count > max_combinations:
+                        break
+                if count > max_combinations:
+                    break
+            if count > max_combinations:
+                break
+        if count > max_combinations:
+            break
+
+    profit_diff = best_rep.net_pnl - baseline_rep.net_pnl
+    if abs(baseline_rep.net_pnl) > 1e-4:
+        improvement_pct = (profit_diff / abs(baseline_rep.net_pnl)) * 100.0
+    else:
+        improvement_pct = 100.0 if profit_diff > 0 else 0.0
+
+    return TuningResult(
+        strategy_name=strategy_name,
+        objective=objective,
+        baseline_config=baseline_cfg,
+        baseline_report=baseline_rep,
+        optimized_config=best_cfg,
+        optimized_report=best_rep,
+        profit_improvement_pct=improvement_pct,
+        alpha_dollars=profit_diff,
+        evaluated_combinations=count,
+    )
+
+
+def tune_all_strategies(
+    dataset: MarketDataset,
+    initial_capital: float = 100_000.0,
+    objective: str = "profit",
+    max_combinations_per_strategy: int = 60,
+) -> list[TuningResult]:
+    """Run hyperparameter profit tuning across all candidate strategies and rank results."""
+    candidate_strategies = [
+        "adaptive",
+        "ensemble",
+        "trend",
+        "mean_reversion",
+        "channel_breakout",
+    ]
+    results: list[TuningResult] = []
+    for strat in candidate_strategies:
+        res = tune_for_maximum_profit(
+            dataset,
+            strategy_name=strat,
+            initial_capital=initial_capital,
+            objective=objective,
+            max_combinations=max_combinations_per_strategy,
+        )
+        results.append(res)
+
+    results.sort(key=lambda r: r.optimized_report.net_pnl, reverse=True)
+    return results
+
+
 def optimize_bot_parameters(
     dataset: MarketDataset,
     strategy_name: str = "ensemble",
     initial_capital: float = 100_000.0,
 ) -> tuple[BotConfig, BotReport]:
     """Grid search optimization to maximize net return and profit factor."""
-    best_config = BotConfig(
-        strategy_name=strategy_name, initial_capital=initial_capital
+    res = tune_for_maximum_profit(
+        dataset,
+        strategy_name=strategy_name,
+        initial_capital=initial_capital,
+        objective="profit",
     )
-    best_report: BotReport | None = None
-
-    entry_candidates = [0.005, 0.01, 0.015, 0.02]
-    exit_multipliers = [0.2, 0.5]
-    hold_bars_candidates = [2, 4, 8]
-    budget_candidates = [0.15, 0.25]
-
-    for entry in entry_candidates:
-        for mult in exit_multipliers:
-            exit_th = entry * mult
-            for hold in hold_bars_candidates:
-                for budget in budget_candidates:
-                    cfg = BotConfig(
-                        strategy_name=strategy_name,
-                        initial_capital=initial_capital,
-                        gross_budget=budget,
-                        minimum_hold_bars=hold,
-                        entry_threshold=entry,
-                        exit_threshold=exit_th,
-                    )
-                    _, rep = run_trading_bot(dataset, cfg)
-                    if best_report is None or rep.net_pnl > best_report.net_pnl:
-                        best_report = rep
-                        best_config = cfg
-
-    assert best_report is not None
-    return best_config, best_report
+    return res.optimized_config, res.optimized_report
 
 
 def print_report_table(reports: Sequence[BotReport]) -> None:
@@ -380,6 +527,53 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
     print(sep + "\n")
 
 
+def print_tuning_comparison(res: TuningResult) -> None:
+    """Print detailed comparison between default baseline and tuned bot."""
+    b = res.baseline_report
+    o = res.optimized_report
+    cfg = res.optimized_config
+
+    print("\n" + "=" * 68)
+    print(
+        f"  PROFIT OPTIMIZATION REPORT: {res.strategy_name.upper()} (Objective: {res.objective})"
+    )
+    print(f"  Combinations evaluated: {res.evaluated_combinations}")
+    print("=" * 68)
+    print(f"{'Metric':<24} | {'Default Baseline':<18} | {'Tuned / Optimized':<18}")
+    print("-" * 68)
+    print(
+        f"{'Final Equity':<24} | ${b.final_equity:>16,.2f} | ${o.final_equity:>16,.2f}"
+    )
+    print(f"{'Net Profit ($)':<24} | ${b.net_pnl:>16,.2f} | ${o.net_pnl:>16,.2f}")
+    print(
+        f"{'Total Return (%)':<24} | {b.total_return_pct:>17.2f}% | {o.total_return_pct:>17.2f}%"
+    )
+    print(f"{'Sharpe Ratio':<24} | {b.sharpe_ratio:>18.2f} | {o.sharpe_ratio:>18.2f}")
+    print(
+        f"{'Profit Factor':<24} | {b.profit_factor:>18.2f} | {o.profit_factor:>18.2f}"
+    )
+    print(
+        f"{'Max Drawdown (%)':<24} | {b.max_drawdown_pct:>17.2f}% | {o.max_drawdown_pct:>17.2f}%"
+    )
+    print(f"{'Win Rate (%)':<24} | {b.win_rate_pct:>17.1f}% | {o.win_rate_pct:>17.1f}%")
+    print(f"{'Total Trades':<24} | {b.num_trades:>18d} | {o.num_trades:>18d}")
+    print("-" * 68)
+    sign = "+" if res.alpha_dollars >= 0 else ""
+    print(
+        f"🚀 Profit Improvement:  {sign}${res.alpha_dollars:,.2f} USD ({sign}{res.profit_improvement_pct:.2f}%)"
+    )
+    print("🎯 Optimal Parameters:")
+    print(f"   - Entry Threshold:      {cfg.entry_threshold}")
+    print(f"   - Exit Threshold:       {cfg.exit_threshold}")
+    print(f"   - Min Hold Bars:        {cfg.minimum_hold_bars}")
+    print(f"   - Gross Budget:         {cfg.gross_budget * 100:.1f}%")
+    if cfg.take_profit_threshold > 0:
+        print(f"   - Take Profit:          +{cfg.take_profit_threshold * 100:.1f}%")
+    if cfg.trailing_stop_threshold > 0:
+        print(f"   - Trailing Stop:        -{cfg.trailing_stop_threshold * 100:.1f}%")
+    print("=" * 68 + "\n")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Unified Trading Bot: Simulate, compare, and optimize for maximum profit."
@@ -393,7 +587,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--strategy",
         default="adaptive",
-        help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash)",
+        help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash, or 'all' for optimize)",
+    )
+    parser.add_argument(
+        "--objective",
+        choices=["profit", "sharpe", "balanced"],
+        default="profit",
+        help="Optimization objective function for --mode optimize (default: profit)",
     )
     parser.add_argument(
         "--dataset",
@@ -452,25 +652,38 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"🏆 Top Profit Strategy: {winner.strategy_name} (+{winner.total_return_pct:.2f}% / ${winner.net_pnl:,.2f})"
             )
     elif args.mode == "optimize":
-        print(f"Optimizing parameters for '{args.strategy}' to maximize net profit...")
-        opt_cfg, opt_report = optimize_bot_parameters(
-            dataset,
-            strategy_name=args.strategy,
-            initial_capital=args.capital,
-        )
-        if args.json:
-            print(
-                json.dumps(
-                    {"config": asdict(opt_cfg), "report": asdict(opt_report)}, indent=2
-                )
+        if args.strategy.lower() == "all":
+            print(f"Tuning all candidate strategies for maximum {args.objective}...")
+            all_tuning = tune_all_strategies(
+                dataset,
+                initial_capital=args.capital,
+                objective=args.objective,
             )
+            if args.json:
+                print(json.dumps([asdict(t) for t in all_tuning], indent=2))
+            else:
+                for res in all_tuning:
+                    print_tuning_comparison(res)
+                champion = all_tuning[0]
+                print(
+                    f"👑 CHAMPION OPTIMIZED STRATEGY: {champion.strategy_name.upper()} "
+                    f"with Net P&L: ${champion.optimized_report.net_pnl:,.2f} "
+                    f"(+{champion.optimized_report.total_return_pct:.2f}%)"
+                )
         else:
-            print("Optimal config found:")
-            print(f"  entry_threshold: {opt_cfg.entry_threshold}")
-            print(f"  exit_threshold:  {opt_cfg.exit_threshold}")
-            print(f"  minimum_hold:    {opt_cfg.minimum_hold_bars} bars")
-            print(f"  gross_budget:    {opt_cfg.gross_budget * 100:.1f}%")
-            print_report_table([opt_report])
+            print(
+                f"Optimizing parameters for '{args.strategy}' (Objective: {args.objective})..."
+            )
+            tuning_res = tune_for_maximum_profit(
+                dataset,
+                strategy_name=args.strategy,
+                initial_capital=args.capital,
+                objective=args.objective,
+            )
+            if args.json:
+                print(json.dumps(asdict(tuning_res), indent=2))
+            else:
+                print_tuning_comparison(tuning_res)
     else:
         # Run single bot
         cfg = BotConfig(
@@ -502,9 +715,14 @@ if __name__ == "__main__":
 __all__ = [
     "BotConfig",
     "BotReport",
+    "TuningResult",
     "compare_all_strategies",
     "generate_demo_dataset",
     "main",
     "optimize_bot_parameters",
+    "print_report_table",
+    "print_tuning_comparison",
     "run_trading_bot",
+    "tune_all_strategies",
+    "tune_for_maximum_profit",
 ]

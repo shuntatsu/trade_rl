@@ -469,6 +469,34 @@ remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
 
+### PPO/A2C update-family comparison: draft contract and synthetic oracle only
+
+The result-blind PPO/A2C code-contract draft and pure cell-decision oracle are
+implemented in `trade_rl.evaluation.rl_family_comparison`. The proposed study holds the existing
+12-feature task and execution contract fixed, fits the full five-symbol roster
+before 2023, and screens the already reused 2023–2024 development period under
+base, doubled-cost, and one-bar-latency scenarios. PPO and A2C each have five
+matched seeds and a 256,000-transition budget. Absolute qualification is
+independent for each family; paired A2C uplift can select between them only if
+both independently qualify.
+
+Each family needs at least four of five seeds with positive full-period and
+annual returns in every scenario on at least four symbols, plus positive
+five-seed medians. A paired symbol votes for A2C only with four of five
+positive same-seed deltas across all years and scenarios and positive median
+deltas; A2C can be selected by uplift only when both families qualify.
+
+Mocked PPO/A2C constructor tests bind the registered hyperparameters to the
+actual fitter arguments, and synthetic-cell tests exercise complete coverage,
+profit screens, paired decisions, the 20% per-symbol drawdown boundary, and
+execution-risk vetoes. No Dataset, model, or replay artifact was opened, and
+no new economic result was generated. No model fit or replay has been run, and this contract
+does not provide an execution workflow or independent G0–G3 reviews. The 20%
+per-symbol limit does not satisfy the requested portfolio-level drawdown target;
+a future candidate still needs a separate shared-capital screen. Profitability,
+future-data validity, paper eligibility, and live readiness remain
+`NOT ESTABLISHED`.
+
 ### PPO BTC-relative feature ablation: G4 completed, KEEP_BASELINE
 
 PPO BTC-relative feature ablationはG3/G4まで独立監査済み。

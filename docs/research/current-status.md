@@ -65,7 +65,9 @@ are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, 
 `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` path completed a
 fresh Binance source freeze and published an immutable Dataset and StudyPlan.
 The bootstrap manifest, Dataset manifest, exact input config, and exact StudyPlan
-are preserved in the [result-blind v5 packet](../../report/ppo-hold-duration-v5-20261001/).
+are preserved in a workspace-only result-blind v5 packet at
+`report/ppo-hold-duration-v5-20261001/`. It is not part of the versioned GitHub
+tree because it contains the exact source roster and Dataset metadata.
 Its config digest is
 `f31fd955c50dd69d68ae78db4b756a1bc43a4cb425ab7d0f4045327395a83044`, Dataset
 ID is `c489ed47a55f2013fcd4f8c1bf560997b8ba41c4ec6dff0d16d0dd95d516a72b`,

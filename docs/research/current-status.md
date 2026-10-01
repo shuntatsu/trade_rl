@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-01 (JST)
+更新基準: 2026-10-02 (JST)
 
 ## 結論
 
@@ -14,6 +14,14 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Trading-bot tuning contract correction (2026-10-02)
+
+GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。
+
+`codex/profit-engine-hardening` の修正では、optimize / compareに明示的なDatasetまたは明示的な `--demo` を要求し、canonical non-zero `ExecutionCostConfig()` を既定のreplay costにした。単一strategyのparameter選択はchronological tuning prefixだけで行い、baseline / candidate reportは後続holdoutのfresh replayから計算する。tuning-windowの最大drawdownが20%を超えるcandidateは選択対象外だが、これはeligibility vetoであり、gapやexecution timingを越えたdrawdown上限の保証ではない。`compare` はfull-rangeのin-sample診断である。`tune_all_strategies` の複数family報告windowはfamily間で比較した時点でdevelopment evidenceとして扱い、最終評価にはさらに後の未閲覧windowを使う。
+
+Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、flat intentをlatchedして最低保有期間をbypassするが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 
 ## Active PPO medium-term holding-duration design
 

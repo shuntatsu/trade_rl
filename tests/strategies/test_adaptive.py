@@ -17,6 +17,7 @@ def _make_obs(
     current_intent: PositionIntent = PositionIntent.FLAT,
     current_weight: float = 0.0,
     position_age_bars: int = 0,
+    gross_position_return: float | None = None,
 ) -> StrategyObservation:
     feat_arr = np.array(features, dtype=np.float32)
     feat_avail = np.ones(len(features), dtype=np.bool_)
@@ -31,6 +32,7 @@ def _make_obs(
         current_intent=current_intent,
         current_weight=current_weight,
         position_age_bars=position_age_bars,
+        gross_position_return=gross_position_return,
     )
 
 
@@ -55,6 +57,7 @@ def test_adaptive_take_profit() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=0.02,
     )
     decision1 = strategy.decide(obs1)
     assert decision1 is PositionIntent.LONG
@@ -66,6 +69,7 @@ def test_adaptive_take_profit() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=2,
+        gross_position_return=0.04,
     )
     decision2 = strategy.decide(obs2)
     assert decision2 is PositionIntent.FLAT
@@ -87,6 +91,7 @@ def test_adaptive_stop_loss() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=-0.025,
     )
     decision = strategy.decide(obs)
     assert decision is PositionIntent.FLAT
@@ -108,6 +113,7 @@ def test_adaptive_trailing_stop() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=0.03,
     )
     dec1 = strategy.decide(obs1)
     assert dec1 is PositionIntent.LONG
@@ -119,9 +125,22 @@ def test_adaptive_trailing_stop() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=2,
+        gross_position_return=0.01,
     )
     dec2 = strategy.decide(obs2)
     assert dec2 is PositionIntent.FLAT
+    assert strategy.protective_exit_pending
+
+    still_open = _make_obs(
+        [0.0, 0.0],
+        index=3,
+        current_intent=PositionIntent.LONG,
+        current_weight=0.2,
+        position_age_bars=3,
+        gross_position_return=0.0,
+    )
+    assert strategy.decide(still_open) is PositionIntent.FLAT
+    assert strategy.protective_exit_pending
 
 
 def test_adaptive_max_holding_bars() -> None:
@@ -138,6 +157,7 @@ def test_adaptive_max_holding_bars() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=5,
+        gross_position_return=0.0,
     )
     decision = strategy.decide(obs)
     assert decision is PositionIntent.FLAT

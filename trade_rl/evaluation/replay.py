@@ -232,6 +232,86 @@ class SharedCashReplayResult:
     ledger_evidence: SharedCashReplayLedgerEvidence | None = None
 
 
+class _ExecutedEntryPrices:
+    """Track actual average fill prices for currently open signed positions."""
+
+    def __init__(self, n_symbols: int) -> None:
+        self._quantities = np.zeros(n_symbols, dtype=np.float64)
+        self._average_prices = np.zeros(n_symbols, dtype=np.float64)
+
+    def ingest(
+        self,
+        events: Sequence[OrderEvent],
+        quantities: np.ndarray,
+        *,
+        terminated: bool = False,
+    ) -> None:
+        for event in events:
+            filled = float(event.filled_quantity)
+            if filled == 0.0:
+                continue
+            price = event.execution_price
+            if price is None:
+                raise RuntimeError("filled order event is missing its execution price")
+            symbol_index = event.symbol_index
+            if not 0 <= symbol_index < self._quantities.size:
+                raise RuntimeError("fill event references an unknown symbol")
+            previous = float(self._quantities[symbol_index])
+            following = previous + filled
+            previous_average = float(self._average_prices[symbol_index])
+            if following == 0.0:
+                self._average_prices[symbol_index] = 0.0
+                following = 0.0
+            elif previous == 0.0 or (previous > 0.0) != (following > 0.0):
+                self._average_prices[symbol_index] = float(price)
+            elif (previous > 0.0) == (filled > 0.0):
+                self._average_prices[symbol_index] = (
+                    abs(previous) * previous_average + abs(filled) * float(price)
+                ) / abs(following)
+            self._quantities[symbol_index] = following
+
+        actual = np.asarray(quantities, dtype=np.float64)
+        if actual.shape != self._quantities.shape:
+            raise RuntimeError("execution fill events diverged from book quantities")
+        if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
+            if terminated:
+                self._quantities = actual.copy()
+                self._average_prices.fill(0.0)
+                return
+            raise RuntimeError("execution fill events diverged from book quantities")
+        self._quantities = actual.copy()
+        self._average_prices[actual == 0.0] = 0.0
+
+    def apply_split(self, split_factor: np.ndarray) -> None:
+        factors = np.asarray(split_factor, dtype=np.float64)
+        if factors.shape != self._quantities.shape or not np.isfinite(factors).all():
+            raise RuntimeError("split factors do not match the fill tracker roster")
+        if np.any(factors <= 0.0):
+            raise RuntimeError("split factors must be positive")
+        self._quantities *= factors
+        self._average_prices /= factors
+
+    def mark_gross_return(
+        self,
+        symbol_index: int,
+        *,
+        quantity: float,
+        mark_price: float,
+    ) -> float | None:
+        tracked_quantity = float(self._quantities[symbol_index])
+        if quantity == 0.0:
+            if tracked_quantity != 0.0:
+                raise RuntimeError("flat book quantity diverged from fill tracker")
+            return None
+        if not math.isclose(quantity, tracked_quantity, rel_tol=1e-9, abs_tol=0.0):
+            raise RuntimeError("book quantity diverged from execution fill tracker")
+        entry_price = float(self._average_prices[symbol_index])
+        if entry_price <= 0.0:
+            raise RuntimeError("open position is missing its executed entry price")
+        direction = 1.0 if quantity > 0.0 else -1.0
+        return direction * (mark_price - entry_price) / entry_price
+
+
 def _desired_quantity_from_weight(
     book: BookState,
     target_weight: float,
@@ -272,6 +352,13 @@ def _validate_risk_execution_compatibility(
         raise ValueError("risk exposure limits must not exceed execution max_leverage")
 
 
+def _protective_exit_pending(strategy: SingleSymbolStrategy) -> bool:
+    pending = getattr(strategy, "protective_exit_pending", False)
+    if not isinstance(pending, bool):
+        raise TypeError("protective_exit_pending must be boolean when provided")
+    return pending
+
+
 def _observation(
     dataset: MarketDataset,
     *,
@@ -280,6 +367,7 @@ def _observation(
     book: BookState,
     current_intent: PositionIntent,
     position_age_bars: int = 0,
+    gross_position_return: float | None = None,
 ) -> StrategyObservation:
     return StrategyObservation(
         index=index,
@@ -297,6 +385,7 @@ def _observation(
         current_intent=current_intent,
         current_weight=float(book.weights[symbol_index]),
         position_age_bars=position_age_bars,
+        gross_position_return=gross_position_return,
     )
 
 
@@ -384,6 +473,7 @@ def run_single_symbol_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
+    executed_entry_prices = _ExecutedEntryPrices(dataset.n_symbols)
     latest_execution_observation: StatefulExecutionObservation | None = None
 
     def observe_execution(observation: StatefulExecutionObservation) -> None:
@@ -424,6 +514,11 @@ def run_single_symbol_replay(
             book=book,
             current_intent=current_intent,
             position_age_bars=position_age_bars,
+            gross_position_return=executed_entry_prices.mark_gross_return(
+                symbol_index,
+                quantity=quantity_before,
+                mark_price=float(book.mark_prices[symbol_index]),
+            ),
         )
         requested_intent = strategy.decide(observation)
         if not isinstance(requested_intent, PositionIntent):
@@ -433,6 +528,7 @@ def run_single_symbol_replay(
             current_quantity=quantity_before,
             position_age_bars=position_age_bars,
             minimum_hold_bars=resolved_minimum_hold_bars,
+            allow_protective_exit=_protective_exit_pending(strategy),
         )
         minimum_hold_unlocked = minimum_hold_locked and not hold_decision.suppressed
         intent = hold_decision.effective_intent
@@ -476,6 +572,16 @@ def run_single_symbol_replay(
         )
         if execution.next_index <= index:
             raise RuntimeError("execution did not advance replay index")
+        if latest_execution_observation is None:
+            raise RuntimeError("execution observer did not emit interval fills")
+        executed_entry_prices.apply_split(
+            dataset.resolved_array("split_factor")[execution.next_index]
+        )
+        executed_entry_prices.ingest(
+            latest_execution_observation.order_events,
+            execution.book.quantities,
+            terminated=execution.termination_reason is not None,
+        )
         book = execution.book
         position_age_bars = next_position_age_bars(
             position_age_bars,
@@ -530,6 +636,16 @@ def run_single_symbol_replay(
             )
             if execution.next_index <= index:
                 raise RuntimeError("terminal settlement did not advance replay")
+            if latest_execution_observation is None:
+                raise RuntimeError("execution observer did not emit interval fills")
+            executed_entry_prices.apply_split(
+                dataset.resolved_array("split_factor")[execution.next_index]
+            )
+            executed_entry_prices.ingest(
+                latest_execution_observation.order_events,
+                execution.book.quantities,
+                terminated=execution.termination_reason is not None,
+            )
             book = execution.book
             position_age_bars = next_position_age_bars(
                 position_age_bars,
@@ -665,6 +781,7 @@ def run_shared_cash_replay(
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
     )
+    executed_entry_prices = _ExecutedEntryPrices(dataset.n_symbols)
     execution_observation: StatefulExecutionObservation | None = None
     execution_observation_count = 0
 
@@ -679,9 +796,7 @@ def run_shared_cash_replay(
         dataset,
         resolved_execution_cost,
         market_order_profile=market_order_profile,
-        execution_observer=(
-            retain_latest_execution_observation if capture_ledger_evidence else None
-        ),
+        execution_observer=retain_latest_execution_observation,
     )
     risk_controller = risk or PreTradeRisk.default_for_execution(
         max_leverage=executor.cost.max_leverage
@@ -704,6 +819,7 @@ def run_shared_cash_replay(
         interval_index: int,
     ) -> ExecutionResult:
         nonlocal active_order_remainders, book, terminal_order_reasons
+        observations_before = execution_observation_count
         exact_quantities_before = tuple(str(value) for value in book.exact_quantities)
         cash_before = float(book.cash)
         portfolio_value_before = float(book.portfolio_value)
@@ -720,18 +836,26 @@ def run_shared_cash_replay(
         )
         if execution.next_index <= interval_index:
             raise RuntimeError("execution did not advance replay index")
+        if (
+            execution_observation_count != observations_before + 1
+            or execution_observation is None
+        ):
+            raise RuntimeError("execution observer did not emit exactly one interval")
+        stateful_evidence = execution_observation
+        if stateful_evidence.next_index != execution.next_index:
+            raise RuntimeError("execution observer index differs from replay result")
+        executed_entry_prices.apply_split(
+            dataset.resolved_array("split_factor")[execution.next_index]
+        )
+        executed_entry_prices.ingest(
+            stateful_evidence.order_events,
+            execution.book.quantities,
+            terminated=execution.termination_reason is not None,
+        )
         if capture_ledger_evidence:
-            if (
-                execution_observation_count != len(ledger_intervals) + 1
-                or execution_observation is None
-            ):
+            if execution_observation_count != len(ledger_intervals) + 1:
                 raise RuntimeError(
                     "execution observer did not emit exactly one interval"
-                )
-            stateful_evidence = execution_observation
-            if stateful_evidence.next_index != execution.next_index:
-                raise RuntimeError(
-                    "execution observer index differs from replay result"
                 )
             ledger_intervals.append(
                 SharedCashLedgerIntervalEvidence(
@@ -789,6 +913,11 @@ def run_shared_cash_replay(
                 book=book,
                 current_intent=current_intents[symbol_index],
                 position_age_bars=position_age_bars[symbol_index],
+                gross_position_return=executed_entry_prices.mark_gross_return(
+                    symbol_index,
+                    quantity=quantities_before[symbol_index],
+                    mark_price=float(book.mark_prices[symbol_index]),
+                ),
             )
             requested_intent = strategy.decide(observation)
             if not isinstance(requested_intent, PositionIntent):
@@ -798,6 +927,7 @@ def run_shared_cash_replay(
                 current_quantity=quantities_before[symbol_index],
                 position_age_bars=position_age_bars[symbol_index],
                 minimum_hold_bars=hold_bars_by_symbol[symbol_index],
+                allow_protective_exit=_protective_exit_pending(strategy),
             )
             effective_intent = hold_decision.effective_intent
             changed_intent = effective_intent is not current_intents[symbol_index]

@@ -35,6 +35,7 @@ class StrategyObservation:
     current_weight: float
     feature_staleness: np.ndarray | None = None
     position_age_bars: int = 0
+    gross_position_return: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -57,6 +58,10 @@ class StrategyObservation:
         ):
             raise ValueError("position_age_bars must be a non-negative integer")
         object.__setattr__(self, "position_age_bars", int(age_bars))
+        if self.gross_position_return is not None and not math.isfinite(
+            self.gross_position_return
+        ):
+            raise ValueError("gross_position_return must be finite when present")
 
         features = _readonly_vector(self.features, field="features")
         feature_available = (

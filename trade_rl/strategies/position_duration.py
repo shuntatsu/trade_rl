@@ -41,6 +41,7 @@ def constrain_intent_for_minimum_hold(
     current_quantity: float,
     position_age_bars: int,
     minimum_hold_bars: int,
+    allow_protective_exit: bool = False,
 ) -> MinimumHoldDecision:
     """Suppress voluntary changes while an actual position is inside its hold."""
 
@@ -60,8 +61,14 @@ def constrain_intent_for_minimum_hold(
         or minimum_hold_bars < 0
     ):
         raise ValueError("minimum_hold_bars must be a non-negative integer")
+    if not isinstance(allow_protective_exit, bool):
+        raise ValueError("allow_protective_exit must be boolean")
 
-    if current_quantity != 0.0 and position_age_bars < minimum_hold_bars:
+    if (
+        current_quantity != 0.0
+        and position_age_bars < minimum_hold_bars
+        and not (allow_protective_exit and requested_intent is PositionIntent.FLAT)
+    ):
         held_intent = (
             PositionIntent.LONG if current_quantity > 0.0 else PositionIntent.SHORT
         )

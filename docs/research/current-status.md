@@ -235,9 +235,46 @@ No shutdown reason was recorded; operational status is not an economic replay.
 The observation gap now exceeds the frozen 180-second limit, so this protocol
 cannot qualify. Preserve its incomplete evidence without resuming or backfilling
 it; this operational journal does not establish whether an economic replay ran.
+
+The paper screen contract is now version 2. It declares one required fill in
+each of BTC spot, BTC perpetual, ETH spot and ETH perpetual, and assigns funding
+block coverage by the published settlement time inside the fixed ninety-day
+window. Receipt during terminal grace cannot make a post-close settlement count
+for block 3; any nonzero post-close settlement now rejects the screen even when
+the credited cash appears in final account equity. A new sealed run is attempt 2
+and must bind attempt 1's protocol
+SHA-256 `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7`,
+final journal tip `1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b`,
+and exact last observation time `2026-09-17T23:11:01.134389+00:00` with disposition
+`invalidated` and reason `observation_gap`. The protocol digest and event tip
+were re-read from the preserved root on 2026-09-28. The old chain itself has no
+terminal gap event; the invalidation follows from the frozen gap limit and the
+verified time since its final event. A new attempt must never resume or rewrite
+that root.
+
+Attempt-lineage v2 accepts only operational `invalidated` / `incomplete`
+dispositions and fixed operational reason codes; prior screen pass/reject labels
+and economic metrics are excluded. These lineage values are still assertions,
+not root authentication. A fresh result-blind reviewer must resolve attempt 1
+with its preserved v1 reader, verify the protocol/event chain and gap, and check
+for an earlier unreported attempt before any successor is sealed. The schema by
+itself cannot authenticate hashes or prevent a new root from claiming attempt 1.
 Any successor needs a separately sealed
 protocol with a new future start and current source/runtime identity. Prospective
 profitability remains unproven.
+
+Fresh result-blind review independently verified the known attempt-1 v1
+protocol digest, all 188 canonical journal events and parent links, final tip,
+and last observation `2026-09-17T23:11:01.134389+00:00`. At the minimum reviewed
+seal time `2026-09-27T16:37:40Z`, the observation gap was 840398.865611 seconds.
+The review found no earlier fixed carry-screen root among 18 protocol files in
+the inspected `C:\dev\trade_rl` workspace. G0 for this predecessor is verified
+within that scope; global attempt uniqueness outside the workspace is not
+established. G2 review confirms that the four-instrument fill roster is bound to
+the sealed plan and funding blocks use settlement time in `[start, close)`;
+their targeted synthetic tests pass. Overall G2 and an independent full
+source-to-ledger replay remain unestablished. No successor screen has been
+sealed.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The

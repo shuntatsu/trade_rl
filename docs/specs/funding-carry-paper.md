@@ -225,6 +225,30 @@ The user research ceiling remains 20%; the strategy's stricter stop is retained.
 Cash with zero interest is the declared comparison. This is a development paper
 screen, not proof of optimal returns or authorization for live deployment.
 
+Each screen protocol binds `carry_paper_screen_v2` and an explicit
+`carry_paper_attempt_lineage_v2`. Attempt 1 has no predecessor. Every later
+attempt must name exactly the preceding attempt number, protocol SHA-256, final
+journal tip, disposition, sorted machine-readable reason codes, and last
+observation time. A successor never repairs or replaces a predecessor. The
+lineage is part of the sealed research plan and therefore of the protocol
+digest. An `observation_gap` disposition is accepted only after the predecessor
+has exceeded the fixed 180-second gap limit at the new seal time. `seal` requires
+an explicit `--attempt-lineage-json` input; it never guesses that a new root is
+the first attempt.
+
+Predecessor dispositions are limited to `invalidated` or `incomplete`, and
+reason codes are limited to `clock_reversal`, `collector_failure`,
+`deadline_missed`, `integrity_failure`, `late_start`, `manual_abort`,
+`observation_gap`, `review_blocked` or `source_unavailable`. A lineage cannot
+encode screen pass/rejection, returns, drawdown or other economic outcomes, so a
+result-blind reviewer does not receive the prior screen decision. The hashes,
+attempt number and disposition are still caller assertions: before sealing a
+successor, an independent result-blind G0 review must resolve the predecessor's
+preserved root with its original reader, verify the protocol and event-chain
+identities and elapsed gap, and check for an unreported earlier attempt. The
+schema does not authenticate external roots or prevent a caller from claiming a
+new attempt 1.
+
 Require positive net profit after actual simulated exits, positive marked equity
 change in every block, and total net profit greater than recorded fees. The last
 condition is fee headroom at the realized trajectory, not a recomputed doubled-fee
@@ -234,6 +258,15 @@ Require observed maximum drawdown below 10%, no quality failures or nonterminal
 stop, at least one nonzero funding receipt in each block, no unpaid announced
 funding for a previously held position, actual zero quantities and no pending
 intent. Minute sampling is not an intraminute drawdown or liquidity guarantee.
+Require at least one actual fill in each of the four declared instruments:
+BTC spot, BTC perpetual, ETH spot and ETH perpetual. Assign each funding payment
+to a block by its published settlement timestamp in the half-open screen window
+`[start, close)`. Receipt during terminal grace does not move a post-close
+settlement into the third block.
+Any nonzero settlement at or after `close` rejects the screen as
+`post_close_funding`, even when its cash credit is present in terminal account
+equity. Preserve the realized ledger and fees; do not let out-of-window funding
+qualify the fixed-window result.
 
 Do not qualify before close plus the fixed 180-second grace. Require observations
 from within 180 seconds of start through at least close plus 120 seconds, with

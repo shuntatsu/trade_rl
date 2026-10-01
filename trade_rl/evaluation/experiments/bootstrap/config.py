@@ -22,6 +22,7 @@ from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_HORIZONS,
     PPO_HOLDING_DURATION_RISK_CONFIG,
     PPO_HOLDING_DURATION_SEED_COUNT,
+    PPO_SHARED_CASH_INITIAL_CAPITAL,
 )
 from trade_rl.evaluation.runs import (
     CandidateRunConfig,
@@ -513,6 +514,14 @@ class CanonicalM2BootstrapConfig:
             ):
                 raise ValueError(
                     "bootstrap config violates the PPO holding-duration protocol"
+                )
+            if (
+                self.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                and self.baseline.initial_capital != PPO_SHARED_CASH_INITIAL_CAPITAL
+            ):
+                raise ValueError(
+                    "shared-cash PPO holding-duration bootstrap requires "
+                    "initial capital of 100,000 USDT"
                 )
 
         object.__setattr__(self, "research_question", research_question)

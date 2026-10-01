@@ -41,6 +41,7 @@ _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
+_RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -50,6 +51,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -102,7 +104,11 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+        if schema not in {
+            _RESULT_SCHEMA_V6,
+            _RESULT_SCHEMA_V7,
+            _RESULT_SCHEMA_V8,
+        }:
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -144,7 +150,7 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema == _RESULT_SCHEMA_V7:
+        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V8}:
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -295,7 +301,7 @@ def _result_payload(
 
     summary: dict[str, object] = {
         "schema_version": (
-            _RESULT_SCHEMA_V7
+            _RESULT_SCHEMA_V8
             if result.comparison.shared_cash_ppo is not None
             else _RESULT_SCHEMA_V6
         ),
@@ -361,6 +367,7 @@ def _result_payload(
         ledger = replay.ledger_evidence
         if ledger is None:
             raise ValueError("shared-cash PPO result requires ledger evidence")
+        ledger_payload = ledger.to_mapping()
         return_key = "shared_cash_ppo"
         returns[return_key] = np.asarray(replay.returns.values, dtype=np.float64)
         diagnostics = replay.diagnostics
@@ -402,10 +409,11 @@ def _result_payload(
             "terminal_settlement_complete": terminal_complete,
             "ledger_evidence": {
                 "schema_version": ledger.schema_version,
-                "digest": content_digest(ledger.to_mapping()),
+                "digest": content_digest(ledger_payload),
                 "interval_count": len(ledger.intervals),
                 "decision_count": len(ledger.decisions),
                 "terminal_exact_quantities": list(ledger.terminal_exact_quantities),
+                "payload": ledger_payload,
             },
         }
     return summary, returns
@@ -604,6 +612,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -647,7 +656,12 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+    if result_schema in {
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+    }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -907,7 +921,11 @@ def _validate_v6_replay_evidence(summary: Mapping[str, object]) -> None:
     _validate_replay_evidence(summary, require_full_coverage=True)
 
 
-def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
+def _validate_v7_replay_evidence(
+    summary: Mapping[str, object],
+    *,
+    require_ledger_payload: bool = False,
+) -> None:
     _validate_v6_replay_evidence(summary)
     symbols = summary.get("symbols")
     evaluation = summary.get("evaluation")
@@ -1079,6 +1097,8 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         "decision_count",
         "terminal_exact_quantities",
     }
+    if require_ledger_payload:
+        ledger_fields.add("payload")
     if not isinstance(ledger, Mapping) or set(ledger) != ledger_fields:
         raise ValueError("candidate shared-cash ledger evidence is malformed")
     if ledger["schema_version"] not in {
@@ -1110,6 +1130,266 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         )
     if terminal_complete and any(float(value) != 0.0 for value in exact_quantities):
         raise ValueError("candidate shared-cash exact terminal quantities are nonzero")
+    if require_ledger_payload:
+        payload = ledger.get("payload")
+        if not isinstance(payload, Mapping):
+            raise ValueError("candidate shared-cash ledger payload is malformed")
+        _validate_shared_cash_ledger_payload(
+            payload,
+            ledger=ledger,
+            summary=summary,
+            symbols=symbols,
+            expected_periods=expected_periods,
+        )
+
+
+def _validate_shared_cash_ledger_payload(
+    payload: Mapping[str, object],
+    *,
+    ledger: Mapping[str, object],
+    summary: Mapping[str, object],
+    symbols: list[object],
+    expected_periods: int,
+) -> None:
+    schema = ledger["schema_version"]
+    expected_fields = {
+        "active_order_remainders",
+        "dataset_id",
+        "execution_policy_digest",
+        "final_borrow_cost",
+        "final_cash",
+        "final_funding_pnl",
+        "final_max_drawdown",
+        "final_portfolio_value",
+        "final_total_cost",
+        "final_turnover_total",
+        "intervals",
+        "schema_version",
+        "start_index",
+        "stop_index",
+        "terminal_exact_quantities",
+        "terminal_order_reasons",
+        "termination_reason",
+    }
+    if schema == "shared_cash_replay_ledger_v2":
+        expected_fields.add("decisions")
+    if set(payload) != expected_fields:
+        raise ValueError("candidate shared-cash ledger payload fields are malformed")
+    if payload["schema_version"] != schema:
+        raise ValueError("candidate shared-cash ledger payload schema is inconsistent")
+    if payload["dataset_id"] != summary.get("dataset_id"):
+        raise ValueError(
+            "candidate shared-cash ledger dataset identity is inconsistent"
+        )
+    digest = ledger.get("digest")
+    try:
+        payload_digest = content_digest(payload)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "candidate shared-cash ledger payload is not canonical"
+        ) from error
+    if payload_digest != digest:
+        raise ValueError("candidate shared-cash ledger digest does not match payload")
+    policy_digest = payload["execution_policy_digest"]
+    if not isinstance(policy_digest, str):
+        raise ValueError("candidate shared-cash ledger policy digest is malformed")
+    require_sha256(policy_digest, field="candidate shared-cash execution policy digest")
+
+    start = payload["start_index"]
+    stop = payload["stop_index"]
+    if (
+        isinstance(start, bool)
+        or not isinstance(start, int)
+        or isinstance(stop, bool)
+        or not isinstance(stop, int)
+        or stop - start != expected_periods
+    ):
+        raise ValueError("candidate shared-cash ledger index coverage is malformed")
+    intervals = payload["intervals"]
+    if (
+        not isinstance(intervals, (list, tuple))
+        or len(intervals) != expected_periods
+        or len(intervals) != ledger["interval_count"]
+    ):
+        raise ValueError("candidate shared-cash ledger intervals are incomplete")
+    interval_fields = {
+        "borrow_cost_after",
+        "borrow_cost_before",
+        "cash_after",
+        "cash_before",
+        "capacity_events",
+        "exact_quantities_after",
+        "exact_quantities_before",
+        "funding_events",
+        "funding_pnl_after",
+        "funding_pnl_before",
+        "interval_borrow_cost",
+        "interval_cash_interest",
+        "interval_cost",
+        "interval_dividend",
+        "interval_funding",
+        "interval_net_return",
+        "max_drawdown_after",
+        "max_drawdown_before",
+        "next_index",
+        "order_events",
+        "portfolio_value_after",
+        "portfolio_value_before",
+        "start_index",
+        "termination_reason",
+        "total_cost_after",
+        "total_cost_before",
+        "turnover_total_after",
+        "turnover_total_before",
+    }
+    previous_next_index = start
+    for interval in intervals:
+        if not isinstance(interval, Mapping) or set(interval) != interval_fields:
+            raise ValueError("candidate shared-cash ledger interval is malformed")
+        interval_start = interval["start_index"]
+        interval_next = interval["next_index"]
+        if (
+            isinstance(interval_start, bool)
+            or not isinstance(interval_start, int)
+            or interval_start != previous_next_index
+            or isinstance(interval_next, bool)
+            or not isinstance(interval_next, int)
+            or interval_next != interval_start + 1
+        ):
+            raise ValueError("candidate shared-cash ledger interval chain is broken")
+        previous_next_index = interval_next
+        for field in ("exact_quantities_before", "exact_quantities_after"):
+            values = interval[field]
+            if (
+                not isinstance(values, (list, tuple))
+                or len(values) != len(symbols)
+                or any(not isinstance(value, str) for value in values)
+            ):
+                raise ValueError(
+                    "candidate shared-cash ledger quantities are malformed"
+                )
+        for field in ("order_events", "capacity_events", "funding_events"):
+            if not isinstance(interval[field], (list, tuple)):
+                raise ValueError("candidate shared-cash ledger events are malformed")
+    if previous_next_index != stop:
+        raise ValueError("candidate shared-cash ledger interval chain is incomplete")
+
+    terminal_quantities = payload["terminal_exact_quantities"]
+    if (
+        not isinstance(terminal_quantities, (list, tuple))
+        or len(terminal_quantities) != len(symbols)
+        or any(not isinstance(value, str) for value in terminal_quantities)
+        or list(terminal_quantities) != ledger["terminal_exact_quantities"]
+    ):
+        raise ValueError(
+            "candidate shared-cash ledger terminal quantities are malformed"
+        )
+    if schema == "shared_cash_replay_ledger_v2":
+        decisions = payload["decisions"]
+        if (
+            not isinstance(decisions, (list, tuple))
+            or len(decisions) != ledger["decision_count"]
+            or len(decisions) > expected_periods
+        ):
+            raise ValueError("candidate shared-cash ledger decisions are incomplete")
+        decision_fields = {
+            "changed_intents",
+            "effective_intents",
+            "index",
+            "intents",
+            "minimum_hold_suppressed",
+            "minimum_hold_unlocked",
+            "position_age_bars_after",
+            "position_age_bars_before",
+            "position_quantity_after",
+            "position_quantity_before",
+            "proposal_weights",
+            "risk_reasons",
+            "target_weights",
+        }
+        previous_decision_index = start - 1
+        intent_values = {-1, 0, 1}
+        symbol_sequences = (
+            "changed_intents",
+            "effective_intents",
+            "intents",
+            "minimum_hold_suppressed",
+            "minimum_hold_unlocked",
+            "position_age_bars_after",
+            "position_age_bars_before",
+            "position_quantity_after",
+            "position_quantity_before",
+            "proposal_weights",
+            "target_weights",
+        )
+        for decision in decisions:
+            if not isinstance(decision, Mapping) or set(decision) != decision_fields:
+                raise ValueError("candidate shared-cash ledger decision is malformed")
+            index = decision["index"]
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, int)
+                or not start <= index < stop
+                or index <= previous_decision_index
+            ):
+                raise ValueError(
+                    "candidate shared-cash ledger decision index is invalid"
+                )
+            previous_decision_index = index
+            for field in symbol_sequences:
+                values = decision[field]
+                if not isinstance(values, (list, tuple)) or len(values) != len(symbols):
+                    raise ValueError(
+                        "candidate shared-cash ledger decision roster is malformed"
+                    )
+            for field in ("intents", "effective_intents"):
+                if any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value not in intent_values
+                    for value in decision[field]
+                ):
+                    raise ValueError("candidate shared-cash ledger intent is invalid")
+            for field in (
+                "changed_intents",
+                "minimum_hold_suppressed",
+                "minimum_hold_unlocked",
+            ):
+                if any(not isinstance(value, bool) for value in decision[field]):
+                    raise ValueError(
+                        "candidate shared-cash ledger action flags are malformed"
+                    )
+            for field in ("position_age_bars_before", "position_age_bars_after"):
+                if any(
+                    isinstance(value, bool) or not isinstance(value, int) or value < 0
+                    for value in decision[field]
+                ):
+                    raise ValueError("candidate shared-cash ledger ages are malformed")
+            for field in (
+                "position_quantity_before",
+                "position_quantity_after",
+                "proposal_weights",
+                "target_weights",
+            ):
+                if any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in decision[field]
+                ):
+                    raise ValueError(
+                        "candidate shared-cash ledger decision values are malformed"
+                    )
+            if not isinstance(decision["risk_reasons"], (list, tuple)) or any(
+                not isinstance(reason, str) for reason in decision["risk_reasons"]
+            ):
+                raise ValueError(
+                    "candidate shared-cash ledger risk reasons are malformed"
+                )
+
+
+def _validate_v8_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_v7_replay_evidence(summary, require_ledger_payload=True)
 
 
 def _load_returns(
@@ -1282,6 +1562,9 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v7_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V8:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v8_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -1294,6 +1577,8 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V6:
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V7:
+        _validate_v7_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V8:
         _validate_v7_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,

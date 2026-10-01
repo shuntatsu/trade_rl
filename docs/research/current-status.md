@@ -49,14 +49,18 @@ one account, with a versioned per-decision ledger. The immutable v5 StudyPlan
 above still means five independent 100,000 USDT accounts and retains that
 historical selection semantics. A new `ppo_shared_cash_holding_duration_v2`
 protocol now has a separate `canonical_m2_bootstrap_config_v6` /
-`controlled_study_plan_v6` identity. Its
-Candidate Run schema v7 persists the combined portfolio return series,
-terminal account state, and shared-ledger identity; comparison schema v4
-recomputes each seed's combined return / drawdown and selects on shared-cash
-results rather than averaging symbol accounts. Mocked bootstrap and full
-Study-lifecycle tests exercise this path. The local implementation is not yet
-cleared by the required fresh result-blind G0-G2 review, and no v2 fit or
-economic replay has been run. The previous sealed one-shot normalization run
+`controlled_study_plan_v6` identity, and fixes the shared account scale at
+100,000 USDT in both bootstrap and StudyPlan validation. Candidate Run schema
+v8 persists the combined portfolio return series, terminal account state, and
+complete per-interval shared-cash ledger; its loader checks ledger digest and
+coverage, while comparison schema v4 recomputes each seed's combined return /
+drawdown and selects on shared-cash results rather than averaging symbol
+accounts. Mocked bootstrap and full Study-lifecycle tests exercise this path.
+The capital-boundary and full-ledger artifact tests, same-market PPO
+training/replay parity test, and independently hand-calculated multi-symbol
+cash/cost oracle pass locally. A fresh exact-head result-blind G0-G2 review and
+the repository quality gates are still required. No v2 fit or economic replay
+has been run. The previous sealed one-shot normalization run
 36356182462 completed execution but its independent verification failed, so it
 published no verified comparison. No verified PPO profitability result exists.
 

@@ -133,10 +133,13 @@ environment a joint portfolio learner, and does not change the independent-accou
 meaning of the currently frozen v1 Study.
 
 New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
-`lean_candidate_result_v7`. The artifact binds the combined return series,
-terminal cash / quantities, active-order and settlement state, and versioned
-shared-cash ledger digest; loading recomputes return and maximum drawdown from
-the return series. This provides the v2 Study's single-account comparison input
+`lean_candidate_result_v8`. The artifact binds the combined return series,
+terminal cash / quantities, active-order and settlement state, and the complete
+versioned shared-cash ledger, including per-interval execution events and
+requested/effective decisions. Loading verifies the ledger digest and coverage,
+then recomputes return and maximum drawdown from the return series. Historical
+`lean_candidate_result_v7` artifacts remain readable with their digest-only
+ledger evidence. This provides the v2 Study's single-account comparison input
 while preserving v1 per-symbol selection semantics.
 
 ### PPO training layout

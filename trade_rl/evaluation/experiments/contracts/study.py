@@ -75,6 +75,7 @@ class StudyProtocol(StrEnum):
 PPO_HOLDING_DURATION_HORIZONS = (72, 168, 336, 504)
 PPO_HOLDING_DURATION_SEED_COUNT = 5
 PPO_HOLDING_DURATION_MAX_DRAWDOWN = 0.20
+PPO_SHARED_CASH_INITIAL_CAPITAL = 100_000.0
 PPO_HOLDING_DURATION_RISK_CONFIG = PreTradeRiskConfig(
     max_gross=0.5,
     max_abs_weight=0.1,
@@ -326,6 +327,14 @@ class StudyPlan:
             ):
                 raise ContractViolationError(
                     "StudyPlan violates the PPO holding-duration protocol"
+                )
+            if (
+                protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                and self.baseline_config.initial_capital
+                != PPO_SHARED_CASH_INITIAL_CAPITAL
+            ):
+                raise ContractViolationError(
+                    "shared-cash PPO StudyPlan requires initial capital of 100,000 USDT"
                 )
             selection_rule = (
                 PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE

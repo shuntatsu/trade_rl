@@ -427,6 +427,10 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "ppo_holding_duration_v1" in research
     assert "ppo_shared_cash_holding_duration_v2" in research
     assert "one 100,000 USDT account shared" in research
+    assert "Candidate Run schema" in research
+    assert "v8 persists" in research
+    assert "complete per-interval shared-cash ledger" in research
+    assert "independently hand-calculated multi-symbol" in research
     assert "StudyResearchContext" in research
     assert "既存artifactは当時の意味を維持" in research
 
@@ -437,6 +441,9 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "100,000 USDT" in guide_status
     assert "個別銘柄リターンの平均ではなく" in guide_status
     assert "G0-G2" in guide_status
+    assert "Candidate Run v8" in guide_status
+    assert "training/replay parity test" in guide_status
+    assert "multi-symbol cash/cost oracle" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:

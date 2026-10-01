@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
     SharedCashStrategyComparisonEntry,
@@ -416,11 +417,36 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
 
     assert loaded.has_verified_full_evaluation_coverage
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v8"
     portfolio = loaded.summary["shared_cash_ppo"]
     assert portfolio["name"] == "ppo"
     assert portfolio["final_portfolio_value"] == 1_000.0
     assert portfolio["terminal_settlement_complete"] is True
     assert portfolio["ledger_evidence"]["interval_count"] == 3
     assert len(portfolio["ledger_evidence"]["digest"]) == 64
+    ledger_payload = portfolio["ledger_evidence"]["payload"]
+    assert content_digest(ledger_payload) == portfolio["ledger_evidence"]["digest"]
+    assert len(ledger_payload["intervals"]) == 3
+    assert (
+        len(ledger_payload["decisions"])
+        == portfolio["ledger_evidence"]["decision_count"]
+    )
     assert np.array_equal(loaded.returns["shared_cash_ppo"], np.zeros(3))
+
+    v8_summary_text = published.summary_path.read_text(encoding="utf-8")
+    legacy_summary = json.loads(v8_summary_text)
+    legacy_summary["schema_version"] = "lean_candidate_result_v7"
+    del legacy_summary["shared_cash_ppo"]["ledger_evidence"]["payload"]
+    published.summary_path.write_text(json.dumps(legacy_summary), encoding="utf-8")
+    legacy_loaded = candidate_artifact.load_candidate_run_artifact(published.root)
+    assert legacy_loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert legacy_loaded.has_verified_full_evaluation_coverage
+
+    published.summary_path.write_text(v8_summary_text, encoding="utf-8")
+    tampered_summary = json.loads(published.summary_path.read_text(encoding="utf-8"))
+    tampered_summary["shared_cash_ppo"]["ledger_evidence"]["payload"]["intervals"][0][
+        "cash_after"
+    ] += 1.0
+    published.summary_path.write_text(json.dumps(tampered_summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="ledger.*digest|digest.*ledger"):
+        candidate_artifact.load_candidate_run_artifact(published.root)

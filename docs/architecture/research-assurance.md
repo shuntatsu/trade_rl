@@ -139,6 +139,14 @@ drawdown is at most 20%, and the median paired portfolio return difference is
 positive. The primary score is the median candidate portfolio total return;
 ties go to the shorter hold. No eligible arm means NO_WINNER.
 
+The frozen v2 account scale is exactly 100,000 USDT. The entire symbol roster
+shares that one cash balance and one portfolio value; each per-symbol target is
+expressed against that combined portfolio value. The shared portfolio's
+drawdown is the risk-control input, and the 20% limit is also checked against
+the realized equity path for every seed. Bootstrap and StudyPlan validation
+reject any other starting capital because order minima, quantity rounding, and
+capacity can otherwise change the fills under the same protocol identity.
+
 Training remains on single-symbol PPO episodes while v2 evaluation combines
 their proposals in one shared-cash book. Therefore this estimates whether the
 existing per-symbol PPO policy behaves acceptably under the declared portfolio
@@ -147,7 +155,7 @@ The pre-trade 20% stop also cannot prevent a larger realized loss after price
 gaps. v2 requires a fresh result-blind G0-G2 review of this training/evaluation
 scope and the exact implementation before any fit or economic replay.
 
-### G1 — fixed mechanism and claim limits
+### G1 — independent-account v1 mechanism and claim limits
 
 The planned base clock is 1h and each PPO is freshly fitted on the same causal
 Dataset and ordered fit scope. Features, seed roster, requested/realized PPO
@@ -157,10 +165,12 @@ evaluation timestamps, and terminal settlement are identical. Only
 `max_gross=0.5`, `max_abs_weight=0.1`, `max_turnover=null`,
 `drawdown_start=0.10`, `drawdown_stop=0.20`, with the remaining
 `PreTradeRiskConfig` defaults. The same object is used in training and every
-strategy replay. These limits apply independently to each symbol account; they
-do not create joint shared cash or portfolio-wide drawdown control. A hard stop
-cannot prevent a gap from realizing more than 20% drawdown. All arms settle the
-terminal position through the same executor and costs.
+strategy replay. In legacy `ppo_holding_duration_v1`, these limits apply
+independently to each symbol account and do not create joint shared cash or
+portfolio-wide drawdown control. In `ppo_shared_cash_holding_duration_v2`, the
+same risk settings are applied once to the combined book described above.
+A hard stop cannot prevent a gap from realizing more than 20% drawdown. All
+arms settle the terminal position through the same executor and costs.
 
 Every age-aware candidate resolver requires exactly regular one-hour bars, so
 72/168/336/504 mean 3/7/14/21 elapsed days rather than an arbitrary number of
@@ -200,7 +210,11 @@ The evaluation layer now also exposes a distinct `run_shared_cash_replay` path
 that can enforce per-symbol age from actual shared-book fills, then apply one
 portfolio risk projection and terminal settlement through one ledger. Its v2
 ledger records raw/effective intents, ages, quantities, and suppression/unlock
-state. This is a software capability only: it does not change the frozen v1
+state. Candidate Run v8 persists the complete per-interval ledger payload; the
+loader verifies its digest, decision roster, and gap-free interval coverage
+before accepting the artifact. Same-market training/replay parity and an
+independently hand-calculated multi-symbol cash/cost oracle exercise this
+boundary. This is a software capability only: it does not change the frozen v1
 Study's independent-account denominator, risk, or selection semantics, and it
 does not turn the existing one-active-symbol PPO training environment into a
 joint portfolio learner. Any Study that uses the shared path must create a new

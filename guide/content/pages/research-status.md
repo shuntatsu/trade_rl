@@ -1,86 +1,20 @@
 ## 結論
 
-現在のTrade RLは、**再現可能な実データbaselineとControlled Experimentを検証できる研究基盤までは成立しているが、継続的な利益性やwinner strategyはまだ証明していない**段階です。
+Trade RLは再現可能なbaselineとcontrolled experimentを検証できる段階ですが、継続的な利益性や優位なstrategyはまだ証明していません。Portable Controlled Experiment 0001の正式判断は `KEEP_BASELINE` です。候補は5銘柄すべてでbaselineを上回りましたが、候補自身のリターンが正だったのは1銘柄でした。
 
-Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
+## PPO中期保有期間の比較
 
-## PPO中期保有期間の次期設計
+次はPPOを使い、H=0と3 / 7 / 14 / 21日相当の最低保有期間を同じデータ・費用・リスク条件・5 seedで比べる設計です。v1は銘柄ごとの独立口座、v2は5銘柄を一つの100,000 USDT口座で評価する別protocolです。v2ではportfolio全体のリターンとdrawdownで判定し、Candidate Run v8に各intervalの完全なexecution ledgerを保存します。
 
-従来の独立口座版 `ppo_holding_duration_v1` は、PPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。
+v2のcapital境界、ledger保存、同一市場でのPPO学習環境とreplayの照合、multi-symbol手計算oracleを追加しました。PPOの学習自体はsingle-symbolのままなので、shared-cash portfolioを学習したことにはなりません。20% drawdownは研究対象の適格性条件であり、価格gap後の最大損失を保証する上限ではありません。
 
-共通資金版 `ppo_shared_cash_holding_duration_v2` も実装しました。5銘柄をseedごとに一つの100,000 USDT口座で評価し、個別銘柄リターンの平均ではなくportfolio全体のreturn/DDで選びます。bootstrap v6 / StudyPlan v6 / comparison v4でv1と分離し、終端flat・残注文なし・最大DD 20%以下・H=0比のseed中央値が正を条件、seed中央値returnをscoreとします。PPO学習はsingle-symbolのままです。mocked bootstrap / synthetic lifecycle testsは通過しましたが、G0-G2独立reviewは未完了で、v2 fit・経済replayは未実行です。利益性や勝者は未確認です。
-
-正確なBinance Dataset、開発・最終期間、immutable StudyPlanは2026-10-01にresult-blindで固定し、ネットワークを使わない独立検査で同じidentityを再確認しました。5銘柄を2023-01から2026-08まで開発評価し、2026-11から2027-11を未使用期間として予約しています。これは研究を始めるための準備であり、H=0も保有期間候補もまだ学習・経済評価していません。まずG0-G2のfresh independent reviewとcontract checksを閉じてからH=0の学習へ進みます。Study workflowは外部レビューを認証するgateを持たず、書き手が用意したレビューJSONも承認証拠として受け付けません。G0-G2が閉じるまでは実行者が学習・候補実行を止める必要があります。G2は新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。Guide説明の人間確認はfingerprint更新前に必要な別の文書ゲートで、G2 oracleとは別です。PPO利益や保有期間の勝者は未確認で、利益性の主張には別の未使用期間評価が必要です。
-
-## 検証済みの証拠
-
-- `market_build_v3` と `portable_feature_numerics_v1` を固定。
-- 価格付きDataset全体のidentityを、確認済みのAMD / Intel hosted runner間でbyte-identicalに再現。
-- 結果を見る前のportable preregistrationをbaseline実行より先に封印。
-- 5銘柄 × 8戦略 × 5 seedのportable baseline evidenceを生成。
-- 取引あり175 observationsすべてでtotal costが正値であることを確認。
-- 別runnerでDataset / StudyPlanを再構築し、生のCandidate Runsから独立再計算。
-- Portable Controlled Experiment 0001をfresh result re-verificationまで完了。
-- Experiment 0001で影響外のraw return一致150 checksと、決定的metricのseed不変性1120 checksを検証。
-
-## Experiment 0001で分かったこと
-
-mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnoverも低下しました。
-
-しかしcandidate total returnが正だったのは **1 / 5銘柄** でした。
-
-| 観測 | 結果 |
-| --- | --- |
-| baseline比で改善したmean-reversion銘柄 | 5 / 5 |
-| candidate total returnが正の銘柄 | 1 / 5 |
-| formal decision | `KEEP_BASELINE` |
-
-事前登録ruleではpositive candidate symbolが3 / 5以下ならKEEP_BASELINEです。そのため、改善幅が見えてもruleを書き換えてcandidateを採用していません。
-
-## 現在維持するもの
-
-現在のdevelopment基準はbaselineのままです。
-
-PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。execution rootはprepareだけがstagingからatomicに公開し、slot claim/failureはprepared rootのidentityから導出します。bundleはmanifestとparent pathを安全に確認してから読込み、fit/reloadとも262,144 timestepsを必須にします。source/runtimeも長いfit/replay後、resultを保存する前に再確認します。
-
-economic activationは非Pythonのcanonical `ppo_normalization_activation.json` で別管理し、現在も `activation_sha256=null` のためfail-closedです。activationはreview済みimplementationに加えてimplementation seal・fresh reconstruction・result-blind assurance reviewのdigestをbindします。さらにone-shot transport capabilityを別に実装し、current `main` を含むopen Draft request PR、exact-head Core / real-PPO / Guide / independent-review Green、固定source Artifact、未使用のstatic activation tagを再検証してから初めてactivationを作る契約にしています。request PR HEADは承認provenanceでありeconomic sourceではありません。request recordが#770のreview/seal済みsource SHAを別にbindし、fit/replayとno-refit verifierはそのsealed sourceをcheckoutするため、後からcurrent `main` に入ったPython変更を実験factorへ混入させません。10 slotsは同じactivation runtimeで実行し、全slot完了まではexecution artifactを公開しません。途中失敗で公開できるのは経済値を含まないfailure receiptだけです。
-
-local `verified.json` だけではindependent verificationとは扱わず、complete execution artifactを別のno-refit verifierがid/run/raw digest付きで再取得し、10 slotsのverification identityをfresh verifier artifact authorityへbindした後だけfinalizerがcomparisonを公開します。ただし、このtransportが実装済みであること自体はeconomic authorizationではありません。現在はrequest activation tagも作成されておらず、corrected-economicsのfit/replay/P&Lは未実行です。
-
-trainingは既存のone-active-symbol episode / `risk_config=None`、evaluationはshared-cash accountと10%/20% drawdown hard riskという共通のtrain/eval差を残します。この差は両arm共通なのでnormalization-only比較のfactorは変えませんが、shared-cash問題そのものを学習済みだという主張はできません。したがって、この境界の実装完了はprofitability、unused-data validation、production/live適格性を意味しません。
-
-次のControlled Experimentでも、変更要因を結果より前に一つ固定し、factor isolation、unaffected raw-return equality、metric invariance、cost semanticsを再検証します。
-
-PPOには、既定sequentialを維持したままlayoutだけを比較できるopt-in要因も追加しました。合成CPUデータで同じ2,048 transitionsを学習した速度確認ではinterleaved/512の中央値が13.9%短くなりましたが、policy hashは異なり、実データの速度・経済性は未検証です。この結果だけではPPOの利益性や採用可否を判断せず、正式比較では実際のtransition数を揃えます。
+5銘柄、2023-01〜2026-08の開発期間、2026-11〜2027-11の未使用期間、immutable StudyPlanはresult-blindで固定済みです。fresh independent reviewと関連contract checksが終わるまでG0-G2は未確立で、v2のPPO fit・経済replayは未実行です。次はレビューを閉じ、H=0から新規学習して事前登録済み候補と比較します。
 
 ## まだ主張しないこと
 
-- 継続的なprofitability。
-- winner strategyの選定。
 - PPOやforecastがrule strategyより優れること。
-- unused future dataで同じedgeが続くこと。
-- Production/live order routingの認可。
+- 中期保有が利益を生むこと、またはwinnerが選ばれたこと。
+- 未使用期間でも同じedgeが続くこと。
+- Production/live order routingの適格性。
 
-## 残っている制約
-
-| 制約 | 現在の意味 |
-| --- | --- |
-| portable numerics | repositoryが支援する標準Dataset構築と確認済みrunner環境が対象。任意platformまでの普遍保証ではない |
-| fee / spread | 再現可能な研究仮定。account-specificな実績値そのものではない |
-| market impact / slippage | Dataset-authoritativeなモデルは未導入 |
-| Experiment 0001 implementation | freeze済み旧implementationで完了。後発修正を遡及適用していない |
-
-PPO aggregate metricはExperiment 0001のformal decision oracleには使っていません。
-
-## 次の研究ゲート
-
-1. developmentで一因子Experimentを積む。
-2. winner / no-winner判断を事前ruleに従って固定する。
-3. 一般のfinal-eligibleな新規Studyはbootstrap v4 / StudyPlan v3、PPO保有期間protocolはbootstrap v5 / StudyPlan v5でunused windowを事前登録する。final startはdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後に置き、historical StudyPlanへwindowを後付けしない。
-4. そのStudyがWINNERになった場合だけ、実装済みのfinal authorization gateでStudy freeze・winner evidence・事前登録windowをone-shot artifactへbindする。
-5. authorizationとは別の将来consumerが、そのartifactを検証して初めてsealed unused-futureを開く。
-6. final evaluation後もexecution stress、capacity、account-specific economicsを別途確認する。
-
-**authorization gateが実装済みであることは、final Datasetを開いたこと・final P&Lを得たこと・production適格性を意味しません。** 現時点ではfinal economic evaluationそのものは未実行です。
-
-**「baselineを再現できる」から「実運用で継続的に儲かる」までには、まだ複数の反証ゲートが残っています。**
+費用とslippageは再現可能な研究仮定で、口座固有の実績値ではありません。優位性の主張には、凍結したwinnerを未使用期間で一度だけ検証する別ゲートが必要です。

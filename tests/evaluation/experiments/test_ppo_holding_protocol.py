@@ -138,11 +138,14 @@ def _holding_study(
     )
     monkeypatch.setattr(evidence_module, "execute_candidate_run", execute)
     root = tmp_path / "study"
+    baseline_config = _holding_config()
+    if protocol == "ppo_shared_cash_holding_duration_v2":
+        baseline_config = replace(baseline_config, initial_capital=100_000.0)
     snapshot = create_study(
         root,
         dataset_root=dataset_root,
         research_question="Does a PPO minimum holding period improve net returns?",
-        baseline_config=_holding_config(),
+        baseline_config=baseline_config,
         ppo_seeds=(2, 5, 9, 13, 17),
         allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
         max_experiments=len(_HORIZONS),
@@ -195,6 +198,8 @@ def test_handwritten_review_record_is_not_an_authoritative_assurance_gate(
 def _define_all_horizons(root: Path, dataset_root: Path, baseline) -> None:
     assert baseline.baseline is not None
     config = _holding_config()
+    if baseline.plan.is_ppo_shared_cash_holding_duration_study:
+        config = replace(config, initial_capital=100_000.0)
     for horizon in _HORIZONS:
         define_experiment(
             root,

@@ -130,7 +130,10 @@ def test_non_object_json_and_symlink_are_rejected(tmp_path: Path) -> None:
     real = tmp_path / "real.json"
     real.write_text(json.dumps(_valid_payload()), encoding="utf-8")
     link = tmp_path / "link.json"
-    link.symlink_to(real)
+    try:
+        link.symlink_to(real)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     with pytest.raises(ValueError, match="regular file"):
         load_canonical_m2_bootstrap_config(link)
 

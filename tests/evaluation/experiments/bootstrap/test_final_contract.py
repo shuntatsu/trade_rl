@@ -53,7 +53,10 @@ def test_output_parent_symlink_is_rejected(
     real_parent = tmp_path / "real-parent"
     real_parent.mkdir()
     linked_parent = tmp_path / "linked-parent"
-    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    try:
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this platform")
 
     with pytest.raises(ValueError, match="output parent|symlink"):
         bootstrap_canonical_m2_study(

@@ -529,7 +529,10 @@ def test_ppo_artifact_load_rejects_symlink_members_before_policy_deserialization
     external = tmp_path / f"external-{artifact_kind}-{member_name}"
     external.write_bytes(member.read_bytes())
     member.unlink()
-    member.symlink_to(external)
+    try:
+        member.symlink_to(external)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     Policy.loaded = False
     Policy.load_path = None
 
@@ -641,7 +644,10 @@ def test_ppo_artifact_publish_rejects_dangling_symlink_destination(
     publisher,
 ) -> None:
     root = tmp_path / f"{publisher}-bundle"
-    root.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    try:
+        root.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this platform")
 
     if publisher == "normalized":
         strategy = PPOIntentStrategy(

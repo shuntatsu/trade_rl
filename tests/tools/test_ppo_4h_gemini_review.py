@@ -249,7 +249,10 @@ def test_result_blind_packet_rejects_missing_or_symlinked_source(
     _target(tmp_path)
     target = tmp_path / review.PACKET_FILES[0]
     target.unlink()
-    target.symlink_to(tmp_path / review.PACKET_FILES[1])
+    try:
+        target.symlink_to(tmp_path / review.PACKET_FILES[1])
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     with pytest.raises(ValueError, match="packet source"):
         review.build_result_blind_packet(
             tmp_path,
@@ -267,7 +270,10 @@ def test_result_blind_packet_rejects_symlinked_parent_directory(
     docs = tmp_path / "docs"
     outside = tmp_path / "outside-docs"
     docs.rename(outside)
-    docs.symlink_to(outside, target_is_directory=True)
+    try:
+        docs.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this platform")
 
     with pytest.raises(ValueError, match="packet source"):
         review.build_result_blind_packet(

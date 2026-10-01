@@ -1055,8 +1055,11 @@ def available_memory_bytes() -> int:
 
 def _process_group_has_live_members(process_group_id: int) -> bool:
     if os.name != "posix" or not Path("/proc").is_dir():
+        killpg = getattr(os, "killpg", None)
+        if killpg is None:
+            return False
         try:
-            os.killpg(process_group_id, 0)
+            killpg(process_group_id, 0)
         except ProcessLookupError:
             return False
         return True
@@ -1092,15 +1095,18 @@ def _wait_for_process_group_exit(process_group_id: int, timeout: float) -> bool:
 def _kill_process_group(process: subprocess.Popen[bytes]) -> None:
     if os.name == "posix":
         process_group_id = process.pid
-        try:
-            os.killpg(process_group_id, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        _wait_for_process_group_exit(process_group_id, 5)
-        try:
-            os.killpg(process_group_id, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        killpg = getattr(os, "killpg", None)
+        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+        if killpg is not None:
+            try:
+                killpg(process_group_id, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            _wait_for_process_group_exit(process_group_id, 5)
+            try:
+                killpg(process_group_id, sigkill)
+            except ProcessLookupError:
+                pass
         if not _wait_for_process_group_exit(process_group_id, 5):
             raise TransportError("checkpoint child process group did not stop")
         process.wait()

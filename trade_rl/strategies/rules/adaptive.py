@@ -68,6 +68,7 @@ class RegimeAdaptiveStrategy:
         )
         self._unrealized_return: float = 0.0
         self._peak_unrealized_return: float = 0.0
+        self._tracked_position_side: PositionIntent | None = None
         self._last_index: int = -1
         self._protective_exit_pending = False
 
@@ -81,9 +82,18 @@ class RegimeAdaptiveStrategy:
         sig_idx = self.config.signal_index
         gross_position_return = observation.gross_position_return
         if gross_position_return is not None:
+            position_side = observation.current_intent
+            new_position = self._tracked_position_side is not position_side or (
+                observation.index != self._last_index
+                and observation.position_age_bars == 1
+            )
+            if new_position:
+                self._reset_pnl_tracking()
+                self._protective_exit_pending = False
+                self._tracked_position_side = position_side
             if self._protective_exit_pending:
                 return PositionIntent.FLAT
-            if observation.index != self._last_index:
+            if new_position or observation.index != self._last_index:
                 self._unrealized_return = gross_position_return
                 if self._unrealized_return > self._peak_unrealized_return:
                     self._peak_unrealized_return = self._unrealized_return
@@ -152,6 +162,7 @@ class RegimeAdaptiveStrategy:
     def _reset_pnl_tracking(self) -> None:
         self._unrealized_return = 0.0
         self._peak_unrealized_return = 0.0
+        self._tracked_position_side = None
 
 
 __all__ = ["AdaptiveProfitConfig", "RegimeAdaptiveStrategy"]

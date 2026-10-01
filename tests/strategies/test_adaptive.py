@@ -143,6 +143,37 @@ def test_adaptive_trailing_stop() -> None:
     assert strategy.protective_exit_pending
 
 
+def test_adaptive_trailing_peak_resets_on_direct_position_reversal() -> None:
+    cfg = AdaptiveProfitConfig(
+        trend_entry_threshold=0.01,
+        trend_exit_threshold=0.002,
+        volatility_regime_threshold=0.005,
+        trailing_stop_threshold=0.015,
+    )
+    strategy = RegimeAdaptiveStrategy(cfg)
+
+    prior_long = _make_obs(
+        [0.02, 0.02],
+        index=1,
+        current_intent=PositionIntent.LONG,
+        current_weight=0.2,
+        position_age_bars=1,
+        gross_position_return=0.04,
+    )
+    assert strategy.decide(prior_long) is PositionIntent.LONG
+
+    reversed_short = _make_obs(
+        [-0.02, 0.02],
+        index=2,
+        current_intent=PositionIntent.SHORT,
+        current_weight=-0.2,
+        position_age_bars=1,
+        gross_position_return=0.0,
+    )
+    assert strategy.decide(reversed_short) is PositionIntent.SHORT
+    assert not strategy.protective_exit_pending
+
+
 def test_adaptive_max_holding_bars() -> None:
     cfg = AdaptiveProfitConfig(
         trend_entry_threshold=0.01,

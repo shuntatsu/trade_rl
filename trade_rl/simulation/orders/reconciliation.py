@@ -182,20 +182,30 @@ def reconcile_target(
     cancelled: list[PendingOrder] = []
     intents: list[OrderIntent] = []
     residuals = np.zeros_like(desired)
+    exact_quantities = book.exact_quantities
 
     for symbol_index in range(weights.size):
+        current = exact_quantities[symbol_index]
+        wanted = exact_quantity(float(desired[symbol_index]))
         target_delta = desired[symbol_index] - quantities[symbol_index]
-        reduce_only = False
-        if reduce_only_symbols is not None and symbol_index in reduce_only_symbols:
-            current = book.exact_quantities[symbol_index]
-            wanted = exact_quantity(float(desired[symbol_index]))
-            reduce_only = bool(
+        legacy_flatten = bool(
+            reduce_only_symbols is None
+            and order_type is OrderType.MARKET
+            and current
+            and wanted == 0
+        )
+        profile_reduce = bool(
+            reduce_only_symbols is not None
+            and symbol_index in reduce_only_symbols
+            and (
                 current
                 and (wanted == 0 or current * wanted > 0)
                 and abs(wanted) < abs(current)
             )
-            if reduce_only:
-                target_delta = project_quantity(wanted - current)
+        )
+        reduce_only = legacy_flatten or profile_reduce
+        if reduce_only:
+            target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)
         active_residual = float(sum(order.remaining_quantity for order in active))
         compatible = all(

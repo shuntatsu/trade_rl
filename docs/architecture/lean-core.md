@@ -256,7 +256,10 @@ checks the actual priority sequence, including ordinary fills, and caps each
 closing fill at the opposite inventory remaining. Exhausted active remainders
 expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional
-and all existing constraints still apply and target reconciliation does not opt in.
+and all existing constraints still apply. A legacy zero-target MARKET request is
+represented internally as a reduce-only exact-inventory close, but this does not
+waive its minimum-notional or other execution constraints; ordinary same-side
+reductions remain ordinary orders without an explicit profile.
 
 The optional `MarketOrderProfile` binds verified Dataset identity/full symbol order,
 selected source rules, raw source hash/retrieval, one-way USD-M assumption and the
@@ -280,8 +283,10 @@ Across target reconciliation, an equal outstanding residual is reused only when
 its Dataset identity, execution-policy identity and reduce-only flag all match the
 current request. A stale-identity residual is cancelled and replaced before
 admission rather than being reused only to fail later with `identity_mismatch`.
-Exact closing deltas still project conservatively to float requests, so unusual
-non-representable inventories can retain an executable lot. No dust is written off.
+Exact closing deltas still project conservatively to float requests. A
+capacity-sufficient no-lot reduce-only fill consumes the exact inventory when its
+request covers the projected position; lot- or capacity-limited fills retain their
+exact remainder. No dust is written off.
 Selected non-MARKET orders and the compatibility `liquidate_at_close` shortcut fail
 closed in profile mode; use explicit stateful orders. Side permissions, funding,
 costs and margin keep their existing owners. The profile is not a complete live

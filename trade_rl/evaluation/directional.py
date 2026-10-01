@@ -126,9 +126,7 @@ def evaluate_directional_arm(
         )
         for year in sorted(set(years[: len(values)]))
     }
-    terminal_flat = bool(np.all(np.abs(replay.book.quantities) <= 1e-10))
-    if market_order_profile is not None:
-        terminal_flat = all(quantity == 0 for quantity in replay.book.exact_quantities)
+    terminal_flat = all(quantity == 0 for quantity in replay.book.exact_quantities)
     qualified = bool(
         full_length
         and terminal_flat

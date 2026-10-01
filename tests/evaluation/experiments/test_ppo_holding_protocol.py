@@ -13,6 +13,7 @@ from tests.evaluation.experiments.test_evidence import (
     _fake_execute,
 )
 from trade_rl.data import publish_market_dataset_artifact
+from trade_rl.evaluation.comparison.strategies import SharedCashStrategyComparisonEntry
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
     ContractViolationError,
@@ -24,16 +25,26 @@ from trade_rl.evaluation.experiments import (
     create_study,
     decide_experiment,
     define_experiment,
+    freeze_study,
     inspect_study,
     run_baseline,
     run_experiment,
     verify_experiment,
 )
-from trade_rl.evaluation.experiments.contracts import StudyResearchContext
+from trade_rl.evaluation.experiments.contracts import (
+    StudyOutcome,
+    StudyResearchContext,
+)
 from trade_rl.evaluation.experiments.protocols import (
     PPOHoldingDurationMetrics,
     ppo_holding_winner_digest,
 )
+from trade_rl.evaluation.metrics import evaluate_performance
+from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.risk import PreTradeRisk
+from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.position_intent import PositionIntent
 
 _HORIZONS = (72, 168, 336, 504)
 _NOW = datetime(2026, 9, 29, tzinfo=UTC)
@@ -68,13 +79,64 @@ def _holding_config():
     )
 
 
-def _holding_study(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _fake_shared_cash_execute():
+    def execute(dataset, spec):
+        result = _fake_execute()(dataset, spec)
+        replay = run_shared_cash_replay(
+            dataset,
+            tuple(ConstantIntentStrategy(PositionIntent.FLAT) for _ in dataset.symbols),
+            start_index=spec.evaluation_start_index,
+            stop_index=spec.evaluation_stop_index,
+            gross_budget=spec.config.gross_budget,
+            initial_capital=spec.config.initial_capital,
+            execution_cost=ExecutionCostConfig.zero(),
+            risk=(
+                PreTradeRisk(spec.config.pretrade_risk_config)
+                if spec.config.pretrade_risk_config is not None
+                else None
+            ),
+            minimum_hold_bars=spec.config.ppo_minimum_hold_bars,
+            settle_terminal_position=spec.config.ppo_settle_terminal_position,
+            capture_ledger_evidence=True,
+        )
+        diagnostics = replay.diagnostics
+        shared = SharedCashStrategyComparisonEntry(
+            name="ppo",
+            replay=replay,
+            metrics=evaluate_performance(
+                replay.returns,
+                turnover_total=diagnostics.turnover_total,
+                total_cost=diagnostics.total_cost,
+                funding_pnl=diagnostics.funding_pnl,
+                borrow_cost=diagnostics.borrow_cost,
+                n_trades=diagnostics.n_trades,
+                rebalance_events=diagnostics.rebalance_events,
+                termination_count=diagnostics.termination_count,
+            ),
+        )
+        comparison = replace(result.comparison, shared_cash_ppo=shared)
+        return replace(result, comparison=comparison)
+
+    return execute
+
+
+def _holding_study(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    protocol: str = "ppo_holding_duration_v1",
+):
     from trade_rl.evaluation.experiments import evidence as evidence_module
 
     dataset = _dataset()
     dataset_root = tmp_path / "dataset"
     publish_market_dataset_artifact(dataset_root, dataset)
-    monkeypatch.setattr(evidence_module, "execute_candidate_run", _fake_execute())
+    execute = (
+        _fake_shared_cash_execute()
+        if protocol == "ppo_shared_cash_holding_duration_v2"
+        else _fake_execute()
+    )
+    monkeypatch.setattr(evidence_module, "execute_candidate_run", execute)
     root = tmp_path / "study"
     snapshot = create_study(
         root,
@@ -86,7 +148,7 @@ def _holding_study(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         max_experiments=len(_HORIZONS),
         n_bootstrap=32,
         bootstrap_seed=17,
-        protocol="ppo_holding_duration_v1",
+        protocol=protocol,
         **_holding_final_window(),
     )
     return root, dataset_root, snapshot
@@ -164,6 +226,72 @@ def test_holding_protocol_is_bound_into_the_immutable_study_plan(
             snapshot.plan, research_question="Does minimum holding improve returns?"
         )
     assert (root / "plan.json").is_file()
+
+
+def test_shared_cash_holding_protocol_is_bound_to_a_separate_plan_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, snapshot = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v2",
+    )
+
+    assert snapshot.plan.schema_version == "controlled_study_plan_v6"
+    assert snapshot.plan.protocol.value == "ppo_shared_cash_holding_duration_v2"
+    assert snapshot.plan.is_ppo_holding_duration_study
+    assert snapshot.plan.is_ppo_shared_cash_holding_duration_study
+    assert snapshot.plan.to_payload()["protocol"] == (
+        "ppo_shared_cash_holding_duration_v2"
+    )
+    assert "do not average independent per-symbol accounts" in (
+        snapshot.plan.research_question
+    )
+
+
+def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, dataset_root, plan = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v2",
+    )
+    baseline = run_baseline(root, dataset_root=dataset_root)
+    assert baseline.baseline is not None
+    _define_all_horizons(root, dataset_root, baseline)
+
+    for sequence in range(1, len(_HORIZONS) + 1):
+        run_experiment(root, sequence, dataset_root=dataset_root)
+        verification = verify_experiment(root, sequence)
+        assert verification.status.value == "CONTROLLED"
+        comparison = compare_experiment(root, sequence)
+        assert comparison.to_payload()["factor_effect"]["schema_version"] == (
+            "controlled_evidence_comparison_v4"
+        )
+        decision = decide_experiment(
+            root,
+            sequence,
+            decision=ExperimentDecisionKind.KEEP_BASELINE,
+            rationale="The shared-cash portfolio did not beat its paired baseline.",
+            decided_by="test-mock",
+            decided_at=_NOW,
+        )
+        assert decision.decision is ExperimentDecisionKind.KEEP_BASELINE
+
+    frozen = freeze_study(
+        root,
+        outcome=StudyOutcome.NO_WINNER,
+        rationale="No shared-cash arm passed the positive excess-return gate.",
+        frozen_by="test-mock",
+        frozen_at=_NOW,
+    )
+    inspected = inspect_study(root)
+    assert frozen.outcome is StudyOutcome.NO_WINNER
+    assert inspected.freeze == frozen
+    assert inspected.plan.digest == plan.plan.digest
 
 
 def test_new_holding_study_cannot_bypass_final_window_and_research_context(

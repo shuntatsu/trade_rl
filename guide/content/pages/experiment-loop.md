@@ -47,6 +47,12 @@ final evaluationへ進める一般の新規Studyでは、execution economics、u
 
 絶対returnが正かどうかはこのrelative development screenの追加条件にしません。4候補の選定は利益証明ではなく、winner候補にも別のone-shot sealed unused-future評価が必要です。現在の実装はこの事前設計とテストを整備中で、これらの期間のPPO学習・経済replay結果はまだありません。
 
+### 共通資金ポートフォリオで評価する新protocol
+
+`ppo_shared_cash_holding_duration_v2`は5 seedごとに全symbolを一つの100,000 USDT口座で評価し、銘柄平均でなくportfolio return/DDを使います。H=0と候補が終端flat・残注文なし・DD 20%以下で、H=0比のseed中央値が正の場合だけ候補に残します。scoreはportfolio returnのseed中央値、同点なら短い保有期間です。
+
+PPO trainingはsingle-symbolのままで、この比較はそのpolicyを共通資金へ適用した挙動を測ります。価格gapで実現DDが20%を超える可能性があり、fresh review・学習・検証・unused-period評価まで利益性は未確認です。
+
 ## 2. Baseline EvidenceSetを固定する
 
 複数seedのCandidate Runをまとめ、baseline fingerprintを変更不能なevidenceとして残します。

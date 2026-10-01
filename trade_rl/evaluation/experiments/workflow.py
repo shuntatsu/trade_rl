@@ -16,6 +16,7 @@ from trade_rl.data import (
 )
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
     analyze_evidence_set,
     compare_evidence_sets,
 )
@@ -45,6 +46,7 @@ from trade_rl.evaluation.experiments.contracts import (
 )
 from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
 )
 from trade_rl.evaluation.experiments.delta import (
     ControlledVerification,
@@ -75,8 +77,8 @@ from trade_rl.evaluation.experiments.inspection import (
 )
 from trade_rl.evaluation.experiments.protocols import (
     ppo_holding_expected_decision,
-    ppo_holding_metrics,
     ppo_holding_winner_digest,
+    ppo_study_metrics,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs import (
@@ -210,7 +212,10 @@ def create_study(
                 resolved_protocol = StudyProtocol(protocol)
             except (TypeError, ValueError) as error:
                 raise ContractViolationError("unsupported Study protocol") from error
-        if resolved_protocol is StudyProtocol.PPO_HOLDING_DURATION and (
+        if resolved_protocol in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        } and (
             final_evaluation_start is None
             or final_evaluation_stop_exclusive is None
             or research_context is None
@@ -235,7 +240,11 @@ def create_study(
         resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
         if resolved_protocol is not None:
-            plan_schema = "controlled_study_plan_v5"
+            plan_schema = (
+                "controlled_study_plan_v6"
+                if resolved_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                else "controlled_study_plan_v5"
+            )
         elif research_context is not None:
             plan_schema = "controlled_study_plan_v3"
         else:
@@ -246,19 +255,24 @@ def create_study(
                 else "controlled_study_plan_v2"
             )
         resolved_research_question = research_question
-        if resolved_protocol is StudyProtocol.PPO_HOLDING_DURATION:
+        if resolved_protocol in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        }:
             if (
                 not isinstance(resolved_research_question, str)
                 or not resolved_research_question.strip()
             ):
                 raise ContractViolationError("research_question is required")
             resolved_research_question = resolved_research_question.strip()
-            if not resolved_research_question.endswith(
-                PPO_HOLDING_DURATION_SELECTION_RULE
-            ):
+            selection_rule = (
+                PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+                if resolved_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                else PPO_HOLDING_DURATION_SELECTION_RULE
+            )
+            if not resolved_research_question.endswith(selection_rule):
                 resolved_research_question = (
-                    f"{resolved_research_question}\n\n"
-                    f"{PPO_HOLDING_DURATION_SELECTION_RULE}"
+                    f"{resolved_research_question}\n\n{selection_rule}"
                 )
         plan = StudyPlan(
             research_question=resolved_research_question,
@@ -534,7 +548,9 @@ def compare_experiment(
             state, experiment.definition.baseline_evidence_digest
         )
         expected_schema = (
-            PPO_HOLDING_DURATION_COMPARISON_SCHEMA
+            PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+            if state.plan.is_ppo_shared_cash_holding_duration_study
+            else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
             if state.plan.is_ppo_holding_duration_study
             else _FACTOR_EFFECT_SCHEMA
         )
@@ -597,11 +613,7 @@ def decide_experiment(
             raise InvalidExperimentStateError("decision is already published")
         if state.plan.is_ppo_holding_duration_study:
             assert experiment.comparison is not None
-            metrics = ppo_holding_metrics(
-                experiment.comparison,
-                expected_symbols=state.plan.symbols,
-                expected_seeds=state.plan.ppo_seeds,
-            )
+            metrics = ppo_study_metrics(state.plan, experiment.comparison)
             expected_decision = ppo_holding_expected_decision(metrics)
             if decision is not expected_decision:
                 raise InvalidExperimentStateError(
@@ -712,11 +724,7 @@ def freeze_study(
                     raise InvalidExperimentStateError(
                         "all four PPO holding-duration arms need complete decisions"
                     )
-                metrics = ppo_holding_metrics(
-                    item.comparison,
-                    expected_symbols=state.plan.symbols,
-                    expected_seeds=state.plan.ppo_seeds,
-                )
+                metrics = ppo_study_metrics(state.plan, item.comparison)
                 expected_decision = ppo_holding_expected_decision(metrics)
                 if item.decision.decision is not expected_decision:
                     raise InvalidExperimentStateError(

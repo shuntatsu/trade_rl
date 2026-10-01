@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from statistics import mean, median
 
+import numpy as np
 import pytest
 
 from tests.evaluation.experiments.test_analysis import _run
@@ -28,13 +29,54 @@ from trade_rl.evaluation.experiments.inspection import (
     _find_evidence,
     _reconstruct,
 )
-from trade_rl.evaluation.experiments.protocols import ppo_holding_metrics
+from trade_rl.evaluation.experiments.protocols import (
+    ppo_holding_metrics,
+    ppo_shared_cash_holding_metrics,
+)
 from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 
 LEGACY_SCHEMA = "controlled_evidence_comparison_v1"
 CURRENT_SCHEMA = "controlled_evidence_comparison_v2"
 HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v3"
+SHARED_CASH_HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v4"
+
+
+def _with_shared_cash_portfolio(
+    run: LoadedCandidateRun,
+    values: tuple[float, ...],
+    *,
+    settled: bool = True,
+) -> LoadedCandidateRun:
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    wealth = 1.0
+    peak = 1.0
+    maximum_drawdown = 0.0
+    for value in values:
+        wealth *= 1.0 + value
+        peak = max(peak, wealth)
+        maximum_drawdown = max(maximum_drawdown, 1.0 - wealth / peak)
+    summary["shared_cash_ppo"] = {
+        "name": "ppo",
+        "return_key": "shared_cash_ppo",
+        "metrics": {
+            "total_return": wealth - 1.0,
+            "max_drawdown": maximum_drawdown,
+            "n_periods": len(values),
+            "return_kind": "base_bar",
+            "periods_per_year": 8_760,
+        },
+        "terminal_settlement_complete": settled,
+    }
+    returns = dict(run.returns)
+    returns["shared_cash_ppo"] = np.asarray(values, dtype=np.float64)
+    return LoadedCandidateRun(
+        root=run.root,
+        summary=summary,
+        returns=returns,
+        provenance=run.provenance,
+    )
 
 
 def _with_ppo_execution_metrics(
@@ -346,6 +388,107 @@ def test_holding_protocol_score_aggregates_symbols_within_each_seed_first() -> N
         }
         for seed in seeds
     }
+
+
+def test_shared_cash_protocol_compares_combined_portfolio_per_seed() -> None:
+    seeds = (0, 1, 2, 3, 4)
+    candidate_paths = (
+        (0.08, -0.30, 0.20, 0.0),
+        (0.03, 0.02, 0.0, 0.0),
+        (0.01, 0.0, 0.0, 0.0),
+        (0.10, -0.10, 0.0, 0.0),
+        (0.02, 0.03, 0.0, 0.0),
+    )
+    baseline = {
+        seed: _with_shared_cash_portfolio(_run(seed), (0.0, 0.0, 0.0, 0.0))
+        for seed in seeds
+    }
+    candidate = {
+        seed: _with_shared_cash_portfolio(
+            _run(seed, candidate_shift=0.10),
+            candidate_paths[seed],
+        )
+        for seed in seeds
+    }
+
+    payload = compare_evidence_sets(
+        baseline,
+        candidate,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+
+    portfolio = payload["cross_seed"]["shared_cash_ppo"]
+    assert payload["schema_version"] == SHARED_CASH_HOLDING_PROTOCOL_SCHEMA
+    assert portfolio["seed_count"] == 5
+    assert portfolio["by_seed"]["0"]["candidate_max_drawdown"] == pytest.approx(0.30)
+    assert portfolio["worst_candidate_max_drawdown"] == pytest.approx(0.30)
+    assert portfolio["candidate_terminal_settlement_complete_seed_count"] == 5
+    assert portfolio["baseline_terminal_settlement_complete_seed_count"] == 5
+    assert portfolio["by_seed"]["0"]["candidate_total_return"] == pytest.approx(
+        1.08 * 0.70 * 1.20 - 1.0
+    )
+    factor_digest = payload["analysis_digest"]
+    comparison = ExperimentComparison(
+        study_digest="a" * 64,
+        experiment_digest="b" * 64,
+        baseline_evidence_digest="c" * 64,
+        candidate_evidence_digest="d" * 64,
+        verification_digest="e" * 64,
+        baseline_analysis_digest="f" * 64,
+        candidate_analysis_digest="1" * 64,
+        factor_effect_digest=factor_digest,
+        factor_effect=payload,
+    )
+    metrics = ppo_shared_cash_holding_metrics(
+        comparison,
+        expected_seeds=seeds,
+    )
+    assert metrics.score == pytest.approx(0.01)
+    assert metrics.median_excess_return == pytest.approx(0.01)
+    assert metrics.worst_max_drawdown == pytest.approx(0.30)
+    assert not metrics.eligible
+
+
+def test_shared_cash_selector_accepts_exact_twenty_percent_drawdown() -> None:
+    seeds = (0, 1, 2, 3, 4)
+    baseline = {
+        seed: _with_shared_cash_portfolio(_run(seed), (0.0, 0.0, 0.0, 0.0))
+        for seed in seeds
+    }
+    candidate = {
+        seed: _with_shared_cash_portfolio(
+            _run(seed, candidate_shift=0.10),
+            (0.20, -0.20, 0.40, 0.0),
+        )
+        for seed in seeds
+    }
+    payload = compare_evidence_sets(
+        baseline,
+        candidate,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+    comparison = ExperimentComparison(
+        study_digest="a" * 64,
+        experiment_digest="b" * 64,
+        baseline_evidence_digest="c" * 64,
+        candidate_evidence_digest="d" * 64,
+        verification_digest="e" * 64,
+        baseline_analysis_digest="f" * 64,
+        candidate_analysis_digest="1" * 64,
+        factor_effect_digest=payload["analysis_digest"],
+        factor_effect=payload,
+    )
+
+    metrics = ppo_shared_cash_holding_metrics(comparison, expected_seeds=seeds)
+
+    assert metrics.worst_max_drawdown == pytest.approx(0.20)
+    assert metrics.median_excess_return > 0.0
+    assert metrics.terminal_settlement_complete
+    assert metrics.eligible
 
 
 def test_holding_protocol_records_incomplete_terminal_accounts() -> None:

@@ -143,9 +143,16 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         gross_budget=0.5,
         initial_capital=1_000.0,
         risk=risk,
+        include_ppo_shared_cash_replay=True,
     )
 
     assert result.by_symbol == ()
+    assert result.shared_cash_ppo is not None
+    assert result.shared_cash_ppo.name == "ppo"
+    assert result.shared_cash_ppo.replay.book.portfolio_value == 1_000.0
+    assert result.shared_cash_ppo.metrics.total_return == 0.0
+    assert result.shared_cash_ppo.replay.ledger_evidence is not None
+    assert len(result.shared_cash_ppo.replay.returns.values) == 5
     assert result.ppo_training_timesteps == 512
     assert result.ppo_training_minimum_hold_suppressed_count == 6
     assert calls["ridge"] == 1

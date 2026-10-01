@@ -40,7 +40,7 @@ _RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
 _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
-_RESULT_SCHEMA = _RESULT_SCHEMA_V6
+_RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -49,6 +49,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V4,
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -100,7 +101,8 @@ class LoadedCandidateRun:
     @property
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
-        if self.summary.get("schema_version") != _RESULT_SCHEMA_V6:
+        schema = self.summary.get("schema_version")
+        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -142,6 +144,24 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
+        if schema == _RESULT_SCHEMA_V7:
+            portfolio = self.summary.get("shared_cash_ppo")
+            if not isinstance(portfolio, Mapping):
+                return False
+            key = portfolio.get("return_key")
+            values = self.returns.get(key) if isinstance(key, str) else None
+            metrics = portfolio.get("metrics")
+            n_periods = (
+                metrics.get("n_periods") if isinstance(metrics, Mapping) else None
+            )
+            if (
+                values is None
+                or isinstance(n_periods, bool)
+                or not isinstance(n_periods, int)
+                or n_periods != expected_periods
+                or values.size != expected_periods
+            ):
+                return False
         return True
 
 
@@ -274,7 +294,11 @@ def _result_payload(
         )
 
     summary: dict[str, object] = {
-        "schema_version": _RESULT_SCHEMA,
+        "schema_version": (
+            _RESULT_SCHEMA_V7
+            if result.comparison.shared_cash_ppo is not None
+            else _RESULT_SCHEMA_V6
+        ),
         "ppo_observation": ppo_observation_contract_payload(
             config.ppo_observation_schema
         ),
@@ -331,6 +355,59 @@ def _result_payload(
         },
         "by_symbol": symbols_payload,
     }
+    shared_cash_ppo = result.comparison.shared_cash_ppo
+    if shared_cash_ppo is not None:
+        replay = shared_cash_ppo.replay
+        ledger = replay.ledger_evidence
+        if ledger is None:
+            raise ValueError("shared-cash PPO result requires ledger evidence")
+        return_key = "shared_cash_ppo"
+        returns[return_key] = np.asarray(replay.returns.values, dtype=np.float64)
+        diagnostics = replay.diagnostics
+        final_quantities = [float(value) for value in replay.book.quantities]
+        remainders = ledger.active_order_remainders
+        terminal_complete = (
+            config.ppo_settle_terminal_position
+            and not any(quantity != 0.0 for quantity in final_quantities)
+            and not remainders
+            and len(replay.returns.values) == expected_periods
+            and shared_cash_ppo.metrics.termination_count == 0
+            and not diagnostics.termination_reasons
+        )
+        summary["shared_cash_ppo"] = {
+            "name": shared_cash_ppo.name,
+            "return_key": return_key,
+            "metrics": _metrics_payload(shared_cash_ppo.metrics),
+            "diagnostics": {
+                "turnover_total": diagnostics.turnover_total,
+                "total_cost": diagnostics.total_cost,
+                "funding_pnl": diagnostics.funding_pnl,
+                "borrow_cost": diagnostics.borrow_cost,
+                "n_trades": diagnostics.n_trades,
+                "rebalance_events": diagnostics.rebalance_events,
+                "termination_reasons": list(diagnostics.termination_reasons),
+            },
+            "final_portfolio_value": float(replay.book.portfolio_value),
+            "final_cash": float(replay.book.cash),
+            "fill_count": replay.book.fill_count,
+            "final_quantities": final_quantities,
+            "active_order_remainders": [
+                {"order_id": order_id, "remaining_quantity": float(quantity)}
+                for order_id, quantity in remainders
+            ],
+            "terminal_order_reasons": [
+                {"order_id": order_id, "reason": reason}
+                for order_id, reason in ledger.terminal_order_reasons
+            ],
+            "terminal_settlement_complete": terminal_complete,
+            "ledger_evidence": {
+                "schema_version": ledger.schema_version,
+                "digest": content_digest(ledger.to_mapping()),
+                "interval_count": len(ledger.intervals),
+                "decision_count": len(ledger.decisions),
+                "terminal_exact_quantities": list(ledger.terminal_exact_quantities),
+            },
+        }
     return summary, returns
 
 
@@ -463,6 +540,14 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
             if not isinstance(key, str) or not key:
                 raise ValueError("candidate summary return_key must be non-empty")
             keys.append(key)
+    shared_cash_ppo = summary.get("shared_cash_ppo")
+    if shared_cash_ppo is not None:
+        if not isinstance(shared_cash_ppo, dict):
+            raise ValueError("candidate shared-cash PPO result must be an object")
+        key = shared_cash_ppo.get("return_key")
+        if not isinstance(key, str) or not key:
+            raise ValueError("candidate shared-cash return_key must be non-empty")
+        keys.append(key)
     if len(keys) != len(set(keys)):
         raise ValueError("candidate summary return keys must be unique")
     return frozenset(keys)
@@ -514,7 +599,12 @@ def _validate_ppo_training_evidence(
     )
     if realized != expected:
         raise ValueError("candidate PPO realized timesteps do not match rollout budget")
-    if result_schema in {_RESULT_SCHEMA_V4, _RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6}:
+    if result_schema in {
+        _RESULT_SCHEMA_V4,
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+    }:
         if not {
             "ppo_minimum_hold_bars",
             "ppo_observation_schema",
@@ -557,7 +647,7 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6}:
+    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -817,6 +907,211 @@ def _validate_v6_replay_evidence(summary: Mapping[str, object]) -> None:
     _validate_replay_evidence(summary, require_full_coverage=True)
 
 
+def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_v6_replay_evidence(summary)
+    symbols = summary.get("symbols")
+    evaluation = summary.get("evaluation")
+    portfolio = summary.get("shared_cash_ppo")
+    if (
+        not isinstance(symbols, list)
+        or not isinstance(evaluation, Mapping)
+        or not isinstance(portfolio, Mapping)
+    ):
+        raise ValueError("candidate shared-cash PPO evidence is malformed")
+    expected_periods = evaluation.get("expected_periods")
+    if (
+        isinstance(expected_periods, bool)
+        or not isinstance(expected_periods, int)
+        or expected_periods <= 0
+    ):
+        raise ValueError("candidate shared-cash period count is malformed")
+    expected_fields = {
+        "name",
+        "return_key",
+        "metrics",
+        "diagnostics",
+        "final_portfolio_value",
+        "final_cash",
+        "fill_count",
+        "final_quantities",
+        "active_order_remainders",
+        "terminal_order_reasons",
+        "terminal_settlement_complete",
+        "ledger_evidence",
+    }
+    if set(portfolio) != expected_fields:
+        raise ValueError("candidate shared-cash PPO evidence fields are malformed")
+    if portfolio["name"] != "ppo" or portfolio["return_key"] != "shared_cash_ppo":
+        raise ValueError("candidate shared-cash PPO identity is malformed")
+    metrics = portfolio["metrics"]
+    diagnostics = portfolio["diagnostics"]
+    if not isinstance(metrics, Mapping) or not isinstance(diagnostics, Mapping):
+        raise ValueError("candidate shared-cash metrics are malformed")
+    metric_fields = {
+        "total_return",
+        "sharpe",
+        "sortino",
+        "max_drawdown",
+        "turnover_total",
+        "total_cost",
+        "funding_pnl",
+        "borrow_cost",
+        "n_trades",
+        "rebalance_events",
+        "termination_count",
+        "n_periods",
+        "return_kind",
+        "periods_per_year",
+    }
+    diagnostic_fields = {
+        "turnover_total",
+        "total_cost",
+        "funding_pnl",
+        "borrow_cost",
+        "n_trades",
+        "rebalance_events",
+        "termination_reasons",
+    }
+    if set(metrics) != metric_fields or set(diagnostics) != diagnostic_fields:
+        raise ValueError("candidate shared-cash metrics are incomplete")
+    if metrics["return_kind"] != "base_bar":
+        raise ValueError("candidate shared-cash returns must use base bars")
+    if metrics["n_periods"] != expected_periods:
+        raise ValueError("candidate shared-cash return period count is inconsistent")
+    for field in (
+        "total_return",
+        "sharpe",
+        "sortino",
+        "max_drawdown",
+        "turnover_total",
+        "total_cost",
+        "funding_pnl",
+        "borrow_cost",
+    ):
+        value = metrics[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("candidate shared-cash metric is malformed")
+    termination_count = metrics["termination_count"]
+    if (
+        isinstance(termination_count, bool)
+        or not isinstance(termination_count, int)
+        or termination_count < 0
+    ):
+        raise ValueError("candidate shared-cash termination count is malformed")
+    reasons = diagnostics["termination_reasons"]
+    if not isinstance(reasons, list) or any(
+        not isinstance(reason, str) or not reason for reason in reasons
+    ):
+        raise ValueError("candidate shared-cash termination reasons are malformed")
+    quantities = portfolio["final_quantities"]
+    remainders = portfolio["active_order_remainders"]
+    terminal_reasons = portfolio["terminal_order_reasons"]
+    terminal_complete = portfolio["terminal_settlement_complete"]
+    if (
+        not isinstance(quantities, list)
+        or len(quantities) != len(symbols)
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in quantities
+        )
+        or not isinstance(remainders, list)
+        or not isinstance(terminal_reasons, list)
+        or not isinstance(terminal_complete, bool)
+    ):
+        raise ValueError("candidate shared-cash terminal evidence is malformed")
+    for order in remainders:
+        if (
+            not isinstance(order, Mapping)
+            or set(order) != {"order_id", "remaining_quantity"}
+            or not isinstance(order["order_id"], str)
+            or not order["order_id"]
+            or isinstance(order["remaining_quantity"], bool)
+            or not isinstance(order["remaining_quantity"], (int, float))
+            or not math.isfinite(float(order["remaining_quantity"]))
+        ):
+            raise ValueError("candidate shared-cash order remainder is malformed")
+    for order in terminal_reasons:
+        if (
+            not isinstance(order, Mapping)
+            or set(order) != {"order_id", "reason"}
+            or not isinstance(order["order_id"], str)
+            or not order["order_id"]
+            or not isinstance(order["reason"], str)
+            or not order["reason"]
+        ):
+            raise ValueError("candidate shared-cash terminal order is malformed")
+    expected_terminal_complete = (
+        evaluation.get("ppo_settle_terminal_position") is True
+        and all(float(value) == 0.0 for value in quantities)
+        and not remainders
+        and metrics["n_periods"] == expected_periods
+        and termination_count == 0
+        and not reasons
+    )
+    if terminal_complete is not expected_terminal_complete:
+        raise ValueError("candidate shared-cash settlement evidence is inconsistent")
+    for field in ("final_portfolio_value", "final_cash"):
+        value = portfolio[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("candidate shared-cash final account value is malformed")
+    fill_count = portfolio["fill_count"]
+    if (
+        isinstance(fill_count, bool)
+        or not isinstance(fill_count, int)
+        or fill_count < 0
+    ):
+        raise ValueError("candidate shared-cash fill count is malformed")
+    ledger = portfolio["ledger_evidence"]
+    ledger_fields = {
+        "schema_version",
+        "digest",
+        "interval_count",
+        "decision_count",
+        "terminal_exact_quantities",
+    }
+    if not isinstance(ledger, Mapping) or set(ledger) != ledger_fields:
+        raise ValueError("candidate shared-cash ledger evidence is malformed")
+    if ledger["schema_version"] not in {
+        "shared_cash_replay_ledger_v1",
+        "shared_cash_replay_ledger_v2",
+    }:
+        raise ValueError("candidate shared-cash ledger schema is unsupported")
+    digest = ledger["digest"]
+    if not isinstance(digest, str):
+        raise ValueError("candidate shared-cash ledger digest is malformed")
+    require_sha256(digest, field="candidate shared-cash ledger digest")
+    for field in ("interval_count", "decision_count"):
+        value = ledger[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("candidate shared-cash ledger count is malformed")
+    if (
+        ledger["interval_count"] != expected_periods
+        or ledger["decision_count"] > expected_periods
+    ):
+        raise ValueError("candidate shared-cash ledger coverage is incomplete")
+    exact_quantities = ledger["terminal_exact_quantities"]
+    if not isinstance(exact_quantities, list) or len(exact_quantities) != len(symbols):
+        raise ValueError(
+            "candidate shared-cash exact terminal quantities are malformed"
+        )
+    if any(not isinstance(value, str) for value in exact_quantities):
+        raise ValueError(
+            "candidate shared-cash exact terminal quantities are malformed"
+        )
+    if terminal_complete and any(float(value) != 0.0 for value in exact_quantities):
+        raise ValueError("candidate shared-cash exact terminal quantities are nonzero")
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -888,6 +1183,53 @@ def _validate_v6_return_coverage(
                 raise ValueError("candidate return period count is inconsistent")
 
 
+def _validate_v7_return_coverage(
+    summary: Mapping[str, object],
+    returns: Mapping[str, np.ndarray],
+) -> None:
+    _validate_v6_return_coverage(summary, returns)
+    evaluation = summary.get("evaluation")
+    portfolio = summary.get("shared_cash_ppo")
+    if not isinstance(evaluation, Mapping) or not isinstance(portfolio, Mapping):
+        raise ValueError("candidate shared-cash return evidence is malformed")
+    expected_periods = evaluation.get("expected_periods")
+    key = portfolio.get("return_key")
+    values = returns.get(key) if isinstance(key, str) else None
+    metrics = portfolio.get("metrics")
+    if (
+        isinstance(expected_periods, bool)
+        or not isinstance(expected_periods, int)
+        or values is None
+        or values.size != expected_periods
+        or not isinstance(metrics, Mapping)
+    ):
+        raise ValueError("candidate shared-cash return coverage is incomplete")
+    wealth = 1.0
+    peak = 1.0
+    maximum_drawdown = 0.0
+    for value in values:
+        wealth *= 1.0 + float(value)
+        peak = max(peak, wealth)
+        maximum_drawdown = max(maximum_drawdown, 1.0 - wealth / peak)
+    total_return = wealth - 1.0
+    for field, actual in (
+        ("total_return", total_return),
+        ("max_drawdown", maximum_drawdown),
+    ):
+        reported = metrics.get(field)
+        if (
+            isinstance(reported, bool)
+            or not isinstance(reported, (int, float))
+            or not math.isclose(
+                float(reported),
+                actual,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+        ):
+            raise ValueError("candidate shared-cash return metrics are inconsistent")
+
+
 def _semantic_returns_payload(
     returns: Mapping[str, np.ndarray],
 ) -> list[dict[str, object]]:
@@ -937,6 +1279,9 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V6:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v6_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V7:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v7_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -948,6 +1293,8 @@ def _load_with_evidence(
     )
     if result_schema == _RESULT_SCHEMA_V6:
         _validate_v6_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V7:
+        _validate_v7_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,

@@ -69,6 +69,7 @@ class StudyOutcome(StrEnum):
 
 class StudyProtocol(StrEnum):
     PPO_HOLDING_DURATION = "ppo_holding_duration_v1"
+    PPO_SHARED_CASH_HOLDING_DURATION = "ppo_shared_cash_holding_duration_v2"
 
 
 PPO_HOLDING_DURATION_HORIZONS = (72, 168, 336, 504)
@@ -96,6 +97,25 @@ PPO_HOLDING_DURATION_SELECTION_RULE = (
     "is eligible, record NO_WINNER. This four-arm development screen is not a "
     "profitability claim; do not report unadjusted p-values, and require a "
     "separate one-shot sealed unused-future evaluation for any profitability claim."
+)
+PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE = (
+    "PPO shared-cash holding-duration preregistered selection rule: compare a "
+    "freshly trained H=0 PPO with 72, 168, 336, and 504 completed one-hour "
+    "bars on the same Dataset, evaluation window, costs, initial capital, and "
+    "risk settings. Evaluate each seed as one shared-cash portfolio across the "
+    "full registered symbol roster; do not average independent per-symbol "
+    "accounts for selection. Primary score: median across the five registered "
+    "seeds of the combined portfolio's after-cost total return. An arm is "
+    "eligible only if every H=0 and candidate portfolio completes terminal "
+    "settlement flat with no active order remainder, each combined portfolio's "
+    "realized maximum drawdown is at most 20%, and median paired total-return "
+    "improvement versus H=0 is positive. Select the eligible arm with the "
+    "highest primary score; break exact ties toward the shorter hold. If no arm "
+    "is eligible, record NO_WINNER. PPO is still trained on single-symbol "
+    "episodes; shared-cash evaluation does not establish joint-portfolio "
+    "training. This four-arm development screen is not a profitability claim; "
+    "do not report unadjusted p-values, and require a separate one-shot sealed "
+    "unused-future evaluation for any profitability claim."
 )
 
 
@@ -255,6 +275,19 @@ class StudyPlan:
                 raise ContractViolationError(
                     "controlled_study_plan_v5 requires a supported Study protocol"
                 )
+        elif schema_version == "controlled_study_plan_v6":
+            if final_start is None or final_stop is None:
+                raise ContractViolationError(
+                    "controlled_study_plan_v6 requires both final evaluation fields"
+                )
+            if not isinstance(research_context, StudyResearchContext):
+                raise ContractViolationError(
+                    "controlled_study_plan_v6 requires research_context"
+                )
+            if protocol is not StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION:
+                raise ContractViolationError(
+                    "controlled_study_plan_v6 requires the shared-cash PPO protocol"
+                )
         else:
             raise ContractViolationError("unsupported StudyPlan schema_version")
 
@@ -263,20 +296,24 @@ class StudyPlan:
             not in {
                 "controlled_study_plan_v4",
                 "controlled_study_plan_v5",
+                "controlled_study_plan_v6",
             }
             and protocol is not None
         ):
             raise ContractViolationError(
-                "Study protocol requires controlled_study_plan_v4 or v5"
+                "Study protocol requires a versioned PPO holding StudyPlan"
             )
-        if (
-            ControlledFactor.PPO_MINIMUM_HOLD in allowed
-            and protocol is not StudyProtocol.PPO_HOLDING_DURATION
-        ):
+        if ControlledFactor.PPO_MINIMUM_HOLD in allowed and protocol not in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        }:
             raise ContractViolationError(
                 "PPO_MINIMUM_HOLD requires a versioned Study protocol"
             )
-        if protocol is StudyProtocol.PPO_HOLDING_DURATION:
+        if protocol in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        }:
             if (
                 allowed != (ControlledFactor.PPO_MINIMUM_HOLD,)
                 or max_experiments != len(PPO_HOLDING_DURATION_HORIZONS)
@@ -290,7 +327,12 @@ class StudyPlan:
                 raise ContractViolationError(
                     "StudyPlan violates the PPO holding-duration protocol"
                 )
-            if not research_question.endswith(PPO_HOLDING_DURATION_SELECTION_RULE):
+            selection_rule = (
+                PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+                if protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                else PPO_HOLDING_DURATION_SELECTION_RULE
+            )
+            if not research_question.endswith(selection_rule):
                 raise ContractViolationError(
                     "PPO holding-duration StudyPlan must preregister the full selection rule"
                 )
@@ -362,7 +404,14 @@ class StudyPlan:
 
     @property
     def is_ppo_holding_duration_study(self) -> bool:
-        return self.protocol is StudyProtocol.PPO_HOLDING_DURATION
+        return self.protocol in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        }
+
+    @property
+    def is_ppo_shared_cash_holding_duration_study(self) -> bool:
+        return self.protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -391,6 +440,7 @@ class StudyPlan:
         if self.schema_version in {
             "controlled_study_plan_v4",
             "controlled_study_plan_v5",
+            "controlled_study_plan_v6",
         }:
             assert self.protocol is not None
             payload["protocol"] = self.protocol.value
@@ -488,6 +538,7 @@ __all__ = [
     "PPO_HOLDING_DURATION_RISK_CONFIG",
     "PPO_HOLDING_DURATION_SEED_COUNT",
     "PPO_HOLDING_DURATION_SELECTION_RULE",
+    "PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE",
     "StudyFreeze",
     "StudyOutcome",
     "StudyPlan",

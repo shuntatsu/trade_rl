@@ -26,7 +26,7 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 市場、銘柄、時間足、期間、取引所metadataなど、どの市場証拠を使うかを先に決めます。
 
-新しいfinal-eligibleなM2研究では、データ同期より前にbootstrap configで取得範囲とStudyの条件を固定します。一般のresearch lineはconfig v4、PPO保有期間protocolはconfig v5を使い、v5ではprotocol、明示baselineとrisk、final window、`StudyResearchContext`をまとめてStudyPlanへbindします。bootstrapはDatasetとStudyPlanの準備までを行い、baseline学習やcandidate replayを実行しません。economic runはG0-G2のreview gateが閉じてから別工程で開始します。
+新規final-eligible M2研究は、データ同期前に条件を固定します。一般はconfig v4、独立口座PPOはv5、共有資金PPOはv6を使い、protocol・baseline/risk・final window・`StudyResearchContext`を別identityへbindします。bootstrapはDatasetとStudyPlanまでを作り、学習・replayはG0-G2 review後に別実行します。
 
 現行のStudy CLIは外部reviewの完了を認証しないため、この順序は運用上のrelease prerequisiteとして扱います。
 

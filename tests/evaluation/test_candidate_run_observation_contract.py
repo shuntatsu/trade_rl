@@ -164,13 +164,14 @@ def _result() -> object:
         metrics=metrics,
     )
     comparison = SimpleNamespace(
+        shared_cash_ppo=None,
         by_symbol=(
             SimpleNamespace(
                 symbol_index=0,
                 symbol="BTCUSDT",
                 comparison=SimpleNamespace(entries=(entry,)),
             ),
-        )
+        ),
     )
     return SimpleNamespace(
         spec=SimpleNamespace(

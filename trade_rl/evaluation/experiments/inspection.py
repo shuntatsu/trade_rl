@@ -7,6 +7,7 @@ from pathlib import Path
 
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
     compare_evidence_sets,
 )
 from trade_rl.evaluation.experiments.codec import (
@@ -52,8 +53,8 @@ from trade_rl.evaluation.experiments.evidence import (
 from trade_rl.evaluation.experiments.protocols import (
     ppo_holding_definition_matches,
     ppo_holding_expected_decision,
-    ppo_holding_metrics,
     ppo_holding_winner_digest,
+    ppo_study_metrics,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 
@@ -348,12 +349,22 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 persisted_factor_effect.get("schema_version"),
                 field="factor-effect schema_version",
             )
-            if (
-                plan.is_ppo_holding_duration_study
-                and factor_effect_schema != PPO_HOLDING_DURATION_COMPARISON_SCHEMA
-            ):
+            expected_factor_effect_schema = (
+                PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+                if plan.is_ppo_shared_cash_holding_duration_study
+                else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
+                if plan.is_ppo_holding_duration_study
+                else factor_effect_schema
+            )
+            if factor_effect_schema != expected_factor_effect_schema:
+                required_schema = (
+                    "schema v4"
+                    if plan.is_ppo_shared_cash_holding_duration_study
+                    else "schema v3"
+                )
                 raise ArtifactIntegrityError(
-                    "PPO holding-duration protocol requires factor-effect schema v3"
+                    "PPO holding-duration protocol requires factor-effect "
+                    f"{required_schema}"
                 )
             factor_effect = compare_evidence_sets(
                 baseline_for_comparison.runs,
@@ -399,11 +410,7 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 )
             if plan.is_ppo_holding_duration_study:
                 assert comparison is not None
-                metrics = ppo_holding_metrics(
-                    comparison,
-                    expected_symbols=plan.symbols,
-                    expected_seeds=plan.ppo_seeds,
-                )
+                metrics = ppo_study_metrics(plan, comparison)
                 if decision.decision is not ppo_holding_expected_decision(metrics):
                     raise ArtifactIntegrityError(
                         "PPO holding-duration decision violates eligibility rule"
@@ -488,11 +495,7 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                     raise ArtifactIntegrityError(
                         "frozen PPO holding-duration Study lacks complete arm evidence"
                     )
-                metrics = ppo_holding_metrics(
-                    item.comparison,
-                    expected_symbols=plan.symbols,
-                    expected_seeds=plan.ppo_seeds,
-                )
+                metrics = ppo_study_metrics(plan, item.comparison)
                 if metrics.eligible:
                     eligible_candidates.append(
                         (

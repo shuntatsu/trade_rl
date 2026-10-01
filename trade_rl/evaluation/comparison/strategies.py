@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.replay import (
+    SharedCashReplayResult,
     SingleSymbolReplayResult,
     run_single_symbol_replay,
 )
@@ -22,6 +23,15 @@ class StrategyComparisonEntry:
 
     name: str
     replay: SingleSymbolReplayResult
+    metrics: PerformanceMetrics
+
+
+@dataclass(frozen=True, slots=True)
+class SharedCashStrategyComparisonEntry:
+    """One strategy evaluated across every symbol in a single shared account."""
+
+    name: str
+    replay: SharedCashReplayResult
     metrics: PerformanceMetrics
 
 
@@ -43,9 +53,10 @@ class SymbolStrategyComparison:
 
 @dataclass(frozen=True, slots=True)
 class UniversalStrategyComparison:
-    """Per-symbol results; no aggregate result can hide a losing symbol."""
+    """Per-symbol results plus an optional explicit shared-cash PPO replay."""
 
     by_symbol: tuple[SymbolStrategyComparison, ...]
+    shared_cash_ppo: SharedCashStrategyComparisonEntry | None = None
     ppo_training_timesteps: int | None = None
     ppo_training_minimum_hold_suppressed_count: int | None = None
 
@@ -218,6 +229,7 @@ def compare_strategy_factories_by_symbol(
 
 
 __all__ = [
+    "SharedCashStrategyComparisonEntry",
     "StrategyComparison",
     "StrategyComparisonEntry",
     "SymbolStrategyComparison",

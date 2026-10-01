@@ -10,9 +10,12 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
+    SharedCashStrategyComparisonEntry,
     UniversalStrategyComparison,
     compare_strategy_factories_by_symbol,
 )
+from trade_rl.evaluation.metrics import evaluate_performance
+from trade_rl.evaluation.replay import run_shared_cash_replay
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
@@ -193,6 +196,7 @@ def run_lean_candidate_suite(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
+    include_ppo_shared_cash_replay: bool = False,
 ) -> UniversalStrategyComparison:
     """Fit one universal candidate set and compare it independently by symbol."""
 
@@ -205,6 +209,17 @@ def run_lean_candidate_suite(
             )
         if risk.config.drawdown_stop > 0.20:
             raise ValueError("PPO drawdown stop must not exceed 20%")
+    if not isinstance(include_ppo_shared_cash_replay, bool):
+        raise ValueError("include_ppo_shared_cash_replay must be boolean")
+    if include_ppo_shared_cash_replay and (
+        config.ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+        or not config.ppo_settle_terminal_position
+        or risk is None
+    ):
+        raise ValueError(
+            "shared-cash PPO replay requires age-aware observations, "
+            "terminal settlement, and explicit risk"
+        )
     require_age_aware_hourly_clock(
         dataset,
         observation_schema=config.ppo_observation_schema,
@@ -311,8 +326,40 @@ def run_lean_candidate_suite(
         risk=risk,
         settle_terminal_position=config.ppo_settle_terminal_position,
     )
+    shared_cash_ppo: SharedCashStrategyComparisonEntry | None = None
+    if include_ppo_shared_cash_replay:
+        shared_strategies = tuple(strategy_factories["ppo"]() for _ in dataset.symbols)
+        shared_replay = run_shared_cash_replay(
+            dataset,
+            shared_strategies,
+            start_index=start_index,
+            stop_index=stop_index,
+            gross_budget=gross_budget,
+            initial_capital=initial_capital,
+            execution_cost=execution_cost,
+            risk=risk,
+            minimum_hold_bars=config.ppo_minimum_hold_bars,
+            settle_terminal_position=config.ppo_settle_terminal_position,
+            capture_ledger_evidence=True,
+        )
+        diagnostics = shared_replay.diagnostics
+        shared_cash_ppo = SharedCashStrategyComparisonEntry(
+            name="ppo",
+            replay=shared_replay,
+            metrics=evaluate_performance(
+                shared_replay.returns,
+                turnover_total=diagnostics.turnover_total,
+                total_cost=diagnostics.total_cost,
+                funding_pnl=diagnostics.funding_pnl,
+                borrow_cost=diagnostics.borrow_cost,
+                n_trades=diagnostics.n_trades,
+                rebalance_events=diagnostics.rebalance_events,
+                termination_count=diagnostics.termination_count,
+            ),
+        )
     return replace(
         comparison,
+        shared_cash_ppo=shared_cash_ppo,
         ppo_training_timesteps=ppo_training_timesteps,
         ppo_training_minimum_hold_suppressed_count=(
             ppo_strategy.training_minimum_hold_suppressed_count

@@ -123,6 +123,30 @@ beat H=0 after costs, incomplete seed-symbol cells, or any account exceeding
 the drawdown guardrail. Even a pass cannot establish a shared-cash portfolio
 edge or live-trading eligibility.
 
+### Shared-cash evaluation protocol v2
+
+The legacy `ppo_holding_duration_v1` above retains independent per-symbol
+accounts. A new `ppo_shared_cash_holding_duration_v2` uses a separate bootstrap
+config v6 / StudyPlan v6 identity. Each seed has one 100,000 USDT account shared
+across the full symbol roster. At every hourly decision, per-symbol PPO
+proposals enter one portfolio-wide risk projection and execution, with the
+same frozen costs, capacity, and terminal settlement for baseline and candidate.
+The v2 selector uses each combined portfolio's total return and realized maximum
+drawdown, not an average of independent symbol accounts. An arm is eligible
+only when all five paired baseline/candidate portfolios complete flat terminal
+settlement with no active order remainder, each portfolio's observed maximum
+drawdown is at most 20%, and the median paired portfolio return difference is
+positive. The primary score is the median candidate portfolio total return;
+ties go to the shorter hold. No eligible arm means NO_WINNER.
+
+Training remains on single-symbol PPO episodes while v2 evaluation combines
+their proposals in one shared-cash book. Therefore this estimates whether the
+existing per-symbol PPO policy behaves acceptably under the declared portfolio
+execution mechanism; it does not establish a jointly trained portfolio policy.
+The pre-trade 20% stop also cannot prevent a larger realized loss after price
+gaps. v2 requires a fresh result-blind G0-G2 review of this training/evaluation
+scope and the exact implementation before any fit or economic replay.
+
 ### G1 — fixed mechanism and claim limits
 
 The planned base clock is 1h and each PPO is freshly fitted on the same causal
@@ -171,6 +195,18 @@ actions and exact train/replay semantics must be audited rather than hidden.
   the arm ineligible; terminal settlement alone does not imply flatness.
 - Terminal settlement has a separate expected-cash/cost check, confirms the
   same exclusive end and latency window, and reports any residual exposure.
+
+The evaluation layer now also exposes a distinct `run_shared_cash_replay` path
+that can enforce per-symbol age from actual shared-book fills, then apply one
+portfolio risk projection and terminal settlement through one ledger. Its v2
+ledger records raw/effective intents, ages, quantities, and suppression/unlock
+state. This is a software capability only: it does not change the frozen v1
+Study's independent-account denominator, risk, or selection semantics, and it
+does not turn the existing one-active-symbol PPO training environment into a
+joint portfolio learner. Any Study that uses the shared path must create a new
+immutable identity, bind one total-cash/notional scale across training and
+replay, select from the combined portfolio equity path, and close fresh G0-G2
+review before generating economic results.
 
 The current implementation and focused tests are still undergoing independent
 result-blind review. G2 remains NOT ESTABLISHED until that review and the full
@@ -666,7 +702,7 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Counterexample:** 既知の期間で複数候補を試した後、名前だけ変えた最終候補を同じ期間で「初見」と扱う。
 
-**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。PPO保有期間protocolでは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` がprotocolとfinal windowも同じidentityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
+**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 

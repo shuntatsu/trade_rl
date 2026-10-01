@@ -42,16 +42,18 @@ artifacts / evidence
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
 | hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
-| 共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
+| 単銘柄の共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
+| 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | 保有期間Studyの固定protocol・risk条件 | `trade_rl.evaluation.experiments.contracts.study.StudyPlan` |
-| 保有期間比較protocolの適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
+| 独立口座v1の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
+| 共通資金v2の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 
-保有期間比較では、`position_duration` が学習と評価リプレイで共通のage更新・minimum-hold意味論を定義します。`contracts.study` は比較結果を見る前にprotocol identityと完全一致のrisk profileをStudyPlanへ固定し、実験protocolは集計、drawdown・paired excess・終了時settlementに基づく適格性と勝者順を所有します。bootstrapはDatasetとStudyPlanを準備する境界で、学習や経済リプレイは実行しません。
+`position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 
 ## 境界を見るときのチェック
 

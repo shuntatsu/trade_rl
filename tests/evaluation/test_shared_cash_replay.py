@@ -26,16 +26,20 @@ class FixedIntent:
 class SequenceIntent:
     intents: tuple[PositionIntent, ...]
     index: int = 0
+    observations: list[object] = field(default_factory=list)
 
     def decide(self, observation: object) -> PositionIntent:
-        del observation
+        self.observations.append(observation)
         intent = self.intents[min(self.index, len(self.intents) - 1)]
         self.index += 1
         return intent
 
 
 def _market(
-    close: np.ndarray, *, symbols: tuple[str, ...] | None = None
+    close: np.ndarray,
+    *,
+    symbols: tuple[str, ...] | None = None,
+    volume: float | np.ndarray = 1_000_000.0,
 ) -> MarketDataset:
     close_array = np.asarray(close, dtype=np.float64)
     if close_array.ndim != 2:
@@ -57,7 +61,7 @@ def _market(
         high=np.maximum(open_price, close_array),
         low=np.minimum(open_price, close_array),
         close=close_array,
-        volume=np.full((n_bars, n_symbols), 1_000_000.0),
+        volume=np.broadcast_to(volume, (n_bars, n_symbols)).copy(),
         funding_rate=np.zeros((n_bars, n_symbols)),
         tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
         feature_available=np.ones((n_bars, n_symbols, 1), dtype=np.bool_),
@@ -97,6 +101,213 @@ def _risk(*, max_gross: float, max_turnover: float | None) -> PreTradeRisk:
 
 def test_shared_cash_replay_api_exists() -> None:
     assert callable(replay_module.run_shared_cash_replay)
+
+
+def test_shared_cash_replay_settles_every_symbol_before_the_exclusive_close() -> None:
+    dataset = _market(np.full((6, 2), [100.0, 200.0]))
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (
+            FixedIntent(PositionIntent.LONG),
+            FixedIntent(PositionIntent.SHORT),
+        ),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.2,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    assert len(result.decisions) == 4
+    assert len(result.returns.values) == 5
+    np.testing.assert_allclose(result.book.quantities, np.zeros(2))
+    assert result.ledger_evidence is not None
+    assert result.ledger_evidence.schema_version == "shared_cash_replay_ledger_v2"
+    assert result.ledger_evidence.terminal_exact_quantities == ("0", "0")
+    assert result.ledger_evidence.active_order_remainders == ()
+    assert len(result.ledger_evidence.intervals) == len(result.returns.values)
+
+
+def test_shared_cash_replay_enforces_minimum_hold_from_actual_shared_fills() -> None:
+    dataset = _market(np.full((6, 1), 100.0))
+    strategy = SequenceIntent(
+        (
+            PositionIntent.LONG,
+            PositionIntent.FLAT,
+            PositionIntent.FLAT,
+            PositionIntent.FLAT,
+        )
+    )
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=3,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    assert [item.position_age_bars for item in strategy.observations] == [0, 1, 2, 3]
+    assert [item.intents for item in result.decisions] == [
+        (PositionIntent.LONG,),
+        (PositionIntent.FLAT,),
+        (PositionIntent.FLAT,),
+        (PositionIntent.FLAT,),
+    ]
+    assert [item.effective_intents for item in result.decisions] == [
+        (PositionIntent.LONG,),
+        (PositionIntent.LONG,),
+        (PositionIntent.LONG,),
+        (PositionIntent.FLAT,),
+    ]
+    assert [item.minimum_hold_suppressed for item in result.decisions] == [
+        (False,),
+        (True,),
+        (True,),
+        (False,),
+    ]
+    assert [item.position_age_bars_before for item in result.decisions] == [
+        (0,),
+        (1,),
+        (2,),
+        (3,),
+    ]
+    assert [item.position_age_bars_after for item in result.decisions] == [
+        (1,),
+        (2,),
+        (3,),
+        (0,),
+    ]
+    np.testing.assert_allclose(result.book.quantities, np.zeros(1))
+    assert result.ledger_evidence is not None
+    assert result.ledger_evidence.decisions[1].minimum_hold_suppressed == (True,)
+
+
+def test_shared_cash_hold_age_uses_partial_fill_and_cancels_unfilled_remainder() -> (
+    None
+):
+    dataset = _market(
+        np.full((6, 1), 100.0),
+        volume=np.asarray(
+            [
+                [1_000_000.0],
+                [2.0],
+                [1_000_000.0],
+                [1_000_000.0],
+                [1_000_000.0],
+                [1_000_000.0],
+            ]
+        ),
+    )
+    strategy = SequenceIntent(
+        (
+            PositionIntent.LONG,
+            PositionIntent.FLAT,
+            PositionIntent.FLAT,
+            PositionIntent.FLAT,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=3,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+    first_fill = result.decisions[0].position_quantity_after[0]
+    assert 0.0 < first_fill < 5.0
+    assert result.decisions[0].position_age_bars_after == (1,)
+    assert result.decisions[1].position_quantity_before == pytest.approx((first_fill,))
+    assert result.decisions[1].minimum_hold_suppressed == (True,)
+    assert result.ledger_evidence is not None
+    assert any(
+        event.event_type == "cancelled" and event.reason == "superseded"
+        for event in result.ledger_evidence.intervals[1].order_events
+    )
+    assert result.ledger_evidence.terminal_exact_quantities == ("0",)
+    assert result.ledger_evidence.active_order_remainders == ()
+
+
+def test_shared_cash_drawdown_stop_overrides_minimum_hold() -> None:
+    dataset = _market(np.asarray([[100.0], [100.0], [60.0], [60.0], [60.0], [60.0]]))
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (
+            SequenceIntent(
+                (
+                    PositionIntent.LONG,
+                    PositionIntent.FLAT,
+                    PositionIntent.FLAT,
+                    PositionIntent.FLAT,
+                )
+            ),
+        ),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        minimum_hold_bars=3,
+    )
+
+    stop_decision = result.decisions[2]
+    assert stop_decision.minimum_hold_suppressed == (True,)
+    assert stop_decision.target_weights == pytest.approx((0.0,))
+    assert "drawdown_deleveraging" in stop_decision.risk_reasons
+    assert stop_decision.position_quantity_after == pytest.approx((0.0,))
+
+
+def test_shared_cash_minimum_hold_requires_age_aware_observation() -> None:
+    dataset = _market(np.full((4, 1), 100.0))
+    strategy = FixedIntent(PositionIntent.LONG)
+    strategy.observation_schema = "ppo_observation_v2"
+
+    with pytest.raises(ValueError, match="age-aware observation"):
+        replay_module.run_shared_cash_replay(
+            dataset,
+            (strategy,),
+            start_index=0,
+            stop_index=3,
+            gross_budget=0.5,
+            minimum_hold_bars=1,
+        )
+
+
+def test_shared_cash_minimum_hold_roster_must_match_dataset() -> None:
+    dataset = _two_symbol_market()
+
+    with pytest.raises(ValueError, match="match the dataset symbol roster"):
+        replay_module.run_shared_cash_replay(
+            dataset,
+            (FixedIntent(PositionIntent.FLAT), FixedIntent(PositionIntent.FLAT)),
+            start_index=0,
+            stop_index=5,
+            gross_budget=0.2,
+            minimum_hold_bars=(1,),
+        )
 
 
 def test_one_symbol_shared_cash_is_single_symbol_equivalent() -> None:

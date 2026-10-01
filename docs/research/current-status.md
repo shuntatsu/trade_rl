@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-29 (JST)
+更新基準: 2026-10-01 (JST)
 
 ## 結論
 
@@ -19,9 +19,9 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 The user's direction is to keep PPO as the main learner and compare multi-day
 to multi-week holding treatments under a 20% maximum-drawdown guardrail. The
-current design compares a freshly trained, Observation-v3 H=0 PPO with
-minimum-hold horizons of 72, 168, 336, and 504 hourly bars (3, 7, 14, and 21
-days). This estimates the effect of assigning a PPO system a minimum-dwell
+current frozen `ppo_holding_duration_v1` design compares a freshly trained,
+Observation-v3 H=0 PPO with minimum-hold horizons of 72, 168, 336, and 504
+hourly bars (3, 7, 14, and 21 days). This estimates the effect of assigning a PPO system a minimum-dwell
 rule; separate PPO training means the trades and later actions may also change.
 
 All arms must bind the same Dataset/time scope, selected features and fit
@@ -30,9 +30,11 @@ execution costs/funding/borrow, execution overlay, risk config, and terminal
 settlement. The protocol fixes max gross 0.5, max absolute weight 0.1, no
 turnover cap, drawdown deleveraging at 10%, and hard stop at 20%, with other
 `PreTradeRiskConfig` fields at their defaults. This exact profile is enforced
-identically in PPO training and every strategy replay. Each symbol remains an
-independent account; the 20% stop cannot guarantee the realized drawdown stays
-below 20% after a price gap.
+identically in PPO training and every strategy replay. In v1 each symbol remains
+an independent account; the 20% stop cannot guarantee the realized drawdown
+stays below 20% after a price gap. The new v2 protocol described below measures
+the same PPO horizon question on one 100,000 USDT account shared across the
+five symbols.
 
 The age-aware run resolver requires a continuous, exactly regular one-hour
 clock, and low-level PPO APIs reject positive minimum-hold durations with the
@@ -41,18 +43,56 @@ and unlocked replay events, actual age and quantities, post-risk target, risk
 reasons, final inventory, and active/terminal order state. A terminal-settlement
 flag does not by itself prove that the account finished flat.
 
-The result-blind code path and focused contract tests are under development on
-the `codex/ppo-holding-duration` work branch. No PPO training or economic replay
-has been run for these horizons. `controlled_study_plan_v4` remains the
-development-only protocol form. A new `canonical_m2_bootstrap_config_v5` /
-`controlled_study_plan_v5` path now binds the same `ppo_holding_duration_v1`
-protocol together with a
-preregistered final window and `StudyResearchContext`, plus explicit Observation,
-minimum-hold, terminal-settlement, and risk fields in the baseline. This makes a
-future frozen winner structurally eligible for the existing separate
-unused-future authorization gate; it does not itself authorize or run a final
-test. The v5 bootstrap path currently has synthetic/mock integration coverage
-only, and has not been run against fresh Binance data.
+A separate result-blind shared-cash replay capability accepts age-aware
+minimum-hold decisions and reserved terminal settlement for multiple symbols in
+one account, with a versioned per-decision ledger. The immutable v5 StudyPlan
+above still means five independent 100,000 USDT accounts and retains that
+historical selection semantics. A new `ppo_shared_cash_holding_duration_v2`
+protocol now has a separate `canonical_m2_bootstrap_config_v6` /
+`controlled_study_plan_v6` identity. Its
+Candidate Run schema v7 persists the combined portfolio return series,
+terminal account state, and shared-ledger identity; comparison schema v4
+recomputes each seed's combined return / drawdown and selects on shared-cash
+results rather than averaging symbol accounts. Mocked bootstrap and full
+Study-lifecycle tests exercise this path. The local implementation is not yet
+cleared by the required fresh result-blind G0-G2 review, and no v2 fit or
+economic replay has been run. The previous sealed one-shot normalization run
+36356182462 completed execution but its independent verification failed, so it
+published no verified comparison. No verified PPO profitability result exists.
+
+The result-blind `ppo_holding_duration_v1` code path and focused contract tests
+are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, the new
+`canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` path completed a
+fresh Binance source freeze and published an immutable Dataset and StudyPlan.
+The bootstrap manifest, Dataset manifest, exact input config, and exact StudyPlan
+are preserved in the [result-blind v5 packet](../../report/ppo-hold-duration-v5-20261001/).
+Its config digest is
+`f31fd955c50dd69d68ae78db4b756a1bc43a4cb425ab7d0f4045327395a83044`, Dataset
+ID is `c489ed47a55f2013fcd4f8c1bf560997b8ba41c4ec6dff0d16d0dd95d516a72b`,
+Dataset artifact digest is
+`27aba635367cc79d2086fd28709c8565684e6ef2c00af2bfad8202ce479661ab`, StudyPlan
+digest is `f7e0098a658952e3d3359f6079aa07e97cf6792e3e6b447b95b1ebc75aed78a6`,
+and outer bootstrap digest is
+`af0ba9ab3f3a88a665a8e6be29072ed21ae3772e6eedcc3733315a9111bcd3bd`.
+
+The older `controlled_study_plan_v4` remains development-only. The frozen
+Dataset covers 2021-01 through 2026-08 for BTCUSDT, ETHUSDT,
+BNBUSDT, XRPUSDT, and ADAUSDT, with a 1h decision clock plus 4h and 1d feature
+streams. The baseline uses the existing 12-feature roster, fit cutoff
+2023-01-01, and development evaluation from 2023-01-01 through 2026-08-01.
+Every fit requests 262,144 PPO steps across the five fixed seeds. The common
+research assumption is 0.05% fee, 0.02% spread, 5% participation capacity,
+100,000 USDT initial capital per independent symbol account, and the fixed
+20% drawdown stop. The unused final window is preregistered as
+2026-11-01 through 2027-11-01 and has not been fetched or opened.
+
+The network-free independent inspection matched the recorded bootstrap, Dataset,
+and StudyPlan identities; confirmed `controlled_study_plan_v5`, Observation v3,
+H=0, the five seeds, all four horizons, and the sole `PPO_MINIMUM_HOLD` factor;
+and confirmed that no baseline or candidate run exists. The initially requested
+September 2026 monthly Vision archive returned 404, so the frozen range ends at
+the latest complete month available during this bootstrap rather than filling or
+substituting missing data.
 
 The protocol fixes H=0 with Observation v3, five ordered PPO seeds, only
 `PPO_MINIMUM_HOLD`, four experiments, and the shared risk config. It fixes the
@@ -74,17 +114,16 @@ rejects a downgraded v1/v2 comparison. This remains a development screen, not a
 profitability claim; a frozen winner still needs separate one-shot sealed
 unused-future evaluation.
 
-G0 is not established until the exact Dataset/window and all result-blind
-conditions are bound into a new immutable StudyPlan before outcomes exist. The
-result-blind bootstrap may create that Dataset and StudyPlan before G0-G2 are
-closed; it does not execute the baseline or any candidate. G2 remains NOT
-ESTABLISHED until a fresh independent result-blind review of this protocol
-implementation and the complete contract checks pass. Human review of updated
-Guide descriptions is a separate documentation gate required before their
-source fingerprints are refreshed; it is not a G2 oracle. No new PPO training
-or economics has started. G4 remains blocked; existing M2 results are not
-evidence for this duration question. The next sequence is to create and inspect
-the exact v5 Dataset/window/StudyPlan result-blind, close G0-G2, then freshly
+G0 is now bound to the exact Dataset, development/final windows, and immutable
+StudyPlan before outcomes exist, but G0 has not passed fresh independent
+result-blind review. G1 is fixed in the same plan and also awaits that review.
+G2 remains NOT ESTABLISHED until the exact implementation receives fresh
+independent result-blind review and all required contract checks pass. Human
+review of the updated Guide description is a separate documentation gate
+required before its source fingerprints are refreshed; it is not a G2 oracle.
+No PPO training or economic replay has started for this duration study. G4
+remains blocked; existing M2 results are not evidence for this duration
+question. The next sequence is to close G0-G2 on this exact packet, then freshly
 train H=0 under Observation v3 before any candidate result is generated.
 The local Study workflow does not authenticate an external G0-G2 review; this
 remains an operator release prerequisite, and `run_baseline` / `run_experiment`

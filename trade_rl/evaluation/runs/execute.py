@@ -14,6 +14,7 @@ from trade_rl.evaluation.runs.config import (
 )
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
@@ -74,6 +75,9 @@ def execute_candidate_run(
             None
             if spec.config.pretrade_risk_config is None
             else PreTradeRisk(spec.config.pretrade_risk_config)
+        ),
+        include_ppo_shared_cash_replay=(
+            spec.config.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3
         ),
     )
     training_timesteps = suite_result.ppo_training_timesteps

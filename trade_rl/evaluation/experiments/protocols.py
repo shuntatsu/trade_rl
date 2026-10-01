@@ -9,6 +9,7 @@ from statistics import median
 
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
 )
 from trade_rl.evaluation.experiments.contracts import (
     PPO_HOLDING_DURATION_HORIZONS,
@@ -30,6 +31,25 @@ class PPOHoldingDurationMetrics:
     median_excess_return: float
     worst_max_drawdown: float
     symbol_count: int
+    terminal_settlement_complete: bool = True
+
+    @property
+    def eligible(self) -> bool:
+        return (
+            self.median_excess_return > 0.0
+            and self.worst_max_drawdown <= PPO_HOLDING_DURATION_MAX_DRAWDOWN
+            and self.terminal_settlement_complete
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PPOSharedCashHoldingDurationMetrics:
+    """Selection summary for the combined, shared-cash PPO portfolio."""
+
+    score: float
+    median_excess_return: float
+    worst_max_drawdown: float
+    seed_count: int
     terminal_settlement_complete: bool = True
 
     @property
@@ -229,8 +249,179 @@ def ppo_holding_metrics(
     )
 
 
+def ppo_shared_cash_holding_metrics(
+    comparison: ExperimentComparison,
+    *,
+    expected_seeds: tuple[int, ...],
+) -> PPOSharedCashHoldingDurationMetrics:
+    """Validate and summarize a combined shared-cash PPO comparison."""
+
+    if not expected_seeds or len(set(expected_seeds)) != len(expected_seeds):
+        raise ArtifactIntegrityError("shared-cash PPO seed roster is malformed")
+    factor_effect = comparison.to_payload()["factor_effect"]
+    if not isinstance(factor_effect, Mapping):
+        raise ArtifactIntegrityError("factor-effect comparison must be an object")
+    if (
+        factor_effect.get("schema_version")
+        != PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+    ):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO protocol requires factor-effect schema v4"
+        )
+    if factor_effect.get("seeds") != list(expected_seeds):
+        raise ArtifactIntegrityError("shared-cash PPO seed roster is incomplete")
+    cross_seed = factor_effect.get("cross_seed")
+    if not isinstance(cross_seed, Mapping):
+        raise ArtifactIntegrityError("factor-effect cross_seed summary is missing")
+    portfolio = cross_seed.get("shared_cash_ppo")
+    if not isinstance(portfolio, Mapping):
+        raise ArtifactIntegrityError("shared-cash PPO portfolio summary is missing")
+    if _selection_count(portfolio, "seed_count") != len(expected_seeds):
+        raise ArtifactIntegrityError("shared-cash PPO seed roster is incomplete")
+    by_seed = portfolio.get("by_seed")
+    expected_seed_keys = {str(seed) for seed in expected_seeds}
+    if not isinstance(by_seed, Mapping) or set(by_seed) != expected_seed_keys:
+        raise ArtifactIntegrityError("shared-cash PPO per-seed results are incomplete")
+
+    candidate_returns: list[float] = []
+    excess_returns: list[float] = []
+    candidate_drawdowns: list[float] = []
+    baseline_drawdowns: list[float] = []
+    candidate_terminal_count = 0
+    baseline_terminal_count = 0
+    period_counts: set[int] = set()
+    for seed in expected_seeds:
+        seed_metrics = by_seed.get(str(seed))
+        if not isinstance(seed_metrics, Mapping):
+            raise ArtifactIntegrityError(
+                "shared-cash PPO per-seed metrics are malformed"
+            )
+        baseline_return = _selection_number(seed_metrics, "baseline_total_return")
+        candidate_return = _selection_number(seed_metrics, "candidate_total_return")
+        excess_return = _selection_number(seed_metrics, "excess_total_return")
+        if not math.isclose(
+            excess_return,
+            candidate_return - baseline_return,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            raise ArtifactIntegrityError(
+                "shared-cash PPO per-seed excess return is inconsistent"
+            )
+        baseline_drawdown = _selection_number(
+            seed_metrics,
+            "baseline_max_drawdown",
+        )
+        candidate_drawdown = _selection_number(
+            seed_metrics,
+            "candidate_max_drawdown",
+        )
+        worst_drawdown = _selection_number(
+            seed_metrics,
+            "worst_account_max_drawdown",
+        )
+        if min(baseline_drawdown, candidate_drawdown) < 0.0 or worst_drawdown != max(
+            baseline_drawdown,
+            candidate_drawdown,
+        ):
+            raise ArtifactIntegrityError(
+                "shared-cash PPO per-seed drawdown summary is inconsistent"
+            )
+        baseline_settled = seed_metrics.get("baseline_terminal_settlement_complete")
+        candidate_settled = seed_metrics.get("candidate_terminal_settlement_complete")
+        if not isinstance(baseline_settled, bool) or not isinstance(
+            candidate_settled, bool
+        ):
+            raise ArtifactIntegrityError(
+                "shared-cash PPO terminal-settlement state is malformed"
+            )
+        period_count = _selection_count(seed_metrics, "return_period_count")
+        if period_count == 0:
+            raise ArtifactIntegrityError(
+                "shared-cash PPO comparison has no return periods"
+            )
+        period_counts.add(period_count)
+        candidate_returns.append(candidate_return)
+        excess_returns.append(excess_return)
+        candidate_drawdowns.append(candidate_drawdown)
+        baseline_drawdowns.append(baseline_drawdown)
+        candidate_terminal_count += int(candidate_settled)
+        baseline_terminal_count += int(baseline_settled)
+
+    if len(period_counts) != 1:
+        raise ArtifactIntegrityError(
+            "shared-cash PPO seed comparisons use different return periods"
+        )
+    score = _selection_number(portfolio, "median_candidate_total_return")
+    median_excess_return = _selection_number(
+        portfolio,
+        "median_excess_total_return",
+    )
+    reported_candidate_drawdown = _selection_number(
+        portfolio,
+        "worst_candidate_max_drawdown",
+    )
+    reported_baseline_drawdown = _selection_number(
+        portfolio,
+        "worst_baseline_max_drawdown",
+    )
+    reported_worst_drawdown = _selection_number(
+        portfolio,
+        "worst_account_max_drawdown",
+    )
+    reported_baseline_settled = _selection_count(
+        portfolio,
+        "baseline_terminal_settlement_complete_seed_count",
+    )
+    reported_candidate_settled = _selection_count(
+        portfolio,
+        "candidate_terminal_settlement_complete_seed_count",
+    )
+    if (
+        score != float(median(candidate_returns))
+        or median_excess_return != float(median(excess_returns))
+        or reported_candidate_drawdown != max(candidate_drawdowns)
+        or reported_baseline_drawdown != max(baseline_drawdowns)
+        or reported_worst_drawdown
+        != max(reported_candidate_drawdown, reported_baseline_drawdown)
+        or reported_baseline_settled != baseline_terminal_count
+        or reported_candidate_settled != candidate_terminal_count
+    ):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO cross-seed summary is inconsistent"
+        )
+    return PPOSharedCashHoldingDurationMetrics(
+        score=score,
+        median_excess_return=median_excess_return,
+        worst_max_drawdown=reported_worst_drawdown,
+        seed_count=len(expected_seeds),
+        terminal_settlement_complete=(
+            baseline_terminal_count == len(expected_seeds)
+            and candidate_terminal_count == len(expected_seeds)
+        ),
+    )
+
+
+def ppo_study_metrics(
+    plan: StudyPlan,
+    comparison: ExperimentComparison,
+) -> PPOHoldingDurationMetrics | PPOSharedCashHoldingDurationMetrics:
+    """Apply the selector bound to the Study's immutable protocol version."""
+
+    if plan.is_ppo_shared_cash_holding_duration_study:
+        return ppo_shared_cash_holding_metrics(
+            comparison,
+            expected_seeds=plan.ppo_seeds,
+        )
+    return ppo_holding_metrics(
+        comparison,
+        expected_symbols=plan.symbols,
+        expected_seeds=plan.ppo_seeds,
+    )
+
+
 def ppo_holding_expected_decision(
-    metrics: PPOHoldingDurationMetrics,
+    metrics: PPOHoldingDurationMetrics | PPOSharedCashHoldingDurationMetrics,
 ) -> ExperimentDecisionKind:
     """Return the only valid decision under the frozen eligibility rule."""
 
@@ -253,8 +444,11 @@ def ppo_holding_winner_digest(
 
 __all__ = [
     "PPOHoldingDurationMetrics",
+    "PPOSharedCashHoldingDurationMetrics",
     "ppo_holding_definition_matches",
     "ppo_holding_expected_decision",
     "ppo_holding_metrics",
+    "ppo_shared_cash_holding_metrics",
+    "ppo_study_metrics",
     "ppo_holding_winner_digest",
 ]

@@ -100,6 +100,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert execution_cost == ExecutionCostConfig.zero()
     assert execution_cost.processing_bar_volume_capacity is True
     assert kwargs["risk"] is None
+    assert kwargs["include_ppo_shared_cash_replay"] is False
 
 
 def test_execute_candidate_run_rejects_dataset_identity_mismatch() -> None:
@@ -150,6 +151,7 @@ def test_execute_candidate_run_uses_one_explicit_risk_for_training_and_replay(
     def fake_suite(loaded, lean_config, **kwargs):
         captured["risk"] = kwargs["risk"]
         captured["settlement"] = lean_config.ppo_settle_terminal_position
+        captured["shared_cash"] = kwargs["include_ppo_shared_cash_replay"]
         return comparison
 
     monkeypatch.setattr(execute_module, "run_lean_candidate_suite", fake_suite)
@@ -159,3 +161,4 @@ def test_execute_candidate_run_uses_one_explicit_risk_for_training_and_replay(
     assert isinstance(captured["risk"], PreTradeRisk)
     assert captured["risk"].config == configured_risk
     assert captured["settlement"] is True
+    assert captured["shared_cash"] is True

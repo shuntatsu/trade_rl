@@ -33,6 +33,7 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
 from trade_rl.evaluation.experiments.contracts import StudyProtocol
 from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
 )
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
 from trade_rl.evaluation.runs import (
@@ -281,12 +282,19 @@ def _validate_study_against_config(
     if (snapshot.root / "baseline").exists():
         raise ValueError("bootstrap Study unexpectedly contains baseline evidence")
     expected_research_question = config.research_question
-    if config.study_protocol is StudyProtocol.PPO_HOLDING_DURATION and not (
-        expected_research_question.endswith(PPO_HOLDING_DURATION_SELECTION_RULE)
-    ):
-        expected_research_question = (
-            f"{expected_research_question}\n\n{PPO_HOLDING_DURATION_SELECTION_RULE}"
+    if config.study_protocol in {
+        StudyProtocol.PPO_HOLDING_DURATION,
+        StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+    }:
+        selection_rule = (
+            PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+            if config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+            else PPO_HOLDING_DURATION_SELECTION_RULE
         )
+        if not expected_research_question.endswith(selection_rule):
+            expected_research_question = (
+                f"{expected_research_question}\n\n{selection_rule}"
+            )
     if plan.research_question != expected_research_question:
         raise ValueError("Study research question differs from bootstrap config")
     if plan.dataset_id != dataset.dataset_id:
@@ -311,7 +319,11 @@ def _validate_study_against_config(
     expected_final_start = _study_final_timestamp(config.final_evaluation_start)
     expected_final_stop = _study_final_timestamp(config.final_evaluation_stop_exclusive)
     if config.study_protocol is not None:
-        expected_plan_schema = "controlled_study_plan_v5"
+        expected_plan_schema = (
+            "controlled_study_plan_v6"
+            if config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+            else "controlled_study_plan_v5"
+        )
     elif config.research_context is not None:
         expected_plan_schema = "controlled_study_plan_v3"
     else:

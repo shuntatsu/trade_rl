@@ -115,6 +115,30 @@ explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
 or terminal move cannot exceed 20% realized drawdown.
 
+`run_shared_cash_replay` is a separate multi-symbol evaluation boundary. Each
+symbol has one fresh strategy instance, all instances observe the same pre-trade
+portfolio snapshot, and their complete target vector passes through the shared
+`PreTradeRisk` and `MarketExecutor` once per interval. `current_weight` is measured
+against the single portfolio value. Its optional `minimum_hold_bars` can be one
+common duration or an ordered per-symbol vector; age advances from actual signed
+fills, the locked target is rebound to the exact filled quantity, and risk
+projection still runs afterward. Optional terminal settlement reserves the
+latency-aware close interval and sends a portfolio-wide flat target through the
+same risk and execution path. Any residual quantity or active order remains
+visible at the end. Duration/settlement runs emit shared-cash ledger schema v2,
+including requested/effective intents, per-symbol ages and quantities, and
+suppression/unlock evidence; calls without those options retain v1 ledger shape.
+This replay capability does not make the existing per-symbol PPO training
+environment a joint portfolio learner, and does not change the independent-account
+meaning of the currently frozen v1 Study.
+
+New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
+`lean_candidate_result_v7`. The artifact binds the combined return series,
+terminal cash / quantities, active-order and settlement state, and versioned
+shared-cash ledger digest; loading recomputes return and maximum drawdown from
+the return series. This provides the v2 Study's single-account comparison input
+while preserving v1 per-symbol selection semantics.
+
 ### PPO training layout
 
 `fit_ppo_strategy(normalize_features=True)` explicitly fits one immutable

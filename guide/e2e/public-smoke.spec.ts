@@ -44,7 +44,7 @@ test("published Guide serves the Markdown-first replay journey", async ({ page }
 test("published Guide exposes PPO contract without interaction", async ({ page }) => {
   const response = await page.goto("./#implementation-ppo");
   expect(response?.ok()).toBeTruthy();
-  await expect(page.getByRole("heading", { name: "PPO Observation v2は5区分" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PPO Observation v2/v3" })).toBeVisible();
   const table = page.getByRole("table").first();
   for (const segment of [
     "local_values",

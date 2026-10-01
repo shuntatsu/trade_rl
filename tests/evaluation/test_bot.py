@@ -51,3 +51,18 @@ def test_optimize_bot_parameters_finds_best_config() -> None:
     assert best_cfg.strategy_name == "mean_reversion"
     assert best_report.initial_capital == 10_000.0
     assert best_report.strategy_name == "mean_reversion"
+
+
+def test_adaptive_strategy_bot_execution() -> None:
+    dataset = generate_demo_dataset(n_bars=100, n_symbols=2, seed=123)
+    cfg = BotConfig(
+        strategy_name="adaptive",
+        initial_capital=20_000.0,
+        gross_budget=0.20,
+        minimum_hold_bars=4,
+    )
+    result, report = run_trading_bot(dataset, cfg)
+    assert report.strategy_name == "adaptive"
+    assert report.initial_capital == 20_000.0
+    assert report.final_equity > 0.0
+    assert len(result.decisions) == dataset.n_bars - 2

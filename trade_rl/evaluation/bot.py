@@ -26,6 +26,10 @@ from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rules.adaptive import (
+    AdaptiveProfitConfig,
+    RegimeAdaptiveStrategy,
+)
 from trade_rl.strategies.rules.channel_breakout import ChannelBreakoutStrategy
 from trade_rl.strategies.rules.ensemble import EnsembleIntentStrategy
 from trade_rl.strategies.rules.mean_reversion import (
@@ -171,6 +175,16 @@ def create_strategy_instances(
             instances.append(
                 EnsembleIntentStrategy([t_strat, m_strat], min_agreement=1)
             )
+        elif name == "adaptive":
+            a_cfg = AdaptiveProfitConfig(
+                signal_index=config.signal_index,
+                volatility_index=1,
+                trend_entry_threshold=config.entry_threshold,
+                trend_exit_threshold=config.exit_threshold,
+                reversion_entry_threshold=config.entry_threshold * 1.2,
+                reversion_exit_threshold=config.exit_threshold * 1.2,
+            )
+            instances.append(RegimeAdaptiveStrategy(a_cfg))
         elif name == "constant_long":
             instances.append(ConstantIntentStrategy(PositionIntent.LONG))
         elif name == "constant_short":
@@ -282,6 +296,7 @@ def compare_all_strategies(
 ) -> list[BotReport]:
     """Simulate and rank all candidate strategies to find the one with maximum profit."""
     strategies_to_test = [
+        "adaptive",
         "ensemble",
         "trend",
         "mean_reversion",
@@ -377,8 +392,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--strategy",
-        default="ensemble",
-        help="Strategy name (trend, mean_reversion, channel_breakout, ensemble)",
+        default="adaptive",
+        help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash)",
     )
     parser.add_argument(
         "--dataset",

@@ -26,6 +26,7 @@ from trade_rl.strategies.rl.ppo_training import (
     PPO_REWARD_SCHEMA,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    ppo_training_objective_contract_payload,
     validated_ppo_gamma,
 )
 
@@ -390,6 +391,7 @@ class ResolvedRunConfig:
 
         config = spec.config
         lean = spec.lean_config
+        objective = ppo_training_objective_contract_payload(gamma=lean.ppo_gamma)
         return cls(
             signal_name=config.signal_name,
             signal_index=lean.signal_index,
@@ -412,9 +414,9 @@ class ResolvedRunConfig:
             ppo_observation_schema=config.ppo_observation_schema,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
             schema_version=_RESOLVED_RUN_CONFIG_V6,
-            ppo_gamma=lean.ppo_gamma,
-            ppo_reward_schema=PPO_REWARD_SCHEMA,
-            ppo_gae_lambda=PPO_DEFAULT_GAE_LAMBDA,
+            ppo_gamma=float(objective["gamma"]),
+            ppo_reward_schema=str(objective["reward_schema"]),
+            ppo_gae_lambda=float(objective["gae_lambda"]),
             ppo_training_layout=lean.ppo_training_layout,
             ppo_rollout_steps_per_env=lean.ppo_rollout_steps_per_env,
             ppo_minimum_hold_bars=lean.ppo_minimum_hold_bars,

@@ -520,6 +520,25 @@ def test_real_interleaved_fit_records_vector_rollout_rounded_timesteps() -> None
     assert strategy.policy.num_timesteps == 128
 
 
+def test_real_interleaved_fit_uses_explicit_discount_factor() -> None:
+    pytest.importorskip("stable_baselines3")
+    strategy = fit_ppo_strategy(
+        pooled_market(),
+        feature_indices=(0,),
+        fit_symbol_indices=(0, 1),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.1,
+        total_timesteps=64,
+        seed=43,
+        gamma=0.9975,
+        training_layout="interleaved",
+        rollout_steps_per_env=32,
+    )
+
+    assert strategy.policy.gamma == pytest.approx(0.9975)
+
+
 def _strong_uptrend_market(n_bars: int = 64) -> MarketDataset:
     open_price = np.empty((n_bars, 1), dtype=np.float64)
     close = np.empty((n_bars, 1), dtype=np.float64)

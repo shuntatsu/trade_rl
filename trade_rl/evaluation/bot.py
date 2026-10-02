@@ -22,7 +22,7 @@ from trade_rl.evaluation.replay import (
     run_shared_cash_replay,
 )
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import EconomicTerminationReason, ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.position_intent import PositionIntent
@@ -330,6 +330,7 @@ def calculate_bot_report(
     )
 
     ledger = replay_result.ledger_evidence
+    termination_reason = replay_result.book.termination_reason
     terminal_quantities = tuple(float(value) for value in replay_result.book.quantities)
     terminal_settled = (
         ledger is not None
@@ -355,9 +356,9 @@ def calculate_bot_report(
         if ledger is None
         else ledger.active_order_remainders,
         termination_reason=(
-            None
-            if replay_result.book.termination_reason is None
-            else str(replay_result.book.termination_reason)
+            termination_reason.value
+            if isinstance(termination_reason, EconomicTerminationReason)
+            else termination_reason
         ),
     )
 

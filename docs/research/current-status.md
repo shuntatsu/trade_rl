@@ -15,6 +15,14 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Trading-bot validation repair (2026-10-03)
+
+Botの`balanced` scoreは損失の符号を反転していた。channel戦略はchannelでない列を固定位置で読み、synthetic channelは現在足のextremaを含んでいた。これらを独立計算とmocked reportのRED testで再現し、符号付きscore、名前で解決する既存prior-candle channel、終端決済完了を要求する選択条件へ修復する。replay/accounting ownerやPPO研究の機構は変更しない。
+
+未統合のwalk-forward実装は既存tunerと異なる探索を重複して持ち、少数candidateで探索axisを落とし、最後の残余barを捨てていた。同じ探索実装へ統一し、CLIでdevelopment diagnosticとして実行できる契約を追加する。windowごとのcapital/state resetと仮想return積を明示し、continuous wealthやsealed final profitabilityとは扱わない。scopeはソフトウェア修復と開発実行の確認であり、live注文接続や新しいPPO実験の認可ではない。
+
+実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
+
 ## Trading-bot tuning contract correction (2026-10-02)
 
 GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。

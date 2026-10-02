@@ -379,6 +379,12 @@ CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちら
 
 Candidateの選定適格性はtuning-window shared ledger maximum drawdownが20%以下であることを要求する。20%はselection vetoであり、pre-trade stopやholdoutのrealized drawdownを20%以内に保証しない。価格gap、約定損、terminal settlementで観測drawdownが20%を超える場合があるため、holdout drawdownはそのまま報告する。
 
+`balanced` は符号付きのtotal return / max(drawdown, 0.1%)へinterval profit-factor bonusを掛ける。損失の符号を反転せず、損失candidateをcashや正returnより高く評価しない。この比率は年率換算Calmarではない。tuning candidateは終端のexact quantityが全て0、active order remainderなし、economic terminationなしであることも必要とする。Bot reportはmarked equity/P&Lと`terminal_settled`、残余quantity、active order、termination reasonを同時に保持する。決済不能の後続reportはそのまま表示し、利益や決済完了へ書き換えない。
+
+`walk_forward_tune` / `--mode walk-forward` は同じ探索・score・eligibilityを使い、直前foldで選定して次foldをfresh capital / strategy stateでreplayする。最後のfoldには割り切れない残余barを含め、隣接するevaluation intervalは重複しない。最後のmarkは次windowの開始markにもなる。後のtuningで既に評価したfoldを再利用するため、全体は`development_walk_forward`であり、独立標本やsealed final evidenceではない。各windowは同じinitial capitalへresetし、`cumulative_return_pct`は正規化returnの仮想積である。capacityやorder sizingを再投資capitalでreplayしたcontinuous wealth pathを表さない。
+
+Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`をfeature名で解決し、不足時はreplay前にrejectする。閾値ではなく正規channelの符号を使う。synthetic demoはEMA signalと既存のprior-candle channel builderを使い、現在足をchannel extremaへ含めない。adaptive botのregime判定は設定signalの絶対値を使うmomentum判定であり、独立したrealized volatilityの推定ではない。
+
 ## Artifact and evidence rules
 
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。

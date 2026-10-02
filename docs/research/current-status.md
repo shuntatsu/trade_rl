@@ -23,6 +23,33 @@ GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `-
 
 Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 
+## PPO learning-objective contract (2026-10-02)
+
+A result-blind software change now makes the maintained PPO temporal objective
+explicit without changing the economic reward. Ordinary training reward remains
+the canonical after-cost `log1p(interval_net_return)`; terminal settlement, when
+enabled, still contributes its realized log wealth change to the terminal
+transition. The new `ppo_training_objective_v1` records that reward schema,
+default `gamma=0.99`, fixed `gae_lambda=0.95`, and enabled advantage
+normalization.
+
+New Run Core semantic identity uses `resolved_run_config_v6` to bind
+`ppo_gamma`, the fixed reward schema, and the fixed GAE lambda. The generic
+Controlled Experiment layer has a `PPO_DISCOUNT` factor that may change only
+`ppo_gamma`; reward shaping, reward scaling, GAE changes, training-layout
+changes, and minimum-hold changes are not part of the same factor. Historical
+v1-v5 Run payloads keep their original meaning and remain readable rather than
+being migrated to v6.
+
+This change is infrastructure for studying temporal credit assignment. No
+real-data fit, economic replay, gamma comparison, or P&L inspection has been run
+for it. No gamma value has been selected. The existing mismatch in which PPO
+training uses one active symbol/account while shared-cash evaluation combines
+multiple symbols remains, and policy input still lacks portfolio account
+drawdown. A fresh result-blind G0-G2 review is required before any G4 discount
+experiment. The change therefore establishes neither profitability nor
+production/live eligibility.
+
 ## Active PPO medium-term holding-duration design
 
 The user's direction is to keep PPO as the main learner and compare multi-day

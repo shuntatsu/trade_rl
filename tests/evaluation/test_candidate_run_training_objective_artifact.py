@@ -48,6 +48,23 @@ def test_new_candidate_artifact_binds_ppo_training_objective(tmp_path: Path) -> 
     )
 
 
+def test_candidate_artifact_rejects_missing_ppo_training_objective(
+    tmp_path: Path,
+) -> None:
+    result = _result()
+    published = publish_candidate_run(
+        tmp_path / "run",
+        result,  # type: ignore[arg-type]
+        _provenance(),
+    )
+    summary = json.loads(published.summary_path.read_text(encoding="utf-8"))
+    summary.pop("ppo_training_objective")
+    _write_summary(published.summary_path, summary)
+
+    with pytest.raises(ValueError, match="training objective"):
+        load_candidate_run_artifact(published.root)
+
+
 def test_candidate_artifact_rejects_tampered_ppo_training_objective(
     tmp_path: Path,
 ) -> None:

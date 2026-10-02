@@ -240,7 +240,7 @@ class ResolvedRunConfig:
                 _RESOLVED_RUN_CONFIG_V3,
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
-            _RESOLVED_RUN_CONFIG_V6,
+                _RESOLVED_RUN_CONFIG_V6,
             }:
                 if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
                     if ppo_rollout_steps_per_env is not None:
@@ -258,7 +258,7 @@ class ResolvedRunConfig:
             if schema_version in {
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
-            _RESOLVED_RUN_CONFIG_V6,
+                _RESOLVED_RUN_CONFIG_V6,
             }:
                 ppo_minimum_hold_bars = contract_non_negative_int(
                     self.ppo_minimum_hold_bars,
@@ -472,7 +472,10 @@ class ResolvedRunConfig:
         }:
             payload["ppo_minimum_hold_bars"] = self.ppo_minimum_hold_bars
             payload["ppo_settle_terminal_position"] = self.ppo_settle_terminal_position
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V5:
+        if self.schema_version in {
+            _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
+        }:
             risk = self.pretrade_risk_config
             payload["pretrade_risk_config"] = (
                 None

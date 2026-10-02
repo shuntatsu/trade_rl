@@ -46,7 +46,7 @@ _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
-_SUPPORTED_RESULT_SCHEMAS = frozenset(
+_LEGACY_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
         _RESULT_SCHEMA_V2,
@@ -55,6 +55,11 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+    }
+)
+_SUPPORTED_RESULT_SCHEMAS = frozenset(
+    {
+        *_LEGACY_RESULT_SCHEMAS,
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
     }
@@ -1312,23 +1317,11 @@ def _load_with_evidence(
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
     candidate_config = summary.get("candidate_config")
-    if (
-        result_schema in {
-            _RESULT_SCHEMA_V1,
-            _RESULT_SCHEMA_V2,
-            _RESULT_SCHEMA_V3,
-            _RESULT_SCHEMA_V4,
-            _RESULT_SCHEMA_V5,
-            _RESULT_SCHEMA_V6,
-            _RESULT_SCHEMA_V7,
-        }
-        and (
-            "ppo_training_objective" in summary
-            or (
-                isinstance(candidate_config, Mapping)
-                and "ppo_gamma" in candidate_config
-            )
-        )
+    backfilled_gamma = (
+        isinstance(candidate_config, Mapping) and "ppo_gamma" in candidate_config
+    )
+    if result_schema in _LEGACY_RESULT_SCHEMAS and (
+        "ppo_training_objective" in summary or backfilled_gamma
     ):
         raise ValueError(
             "legacy candidate schema cannot carry PPO objective or training objective semantics"

@@ -146,6 +146,10 @@ FACTOR_RULES: Mapping[ControlledFactor, FactorRule] = MappingProxyType(
             ),
             unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),
         ),
+        ControlledFactor.PPO_DISCOUNT: FactorRule(
+            allowed_paths=frozenset({("ppo_gamma",)}),
+            unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),
+        ),
         ControlledFactor.PPO_MINIMUM_HOLD: FactorRule(
             allowed_paths=frozenset({("ppo_minimum_hold_bars",)}),
             unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),

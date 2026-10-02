@@ -76,11 +76,19 @@ return series alone cannot capture. Total return remains bound to the saved
 interval returns. The
 capital-boundary and full-ledger artifact tests, same-market PPO training/replay
 parity test, and independently hand-calculated multi-symbol cash/cost oracle
-pass locally. A fresh exact-head result-blind G0-G2 review and the repository
-quality gates are still required. No v2 fit or economic replay has been run.
-The previous sealed one-shot normalization run
-36356182462 completed execution but its independent verification failed, so it
-published no verified comparison. No verified PPO profitability result exists.
+pass locally. A source-row mutation oracle now rejects a shared-cash ledger when
+accounting inputs change while the saved ledger, Dataset ID, and expected
+artifact digest remain fixed. It binds initial and interval marks, split and
+delisting terms, dividends, funding due flags and rates, cash and borrow rates,
+and elapsed carry time to their Dataset rows. It also recomputes the canonical
+Dataset identity across all identity arrays; tests cover changes to volume,
+maximum participation, per-row fees, and closing prices. A fresh exact-head
+result-blind G0-G2 review and the repository quality gates are still required.
+No v2 fit or economic replay has been run. The previous sealed
+one-shot normalization run 36356182462 completed all ten execution slots, but
+independent verification failed because a fresh bundle replay differed from its
+published result. Finalization was skipped and no verified comparison was
+published. No verified PPO profitability result exists.
 
 The result-blind `ppo_holding_duration_v1` code path and focused contract tests
 are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, the new

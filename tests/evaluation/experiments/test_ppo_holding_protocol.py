@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tests.evaluation.experiments.test_evidence import (
@@ -98,6 +99,7 @@ def _fake_shared_cash_execute():
             minimum_hold_bars=spec.config.ppo_minimum_hold_bars,
             settle_terminal_position=spec.config.ppo_settle_terminal_position,
             capture_ledger_evidence=True,
+            capture_accounting_evidence=True,
         )
         diagnostics = replay.diagnostics
         shared = SharedCashStrategyComparisonEntry(
@@ -253,6 +255,62 @@ def test_shared_cash_holding_protocol_is_bound_to_a_separate_plan_schema(
     assert "do not average independent per-symbol accounts" in (
         snapshot.plan.research_question
     )
+
+
+def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    root, dataset_root, _ = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v2",
+    )
+    calls = 0
+
+    validate_source_binding = (
+        evidence_module._validate_shared_cash_candidate_source_binding
+    )
+
+    def mutate_source_then_validate(**kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        dataset = kwargs["dataset"]
+        candidate_summary = kwargs["candidate_summary"]
+        portfolio = candidate_summary["shared_cash_ppo"]
+        ledger_evidence = portfolio["ledger_evidence"]
+        ledger = ledger_evidence["payload"]
+        transition = next(
+            transition
+            for interval in ledger["intervals"]
+            for transition in interval["accounting_transitions"]
+            if transition["transition_type"] == "mark_revaluation"
+        )
+        processing_index = transition["processing_index"]
+        changed_open = dataset.open.copy()
+        changed_open[processing_index, 0] += 1.0
+        kwargs["dataset"] = replace(
+            dataset,
+            identity_payload_json=None,
+            open=changed_open,
+            high=np.maximum(dataset.high, changed_open),
+            low=np.minimum(dataset.low, changed_open),
+        )
+        validate_source_binding(**kwargs)
+
+    monkeypatch.setattr(
+        evidence_module,
+        "_validate_shared_cash_candidate_source_binding",
+        mutate_source_then_validate,
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="source open row"):
+        run_baseline(root, dataset_root=dataset_root)
+
+    assert calls == 1
+    assert not (root / "baseline").exists()
 
 
 def test_shared_cash_protocol_completes_comparison_decision_and_freeze(

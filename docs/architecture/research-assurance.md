@@ -249,15 +249,29 @@ interval-return array. Historical v9
 ledger-v2, v8 ledger-v1/v2, and v7 digest-only artifacts retain their previous
 read contracts.
 Same-market training/replay parity and an independently hand-calculated
-multi-symbol cash/cost oracle exercise this boundary. This proves internal
-artifact consistency, not source binding: the loader does not reopen the
-Dataset source rows from its digest. That source-bound oracle and a fresh
-result-blind G0-G2 review remain required before economic execution. The shared
-path does not change the frozen v1 Study's independent-account denominator,
-risk, or selection semantics, and does not turn the existing one-active-symbol
-PPO training environment into a jointly trained portfolio learner. Any Study
-using shared cash needs a new immutable identity, a single total-cash/notional
-scale, and selection from the combined portfolio equity path.
+multi-symbol cash/cost oracle exercise this boundary. The candidate-run loader
+does not reopen Dataset source rows from its digest, so internal artifact
+validation alone does not establish source binding. During EvidenceSet
+generation for the shared-cash holding-duration protocol, a separate check
+requires the frozen Dataset ID and artifact digest, validates the initial mark
+and contiguous interval window, and binds each accounting transition to its
+source row: `open` and `mark_price`, `split_factor`, `asset_active` and
+`delisting_recovery`, `dividend`, `funding_due` and `funding_rate`, `cash_rate`,
+`borrow_rate`, and `timestamps` for elapsed carry time. It also recomputes the
+canonical Dataset identity across all identity arrays, covering source fields
+that do not appear in accounting transitions, including OHLCV (`open`, `high`,
+`low`, `close`, and `volume`),
+`fee_rate`/`maker_fee_rate`/`taker_fee_rate`/`spread_rate`, and
+`max_participation_rate`. Mutation tests change these inputs while retaining
+the saved ledger, Dataset ID, and expected artifact digest; EvidenceSet
+generation rejects them. A fresh result-blind
+G0-G2 review and all contract checks remain required before economic execution.
+The shared path does not change the frozen v1 Study's independent-account
+denominator, risk, or selection semantics, and does not turn the existing
+one-active-symbol PPO training environment into a jointly trained portfolio
+learner. Any Study using shared cash needs a new immutable identity, a single
+total-cash/notional scale, and selection from the combined portfolio equity
+path.
 
 The current implementation and focused tests are still undergoing independent
 result-blind review. G2 remains NOT ESTABLISHED until that review and the full

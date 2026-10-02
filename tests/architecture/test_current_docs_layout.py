@@ -442,7 +442,10 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "各時間帯の約定・保有・リスク判断を完全な記録として保存" in guide_status
     assert "学習と評価の売買判断を同じ市場データで照合するテスト" in guide_status
     assert "複数銘柄を扱う時の資金・費用計算を手計算で照合するテスト" in guide_status
-    assert "新しい独立レビューと関連テストが完了するまで" in guide_status
+    assert (
+        "G2は新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。"
+        in guide_status
+    )
     assert "台帳に実際に適用した数量差分" in guide_status
 
 
@@ -467,8 +470,25 @@ def test_v10_shared_cash_accounting_contract_is_documented() -> None:
     assert "termination-flatten" in controlled_loop
     assert "lean_candidate_result_v10" in research_assurance
     assert "shared_cash_replay_ledger_v3" in research_assurance
-    assert "does not reopen the" in research_assurance
+    assert "does not reopen Dataset source rows" in research_assurance
     assert "Dataset source rows" in research_assurance
+    assert "Mutation tests change these inputs" in research_assurance
+    assert all(
+        source in research_assurance
+        for source in (
+            "split_factor",
+            "delisting_recovery",
+            "funding_due",
+            "cash_rate",
+            "borrow_rate",
+            "volume",
+            "max_participation_rate",
+            "fee_rate",
+        )
+    )
+    assert "corporate-action and carry source rows remain outside this oracle" not in (
+        research_assurance
+    )
 
 
 def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> None:

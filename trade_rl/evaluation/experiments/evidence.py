@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
@@ -36,6 +37,7 @@ from trade_rl.evaluation.runs import (
 )
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
+_SOURCE_TIME_TOLERANCE_HOURS = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +185,581 @@ def _verify_plan_inputs(
     if provenance.get("runtime_environment_digest") != plan.runtime_environment_digest:
         raise ArtifactIntegrityError("Study runtime provenance mismatch")
     return artifact, dataset
+
+
+def _candidate_source_index(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ArtifactIntegrityError(f"candidate source ledger {field} is invalid")
+    return value
+
+
+def _require_candidate_source_prices(
+    actual: object,
+    expected: np.ndarray,
+    *,
+    source_row: str,
+    processing_index: int,
+) -> None:
+    _require_candidate_source_values(
+        actual,
+        expected,
+        source_row=source_row,
+        processing_index=processing_index,
+    )
+
+
+def _require_candidate_source_values(
+    actual: object,
+    expected: np.ndarray,
+    *,
+    source_row: str,
+    processing_index: int,
+) -> None:
+    try:
+        actual_values = np.asarray(actual)
+    except (TypeError, ValueError) as error:
+        raise ArtifactIntegrityError(
+            f"candidate ledger source {source_row} is invalid at index "
+            f"{processing_index}"
+        ) from error
+    if expected.dtype.kind == "b":
+        if actual_values.dtype.kind != "b":
+            raise ArtifactIntegrityError(
+                f"candidate ledger source {source_row} is invalid at index "
+                f"{processing_index}"
+            )
+    elif actual_values.dtype.kind not in "iuf":
+        raise ArtifactIntegrityError(
+            f"candidate ledger source {source_row} is invalid at index "
+            f"{processing_index}"
+        )
+    try:
+        actual_values = np.asarray(actual_values, dtype=expected.dtype)
+        expected_values = np.asarray(expected, dtype=expected.dtype)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ArtifactIntegrityError(
+            f"candidate ledger source {source_row} is invalid at index "
+            f"{processing_index}"
+        ) from error
+    if actual_values.shape != expected_values.shape or not np.array_equal(
+        actual_values, expected_values
+    ):
+        raise ArtifactIntegrityError(
+            f"candidate ledger does not match source {source_row} at index "
+            f"{processing_index}"
+        )
+
+
+def _require_candidate_source_scalar(
+    actual: object,
+    expected: float,
+    *,
+    source_row: str,
+    processing_index: int,
+) -> None:
+    if (
+        isinstance(actual, bool)
+        or not isinstance(actual, (int, float))
+        or not np.isfinite(actual)
+        or float(actual) != expected
+    ):
+        raise ArtifactIntegrityError(
+            f"candidate ledger does not match source {source_row} at index "
+            f"{processing_index}"
+        )
+
+
+def _candidate_source_year_fractions(
+    dataset: MarketDataset,
+    *,
+    start_index: int,
+    processing_index: int,
+) -> tuple[float, float]:
+    elapsed_hours = dataset.elapsed_hours(start_index, processing_index)
+    elapsed_year_fraction = dataset.elapsed_year_fraction(
+        start_index,
+        processing_index,
+    )
+    if elapsed_hours <= dataset.bar_hours + _SOURCE_TIME_TOLERANCE_HOURS:
+        return elapsed_year_fraction, 0.0
+    processing_year_fraction = elapsed_year_fraction * dataset.bar_hours / elapsed_hours
+    return processing_year_fraction, elapsed_year_fraction - processing_year_fraction
+
+
+def _candidate_source_exact_quantities(
+    interval: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+) -> tuple[Fraction, ...]:
+    raw_quantities = interval.get("exact_quantities_before")
+    if (
+        not isinstance(raw_quantities, Sequence)
+        or isinstance(raw_quantities, (str, bytes, bytearray))
+        or len(raw_quantities) != dataset.n_symbols
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger interval quantities are invalid"
+        )
+    try:
+        return tuple(Fraction(value) for value in raw_quantities)
+    except (TypeError, ValueError, ZeroDivisionError) as error:
+        raise ArtifactIntegrityError(
+            "candidate source ledger interval quantities are invalid"
+        ) from error
+
+
+def _candidate_shared_cash_ledger(
+    candidate_summary: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    expected_dataset_artifact_digest: str,
+) -> Mapping[str, object]:
+    """Validate the identities and schema needed to bind candidate prices."""
+    try:
+        require_sha256(
+            expected_dataset_artifact_digest,
+            field="expected_dataset_artifact_digest",
+        )
+    except ValueError as error:
+        raise ArtifactIntegrityError(str(error)) from error
+
+    if candidate_summary.get("dataset_id") != dataset.dataset_id:
+        raise ArtifactIntegrityError("candidate source Dataset identity mismatch")
+    dataset_artifact = candidate_summary.get("dataset_artifact")
+    if (
+        not isinstance(dataset_artifact, Mapping)
+        or dataset_artifact.get("artifact_digest") != expected_dataset_artifact_digest
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source Dataset artifact digest mismatch"
+        )
+
+    portfolio = candidate_summary.get("shared_cash_ppo")
+    if not isinstance(portfolio, Mapping):
+        raise ArtifactIntegrityError("shared-cash candidate source ledger is missing")
+    ledger_evidence = portfolio.get("ledger_evidence")
+    if not isinstance(ledger_evidence, Mapping):
+        raise ArtifactIntegrityError("shared-cash candidate source ledger is missing")
+    if ledger_evidence.get("schema_version") != "shared_cash_replay_ledger_v3":
+        raise ArtifactIntegrityError("candidate source ledger schema is unsupported")
+    ledger = ledger_evidence.get("payload")
+    if not isinstance(ledger, Mapping):
+        raise ArtifactIntegrityError("candidate source ledger payload is invalid")
+    if (
+        ledger.get("schema_version") != "shared_cash_replay_ledger_v3"
+        or ledger.get("dataset_id") != dataset.dataset_id
+    ):
+        raise ArtifactIntegrityError("candidate source ledger identity mismatch")
+    return ledger
+
+
+def _validate_candidate_source_mark_transition(
+    transition: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    mark_prices: np.ndarray,
+    expected_index: int,
+) -> bool:
+    transition_type = transition.get("transition_type")
+    if transition_type not in ("mark_revaluation", "funding_mark"):
+        return False
+
+    processing_index = _candidate_source_index(
+        transition.get("processing_index"),
+        field="transition processing_index",
+    )
+    if processing_index != expected_index:
+        raise ArtifactIntegrityError(
+            "candidate source ledger mark index does not match its interval"
+        )
+    transition_evidence = transition.get("evidence")
+    state_after = transition.get("state_after")
+    if not isinstance(transition_evidence, Mapping) or not isinstance(
+        state_after, Mapping
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger mark evidence is incomplete"
+        )
+
+    is_open_mark = transition_type == "mark_revaluation"
+    if is_open_mark:
+        if transition_evidence.get("mark_phase") != "open":
+            raise ArtifactIntegrityError("candidate source open mark phase is invalid")
+        source_row = "open row"
+        expected_prices = dataset.open[processing_index]
+    else:
+        source_row = "mark_price row"
+        expected_prices = mark_prices[processing_index]
+
+    for actual in (
+        transition_evidence.get("mark_prices"),
+        state_after.get("mark_prices"),
+    ):
+        _require_candidate_source_prices(
+            actual,
+            expected_prices,
+            source_row=source_row,
+            processing_index=processing_index,
+        )
+    return is_open_mark
+
+
+def _validate_candidate_source_funding_events(
+    interval: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    mark_prices: np.ndarray,
+    expected_index: int,
+) -> None:
+    raw_events = interval.get("funding_events")
+    if not isinstance(raw_events, Sequence) or isinstance(
+        raw_events, (str, bytes, bytearray)
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger funding events are missing"
+        )
+    expected_due = dataset.resolved_array("funding_due")[expected_index]
+    expected_count = 1 if np.any(expected_due) else 0
+    if len(raw_events) != expected_count:
+        raise ArtifactIntegrityError(
+            "candidate source ledger funding boundaries do not match source due row"
+        )
+    if expected_count == 0:
+        return
+
+    event = raw_events[0]
+    if not isinstance(event, Mapping):
+        raise ArtifactIntegrityError(
+            "candidate source ledger funding boundary is invalid"
+        )
+    if (
+        _candidate_source_index(
+            event.get("processing_index"), field="funding processing_index"
+        )
+        != expected_index
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger funding index does not match its interval"
+        )
+    timestamp_ns = int(
+        dataset.timestamps[expected_index].astype("datetime64[ns]").astype(np.int64)
+    )
+    if event.get("timestamp_ns") != timestamp_ns:
+        raise ArtifactIntegrityError(
+            "candidate source ledger funding timestamp does not match source time row"
+        )
+    source_vectors = (
+        ("funding_due", expected_due, "funding_due row"),
+        (
+            "funding_rates",
+            dataset.funding_rate[expected_index],
+            "funding_rate row",
+        ),
+        ("mark_prices", mark_prices[expected_index], "mark_price row"),
+        (
+            "contract_multipliers",
+            dataset.resolved_array("contract_multipliers"),
+            "contract_multipliers row",
+        ),
+    )
+    for field, expected, source_row in source_vectors:
+        _require_candidate_source_values(
+            event.get(field),
+            np.asarray(expected),
+            source_row=source_row,
+            processing_index=expected_index,
+        )
+
+
+def _validate_candidate_source_transition(
+    transition: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    mark_prices: np.ndarray,
+    expected_index: int,
+    processing_year_fraction: float,
+    gap_year_fraction: float,
+    last_mark_source: tuple[np.ndarray, str] | None,
+) -> tuple[str, str | None, tuple[np.ndarray, str] | None]:
+    transition_type = transition.get("transition_type")
+    if not isinstance(transition_type, str):
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transition type is invalid"
+        )
+    if (
+        _candidate_source_index(
+            transition.get("processing_index"),
+            field="transition processing_index",
+        )
+        != expected_index
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transition index is invalid"
+        )
+    evidence = transition.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transition evidence is missing"
+        )
+
+    carry_phase: str | None = None
+    if transition_type == "mark_revaluation":
+        _validate_candidate_source_mark_transition(
+            transition,
+            dataset=dataset,
+            mark_prices=mark_prices,
+            expected_index=expected_index,
+        )
+        last_mark_source = (dataset.open[expected_index], "open row")
+    elif transition_type == "fill":
+        # Fill events are cross-checked against ledger events by artifact validation;
+        # this validator binds Dataset-backed accounting inputs.
+        pass
+    elif transition_type == "funding_mark":
+        _validate_candidate_source_mark_transition(
+            transition,
+            dataset=dataset,
+            mark_prices=mark_prices,
+            expected_index=expected_index,
+        )
+        last_mark_source = (mark_prices[expected_index], "mark_price row")
+    elif transition_type == "split":
+        _require_candidate_source_values(
+            evidence.get("split_factors"),
+            dataset.resolved_array("split_factor")[expected_index],
+            source_row="split_factor row",
+            processing_index=expected_index,
+        )
+    elif transition_type == "delisting_settlement":
+        _require_candidate_source_values(
+            evidence.get("inactive_mask"),
+            ~dataset.resolved_array("asset_active")[expected_index],
+            source_row="asset_active row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_prices(
+            evidence.get("open_prices"),
+            dataset.open[expected_index],
+            source_row="open row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_values(
+            evidence.get("delisting_recovery"),
+            dataset.resolved_array("delisting_recovery")[expected_index],
+            source_row="delisting_recovery row",
+            processing_index=expected_index,
+        )
+    elif transition_type == "dividend":
+        _require_candidate_source_values(
+            evidence.get("dividend_per_unit"),
+            dataset.resolved_array("dividend")[expected_index],
+            source_row="dividend row",
+            processing_index=expected_index,
+        )
+    elif transition_type == "cash_interest":
+        raw_phase = evidence.get("carry_phase")
+        if raw_phase not in {"gap", "processing"}:
+            raise ArtifactIntegrityError(
+                "candidate source ledger cash-interest phase is invalid"
+            )
+        carry_phase = cast(str, raw_phase)
+        expected_fraction = (
+            gap_year_fraction if carry_phase == "gap" else processing_year_fraction
+        )
+        _require_candidate_source_scalar(
+            evidence.get("annual_rate"),
+            float(dataset.resolved_array("cash_rate")[expected_index]),
+            source_row="cash_rate row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_scalar(
+            evidence.get("year_fraction"),
+            expected_fraction,
+            source_row="elapsed-time row",
+            processing_index=expected_index,
+        )
+    elif transition_type == "borrow_charge":
+        raw_phase = evidence.get("carry_phase")
+        if raw_phase not in {"gap", "processing"}:
+            raise ArtifactIntegrityError(
+                "candidate source ledger borrow-charge phase is invalid"
+            )
+        carry_phase = cast(str, raw_phase)
+        expected_fraction = (
+            gap_year_fraction if carry_phase == "gap" else processing_year_fraction
+        )
+        _require_candidate_source_values(
+            evidence.get("borrow_rate"),
+            dataset.resolved_array("borrow_rate")[expected_index],
+            source_row="borrow_rate row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_scalar(
+            evidence.get("year_fraction"),
+            expected_fraction,
+            source_row="elapsed-time row",
+            processing_index=expected_index,
+        )
+    elif transition_type == "termination_flatten":
+        if last_mark_source is None:
+            raise ArtifactIntegrityError(
+                "candidate source ledger termination has no source mark"
+            )
+        expected_prices, source_row = last_mark_source
+        _require_candidate_source_prices(
+            evidence.get("liquidation_prices"),
+            expected_prices,
+            source_row=source_row,
+            processing_index=expected_index,
+        )
+    else:
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transition type is unsupported"
+        )
+    return transition_type, carry_phase, last_mark_source
+
+
+def _validate_candidate_source_interval(
+    interval: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    mark_prices: np.ndarray,
+    expected_start: int,
+) -> None:
+    expected_next = expected_start + 1
+    if (
+        _candidate_source_index(
+            interval.get("start_index"), field="interval start_index"
+        )
+        != expected_start
+        or _candidate_source_index(
+            interval.get("next_index"), field="interval next_index"
+        )
+        != expected_next
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger interval order is invalid"
+        )
+
+    transitions = interval.get("accounting_transitions")
+    if not isinstance(transitions, Sequence) or isinstance(
+        transitions, (str, bytes, bytearray)
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transitions are missing"
+        )
+    processing_year_fraction, gap_year_fraction = _candidate_source_year_fractions(
+        dataset,
+        start_index=expected_start,
+        processing_index=expected_next,
+    )
+    counts: dict[str, int] = {}
+    cash_phases: dict[str, int] = {}
+    borrow_phases: dict[str, int] = {}
+    last_mark_source: tuple[np.ndarray, str] | None = None
+    for transition in transitions:
+        if not isinstance(transition, Mapping):
+            raise ArtifactIntegrityError(
+                "candidate source ledger accounting transition is invalid"
+            )
+        transition_type, carry_phase, last_mark_source = (
+            _validate_candidate_source_transition(
+                transition,
+                dataset=dataset,
+                mark_prices=mark_prices,
+                expected_index=expected_next,
+                processing_year_fraction=processing_year_fraction,
+                gap_year_fraction=gap_year_fraction,
+                last_mark_source=last_mark_source,
+            )
+        )
+        counts[transition_type] = counts.get(transition_type, 0) + 1
+        if transition_type == "cash_interest" and carry_phase is not None:
+            cash_phases[carry_phase] = cash_phases.get(carry_phase, 0) + 1
+        if transition_type == "borrow_charge" and carry_phase is not None:
+            borrow_phases[carry_phase] = borrow_phases.get(carry_phase, 0) + 1
+
+    split_factors = dataset.resolved_array("split_factor")[expected_next]
+    expected_split_count = int(np.any(np.abs(split_factors - 1.0) > 1e-12))
+    exact_quantities = _candidate_source_exact_quantities(interval, dataset=dataset)
+    inactive = ~dataset.resolved_array("asset_active")[expected_next]
+    expected_delisting_count = int(
+        any(
+            inactive[index] and quantity != 0
+            for index, quantity in enumerate(exact_quantities)
+        )
+    )
+    expected_gap_phases = int(gap_year_fraction > 0.0)
+    if (
+        counts.get("mark_revaluation", 0) != 1
+        or counts.get("funding_mark", 0) != 1
+        or counts.get("dividend", 0) != 1
+        or counts.get("split", 0) != expected_split_count
+        or counts.get("delisting_settlement", 0) != expected_delisting_count
+        or counts.get("cash_interest", 0) != 1 + expected_gap_phases
+        or counts.get("borrow_charge", 0) != 1 + expected_gap_phases
+        or cash_phases.get("processing", 0) != 1
+        or cash_phases.get("gap", 0) != expected_gap_phases
+        or borrow_phases.get("processing", 0) != 1
+        or borrow_phases.get("gap", 0) != expected_gap_phases
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source ledger accounting transitions do not cover source rows"
+        )
+    _validate_candidate_source_funding_events(
+        interval,
+        dataset=dataset,
+        mark_prices=mark_prices,
+        expected_index=expected_next,
+    )
+
+
+def _validate_shared_cash_candidate_source_binding(
+    *,
+    candidate_summary: Mapping[str, object],
+    dataset: MarketDataset,
+    expected_dataset_artifact_digest: str,
+) -> None:
+    """Bind shared-cash accounting evidence to a content-verified Dataset."""
+    ledger = _candidate_shared_cash_ledger(
+        candidate_summary,
+        dataset=dataset,
+        expected_dataset_artifact_digest=expected_dataset_artifact_digest,
+    )
+    start_index = _candidate_source_index(
+        ledger.get("start_index"), field="start_index"
+    )
+    stop_index = _candidate_source_index(ledger.get("stop_index"), field="stop_index")
+    if not 0 <= start_index < stop_index < dataset.n_bars:
+        raise ArtifactIntegrityError("candidate source ledger window is invalid")
+
+    mark_prices = dataset.resolved_array("mark_price")
+    _require_candidate_source_prices(
+        ledger.get("initial_mark_prices"),
+        mark_prices[start_index],
+        source_row="mark_price row",
+        processing_index=start_index,
+    )
+    intervals = ledger.get("intervals")
+    if (
+        not isinstance(intervals, Sequence)
+        or isinstance(intervals, (str, bytes, bytearray))
+        or len(intervals) != stop_index - start_index
+    ):
+        raise ArtifactIntegrityError("candidate source ledger intervals are incomplete")
+    for offset, interval in enumerate(intervals):
+        if not isinstance(interval, Mapping):
+            raise ArtifactIntegrityError("candidate source ledger interval is invalid")
+        _validate_candidate_source_interval(
+            interval,
+            dataset=dataset,
+            mark_prices=mark_prices,
+            expected_start=start_index + offset,
+        )
+    if not dataset.identity_verified:
+        raise ArtifactIntegrityError(
+            "candidate source Dataset content identity mismatch"
+        )
 
 
 def _run_return_map(
@@ -351,6 +928,12 @@ def execute_evidence_set(
             run_root = staging / "runs" / f"seed-{seed}"
             publish_candidate_run(run_root, result, after)
             loaded = load_candidate_run_artifact(run_root)
+            if plan.is_ppo_shared_cash_holding_duration_study:
+                _validate_shared_cash_candidate_source_binding(
+                    candidate_summary=loaded.summary,
+                    dataset=dataset,
+                    expected_dataset_artifact_digest=artifact.artifact_digest,
+                )
             identity = inspect_candidate_run_artifact(run_root)
             loaded_runs[seed] = loaded
             run_digests.append((seed, identity.artifact_digest))

@@ -321,6 +321,64 @@ def test_operational_integrity_failure_does_not_publish_invalid_verification(
     assert not (root / "experiments" / "0001" / "verification.json").exists()
 
 
+def test_inspection_preserves_legacy_stored_verification_without_settlement_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments.contracts import ResolvedRunConfig, StudyPlan
+    from trade_rl.evaluation.runs.config import ResolvedCandidateRunSpec
+
+    legacy_fixed_fields = tuple(
+        field
+        for field in StudyPlan.FIXED_RESOLVED_FIELDS
+        if field not in {"ppo_settle_terminal_position", "pretrade_risk_config"}
+    )
+    original_from_candidate_spec = ResolvedRunConfig.from_candidate_spec
+
+    def resolve_legacy_schema(
+        spec: ResolvedCandidateRunSpec,
+    ) -> ResolvedRunConfig:
+        return replace(
+            original_from_candidate_spec(spec),
+            schema_version="resolved_run_config_v3",
+        )
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(StudyPlan, "FIXED_RESOLVED_FIELDS", legacy_fixed_fields)
+        legacy.setattr(
+            ResolvedRunConfig,
+            "from_candidate_spec",
+            resolve_legacy_schema,
+        )
+        root, dataset_root, snapshot = _with_baseline(
+            tmp_path,
+            monkeypatch,
+            max_experiments=1,
+        )
+        assert snapshot.plan.baseline_config.schema_version == "resolved_run_config_v3"
+        assert snapshot.baseline is not None
+        plan_digest = snapshot.plan.digest
+        plan_payload = (root / "plan.json").read_bytes()
+
+        define_experiment(
+            root,
+            dataset_root=dataset_root,
+            hypothesis="More PPO training is one controlled factor.",
+            factor=ControlledFactor.PPO_TRAINING_BUDGET,
+            candidate_config=replace(_config(), ppo_total_timesteps=64),
+            baseline_evidence_digest=snapshot.baseline.fingerprint,
+        )
+        run_experiment(root, 1, dataset_root=dataset_root)
+        verification = verify_experiment(root, 1)
+
+        assert verification.status is ControlledVerificationStatus.CONTROLLED
+
+    inspected = inspect_study(root)
+
+    assert inspected.plan.digest == plan_digest
+    assert (root / "plan.json").read_bytes() == plan_payload
+
+
 def test_comparison_and_decision_ordering_are_one_shot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

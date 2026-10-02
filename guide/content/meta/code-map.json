@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "631796f39b28ad4184a4f2041a9ae0c6d319830ea0adb64efc291c972ccfbc38"
+      "sha256": "1b55559391979de99a499f29a08fa80cba85bf0590e1be2d2ed03c094c1a0a41"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -94,7 +94,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "57d6654a033a6e07af3d1ceb4f998487c943fb9de6b141a2636b0a07d71c9ce6",
+      "source_sha256": "ab7443ceaa351b17a801e33468f872dbad709646d5f93d9bcad005b0b119fd55",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],

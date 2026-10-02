@@ -56,9 +56,9 @@ class UniversalStrategyComparison:
     """Per-symbol results plus an optional explicit shared-cash PPO replay."""
 
     by_symbol: tuple[SymbolStrategyComparison, ...]
-    shared_cash_ppo: SharedCashStrategyComparisonEntry | None = None
     ppo_training_timesteps: int | None = None
     ppo_training_minimum_hold_suppressed_count: int | None = None
+    shared_cash_ppo: SharedCashStrategyComparisonEntry | None = None
 
     def __post_init__(self) -> None:
         if self.ppo_training_timesteps is not None and (

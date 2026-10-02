@@ -60,7 +60,7 @@ trade_rl/
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
 │   ├── targets/execution.py
-│   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
+│   └── diagnostics/{accounting_transition.py,execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
 │   ├── dataset_scope.py
 │   ├── position_duration.py
@@ -249,6 +249,10 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのa
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
+`diagnostics/accounting_transition.py` defines immutable before/after snapshots
+and typed transition evidence for shared-cash artifact verification. It records
+state around the canonical BookState mutations and does not own another ledger.
+
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
 `liquidity.py` takes an explicit exact initial position for reduce-only requests
@@ -282,7 +286,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `config.py`: Run JSONの単一parse/resolution authority。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v8`へcombined portfolio return series、settlement state、完全なshared-cash ledger traceを保存し、loaderがledger digest / coverageとreturn / maximum drawdownを検証する。Historical v7 digest-only evidenceはread互換を維持する。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v10` / `shared_cash_replay_ledger_v3`へcombined portfolio return series、settlement state、完全なshared-cash ledger trace、ordered accounting transitionとpolicy decision evidenceを保存する。loaderはcash・exact quantities・marks・multipliersからinterval NAVとtransition balancesを再計算し、fill・corporate action・carry・termination flatten、decision/config/state linksを検証する。transition inputsはpersisted ledgerから検証し、dataset digestからsource rowsを再取得してはいない。Historical v9 ledger-v2、v8 ledger-v1/v2、およびv7 digest-only evidenceはread互換を維持する。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
 `trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。

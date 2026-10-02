@@ -20,6 +20,9 @@ from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
 )
+from trade_rl.simulation.diagnostics.accounting_transition import (
+    AccountingStateSnapshot,
+)
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -33,6 +36,7 @@ from trade_rl.simulation.stateful.execution import (
     StatefulExecutionResult,
     execute_stateful_orders,
 )
+from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 from trade_rl.simulation.targets.execution import execute_target_statefully
 
 _TOLERANCE = 1e-12
@@ -331,6 +335,7 @@ class MarketExecutor:
         market_order_profile: MarketOrderProfile | None = None,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
+        capture_accounting_evidence: bool = False,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -344,6 +349,10 @@ class MarketExecutor:
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
         self._execution_observer = execution_observer
+        if not isinstance(capture_accounting_evidence, bool):
+            raise TypeError("capture_accounting_evidence must be boolean")
+        self.capture_accounting_evidence = capture_accounting_evidence
+        self._accounting_runtime: StatefulExecutionRuntime | None = None
         self._execution_policy_digest_cache: str | None = None
         self._execution_policy_digest_cache_inputs: (
             tuple[
@@ -648,16 +657,49 @@ class MarketExecutor:
         result[~available] = np.maximum(result[~available], lower_bound[~available])
         return result
 
-    def _flatten_after_termination(self, book: BookState, prices: np.ndarray) -> None:
-        value = max(book.portfolio_value, 0.0)
+    def _flatten_after_termination(
+        self,
+        book: BookState,
+        prices: np.ndarray,
+        *,
+        processing_index: int | None = None,
+    ) -> None:
+        state_before = (
+            AccountingStateSnapshot.capture(book)
+            if self.capture_accounting_evidence and self._accounting_runtime is not None
+            else None
+        )
+        nav_before = float(book.portfolio_value)
+        value = max(nav_before, 0.0)
+        reason = (
+            None
+            if book.termination_reason is None
+            else EconomicTerminationReason(book.termination_reason).value
+        )
+        accounting_runtime = self._accounting_runtime
         book.quantities = np.zeros_like(book.quantities)
         book.mark_prices = prices.copy()
         book.cash = value
         book.margin_used = 0.0
         book.maintenance_margin = 0.0
         book.maintenance_requirement = 0.0
+        if state_before is not None:
+            if processing_index is None or reason is None or accounting_runtime is None:
+                raise RuntimeError("termination accounting evidence is incomplete")
+            accounting_runtime.record_accounting_transition(
+                transition_type="termination_flatten",
+                processing_index=processing_index,
+                state_before=state_before,
+                evidence={
+                    "liquidation_prices": tuple(float(value) for value in prices),
+                    "nav_before": nav_before,
+                    "reason": reason,
+                },
+            )
 
-    def _update_margin(self, book: BookState) -> None:
+    def _update_margin(
+        self, book: BookState, *, processing_index: int | None = None
+    ) -> None:
         position_values = book.position_values
         gross_notional = float(np.abs(position_values).sum())
         margin_used = gross_notional / self.cost.max_leverage
@@ -697,7 +739,11 @@ class MarketExecutor:
         elif collateral_equity + _TOLERANCE < maintenance_required:
             book.terminate(EconomicTerminationReason.MARGIN_CALL)
         if book.insolvent:
-            self._flatten_after_termination(book, book.mark_prices)
+            self._flatten_after_termination(
+                book,
+                book.mark_prices,
+                processing_index=processing_index,
+            )
 
     def _fill_toward_quantities(
         self,
@@ -878,7 +924,7 @@ class MarketExecutor:
             cost_amount=cost_amount,
             turnover=filled_notional / turnover_denominator,
         )
-        self._update_margin(book)
+        self._update_margin(book, processing_index=market_index)
         return _FillResult(
             requested_notional=float(np.abs(requested_notional_vector).sum()),
             filled_notional=filled_notional,

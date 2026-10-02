@@ -205,22 +205,37 @@ actions and exact train/replay semantics must be audited rather than hidden.
   the arm ineligible; terminal settlement alone does not imply flatness.
 - Terminal settlement has a separate expected-cash/cost check, confirms the
   same exclusive end and latency window, and reports any residual exposure.
+- Quantized fills preserve their exact accepted rational quantity separately
+  from the order event's float projection. The artifact validator binds that
+  exact evidence to the exact inventory delta; a regression covers a valid lot
+  fill whose float projection cannot round-trip to the original rational.
 
-The evaluation layer now also exposes a distinct `run_shared_cash_replay` path
-that can enforce per-symbol age from actual shared-book fills, then apply one
-portfolio risk projection and terminal settlement through one ledger. Its v2
-ledger records raw/effective intents, ages, quantities, and suppression/unlock
-state. Candidate Run v8 persists the complete per-interval ledger payload; the
-loader verifies its digest, decision roster, and gap-free interval coverage
-before accepting the artifact. Same-market training/replay parity and an
-independently hand-calculated multi-symbol cash/cost oracle exercise this
-boundary. This is a software capability only: it does not change the frozen v1
-Study's independent-account denominator, risk, or selection semantics, and it
-does not turn the existing one-active-symbol PPO training environment into a
-joint portfolio learner. Any Study that uses the shared path must create a new
-immutable identity, bind one total-cash/notional scale across training and
-replay, select from the combined portfolio equity path, and close fresh G0-G2
-review before generating economic results.
+The evaluation layer also exposes a distinct `run_shared_cash_replay` path that
+can enforce per-symbol age from actual shared-book fills, then apply one
+portfolio risk projection and terminal settlement through one ledger. The
+`shared_cash_replay_ledger_v3` payload records raw/effective intents, ages,
+quantities, suppression/unlock state, and ordered before/after accounting
+transitions. The `lean_candidate_result_v10` artifact persists that complete
+interval ledger and binds its interval returns to the saved portfolio-return
+array. The loader recomputes cash, exact inventory, marks, multipliers, NAV,
+and transition balances from the persisted transitions, then checks that evidence
+against fills, corporate actions, carry, and terminal settlement. The v10
+shared-cash `metrics.max_drawdown` is recomputed from ordered accounting states,
+including bar-open gaps and intra-bar revaluation; it is not derived from the
+interval-end return series alone. Total return remains bound to the saved
+interval-return array. Historical v9
+ledger-v2, v8 ledger-v1/v2, and v7 digest-only artifacts retain their previous
+read contracts.
+Same-market training/replay parity and an independently hand-calculated
+multi-symbol cash/cost oracle exercise this boundary. This proves internal
+artifact consistency, not source binding: the loader does not reopen the
+Dataset source rows from its digest. That source-bound oracle and a fresh
+result-blind G0-G2 review remain required before economic execution. The shared
+path does not change the frozen v1 Study's independent-account denominator,
+risk, or selection semantics, and does not turn the existing one-active-symbol
+PPO training environment into a jointly trained portfolio learner. Any Study
+using shared cash needs a new immutable identity, a single total-cash/notional
+scale, and selection from the combined portfolio equity path.
 
 The current implementation and focused tests are still undergoing independent
 result-blind review. G2 remains NOT ESTABLISHED until that review and the full

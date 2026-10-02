@@ -10,6 +10,10 @@ import numpy as np
 
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.bar_path import BarPath
+from trade_rl.simulation.diagnostics.accounting_transition import (
+    AccountingStateSnapshot,
+    AccountingTransitionEvidence,
+)
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import (
@@ -40,6 +44,7 @@ class StatefulExecutionRuntime:
     events: list[OrderEvent]
     capacities: list[SymbolCapacityEvidence]
     funding_evidence: list[FundingBoundaryEvidence]
+    accounting_transitions: list[AccountingTransitionEvidence]
     starting_value: float
     starting_rebalance_events: int
     requested_notional: float
@@ -76,6 +81,7 @@ class StatefulExecutionRuntime:
             events=[],
             capacities=[],
             funding_evidence=[],
+            accounting_transitions=[],
             starting_value=0.0,
             starting_rebalance_events=result_book.rebalance_events,
             requested_notional=0.0,
@@ -169,6 +175,39 @@ class StatefulExecutionRuntime:
                 funding_amount=float(funding_amount),
                 equity_before_funding=equity_after_funding - float(funding_amount),
                 equity_after_funding=equity_after_funding,
+            )
+        )
+
+    def capture_accounting_state(self) -> AccountingStateSnapshot | None:
+        if not self.executor.capture_accounting_evidence:
+            return None
+        return AccountingStateSnapshot.capture(self.book)
+
+    def record_accounting_transition(
+        self,
+        *,
+        transition_type: str,
+        processing_index: int,
+        state_before: AccountingStateSnapshot | None,
+        evidence: dict[str, object],
+        order_event_sequence: int | None = None,
+    ) -> None:
+        if not self.executor.capture_accounting_evidence:
+            return
+        if state_before is None:
+            raise RuntimeError("accounting transition is missing its prior state")
+        state_after = self.capture_accounting_state()
+        if state_after is None:
+            raise RuntimeError("accounting transition is missing its final state")
+        self.accounting_transitions.append(
+            AccountingTransitionEvidence(
+                sequence=len(self.accounting_transitions),
+                processing_index=processing_index,
+                transition_type=transition_type,
+                state_before=state_before,
+                state_after=state_after,
+                evidence=dict(evidence),
+                order_event_sequence=order_event_sequence,
             )
         )
 
@@ -302,6 +341,7 @@ class StatefulExecutionRuntime:
             "order_events": tuple(self.events),
             "capacity_evidence": tuple(self.capacities),
             "funding_evidence": tuple(self.funding_evidence),
+            "accounting_transitions": tuple(self.accounting_transitions),
             "interval_cost": self.total_cost,
             "interval_funding": self.total_funding,
             "interval_borrow_cost": self.total_borrow,

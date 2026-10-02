@@ -56,11 +56,19 @@ complete per-interval shared-cash ledger; its loader checks ledger digest and
 coverage, while comparison schema v4 recomputes each seed's combined return /
 drawdown and selects on shared-cash results rather than averaging symbol
 accounts. Mocked bootstrap and full Study-lifecycle tests exercise this path.
-The capital-boundary and full-ledger artifact tests, same-market PPO
-training/replay parity test, and independently hand-calculated multi-symbol
-cash/cost oracle pass locally. A fresh exact-head result-blind G0-G2 review and
-the repository quality gates are still required. No v2 fit or economic replay
-has been run. The previous sealed one-shot normalization run
+Candidate Run v10 with ledger v3 now preserves exact accepted lot quantities in
+fill-transition evidence as well as its float order-event projection; a
+regression covers values that cannot be recovered from that float. Termination
+flatten evidence is also required for non-flat margin-call closure. Shared-cash
+`metrics.max_drawdown` is recomputed from ordered transition states, so it
+includes bar-open price gaps and intra-bar revaluation that an interval-end
+return series alone cannot capture. Total return remains bound to the saved
+interval returns. The
+capital-boundary and full-ledger artifact tests, same-market PPO training/replay
+parity test, and independently hand-calculated multi-symbol cash/cost oracle
+pass locally. A fresh exact-head result-blind G0-G2 review and the repository
+quality gates are still required. No v2 fit or economic replay has been run.
+The previous sealed one-shot normalization run
 36356182462 completed execution but its independent verification failed, so it
 published no verified comparison. No verified PPO profitability result exists.
 

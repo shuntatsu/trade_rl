@@ -356,6 +356,11 @@ class StatefulSymbolFillProcessor:
                 fill_prices[symbol] = execution_price
                 valuation_prices = runtime.book.mark_prices.copy()
                 valuation_prices[symbol] = execution_price
+                fill_before = (
+                    runtime.capture_accounting_state()
+                    if executor.capture_accounting_evidence
+                    else None
+                )
                 runtime.book.execute_fill(
                     symbol_index=symbol,
                     quantity=allocation.filled_quantity,
@@ -366,7 +371,6 @@ class StatefulSymbolFillProcessor:
                     cost_amount=cost_amount,
                     turnover=(allocation.filled_notional / context.period_start_value),
                 )
-                executor._update_margin(runtime.book)
                 runtime.order_book = runtime.order_book.replace(updated)
                 runtime.append_event(
                     previous=order,
@@ -389,6 +393,35 @@ class StatefulSymbolFillProcessor:
                     available_volume_fraction=(trigger.available_volume_fraction),
                     reason=updated.terminal_reason,
                     path=order_path,
+                )
+                if fill_before is not None:
+                    runtime.record_accounting_transition(
+                        transition_type="fill",
+                        processing_index=processing_index,
+                        state_before=fill_before,
+                        evidence={
+                            "cost_amount": float(cost_amount),
+                            "execution_price": float(execution_price),
+                            "filled_notional": float(allocation.filled_notional),
+                            "filled_quantity": float(allocation.filled_quantity),
+                            "filled_quantity_exact": str(
+                                accepted_fill_quantity(
+                                    allocation.filled_quantity,
+                                    lot_size=allocation.lot_size,
+                                    lot_count=allocation.filled_lot_count,
+                                )
+                            ),
+                            "order_id": order.order_id,
+                            "symbol_index": symbol,
+                            "turnover": float(
+                                allocation.filled_notional / context.period_start_value
+                            ),
+                        },
+                        order_event_sequence=runtime.events[-1].sequence,
+                    )
+                executor._update_margin(
+                    runtime.book,
+                    processing_index=processing_index,
                 )
                 runtime.total_cost += cost_amount
                 runtime.filled_notional += allocation.filled_notional

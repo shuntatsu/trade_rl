@@ -437,13 +437,61 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     guide_status = (
         ROOT / "guide" / "content" / "pages" / "research-status.md"
     ).read_text(encoding="utf-8")
-    assert "ppo_shared_cash_holding_duration_v2" in guide_status
     assert "100,000 USDT" in guide_status
-    assert "個別銘柄リターンの平均ではなく" in guide_status
-    assert "G0-G2" in guide_status
-    assert "Candidate Run v8" in guide_status
-    assert "training/replay parity test" in guide_status
-    assert "multi-symbol cash/cost oracle" in guide_status
+    assert "銘柄ごとの損益平均ではなく" in guide_status
+    assert "各時間帯の約定・保有・リスク判断を完全な記録として保存" in guide_status
+    assert "学習と評価の売買判断を同じ市場データで照合するテスト" in guide_status
+    assert "複数銘柄を扱う時の資金・費用計算を手計算で照合するテスト" in guide_status
+    assert "新しい独立レビューと関連テストが完了するまで" in guide_status
+
+
+def test_v10_shared_cash_accounting_contract_is_documented() -> None:
+    lean_core = (ROOT / "docs" / "architecture" / "lean-core.md").read_text(
+        encoding="utf-8"
+    )
+    package_boundaries = (
+        ROOT / "docs" / "architecture" / "package-boundaries.md"
+    ).read_text(encoding="utf-8")
+    controlled_loop = (
+        ROOT / "docs" / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    research_assurance = (
+        ROOT / "docs" / "architecture" / "research-assurance.md"
+    ).read_text(encoding="utf-8")
+
+    assert "lean_candidate_result_v10" in lean_core
+    assert "shared_cash_replay_ledger_v3" in lean_core
+    assert "dataset digest" in lean_core and "source rows" in lean_core
+    assert "ordered accounting transition" in package_boundaries
+    assert "termination-flatten" in controlled_loop
+    assert "lean_candidate_result_v10" in research_assurance
+    assert "shared_cash_replay_ledger_v3" in research_assurance
+    assert "does not reopen the" in research_assurance
+    assert "Dataset source rows" in research_assurance
+
+
+def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(
+        encoding="utf-8"
+    )
+    current_status = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    research_assurance = (
+        DOCS / "architecture" / "research-assurance.md"
+    ).read_text(encoding="utf-8")
+    guide_status = (ROOT / "guide" / "content" / "pages" / "research-status.md").read_text(
+        encoding="utf-8"
+    )
+    lean_core = " ".join(lean_core.split())
+    current_status = " ".join(current_status.split())
+    research_assurance = " ".join(research_assurance.split())
+
+    assert "including bar-open gaps and intra-bar revaluation" in lean_core
+    assert "not derived from the interval-end return series alone" in lean_core
+    assert "interval-end return series alone cannot capture" in current_status
+    assert "including bar-open gaps and intra-bar revaluation" in research_assurance
+    assert "バー開始時の価格gapとバー内の評価替えを含めます" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:

@@ -26,6 +26,8 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 新しい経済仮説やobservation、risk、execution semanticsを変えるStudyでは、結果を作る前にG0-G2の問い・機構・反証条件を固定し、freshなresult-blind AI reviewと独立oracleを通します。G3のevidence検証はこの前提審査の代わりになりません。条件が未確立の間はStudyPlanの準備までに留め、baselineやcandidateの経済結果は生成しません。
 
+共有資金replayのv10台帳は、保存された遷移入力から口座残高を再計算しますが、現行loaderはDataset digestから元のsource rowsを再読込して価格・費用・金利などを照合しません。このため、台帳内部の整合性検証だけではG2のsource bindingを確立せず、独立レビューとsource-boundなoracleが通るまで経済実験を開始できません。
+
 現行のStudy CLIは、外部reviewやoracleの完了を認証する自動gateを持ちません。G0-G2が閉じる前に経済実験を始めないことは、実行者が守るrelease prerequisiteです。
 
 ## 1. Studyを作る

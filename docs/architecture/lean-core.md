@@ -133,14 +133,32 @@ environment a joint portfolio learner, and does not change the independent-accou
 meaning of the currently frozen v1 Study.
 
 New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
-`lean_candidate_result_v8`. The artifact binds the combined return series,
-terminal cash / quantities, active-order and settlement state, and the complete
-versioned shared-cash ledger, including per-interval execution events and
-requested/effective decisions. Loading verifies the ledger digest and coverage,
-then recomputes return and maximum drawdown from the return series. Historical
-`lean_candidate_result_v7` artifacts remain readable with their digest-only
-ledger evidence. This provides the v2 Study's single-account comparison input
-while preserving v1 per-symbol selection semantics.
+`lean_candidate_result_v10` with `shared_cash_replay_ledger_v3`. The artifact
+binds the combined return series, terminal cash / quantities, active-order and
+settlement state, execution events, decisions, and sequence-ordered accounting
+transitions. Each transition records cash, exact quantities, marks, and
+multipliers before and after the mutation. Loading recomputes portfolio value
+from cash and marked positions, reconciles the canonical exact filled quantity
+with its order-event float projection and exact inventory delta, then reconciles
+price / notional and cash. It checks split, delisting, dividend, cash-interest,
+borrow, funding, and termination-flatten adjustments. It also verifies finite
+financial values, interval continuity, terminal summary links, return links,
+and every policy decision through the stop boundary recomputed from the frozen
+execution overlay and settlement configuration; only the replay-defined
+terminal-settlement tail may lack policy decisions. Decision outputs are
+replayed through the persisted minimum-hold and pre-trade-risk configuration
+and linked to interval execution state. The v10 shared-cash
+`metrics.max_drawdown` is recomputed from ordered accounting snapshots,
+including bar-open gaps and intra-bar revaluation; it is not derived from the
+interval-end return series alone. Total return remains checked against that
+interval-end series. The loader recomputes balances from
+  persisted transition inputs; it does not independently reopen source rows from
+  the dataset digest. Historical
+`lean_candidate_result_v9` ledger-v2 and `lean_candidate_result_v8` ledger-v1/v2
+artifacts remain readable under their prior contracts, and v7 artifacts remain
+readable with digest-only ledger evidence. This provides the v2 Study's
+single-account comparison input while preserving v1 per-symbol selection
+semantics.
 
 ### PPO training layout
 

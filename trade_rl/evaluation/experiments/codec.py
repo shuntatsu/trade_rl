@@ -36,6 +36,11 @@ from trade_rl.evaluation.experiments.errors import (
 )
 from trade_rl.evaluation.runs import CandidateRunConfig
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAE_LAMBDA,
+    PPO_DEFAULT_GAMMA,
+    PPO_REWARD_SCHEMA,
+)
 
 _ANALYSIS_BINDING_SCHEMA = "controlled_evidence_analysis_binding_v1"
 _WITHIN_ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
@@ -279,7 +284,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
             ppo_gamma=(
                 _as_float(raw["ppo_gamma"], field=f"{field}.ppo_gamma")
                 if schema_version == "resolved_run_config_v6"
-                else 0.99
+                else PPO_DEFAULT_GAMMA
             ),
             ppo_reward_schema=(
                 _as_string(
@@ -287,12 +292,12 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     field=f"{field}.ppo_reward_schema",
                 )
                 if schema_version == "resolved_run_config_v6"
-                else "net_log_return_v1"
+                else PPO_REWARD_SCHEMA
             ),
             ppo_gae_lambda=(
                 _as_float(raw["ppo_gae_lambda"], field=f"{field}.ppo_gae_lambda")
                 if schema_version == "resolved_run_config_v6"
-                else 0.95
+                else PPO_DEFAULT_GAE_LAMBDA
             ),
             evaluation_start=_as_string(
                 raw["evaluation_start"], field=f"{field}.evaluation_start"

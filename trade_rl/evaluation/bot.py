@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import product
@@ -85,6 +86,9 @@ class TuningResult:
     tuning_stop_index: int
     holdout_start_index: int
     holdout_stop_index: int
+    dataset_id: str
+    dataset_identity_bound: bool
+    execution_cost: ExecutionCostConfig
     report_scope: Literal["holdout", "development_family_comparison"] = "holdout"
 
 
@@ -621,6 +625,9 @@ def tune_for_maximum_profit(
         tuning_stop_index=tuning_stop_index,
         holdout_start_index=tuning_stop_index,
         holdout_stop_index=usable_stop_index,
+        dataset_id=dataset.dataset_id,
+        dataset_identity_bound=dataset.identity_payload_json is not None,
+        execution_cost=resolved_execution_cost,
     )
 
 
@@ -716,6 +723,11 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"  PARAMETER TUNING REPORT: {res.strategy_name.upper()} (Objective: {res.objective})"
     )
     print(f"  Combinations evaluated: {res.evaluated_combinations}")
+    print(
+        f"  Dataset identity: {res.dataset_id} "
+        f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
+    )
+    print(f"  Execution cost config: {asdict(res.execution_cost)}")
     report_label = (
         "development family comparison"
         if res.report_scope == "development_family_comparison"
@@ -851,25 +863,28 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    def announce(message: str) -> None:
+        print(message, file=sys.stderr if args.json else sys.stdout)
+
     if args.dataset is not None and args.demo:
         parser.error("--dataset and --demo cannot be used together")
     if args.dataset is not None:
         if not args.dataset.is_dir():
             parser.error(f"--dataset must be an existing directory: {args.dataset}")
-        print(f"Loading market dataset from {args.dataset}...")
+        announce(f"Loading market dataset from {args.dataset}...")
         dataset = load_market_dataset_artifact(args.dataset)
     elif args.demo:
-        print("Using explicitly requested synthetic demo market data...")
+        announce("Using explicitly requested synthetic demo market data...")
         dataset = generate_demo_dataset()
     else:
         parser.error(
             "provide --dataset or --demo; a dataset path must be an existing directory"
         )
 
-    print(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
+    announce(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
 
     if args.mode == "compare":
-        print(
+        announce(
             "Running full-dataset in-sample diagnostic comparisons; "
             "this is not an out-of-sample selection."
         )
@@ -883,15 +898,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print_report_table(reports)
             winner = reports[0]
-            print(
+            announce(
                 f"Highest observed diagnostic P&L: {winner.strategy_name} "
                 f"({winner.total_return_pct:+.2f}% / ${winner.net_pnl:,.2f}); "
                 "not a holdout selection."
             )
     elif args.mode == "optimize":
         if args.strategy.lower() == "all":
-            print(f"Tuning all candidate strategies for maximum {args.objective}...")
-            print(
+            announce(f"Tuning all candidate strategies for maximum {args.objective}...")
+            announce(
                 "This compares strategy families on development data. The later "
                 "per-family reports are development comparisons; selecting a "
                 "family after viewing them requires a new untouched final window."
@@ -914,7 +929,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"({champion.optimized_report.total_return_pct:+.2f}%)"
                 )
         else:
-            print(
+            announce(
                 f"Optimizing parameters for '{args.strategy}' (Objective: {args.objective})..."
             )
             tuning_res = tune_for_maximum_profit(
@@ -935,7 +950,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             gross_budget=args.gross_budget,
             minimum_hold_bars=args.min_hold,
         )
-        print(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
+        announce(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
         _, report = run_trading_bot(dataset, cfg)
         if args.json:
             print(json.dumps(asdict(report), indent=2))

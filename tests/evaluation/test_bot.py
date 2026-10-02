@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -68,6 +69,25 @@ def test_run_trading_bot_uses_nonzero_execution_costs_by_default() -> None:
     assert costed_result.book.total_cost > 0.0
     assert costed_result.book.total_cost > free_result.book.total_cost
     assert costed_result.book.portfolio_value < free_result.book.portfolio_value
+
+
+def test_tuning_result_binds_dataset_identity_and_execution_costs() -> None:
+    dataset = generate_demo_dataset(
+        n_bars=50, n_symbols=1, seed=17
+    ).with_content_identity({"fixture": "tuning-provenance"})
+    execution_cost = replace(ExecutionCostConfig(), fee_rate=0.001)
+
+    result = tune_for_maximum_profit(
+        dataset,
+        strategy_name="trend",
+        max_combinations=1,
+        execution_cost=execution_cost,
+    )
+
+    assert result.dataset_id == dataset.dataset_id
+    assert result.dataset_identity_bound
+    assert result.baseline_config.execution_cost == execution_cost
+    assert result.optimized_config.execution_cost == execution_cost
 
 
 def test_run_trading_bot_replays_only_the_requested_window() -> None:
@@ -314,6 +334,9 @@ def test_tune_for_maximum_profit_finds_improvements() -> None:
     assert tuning_res.evaluated_combinations > 0
     assert tuning_res.optimized_report.final_equity > 0.0
     assert tuning_res.selection_drawdown_pct <= 20.0
+    assert tuning_res.dataset_id == dataset.dataset_id
+    assert not tuning_res.dataset_identity_bound
+    assert tuning_res.execution_cost == ExecutionCostConfig()
     assert tuning_res.alpha_dollars == (
         tuning_res.optimized_report.net_pnl - tuning_res.baseline_report.net_pnl
     )
@@ -387,6 +410,9 @@ def test_tune_all_strategies_ranks_by_the_selected_objective(
             tuning_stop_index=10,
             holdout_start_index=10,
             holdout_stop_index=19,
+            dataset_id="0" * 64,
+            dataset_identity_bound=False,
+            execution_cost=ExecutionCostConfig(),
         )
 
     monkeypatch.setattr(bot_module, "tune_for_maximum_profit", fake_tune)
@@ -547,10 +573,11 @@ def test_compare_cli_marks_full_dataset_ranking_as_in_sample_diagnostic(
 
     main(["--mode", "compare", "--demo", "--json"])
 
-    output = capsys.readouterr().out.lower()
-    assert "in-sample diagnostic" in output
-    assert "not an out-of-sample selection" in output
-    assert "top profit strategy" not in output
+    captured = capsys.readouterr()
+    assert "in-sample diagnostic" in captured.err.lower()
+    assert json.loads(captured.out)[0]["strategy_name"] == "trend"
+    assert "not an out-of-sample selection" in captured.err.lower()
+    assert "top profit strategy" not in captured.out.lower()
 
 
 def test_explicit_missing_dataset_path_does_not_use_demo_data(capsys) -> None:
@@ -576,6 +603,40 @@ def test_optimize_cli_requires_explicit_dataset_or_demo_mode(
 
     assert error.value.code == 2
     assert "--dataset or --demo" in capsys.readouterr().err
+
+
+def test_optimize_json_is_parseable_and_contains_data_cost_provenance(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    dataset = generate_demo_dataset(
+        n_bars=60, n_symbols=1, seed=61
+    ).with_content_identity({"fixture": "cli-tuning-provenance"})
+    dataset_path = tmp_path / "market-artifact"
+    dataset_path.mkdir()
+    monkeypatch.setattr(
+        "trade_rl.evaluation.bot.load_market_dataset_artifact",
+        lambda _path: dataset,
+    )
+
+    main(
+        [
+            "--mode",
+            "optimize",
+            "--strategy",
+            "trend",
+            "--dataset",
+            str(dataset_path),
+            "--json",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["dataset_id"] == dataset.dataset_id
+    assert result["dataset_identity_bound"] is True
+    assert result["execution_cost"]["fee_rate"] == ExecutionCostConfig().fee_rate
 
 
 def test_cli_help_does_not_print_runtime_adaptive_exit_notes(capsys) -> None:

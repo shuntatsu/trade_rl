@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -170,6 +172,79 @@ def test_reversal_cancels_same_direction_residual_and_uses_holdings_delta() -> N
 
     assert result.new_intents[0].requested_quantity == pytest.approx(-5.0)
     assert result.cancelled_orders == (result.order_book.terminal_orders[-1],)
+
+
+def test_legacy_market_flatten_uses_exact_reduce_only_inventory() -> None:
+    exact_position = Fraction(1, 3)
+    book = _book(float(exact_position))
+    book._exact_quantities = (str(exact_position),)
+
+    result = _reconcile(target_weight=0.0, book=book)
+
+    intent = result.new_intents[0]
+    assert intent.requested_quantity == -float(exact_position)
+    assert intent.reduce_only
+
+
+def test_multi_symbol_reconciliation_reads_exact_inventory_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, 0.0, -1.0]),
+        cash=1_100.0,
+        mark_prices=np.array([100.0, 50.0, 200.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.ones(3),
+    )
+    original_exact_quantities = BookState.exact_quantities.fget
+    assert original_exact_quantities is not None
+    reads = 0
+
+    def counted_exact_quantities(state: BookState) -> tuple[Fraction, ...]:
+        nonlocal reads
+        reads += 1
+        return original_exact_quantities(state)
+
+    monkeypatch.setattr(
+        BookState,
+        "exact_quantities",
+        property(counted_exact_quantities),
+    )
+
+    result = reconcile_target(
+        dataset_id="d" * 64,
+        target_identity="multi-symbol-target",
+        execution_policy_digest="e" * 64,
+        target_weights=np.array([0.0, 0.2, -0.1]),
+        book=book,
+        order_book=OrderBookState.empty(),
+        reference_prices=np.array([100.0, 50.0, 200.0]),
+        decision_equity=1_000.0,
+        submit_index=4,
+        latency_bars=0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        expiry_index=None,
+        limit_offset_rate=0.0,
+        maximum_gross=1.0,
+    )
+
+    assert reads == 1
+    assert tuple(intent.symbol_index for intent in result.new_intents) == (0, 1, 2)
+    assert tuple(intent.requested_quantity for intent in result.new_intents) == (
+        -1.0,
+        4.0,
+        0.5,
+    )
+    assert result.new_intents[0].reduce_only
+    assert not result.new_intents[1].reduce_only
+    assert not result.new_intents[2].reduce_only
+    np.testing.assert_array_equal(book.quantities, [1.0, 0.0, -1.0])
+    assert original_exact_quantities(book) == (
+        Fraction(1),
+        Fraction(0),
+        Fraction(-1),
+    )
 
 
 def test_quantity_is_fixed_from_submission_price_and_decision_equity() -> None:

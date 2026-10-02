@@ -247,9 +247,46 @@ No shutdown reason was recorded; operational status is not an economic replay.
 The observation gap now exceeds the frozen 180-second limit, so this protocol
 cannot qualify. Preserve its incomplete evidence without resuming or backfilling
 it; this operational journal does not establish whether an economic replay ran.
+
+The paper screen contract is now version 2. It declares one required fill in
+each of BTC spot, BTC perpetual, ETH spot and ETH perpetual, and assigns funding
+block coverage by the published settlement time inside the fixed ninety-day
+window. Receipt during terminal grace cannot make a post-close settlement count
+for block 3; any nonzero post-close settlement now rejects the screen even when
+the credited cash appears in final account equity. A new sealed run is attempt 2
+and must bind attempt 1's protocol
+SHA-256 `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7`,
+final journal tip `1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b`,
+and exact last observation time `2026-09-17T23:11:01.134389+00:00` with disposition
+`invalidated` and reason `observation_gap`. The protocol digest and event tip
+were re-read from the preserved root on 2026-09-28. The old chain itself has no
+terminal gap event; the invalidation follows from the frozen gap limit and the
+verified time since its final event. A new attempt must never resume or rewrite
+that root.
+
+Attempt-lineage v2 accepts only operational `invalidated` / `incomplete`
+dispositions and fixed operational reason codes; prior screen pass/reject labels
+and economic metrics are excluded. These lineage values are still assertions,
+not root authentication. A fresh result-blind reviewer must resolve attempt 1
+with its preserved v1 reader, verify the protocol/event chain and gap, and check
+for an earlier unreported attempt before any successor is sealed. The schema by
+itself cannot authenticate hashes or prevent a new root from claiming attempt 1.
 Any successor needs a separately sealed
 protocol with a new future start and current source/runtime identity. Prospective
 profitability remains unproven.
+
+Fresh result-blind review independently verified the known attempt-1 v1
+protocol digest, all 188 canonical journal events and parent links, final tip,
+and last observation `2026-09-17T23:11:01.134389+00:00`. At the minimum reviewed
+seal time `2026-09-27T16:37:40Z`, the observation gap was 840398.865611 seconds.
+The review found no earlier fixed carry-screen root among 18 protocol files in
+the inspected `C:\dev\trade_rl` workspace. G0 for this predecessor is verified
+within that scope; global attempt uniqueness outside the workspace is not
+established. G2 review confirms that the four-instrument fill roster is bound to
+the sealed plan and funding blocks use settlement time in `[start, close)`;
+their targeted synthetic tests pass. Overall G2 and an independent full
+source-to-ledger replay remain unestablished. No successor screen has been
+sealed.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
@@ -405,12 +442,35 @@ The training mechanism still uses one-active-symbol episodes with
 `risk_config=None`, whereas evaluation uses the maintained shared-cash directional
 account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
 arms and therefore does not change the normalization-only factor, but it limits the
-absolute claim. The one-shot transport capability closes the previously missing
-repository-global uniqueness / partial-disclosure software boundary, but it has not
-been activated: the committed authority remains `activation_sha256=null`, no
-execution-request activation tag has been created, and no corrected-economics fit,
-replay, comparison result, unused future evaluation, production eligibility, or live
-authorization is established at this status.
+absolute claim.
+
+The one-shot authorization was consumed by GitHub Actions run `36356182462` on
+2026-09-27/28. It used request HEAD `ee8dde846286` and sealed execution source
+`72ec5a082a1e`. The run created the repository tag
+`activation/ppo-normalization-corrected-v1` (annotated tag object `b2120e442833`, activation digest
+`985d34eabba5629fb934203450697a8691bea8819dfc9ac3bc7fc43b7e0652a3`), completed
+all ten fit slots, and uploaded execution artifact `10946283192` with raw SHA-256
+`0c0d5335c389f13fe7b1ff22bd53d97025cc4b39253f280843baeba06024a81f`. The fresh
+no-refit verifier job `108745022839` failed with
+`fresh bundle replay differs from published result`; the finalizer was skipped.
+Static source tracing found that the verifier compared incompatible envelope fields:
+slot publication replaces the directional evaluator's top-level `schema` with the
+slot-result schema, while fresh replay retains the evaluator schema. The verifier
+then compared the fresh schema against a stored payload from which `schema` had
+already been excluded, so every otherwise-matching slot failed. This PR adds a
+regression test and changes the comparison to ignore only that unpersisted replay
+schema; all other replay fields remain strict. The original execution artifact and
+failed verification remain unverified: no no-refit verification has been rerun, and
+no economic result was inspected. Do not re-trigger this one-shot request or refit
+these slots.
+
+The source authority file still has `activation_sha256=null`; the separate
+repository activation tag records the consumed run. No verified comparison or
+economic disposition was finalized, and no unused-future evaluation was accessed.
+The activation metadata records `economic_result_inspected=false`,
+`final_test_accessed=false`, `production_eligible=false`, and
+`live_trading_authorized=false`. The run therefore establishes neither a profitable
+normalization candidate nor production/live eligibility.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same
@@ -420,6 +480,34 @@ Exact fill-quantity accounting now preserves accepted lot counts and genuine
 remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
+
+### PPO/A2C update-family comparison: draft contract and synthetic oracle only
+
+The result-blind PPO/A2C code-contract draft and pure cell-decision oracle are
+implemented in `trade_rl.evaluation.rl_family_comparison`. The proposed study holds the existing
+12-feature task and execution contract fixed, fits the full five-symbol roster
+before 2023, and screens the already reused 2023–2024 development period under
+base, doubled-cost, and one-bar-latency scenarios. PPO and A2C each have five
+matched seeds and a 256,000-transition budget. Absolute qualification is
+independent for each family; paired A2C uplift can select between them only if
+both independently qualify.
+
+Each family needs at least four of five seeds with positive full-period and
+annual returns in every scenario on at least four symbols, plus positive
+five-seed medians. A paired symbol votes for A2C only with four of five
+positive same-seed deltas across all years and scenarios and positive median
+deltas; A2C can be selected by uplift only when both families qualify.
+
+Mocked PPO/A2C constructor tests bind the registered hyperparameters to the
+actual fitter arguments, and synthetic-cell tests exercise complete coverage,
+profit screens, paired decisions, the 20% per-symbol drawdown boundary, and
+execution-risk vetoes. No Dataset, model, or replay artifact was opened, and
+no new economic result was generated. No model fit or replay has been run, and this contract
+does not provide an execution workflow or independent G0–G3 reviews. The 20%
+per-symbol limit does not satisfy the requested portfolio-level drawdown target;
+a future candidate still needs a separate shared-capital screen. Profitability,
+future-data validity, paper eligibility, and live readiness remain
+`NOT ESTABLISHED`.
 
 ### PPO BTC-relative feature ablation: G4 completed, KEEP_BASELINE
 

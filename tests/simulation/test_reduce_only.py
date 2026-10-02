@@ -297,6 +297,51 @@ def test_clipped_exit_still_requires_minimum_notional_at_allocation() -> None:
     assert capacity.consumed_capacity_notional == 0.0
 
 
+def test_capacity_sufficient_reduce_only_close_consumes_exact_inventory() -> None:
+    exact_position = Fraction(1, 3)
+    book = _book(quantity=float(exact_position))
+    book._exact_quantities = (str(exact_position),)
+    executor = _executor(_market(), max_participation_rate=1.0, lot_size=0.0)
+    closing = _closing(
+        -float(exact_position),
+        execution_policy_digest=executor.execution_policy_digest,
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (closing,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.exact_quantities == (Fraction(0),)
+
+
+def test_capacity_limited_reduce_only_close_stays_within_exact_inventory() -> None:
+    exact_position = Fraction(1, 3)
+    book = _book(quantity=float(exact_position))
+    book._exact_quantities = (str(exact_position),)
+    dataset = _market(volume=np.full((6, 1), 0.001))
+    executor = _executor(dataset, max_participation_rate=1.0, lot_size=0.0)
+    closing = _closing(
+        -float(exact_position),
+        execution_policy_digest=executor.execution_policy_digest,
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (closing,),
+        start_index=0,
+        bars=1,
+    )
+
+    remaining = result.book.exact_quantities[0]
+    assert 0 < remaining < exact_position
+    assert result.order_book.active_orders
+
+
 def test_stateful_close_expires_excess_before_later_ordinary_fill() -> None:
     executor = _executor(
         _market(), max_participation_rate=1.0, lot_size=0.1, fee_rate=0.001

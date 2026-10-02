@@ -87,6 +87,7 @@ trade_rl/
     ├── ppo_normalization_replication.py
     ├── ppo_normalization_execution.py
     ├── ppo_normalization_activation.json
+    ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -112,6 +113,8 @@ trade_rl/
 ```
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
+
+`evaluation/rl_family_comparison/` はPPO/A2C比較の固定設定、replay-cell schema validation、および純粋な開発判定oracleだけを所有する。SB3 constructor mocksと合成セルが固定設定・判定規則の回帰を検査する。このpackageはDataset/artifact I/O、fit/replay、ledger、paper、production/live authorizationを所有せず、`trade_rl.evaluation` の公開APIも拡張しない。
 
 ## Provider evidence boundary
 

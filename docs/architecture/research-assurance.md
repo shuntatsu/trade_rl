@@ -733,7 +733,52 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
 
+Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
+inside the sealed screen plan. Attempt numbers are consecutive; every successor
+records the predecessor protocol digest, final journal tip, disposition, reason
+codes and last observation time. The seal rejects an omitted predecessor for a
+declared successor and rejects an `observation_gap` disposition before the fixed
+180-second limit has elapsed. Accepted dispositions are `invalidated` and
+`incomplete`; reason codes are `clock_reversal`, `collector_failure`,
+`deadline_missed`, `integrity_failure`, `late_start`, `manual_abort`,
+`observation_gap`, `review_blocked` and `source_unavailable`. Economic screen
+outcomes and metrics are excluded from the result-blind packet. A fresh review
+resolves the referenced prior protocol and event chain against their preserved
+roots. The lineage fields remain caller assertions: the schema alone does not
+authenticate external roots, prevent a caller from claiming a new attempt 1, or
+prove that the declared disposition is truthful. G0 review must verify the
+complete predecessor chain before a successor is sealed.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
+
+## Research-specific contract: PPO versus A2C update families
+
+The proposed PPO/A2C development comparison changes the RL update family while
+holding the existing 12-feature directional task and shared
+execution implementation fixed. Training uses all five symbols sequentially
+with timestamps before 2023-01-01; evaluation uses reused 2023–2024 development
+intervals in independent per-symbol accounts. The registered seeds, transition
+budget, algorithm settings, costs, and three evaluation scenarios are specified
+in `docs/research/current-status.md` and the matching machine contract.
+
+- **G0:** Either learner may pass only the fixed absolute profitability and
+  execution-risk screens. Relative A2C uplift is not an edge explanation and
+  cannot select A2C when PPO has not independently qualified. The reused
+  development period cannot support future or unused-data claims.
+- **G1:** Both policies use the same observations, discrete intent, reward,
+  training risk, transition budget, and maintained execution/accounting path.
+  Evaluation accounts are independent per symbol. The 20% drawdown veto is
+  therefore per account; it does not prove a combined portfolio meets a 20%
+  drawdown limit. That requires a later shared-capital study.
+- **G2:** Mocked SB3 fitter tests compare captured constructor settings with the
+  frozen PPO/A2C contract. A pure oracle rejects incomplete or malformed
+  matrices and applies separate absolute screens, paired uplift, and hard
+  execution guards to synthetic/verified rows. Passing these tests proves no
+  economic edge and does not authorize fitting or replay.
+
+Economic execution remains blocked until a fresh independent result-blind G0–G2
+review is bound to the exact protocol, implementation, and data scope. A later
+G3 evidence review remains separate from the G4 result decision.
 
 ## G3: Evidence Validity
 

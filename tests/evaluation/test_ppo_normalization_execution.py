@@ -652,6 +652,7 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     )
 
     replay = {
+        "schema": "directional_arm_v1",
         "metrics": {"total_return": 0.01},
         "ledger_max_drawdown": 0.05,
         "terminal_flat": True,
@@ -716,6 +717,12 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     assert json.loads(
         (root / "slots" / slot / "verified.sha256.json").read_bytes()
     ) == {"sha256": module.sha256(verification_raw).hexdigest()}
+
+    replay["returns"] = [0.002]
+    with pytest.raises(
+        ValueError, match="fresh bundle replay differs from published result"
+    ):
+        verify_replication_slot(tmp_path / "source", root, slot)
 
     result_path = root / "slots" / slot / "result.json"
     semantic_result = json.loads(result_path.read_bytes())

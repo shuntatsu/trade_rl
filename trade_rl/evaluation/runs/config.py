@@ -24,8 +24,10 @@ from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMAS,
 )
 from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAMMA,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    validated_ppo_gamma,
 )
 
 LEGACY_DATASET_EXECUTION_OVERLAY = "zero_overlay_dataset_fields_authoritative"
@@ -64,6 +66,7 @@ class CandidateRunConfig:
         "forecast_exit_threshold",
         "ppo_total_timesteps",
         "ppo_seed",
+        "ppo_gamma",
         "gross_budget",
         "initial_capital",
         "ppo_training_layout",
@@ -88,6 +91,7 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
     ppo_minimum_hold_bars: int = 0
@@ -144,6 +148,7 @@ class CandidateRunConfig:
             or self.ppo_seed < 0
         ):
             raise ValueError("ppo_seed must be a non-negative integer")
+        ppo_gamma = validated_ppo_gamma(self.ppo_gamma)
         if not isinstance(
             self.ppo_training_layout, str
         ) or self.ppo_training_layout not in {
@@ -211,6 +216,7 @@ class CandidateRunConfig:
         object.__setattr__(self, "fit_cutoff", fit_cutoff)
         object.__setattr__(self, "evaluation_start", evaluation_start)
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
+        object.__setattr__(self, "ppo_gamma", ppo_gamma)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
 
@@ -433,6 +439,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         forecast_exit_threshold=_required_float(raw, "forecast_exit_threshold"),
         ppo_total_timesteps=_required_int(raw, "ppo_total_timesteps"),
         ppo_seed=_required_int(raw, "ppo_seed"),
+        ppo_gamma=validated_ppo_gamma(raw.get("ppo_gamma", PPO_DEFAULT_GAMMA)),
         ppo_training_layout=training_layout,
         ppo_rollout_steps_per_env=_optional_positive_int(
             raw,
@@ -530,6 +537,7 @@ def resolve_candidate_run_spec(
         forecast_exit_threshold=config.forecast_exit_threshold,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
+        ppo_gamma=config.ppo_gamma,
         ppo_training_layout=config.ppo_training_layout,
         ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,

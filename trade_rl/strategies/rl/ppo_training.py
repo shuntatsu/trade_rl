@@ -8,6 +8,37 @@ PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
 PPO_DEFAULT_N_STEPS = 2048
 PPO_MINIBATCH_SIZE = 64
+PPO_DEFAULT_GAMMA = 0.99
+PPO_DEFAULT_GAE_LAMBDA = 0.95
+PPO_REWARD_SCHEMA = "net_log_return_v1"
+
+
+def validated_ppo_gamma(value: object) -> float:
+    """Validate the PPO temporal discount without changing reward semantics."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("ppo_gamma must be a finite number within (0, 1]")
+    resolved = float(value)
+    if not math.isfinite(resolved) or not 0.0 < resolved <= 1.0:
+        raise ValueError("ppo_gamma must be a finite number within (0, 1]")
+    return resolved
+
+
+def ppo_training_objective_contract_payload(
+    *,
+    gamma: float = PPO_DEFAULT_GAMMA,
+) -> dict[str, object]:
+    """Return the explicit PPO optimization contract for research provenance."""
+
+    return {
+        "schema": "ppo_training_objective_v1",
+        "reward_schema": PPO_REWARD_SCHEMA,
+        "reward_scope": "per_symbol_account_after_cost_log_return",
+        "terminal_settlement": "included_in_terminal_transition",
+        "gamma": validated_ppo_gamma(gamma),
+        "gae_lambda": PPO_DEFAULT_GAE_LAMBDA,
+        "normalize_advantage": True,
+    }
 
 
 def validated_training_layout(
@@ -75,11 +106,16 @@ def expected_ppo_realized_timesteps(
 
 
 __all__ = [
+    "PPO_DEFAULT_GAE_LAMBDA",
+    "PPO_DEFAULT_GAMMA",
     "PPO_DEFAULT_N_STEPS",
     "PPO_MINIBATCH_SIZE",
+    "PPO_REWARD_SCHEMA",
     "PPO_TRAINING_LAYOUT_INTERLEAVED",
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",
     "expected_ppo_realized_timesteps",
+    "ppo_training_objective_contract_payload",
     "validated_interleaved_rollout_steps",
+    "validated_ppo_gamma",
     "validated_training_layout",
 ]

@@ -83,11 +83,7 @@ def test_fit_ppo_strategy_passes_explicit_gamma_without_changing_gae(
 
     fitted = FakePPO.last
     assert fitted is not None
+    objective = ppo_training_objective_contract_payload(gamma=0.9975)
     assert fitted.kwargs["gamma"] == pytest.approx(0.9975)
     assert fitted.kwargs["gae_lambda"] == pytest.approx(PPO_DEFAULT_GAE_LAMBDA)
-    assert (
-        fitted.kwargs["normalize_advantage"]
-        is ppo_training_objective_contract_payload(gamma=0.9975)[
-            "normalize_advantage"
-        ]
-    )
+    assert fitted.kwargs["normalize_advantage"] is objective["normalize_advantage"]

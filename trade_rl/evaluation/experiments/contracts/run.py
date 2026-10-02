@@ -21,8 +21,12 @@ from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMAS,
 )
 from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAE_LAMBDA,
+    PPO_DEFAULT_GAMMA,
+    PPO_REWARD_SCHEMA,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    validated_ppo_gamma,
 )
 
 _RESOLVED_RUN_CONFIG_V1 = "resolved_run_config_v1"
@@ -30,6 +34,7 @@ _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
 _RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 _RESOLVED_RUN_CONFIG_V4 = "resolved_run_config_v4"
 _RESOLVED_RUN_CONFIG_V5 = "resolved_run_config_v5"
+_RESOLVED_RUN_CONFIG_V6 = "resolved_run_config_v6"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -66,6 +71,9 @@ class ResolvedRunConfig:
     gross_budget: float
     initial_capital: float
     execution_overlay: str
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
+    ppo_reward_schema: str = PPO_REWARD_SCHEMA
+    ppo_gae_lambda: float = PPO_DEFAULT_GAE_LAMBDA
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
@@ -188,6 +196,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
         }:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
@@ -231,6 +240,7 @@ class ResolvedRunConfig:
                 _RESOLVED_RUN_CONFIG_V3,
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
             }:
                 if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
                     if ppo_rollout_steps_per_env is not None:
@@ -248,6 +258,7 @@ class ResolvedRunConfig:
             if schema_version in {
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
             }:
                 ppo_minimum_hold_bars = contract_non_negative_int(
                     self.ppo_minimum_hold_bars,
@@ -269,7 +280,10 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "legacy resolved-run config cannot define duration semantics"
                 )
-            if schema_version == _RESOLVED_RUN_CONFIG_V5:
+            if schema_version in {
+                _RESOLVED_RUN_CONFIG_V5,
+                _RESOLVED_RUN_CONFIG_V6,
+            }:
                 if self.pretrade_risk_config is not None and not isinstance(
                     self.pretrade_risk_config, PreTradeRiskConfig
                 ):
@@ -297,6 +311,38 @@ class ResolvedRunConfig:
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
 
+        if schema_version == _RESOLVED_RUN_CONFIG_V6:
+            try:
+                ppo_gamma = validated_ppo_gamma(self.ppo_gamma)
+            except ValueError as error:
+                raise ContractViolationError(str(error)) from error
+            ppo_reward_schema = contract_text(
+                self.ppo_reward_schema,
+                field="ppo_reward_schema",
+            )
+            if ppo_reward_schema != PPO_REWARD_SCHEMA:
+                raise ContractViolationError("unsupported PPO reward schema")
+            ppo_gae_lambda = contract_finite(
+                self.ppo_gae_lambda,
+                field="ppo_gae_lambda",
+            )
+            if ppo_gae_lambda != PPO_DEFAULT_GAE_LAMBDA:
+                raise ContractViolationError(
+                    "ppo_gae_lambda is fixed outside a dedicated controlled factor"
+                )
+        else:
+            if (
+                self.ppo_gamma != PPO_DEFAULT_GAMMA
+                or self.ppo_reward_schema != PPO_REWARD_SCHEMA
+                or self.ppo_gae_lambda != PPO_DEFAULT_GAE_LAMBDA
+            ):
+                raise ContractViolationError(
+                    "legacy resolved-run config cannot define PPO objective semantics"
+                )
+            ppo_gamma = PPO_DEFAULT_GAMMA
+            ppo_reward_schema = PPO_REWARD_SCHEMA
+            ppo_gae_lambda = PPO_DEFAULT_GAE_LAMBDA
+
         object.__setattr__(self, "signal_name", signal_name)
         object.__setattr__(self, "signal_index", signal_index)
         object.__setattr__(self, "feature_names", feature_names)
@@ -315,6 +361,9 @@ class ResolvedRunConfig:
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
         object.__setattr__(self, "execution_overlay", execution_overlay)
+        object.__setattr__(self, "ppo_gamma", ppo_gamma)
+        object.__setattr__(self, "ppo_reward_schema", ppo_reward_schema)
+        object.__setattr__(self, "ppo_gae_lambda", ppo_gae_lambda)
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
         object.__setattr__(self, "schema_version", schema_version)
@@ -362,7 +411,10 @@ class ResolvedRunConfig:
             execution_overlay=spec.execution_overlay,
             ppo_observation_schema=config.ppo_observation_schema,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V5,
+            schema_version=_RESOLVED_RUN_CONFIG_V6,
+            ppo_gamma=lean.ppo_gamma,
+            ppo_reward_schema=PPO_REWARD_SCHEMA,
+            ppo_gae_lambda=PPO_DEFAULT_GAE_LAMBDA,
             ppo_training_layout=lean.ppo_training_layout,
             ppo_rollout_steps_per_env=lean.ppo_rollout_steps_per_env,
             ppo_minimum_hold_bars=lean.ppo_minimum_hold_bars,
@@ -392,11 +444,16 @@ class ResolvedRunConfig:
             "initial_capital": self.initial_capital,
             "execution_overlay": self.execution_overlay,
         }
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V6:
+            payload["ppo_gamma"] = self.ppo_gamma
+            payload["ppo_reward_schema"] = self.ppo_reward_schema
+            payload["ppo_gae_lambda"] = self.ppo_gae_lambda
         if self.schema_version in {
             _RESOLVED_RUN_CONFIG_V2,
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
         }:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
@@ -404,12 +461,14 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
         }:
             payload["ppo_training_layout"] = self.ppo_training_layout
             payload["ppo_rollout_steps_per_env"] = self.ppo_rollout_steps_per_env
         if self.schema_version in {
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V6,
         }:
             payload["ppo_minimum_hold_bars"] = self.ppo_minimum_hold_bars
             payload["ppo_settle_terminal_position"] = self.ppo_settle_terminal_position

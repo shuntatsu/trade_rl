@@ -67,3 +67,20 @@ def test_candidate_artifact_rejects_tampered_ppo_training_objective(
 
     with pytest.raises(ValueError, match="training objective"):
         load_candidate_run_artifact(published.root)
+
+
+def test_legacy_candidate_schema_rejects_backfilled_training_objective(
+    tmp_path: Path,
+) -> None:
+    result = _result()
+    published = publish_candidate_run(
+        tmp_path / "run",
+        result,  # type: ignore[arg-type]
+        _provenance(),
+    )
+    summary = json.loads(published.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = "lean_candidate_result_v6"
+    _write_summary(published.summary_path, summary)
+
+    with pytest.raises(ValueError, match="legacy.*training objective"):
+        load_candidate_run_artifact(published.root)

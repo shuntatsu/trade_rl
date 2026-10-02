@@ -11,6 +11,7 @@ PPO_DEFAULT_N_STEPS = 2048
 PPO_MINIBATCH_SIZE = 64
 PPO_DEFAULT_GAMMA = 0.99
 PPO_DEFAULT_GAE_LAMBDA = 0.95
+PPO_NORMALIZE_ADVANTAGE = True
 PPO_REWARD_SCHEMA = "net_log_return_v1"
 
 
@@ -47,7 +48,7 @@ def ppo_training_objective_contract_payload(
         "reward_scope": "per_symbol_account_after_cost_log_return",
         "gamma": validated_ppo_gamma(gamma),
         "gae_lambda": PPO_DEFAULT_GAE_LAMBDA,
-        "normalize_advantage": True,
+        "normalize_advantage": PPO_NORMALIZE_ADVANTAGE,
     }
 
 
@@ -120,6 +121,7 @@ __all__ = [
     "PPO_DEFAULT_GAMMA",
     "PPO_DEFAULT_N_STEPS",
     "PPO_MINIBATCH_SIZE",
+    "PPO_NORMALIZE_ADVANTAGE",
     "PPO_REWARD_SCHEMA",
     "PPO_TRAINING_LAYOUT_INTERLEAVED",
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",

@@ -1313,8 +1313,7 @@ def _load_with_evidence(
         raise ValueError("unsupported candidate result schema")
     candidate_config = summary.get("candidate_config")
     if (
-        result_schema
-        in {
+        result_schema in {
             _RESULT_SCHEMA_V1,
             _RESULT_SCHEMA_V2,
             _RESULT_SCHEMA_V3,

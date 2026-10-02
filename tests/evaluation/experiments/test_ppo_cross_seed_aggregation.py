@@ -68,6 +68,12 @@ def _with_shared_cash_portfolio(
             "periods_per_year": 8_760,
         },
         "terminal_settlement_complete": settled,
+        "ledger_evidence": {
+            "payload": {
+                "schema_version": "shared_cash_replay_ledger_v3",
+                "final_max_drawdown": maximum_drawdown,
+            }
+        },
     }
     returns = dict(run.returns)
     returns["shared_cash_ppo"] = np.asarray(values, dtype=np.float64)

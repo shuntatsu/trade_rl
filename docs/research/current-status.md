@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-02 (JST)
+更新基準: 2026-10-03 (JST)
 
 ## 結論
 
@@ -73,7 +73,10 @@ Termination flatten evidence is also required for non-flat margin-call closure. 
 `metrics.max_drawdown` is recomputed from ordered transition states, so it
 includes bar-open price gaps and intra-bar revaluation that an interval-end
 return series alone cannot capture. Total return remains bound to the saved
-interval returns. The
+interval returns. The controlled comparison now carries the loader-validated
+ledger drawdown into the shared-account 20% eligibility gate instead of
+reconstructing it from interval returns. A regression covers a 25% intra-bar
+drawdown when interval returns imply only 10%. The
 capital-boundary and full-ledger artifact tests, same-market PPO training/replay
 parity test, and independently hand-calculated multi-symbol cash/cost oracle
 pass locally. A source-row mutation oracle now rejects a shared-cash ledger when

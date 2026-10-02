@@ -245,7 +245,10 @@ against fills, corporate actions, carry, and terminal settlement. The v10
 shared-cash `metrics.max_drawdown` is recomputed from ordered accounting states,
 including bar-open gaps and intra-bar revaluation; it is not derived from the
 interval-end return series alone. Total return remains bound to the saved
-interval-return array. Historical v9
+interval-return array. Controlled comparison uses this validated ledger
+drawdown for the risk gate and validates total return against the saved
+interval-return array. It must not reconstruct shared-cash drawdown from those
+interval returns. Historical v9
 ledger-v2, v8 ledger-v1/v2, and v7 digest-only artifacts retain their previous
 read contracts.
 Same-market training/replay parity and an independently hand-calculated

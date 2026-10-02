@@ -51,7 +51,7 @@ artifacts / evidence
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
 
-共有資金Candidate Run v10は順序付き会計遷移を保存し、loaderが保存入力から残高・約定・carryなどを再計算します。ただし元Datasetのsource rowsをdigestから再取得して照合する処理ではないため、この内部整合性だけでG2のsource bindingが成立するわけではありません。
+共有資金Candidate Run v10は順序付き会計遷移を保存し、loaderが保存入力から残高・約定・carryなどを再計算します。loader自体はDataset digestから元のsource rowsを再読込しません。一方、共通資金v2 EvidenceSetの生成経路は、open / mark価格、fundingの発生・rate・timestamp・multiplier、split、delisting、dividend、cash / borrow rate、経過時間を、順序付き会計遷移から元Datasetの該当行へ照合します。さらにcanonical Dataset identityを全identity arrayから再検証します。source行だけを変えるmutation testと、volume・参加上限・fee・closeなどのDataset identity arrayを変えるtestは、保存ledgerを固定したまま拒否されます。これは証拠とDatasetの整合性を検査するもので、独立G0-G2レビューが済むまでは経済実験を許可しません。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 

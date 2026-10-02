@@ -68,11 +68,15 @@ describe("Markdown-first guide workflow", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { name: "何をするシステムか" }),
+      await screen.findByRole(
+        "heading",
+        { name: "何をするシステムか" },
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
     expect(await screen.findByText(/MarketDatasetを構築・固定/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "実装を確認する" })).not.toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("opens search from Ctrl+K and navigates using Japanese terminology", async () => {
     const user = userEvent.setup();

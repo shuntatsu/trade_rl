@@ -206,24 +206,33 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
     if schema_version in {
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
-    if schema_version in {"resolved_run_config_v4", "resolved_run_config_v5"}:
+    if schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v6",
+    }:
         expected.update({"ppo_minimum_hold_bars", "ppo_settle_terminal_position"})
-    if schema_version == "resolved_run_config_v5":
+    if schema_version in {"resolved_run_config_v5", "resolved_run_config_v6"}:
         expected.add("pretrade_risk_config")
+    if schema_version == "resolved_run_config_v6":
+        expected.update({"ppo_gamma", "ppo_reward_schema", "ppo_gae_lambda"})
     elif schema_version != "resolved_run_config_v1":
         if schema_version not in {
             "resolved_run_config_v2",
             "resolved_run_config_v3",
             "resolved_run_config_v4",
             "resolved_run_config_v5",
+        "resolved_run_config_v6",
         }:
             raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
@@ -267,6 +276,24 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 raw["ppo_total_timesteps"], field=f"{field}.ppo_total_timesteps"
             ),
             ppo_seed=_as_int(raw["ppo_seed"], field=f"{field}.ppo_seed"),
+            ppo_gamma=(
+                _as_float(raw["ppo_gamma"], field=f"{field}.ppo_gamma")
+                if schema_version == "resolved_run_config_v6"
+                else 0.99
+            ),
+            ppo_reward_schema=(
+                _as_string(
+                    raw["ppo_reward_schema"],
+                    field=f"{field}.ppo_reward_schema",
+                )
+                if schema_version == "resolved_run_config_v6"
+                else "net_log_return_v1"
+            ),
+            ppo_gae_lambda=(
+                _as_float(raw["ppo_gae_lambda"], field=f"{field}.ppo_gae_lambda")
+                if schema_version == "resolved_run_config_v6"
+                else 0.95
+            ),
             evaluation_start=_as_string(
                 raw["evaluation_start"], field=f"{field}.evaluation_start"
             ),
@@ -308,6 +335,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+        "resolved_run_config_v6",
                 }
                 else "sequential"
             ),
@@ -318,6 +346,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+        "resolved_run_config_v6",
                 }
                 or raw["ppo_rollout_steps_per_env"] is None
                 else _as_int(
@@ -331,6 +360,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 not in {
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+        "resolved_run_config_v6",
                 }
                 else _as_int(
                     raw["ppo_minimum_hold_bars"],
@@ -343,7 +373,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     raw["pretrade_risk_config"],
                     field=f"{field}.pretrade_risk_config",
                 )
-                if schema_version == "resolved_run_config_v5"
+                if schema_version in {"resolved_run_config_v5", "resolved_run_config_v6"}
                 else None
             ),
         )
@@ -544,6 +574,7 @@ def _candidate_config_payload(
     if resolved_schema_version in {
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v6",
     }:
         payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
         payload["ppo_observation_schema"] = config.ppo_observation_schema

@@ -287,7 +287,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `config.py`: Run JSONの単一parse/resolution authority。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v7`へ追加portolio return seriesとsettlement / ledger evidenceをbindし、loaderがreturn / maximum drawdownをraw seriesから再計算する。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。current writerは通常Runを`lean_candidate_result_v8`、Observation-v3 shared-cash PPO replayを含むRunを`lean_candidate_result_v9`として、exact `ppo_gamma` と `ppo_training_objective_v1` をsummaryへbindする。v9は追加portfolio return seriesとsettlement / ledger evidenceも保持し、loaderがreturn / maximum drawdownをraw seriesから再計算する。historical v1-v7は読み取り互換を維持する。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
 `trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。

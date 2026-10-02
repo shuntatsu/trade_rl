@@ -48,7 +48,6 @@ from trade_rl.strategies.rl.ppo_training import (
     PPO_DEFAULT_GAMMA,
     PPO_DEFAULT_N_STEPS,
     PPO_MINIBATCH_SIZE,
-    PPO_NORMALIZE_ADVANTAGE,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
     expected_ppo_realized_timesteps,
@@ -65,6 +64,7 @@ _PPO_GAMMA = PPO_DEFAULT_GAMMA
 _PPO_GAE_LAMBDA = PPO_DEFAULT_GAE_LAMBDA
 _PPO_CLIP_RANGE = 0.2
 _PPO_CLIP_RANGE_VF: float | None = None
+_PPO_NORMALIZE_ADVANTAGE = True
 _PPO_ENT_COEF = 0.0
 _PPO_VF_COEF = 0.5
 _PPO_MAX_GRAD_NORM = 0.5
@@ -798,7 +798,7 @@ def fit_ppo_strategy(
         gae_lambda=_PPO_GAE_LAMBDA,
         clip_range=_PPO_CLIP_RANGE,
         clip_range_vf=_PPO_CLIP_RANGE_VF,
-        normalize_advantage=PPO_NORMALIZE_ADVANTAGE,
+        normalize_advantage=_PPO_NORMALIZE_ADVANTAGE,
         ent_coef=_PPO_ENT_COEF,
         vf_coef=_PPO_VF_COEF,
         max_grad_norm=_PPO_MAX_GRAD_NORM,

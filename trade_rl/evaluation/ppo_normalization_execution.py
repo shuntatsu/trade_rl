@@ -1468,8 +1468,19 @@ def verify_replication_slot(
     recorded_replay = {
         key: value for key, value in result.items() if key not in _RESULT_METADATA
     }
-    if canonical_json_bytes(replay_payload) != canonical_json_bytes(recorded_replay):
-        raise ValueError("fresh bundle replay differs from published result")
+    mismatched_fields = sorted(
+        key
+        for key in replay_payload.keys() | recorded_replay.keys()
+        if key not in replay_payload
+        or key not in recorded_replay
+        or canonical_json_bytes(replay_payload[key])
+        != canonical_json_bytes(recorded_replay[key])
+    )
+    if mismatched_fields:
+        raise ValueError(
+            "fresh bundle replay differs from published result; "
+            f"fields={','.join(mismatched_fields)}"
+        )
     if _source_identity_snapshot(source) != source_snapshot:
         raise ValueError("replication source changed during verifier replay")
     _validate_execution_root(root, runtime_contract="verifier")

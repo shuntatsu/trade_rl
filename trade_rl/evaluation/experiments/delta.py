@@ -302,14 +302,14 @@ def _fixed_config_violations(
     plan_semantic = _without_seed(plan.baseline_config.to_payload())
     violations: list[str] = []
     for field in plan.FIXED_RESOLVED_FIELDS:
-        if (
-            field == "pretrade_risk_config"
-            and field not in evidence.semantic_config
-            and field not in plan_semantic
-        ):
+        evidence_has_field = field in evidence.semantic_config
+        plan_has_field = field in plan_semantic
+        if not evidence_has_field and not plan_has_field:
             continue
-        if field not in evidence.semantic_config or (
-            _canonical_value(evidence.semantic_config[field])
+        if (
+            not evidence_has_field
+            or not plan_has_field
+            or _canonical_value(evidence.semantic_config[field])
             != _canonical_value(plan_semantic[field])
         ):
             violations.append(

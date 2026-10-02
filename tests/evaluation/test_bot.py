@@ -266,6 +266,7 @@ def test_drawdown_ineligible_candidate_cannot_win(monkeypatch) -> None:
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=pnl > 0.0,
+            terminal_settled=True,
         )
 
     def fake_run(
@@ -408,6 +409,7 @@ def test_tune_all_strategies_ranks_by_the_selected_objective(
             interval_profit_factor=2.0,
             sharpe_ratio=objective_scores[strategy_name],
             is_profitable=True,
+            terminal_settled=True,
         )
         return TuningResult(
             strategy_name=strategy_name,
@@ -476,6 +478,7 @@ def test_bounded_tuning_grid_samples_every_parameter_axis(monkeypatch) -> None:
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=True,
+            terminal_settled=True,
         )
         return None, report
 
@@ -544,6 +547,7 @@ def test_near_zero_holdout_baseline_has_undefined_relative_improvement(
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=pnl > 0.0,
+            terminal_settled=True,
         )
         return None, report
 

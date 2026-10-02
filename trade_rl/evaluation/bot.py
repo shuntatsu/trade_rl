@@ -90,7 +90,9 @@ class TuningResult:
     dataset_id: str
     dataset_identity_bound: bool
     execution_cost: ExecutionCostConfig
-    report_scope: Literal["holdout", "development_family_comparison"] = "holdout"
+    report_scope: Literal[
+        "holdout", "development_family_comparison", "development_walk_forward"
+    ] = "holdout"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +110,7 @@ class BotReport:
     interval_profit_factor: float
     sharpe_ratio: float
     is_profitable: bool
-    terminal_settled: bool = True
+    terminal_settled: bool | None = None
     terminal_position_quantities: tuple[float, ...] = ()
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     termination_reason: str | None = None
@@ -588,6 +590,7 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
     print(sep)
     for r in reports:
         star = " *" if r.is_profitable else ""
+        settled = _terminal_settlement_label(r.terminal_settled)
         print(
             f"{r.strategy_name:<18} | "
             f"${r.final_equity:>12,.2f} | "
@@ -596,9 +599,15 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
             f"{r.max_drawdown_pct:>6.2f}% | "
             f"{r.positive_return_rate_pct:>12.1f}% | "
             f"{r.interval_profit_factor:>10.2f} | "
-            f"{r.sharpe_ratio:>6.2f}{star} | {'yes' if r.terminal_settled else 'NO'}"
+            f"{r.sharpe_ratio:>6.2f}{star} | {settled}"
         )
     print(sep + "\n")
+
+
+def _terminal_settlement_label(terminal_settled: bool | None) -> str:
+    if terminal_settled is None:
+        return "unknown"
+    return "yes" if terminal_settled else "NO"
 
 
 def print_tuning_comparison(res: TuningResult) -> None:
@@ -618,11 +627,11 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
     )
     print(f"  Execution cost config: {asdict(res.execution_cost)}")
-    report_label = (
-        "development family comparison"
-        if res.report_scope == "development_family_comparison"
-        else "holdout report"
-    )
+    report_label = {
+        "holdout": "holdout report",
+        "development_family_comparison": "development family comparison",
+        "development_walk_forward": "development walk-forward",
+    }[res.report_scope]
     print(
         f"  Tuning window: [{res.tuning_start_index}, {res.tuning_stop_index}); "
         f"{report_label}: [{res.holdout_start_index}, {res.holdout_stop_index})"
@@ -637,16 +646,17 @@ def print_tuning_comparison(res: TuningResult) -> None:
         "fees and carry are excluded, and the exit fills only at a later eligible step."
     )
     print("=" * 68)
-    baseline_label = (
-        "Baseline development"
-        if res.report_scope == "development_family_comparison"
-        else "Baseline holdout"
-    )
-    candidate_label = (
-        "Candidate development"
-        if res.report_scope == "development_family_comparison"
-        else "Candidate holdout"
-    )
+    baseline_label, candidate_label = {
+        "holdout": ("Baseline holdout", "Candidate holdout"),
+        "development_family_comparison": (
+            "Baseline development",
+            "Candidate development",
+        ),
+        "development_walk_forward": (
+            "Baseline development",
+            "Candidate development",
+        ),
+    }[res.report_scope]
     print(f"{'Metric':<24} | {baseline_label:<18} | {candidate_label:<18}")
     print("-" * 68)
     print(
@@ -654,7 +664,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
     )
     print(f"{'Net Profit ($)':<24} | ${b.net_pnl:>16,.2f} | ${o.net_pnl:>16,.2f}")
     print(
-        f"{'Terminal settled':<24} | {str(b.terminal_settled):>18} | {str(o.terminal_settled):>18}"
+        f"{'Terminal settled':<24} | {_terminal_settlement_label(b.terminal_settled):>18} | {_terminal_settlement_label(o.terminal_settled):>18}"
     )
     if not b.terminal_settled or not o.terminal_settled:
         print(
@@ -1019,13 +1029,17 @@ def walk_forward_tune(
             eval_stop_index=eval_stop,
             execution_cost=resolved_cost,
         )
-        window_results.append(tuning_res)
+        window_results.append(
+            replace(tuning_res, report_scope="development_walk_forward")
+        )
 
     returns_pct = [r.optimized_report.total_return_pct for r in window_results]
     sharpes = [r.optimized_report.sharpe_ratio for r in window_results]
     max_dds = [r.optimized_report.max_drawdown_pct for r in window_results]
     profitable_count = sum(
-        1 for r in window_results if r.optimized_report.is_profitable
+        1
+        for r in window_results
+        if r.optimized_report.is_profitable and r.optimized_report.terminal_settled
     )
 
     mean_ret = float(np.mean(returns_pct)) if returns_pct else 0.0
@@ -1325,7 +1339,7 @@ def print_walk_forward_summary(result: WalkForwardResult) -> None:
     print("  " + "-" * 56)
     for i, wr in enumerate(result.window_results):
         rep = wr.optimized_report
-        settled = "yes" if rep.terminal_settled else "NO"
+        settled = _terminal_settlement_label(rep.terminal_settled)
         print(
             f"  {i + 1:<8} | {wr.optimized_config.strategy_name:<18} | "
             f"{rep.total_return_pct:>+9.2f}% | {rep.sharpe_ratio:>8.2f} | "

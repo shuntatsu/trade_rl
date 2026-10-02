@@ -180,6 +180,12 @@ CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
 `load_normalized_ppo`; historical standalone research `model.zip` evidence is
 not silently promoted to an inference-safe bundle.
 
+Inference-bundle publication uses the shared atomic directory primitive. A
+transient Windows permission failure is retried a bounded number of times only
+while staging remains a regular directory and the target is absent. Exhaustion
+or changed source/target state fails closed, and the publisher removes its own
+staging directory; it does not publish a partial copy.
+
 The no-refit replication verifier validates the stored slot-result schema
 separately from the replay payload. Slot publication replaces the directional
 evaluator's top-level `schema`, so fresh replay has no persisted schema peer; the

@@ -489,6 +489,7 @@ def test_bounded_tuning_grid_samples_every_parameter_axis(monkeypatch) -> None:
         0.015,
         0.030,
     }
+    assert {config.stop_loss_threshold for config in evaluated} <= {0.0, 0.015, 0.025}
     assert {config.trailing_stop_threshold for config in evaluated} == {0.0, 0.010}
     assert {config.volatility_regime_threshold for config in evaluated} == {
         0.008,

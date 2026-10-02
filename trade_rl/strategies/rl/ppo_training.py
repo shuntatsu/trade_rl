@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import TypedDict
 
 PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
 PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
@@ -11,6 +12,16 @@ PPO_MINIBATCH_SIZE = 64
 PPO_DEFAULT_GAMMA = 0.99
 PPO_DEFAULT_GAE_LAMBDA = 0.95
 PPO_REWARD_SCHEMA = "net_log_return_v1"
+
+
+class _PPOTrainingObjectivePayload(TypedDict):
+    schema: str
+    reward_schema: str
+    reward_scope: str
+    terminal_settlement: str
+    gamma: float
+    gae_lambda: float
+    normalize_advantage: bool
 
 
 def validated_ppo_gamma(value: object) -> float:
@@ -27,7 +38,7 @@ def validated_ppo_gamma(value: object) -> float:
 def ppo_training_objective_contract_payload(
     *,
     gamma: float = PPO_DEFAULT_GAMMA,
-) -> dict[str, object]:
+) -> _PPOTrainingObjectivePayload:
     """Return the explicit PPO optimization contract for research provenance."""
 
     return {

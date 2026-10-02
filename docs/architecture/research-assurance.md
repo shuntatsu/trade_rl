@@ -258,8 +258,10 @@ Result-blind falsifiers include:
 - changing gamma also changes reward, GAE lambda, observation, action, risk,
   execution, accounting, capital, fit scope, or training budget;
 - a non-PPO strategy's replay changes in a declared `PPO_DISCOUNT` experiment;
-- a saved v6 Run cannot reconstruct the exact gamma used by the PPO constructor;
-- legacy v1-v5 Run artifacts are reinterpreted as having new v6 semantics;
+- a resolved v6 config or current Candidate Result v8/v9 cannot reconstruct the
+  exact gamma used by the PPO constructor;
+- legacy resolved v1-v5 or Candidate Result v1-v7 artifacts are reinterpreted as
+  having new objective-bound semantics;
 - canonical PPO environment reward ceases to equal after-cost log return plus the
   documented terminal-settlement contribution.
 
@@ -298,12 +300,14 @@ Before any G4 execution, the implementation must demonstrate:
   values above one;
 - the exact requested gamma reaches the SB3 PPO constructor while GAE remains
   fixed;
-- raw config, resolved config, persisted v6 payload, requested-config digest, and
-  reconstructed candidate config preserve the same gamma;
+- raw config, resolved v6 config, Candidate Result v8/v9 objective payload,
+  requested-config digest, and reconstructed candidate config preserve the same
+  gamma;
 - the controlled-delta verifier accepts `ppo_gamma` as the only path for
   `PPO_DISCOUNT` and still exact-matches all unaffected strategies;
-- v1-v5 payloads continue to round-trip under their original default objective
-  meaning and cannot carry non-default v6 objective fields.
+- resolved v1-v5 and Candidate Result v1-v7 payloads continue to round-trip under
+  their original meaning and cannot masquerade as objective-bound v6/v8/v9
+  evidence.
 
 The fresh independent result-blind semantic review required by the general G0-G2
 gate is still required before a real-data discount experiment. This code contract

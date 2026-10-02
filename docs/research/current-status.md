@@ -23,7 +23,15 @@ adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比�
 
 実SB3 integrationでPPO inference bundleの単発directory renameがWindows permission failureで停止したため、既存のbounded atomic-publication primitiveをこの経路にも使う。transient lockとretry exhaustionをfake policyの回帰テストで再現し、staging cleanupを確認する。training objectiveやhistorical model bytesの意味は変更しない。
 
-cash追加の開発診断契約は同じBTC/ETH 2024Q1、adaptive/ balanced/8 grid候補/3fold/capital100,000/costを固定し、cash追加後も正のprefixで選定した既存configと後続結果が変わらないことを確認する。実book・raw return・ledgerを保持し、base-prefixで選んだconfigを再選定せずexecution multiplier2とlatency+1のstressへ適用する。software修復のPASSはprefix選択とcash/ledger契約の一致であり、経済screenは各base/stressでafter-cost returnが正、observed drawdown20%以下、終端flat/order remainderなしを要求する。一つでも満たさなければprofitabilityは未確立とし、winner/final/liveへ昇格しない。protocol・review・実行receiptは新しいignored `data/bot-cash-control-2024q1/`へ保存する。
+cash追加の開発診断契約は同じBTC/ETH 2024Q1、adaptive/ balanced/8 grid候補/3fold/capital100,000/costを固定し、cash追加後も正のprefixで選定した既存configと後続結果が変わらないことを確認する。実book・raw return・ledgerを保持し、base-prefixで選んだconfigを再選定せずexecution multiplier2とorder_latency_bars=1のstressへ適用する。software修復のPASSはprefix選択とcash/ledger契約の一致であり、経済screenは各base/stressでafter-cost returnが正、observed drawdown20%以下、終端flat/order remainderなしを要求する。一つでも満たさなければprofitabilityは未確立とし、winner/final/liveへ昇格しない。protocol・review・実行receiptは新しいignored `data/bot-cash-control-2024q1/`へ保存する。
+
+source `8ff87cbf` のcash追加診断は、fresh result-blind G0-G2レビューと170件のmachine testを経て一度だけ実行し、software PASS / economic NOT_ESTABLISHEDとなった。正のprefixで選ばれたconfigと元のcore結果は完全に保持された。selectedのafter-cost returnは−1.941582%と+0.579034%、実行costはaccount currencyで1,998.597217と1,509.094741、funding PnLは−78.761112と−36.671020だった。設定を選び直さずcost multiplierを2にした結果は−3.902920%と−0.934769%である。18 replayのraw return・ledger・cost/funding/fill計算と21 artifact hashを独立事後確認し、全cash対照はzero-return / zero-cost / zero-fill、全終端はflatだった。
+
+order eligibilityは`submit_index + order_latency_bars`だが、最初のprocessingは`submit_index + 1`である。したがって設定0と1は最初の約定可能足が同じであり、当初の0→1 armは追加のprocessing waitを検証していなかった。ただし`agent_stop = stop_index - order_latency_bars - 1`も変わるため、全replayの一般的なno-opとは扱わない。
+
+補足のignored `data/bot-effective-latency-2024q1/` は、同じsource・Dataset・既存selected configをfreezeし、latencyだけ2へ変更する。別のfresh result-blindレビューで189件のmachine testを通し、実行前にprotocol `be216073f8298654daabe4e1d34c52ca738f80ffbd39ec280e995805638ae2ba`を固定した。この設定は最初のprocessingを1本待つ一方、terminal予約区間も3本へ変えるexecution-setting treatmentであり、pure-delay effectや同一trade pathは主張しない。after-cost returnは+1.846582%と−2.026866%、agent期間の同一orderでwait→eligible→fillを確認した件数は76と58、双方のterminal settlementは完了した。software PASSだがeffective-latency screenはNOT_ESTABLISHEDであり、winner / final / liveへ昇格しない。
+
+これらは再利用Q1のdevelopment診断であり、候補・threshold・seedを結果後に再選択していない。最大利益や将来のrobustnessは未確立である。独立raw-return検算のclose-only drawdownとledgerのintrainterval最大drawdownは別の証拠であり、後者の全経路をraw returnsだけから再構築したとは主張しない。
 
 Botの`balanced` scoreは損失の符号を反転していた。channel戦略はchannelでない列を固定位置で読み、synthetic channelは現在足のextremaを含んでいた。これらを独立計算とmocked reportのRED testで再現し、符号付きscore、名前で解決する既存prior-candle channel、終端決済完了を要求する選択条件へ修復する。replay/accounting ownerやPPO研究の機構は変更しない。
 

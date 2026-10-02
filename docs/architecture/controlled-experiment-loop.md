@@ -104,7 +104,7 @@ Canonical bootstrapではDatasetの最終timestampが `data_stop_exclusive` と�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v5`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, and optional explicit pre-trade risk config. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v6` and record the risk config, full evaluation-period coverage, plus training/replay suppression counts. Historical v5 results remain readable without claiming verified full coverage.
+Historical v3 Studies and persisted `resolved_run_config_v1` through `v5` artifacts remain immutable. Current Run Core creates `resolved_run_config_v6`, which keeps the existing PPO Observation, global policy roster, training layout, minimum-hold duration, terminal-settlement, and optional explicit pre-trade-risk bindings and additionally binds the PPO training objective. The objective records the fixed after-cost log-return reward schema, `ppo_gamma`, and the fixed GAE lambda. Reward schema and GAE lambda are Study-fixed; `PPO_DISCOUNT` may change only `ppo_gamma`. Observation schema, terminal settlement, and risk config remain Study-fixed. `PPO_MINIMUM_HOLD` may change only `ppo_minimum_hold_bars`, and `PPO_TRAINING_LAYOUT` may change only the layout/rollout pair. The holding-duration protocols remain minimum-hold-only protocols and do not implicitly become discount studies. Historical v5 results remain readable under their original objective defaults rather than being reclassified as v6 evidence.
 
 historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
 
@@ -133,6 +133,7 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 - `FIT_SYMBOL_SCOPE`
 - `PPO_TRAINING_BUDGET`
 - `PPO_TRAINING_LAYOUT` (`ppo_training_layout`と`ppo_rollout_steps_per_env`の組)
+- `PPO_DISCOUNT` (`ppo_gamma` only; reward schemaとGAE lambdaはStudy-fixed)
 - `PPO_MINIMUM_HOLD` (`ppo_minimum_hold_bars` only; Observation v3 remains Study-fixed)
 - `GROSS_BUDGET`
 

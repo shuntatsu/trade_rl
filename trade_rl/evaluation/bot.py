@@ -203,6 +203,24 @@ def generate_demo_dataset(
     return replace(augmented, identity_payload_json=None)
 
 
+def _with_channel_breakout_features(dataset: MarketDataset) -> MarketDataset:
+    present = tuple(name for name in CHANNEL_NAMES if name in dataset.feature_names)
+    if len(present) == len(CHANNEL_NAMES):
+        return dataset
+    if present:
+        missing = tuple(name for name in CHANNEL_NAMES if name not in present)
+        raise ValueError(
+            "dataset has an incomplete price-channel feature set; missing: "
+            + ", ".join(missing)
+        )
+    if dataset.n_bars <= 480:
+        raise ValueError(
+            "channel_breakout needs all named price channels or at least 481 bars "
+            "to derive them"
+        )
+    return with_price_channels(dataset)
+
+
 def create_strategy_instances(
     dataset: MarketDataset,
     config: BotConfig,
@@ -396,6 +414,9 @@ def run_trading_bot(
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
 
+    if config.strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(
         max_gross=config.max_gross,
@@ -432,6 +453,7 @@ def compare_all_strategies(
     execution_cost: ExecutionCostConfig | None = None,
 ) -> list[BotReport]:
     """Rank full-range strategy replays as in-sample diagnostics, not selection."""
+    dataset = _with_channel_breakout_features(dataset)
     strategies_to_test = [
         "adaptive",
         "ensemble",
@@ -496,6 +518,9 @@ def tune_for_maximum_profit(
     if not isinstance(resolved_execution_cost, ExecutionCostConfig):
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
+    if strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     usable_stop_index = dataset.n_bars - 1
     minimum_window_span = resolved_execution_cost.order_latency_bars + 2
     tuning_stop_index = math.floor(usable_stop_index * (1.0 - float(holdout_fraction)))
@@ -535,6 +560,7 @@ def tune_all_strategies(
     Because the later report window is exposed for every family, it is a
     development comparison and must not be treated as a final untouched holdout.
     """
+    dataset = _with_channel_breakout_features(dataset)
     candidate_strategies = [
         "adaptive",
         "ensemble",

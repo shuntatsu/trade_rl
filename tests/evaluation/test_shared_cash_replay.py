@@ -9,7 +9,13 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation import replay as replay_module
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.orders.model import OrderEvent, OrderStatus
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rules.adaptive import (
+    AdaptiveProfitConfig,
+    RegimeAdaptiveStrategy,
+)
 
 
 @dataclass
@@ -40,6 +46,10 @@ def _market(
     *,
     symbols: tuple[str, ...] | None = None,
     volume: float | np.ndarray = 1_000_000.0,
+    signal_values: np.ndarray | None = None,
+    tradable_values: np.ndarray | None = None,
+    split_factors: np.ndarray | None = None,
+    open_values: np.ndarray | None = None,
 ) -> MarketDataset:
     close_array = np.asarray(close, dtype=np.float64)
     if close_array.ndim != 2:
@@ -47,9 +57,23 @@ def _market(
     n_bars, n_symbols = close_array.shape
     resolved_symbols = symbols or tuple(f"SYM{index}" for index in range(n_symbols))
     open_price = np.vstack((close_array[0], close_array[:-1]))
+    if open_values is not None:
+        open_price = np.asarray(open_values, dtype=np.float64)
+        if open_price.shape != (n_bars, n_symbols):
+            raise ValueError("open_values must match bars and symbols")
     features = np.zeros((n_bars, n_symbols, 1), dtype=np.float32)
     for symbol_index in range(n_symbols):
         features[:, symbol_index, 0] = np.arange(n_bars) + 10 * symbol_index
+    if signal_values is not None:
+        signals = np.asarray(signal_values, dtype=np.float32)
+        if signals.shape != (n_bars, n_symbols):
+            raise ValueError("signal_values must match bars and symbols")
+        features[:, :, 0] = signals
+    tradable = np.ones((n_bars, n_symbols), dtype=np.bool_)
+    if tradable_values is not None:
+        tradable = np.asarray(tradable_values, dtype=np.bool_)
+        if tradable.shape != (n_bars, n_symbols):
+            raise ValueError("tradable_values must match bars and symbols")
     return MarketDataset(
         dataset_id="d" * 64,
         symbols=resolved_symbols,
@@ -63,11 +87,12 @@ def _market(
         close=close_array,
         volume=np.broadcast_to(volume, (n_bars, n_symbols)).copy(),
         funding_rate=np.zeros((n_bars, n_symbols)),
-        tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
+        tradable=tradable,
         feature_available=np.ones((n_bars, n_symbols, 1), dtype=np.bool_),
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
+        split_factor=split_factors,
     )
 
 
@@ -187,6 +212,165 @@ def test_shared_cash_replay_enforces_minimum_hold_from_actual_shared_fills() -> 
     np.testing.assert_allclose(result.book.quantities, np.zeros(1))
     assert result.ledger_evidence is not None
     assert result.ledger_evidence.decisions[1].minimum_hold_suppressed == (True,)
+
+
+def test_adaptive_protective_exit_uses_filled_gross_return_and_bypasses_hold() -> None:
+    dataset = _market(
+        np.asarray([[100.0], [100.0], [103.0], [103.0], [103.0], [103.0]]),
+        signal_values=np.asarray([[0.5], [0.5], [0.5], [0.0], [0.0], [0.0]]),
+        tradable_values=np.asarray([[True], [True], [True], [False], [True], [True]]),
+    )
+    strategy = RegimeAdaptiveStrategy(
+        AdaptiveProfitConfig(
+            signal_index=0,
+            volatility_index=0,
+            trend_entry_threshold=0.01,
+            trend_exit_threshold=0.002,
+            volatility_regime_threshold=0.005,
+            take_profit_threshold=0.02,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=5,
+    )
+
+    assert [decision.intents for decision in result.decisions[:3]] == [
+        (PositionIntent.LONG,),
+        (PositionIntent.LONG,),
+        (PositionIntent.FLAT,),
+    ]
+    assert result.decisions[1].minimum_hold_suppressed == (True,)
+    assert result.decisions[2].minimum_hold_suppressed == (False,)
+    assert result.decisions[2].position_quantity_after[0] != pytest.approx(0.0)
+    assert result.decisions[2].effective_intents == (PositionIntent.FLAT,)
+    assert result.decisions[3].minimum_hold_suppressed == (False,)
+    assert result.decisions[3].intents == (PositionIntent.FLAT,)
+    assert result.decisions[3].position_quantity_after == pytest.approx((0.0,))
+
+
+def test_adaptive_protective_exit_stays_latched_after_missed_fill_and_recovery() -> (
+    None
+):
+    class RecordingAdaptiveStrategy(RegimeAdaptiveStrategy):
+        def __init__(self, config: AdaptiveProfitConfig) -> None:
+            super().__init__(config)
+            self.pending_by_index: dict[int, bool] = {}
+
+        def decide(self, observation: StrategyObservation) -> PositionIntent:
+            intent = super().decide(observation)
+            self.pending_by_index[observation.index] = self.protective_exit_pending
+            return intent
+
+    dataset = _market(
+        np.asarray([[100.0], [100.0], [103.0], [101.0], [101.0], [101.0]]),
+        signal_values=np.full((6, 1), 0.5),
+        tradable_values=np.asarray([[True], [True], [True], [False], [True], [True]]),
+    )
+    strategy = RecordingAdaptiveStrategy(
+        AdaptiveProfitConfig(
+            signal_index=0,
+            volatility_index=0,
+            trend_entry_threshold=0.01,
+            trend_exit_threshold=0.002,
+            volatility_regime_threshold=0.005,
+            take_profit_threshold=0.02,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=5,
+    )
+
+    missed_exit = result.decisions[2]
+    recovered_mark = result.decisions[3]
+    assert missed_exit.intents == (PositionIntent.FLAT,)
+    assert missed_exit.effective_intents == (PositionIntent.FLAT,)
+    assert missed_exit.position_quantity_after[0] != pytest.approx(0.0)
+    assert recovered_mark.position_quantity_before[0] != pytest.approx(0.0)
+    assert recovered_mark.intents == (PositionIntent.FLAT,)
+    assert strategy.pending_by_index[3]
+
+
+def test_execution_gross_position_return_is_invariant_across_split() -> None:
+    dataset = _market(
+        np.asarray([[100.0], [100.0], [100.0], [1e14], [1e14], [1e14]]),
+        open_values=np.asarray([[100.0], [100.0], [100.0], [1e14], [1e14], [1e14]]),
+        split_factors=np.asarray([[1.0], [1.0], [1.0], [1e-12], [1.0], [1.0]]),
+    )
+    strategy = FixedIntent(PositionIntent.LONG)
+
+    replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.02,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+
+    pre_split_return = strategy.observations[2].gross_position_return
+    post_split_return = strategy.observations[3].gross_position_return
+    assert pre_split_return == pytest.approx(0.0)
+    assert post_split_return is not None
+    assert post_split_return == pytest.approx(pre_split_return)
+
+
+def test_fill_tracker_handles_tiny_position_reversal_without_product_underflow() -> (
+    None
+):
+    tracker = replay_module._ExecutedEntryPrices(1)
+
+    def event(sequence: int, filled: float, price: float) -> OrderEvent:
+        return OrderEvent(
+            schema_version="order_event_v1",
+            sequence=sequence,
+            order_id=f"{sequence + 1:064x}",
+            replaced_order_id=None,
+            dataset_id="d" * 64,
+            execution_policy_digest="e" * 64,
+            symbol_index=0,
+            event_type="partial_fill",
+            processing_index=sequence,
+            timestamp_ns=sequence,
+            previous_status=OrderStatus.ELIGIBLE,
+            new_status=OrderStatus.PARTIALLY_FILLED,
+            requested_quantity=1.0,
+            remaining_quantity=1.0,
+            filled_quantity=filled,
+            execution_price=price,
+            filled_notional=abs(filled * price),
+            capacity_before=1.0,
+            capacity_after=1.0,
+            participation_rate=0.0,
+            trigger_segment=None,
+            available_volume_fraction=1.0,
+            reason=None,
+            path_mode="conservative",
+            path_points=(),
+        )
+
+    tracker.ingest((event(0, 1e-200, 100.0),), np.asarray([1e-200]))
+    tracker.ingest((event(1, -2e-200, 200.0),), np.asarray([-1e-200]))
+
+    assert tracker.mark_gross_return(
+        0, quantity=-1e-200, mark_price=200.0
+    ) == pytest.approx(0.0)
 
 
 def test_shared_cash_hold_age_uses_partial_fill_and_cancels_unfilled_remainder() -> (

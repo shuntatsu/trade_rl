@@ -58,7 +58,7 @@ describe("Markdown-first guide workflow", () => {
     });
   });
 
-  it("shows the system purpose and core flow without interaction", () => {
+  it("shows the system purpose and core flow without interaction", async () => {
     render(<App />);
 
     expect(
@@ -67,8 +67,10 @@ describe("Markdown-first guide workflow", () => {
         name: "実データで動く、検証可能なトレーディングRLシステム",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "何をするシステムか" })).toBeInTheDocument();
-    expect(screen.getByText(/MarketDatasetを構築・固定/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "何をするシステムか" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/MarketDatasetを構築・固定/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "実装を確認する" })).not.toBeInTheDocument();
   });
 

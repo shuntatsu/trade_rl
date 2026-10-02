@@ -187,6 +187,28 @@ actions and exact train/replay semantics must be audited rather than hidden.
 
 ### G2 — semantic invariants and independent oracles
 
+Adaptive protective exits have a separate fill-state invariant. The latch follows
+the sign of the actual filled quantity, not the most recent effective intent:
+replay records a requested FLAT intent even when a missed or partial execution
+leaves the book open. Once a gross-return threshold requests an exit, a price
+recovery below that threshold must not clear the latch or permit signal-driven
+re-entry while any quantity remains.
+
+- **Counterexample:** a long reaches take-profit, its FLAT order misses, and the
+  next mark falls below take-profit while the directional signal remains LONG.
+  If `current_intent=FLAT` is mistaken for an actually flat book, the latch is
+  cleared and the strategy requests LONG again.
+- **Oracle:** the canonical shared-cash replay test
+  `test_adaptive_protective_exit_stays_latched_after_missed_fill_and_recovery`
+  checks a nonzero filled quantity across the missed fill and recovered mark,
+  requires FLAT to remain the strategy intent, and confirms the latch remains
+  set at that decision. A direct strategy test also makes marked weight zero
+  while quantity remains nonzero, ensuring the exact signed quantity is used.
+- **Known limitations:** the latch guarantees a repeated exit request while
+  quantity remains; it cannot guarantee that the next order fills, bound the
+  realized loss, or account for post-entry fees, funding, or borrow in the gross
+  threshold.
+
 - Position age is based on actual signed filled quantity: first nonzero fill is
   age 1, same-side no-fill/add/reduction advances once per interval, flat resets
   to 0, and a sign crossing restarts at 1. Independent expected-value tests

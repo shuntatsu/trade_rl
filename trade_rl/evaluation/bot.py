@@ -1,17 +1,16 @@
-"""Unified Trading Bot runner, evaluation, parameter optimization, and comparison.
-
-Executes production strategies against shared multi-symbol portfolio cash and strict
-risk controls, aiming for maximum profit and risk-adjusted returns.
-"""
+"""Trading bot execution, interval reporting, development comparison, and tuning."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import sys
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
+from itertools import product
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 
@@ -38,10 +37,14 @@ from trade_rl.strategies.rules.mean_reversion import (
 )
 from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
+_ALLOWED_OBJECTIVES = frozenset({"profit", "sharpe", "balanced"})
+_SELECTION_DRAWDOWN_LIMIT_PCT = 20.0
+_DEFAULT_HOLDOUT_FRACTION = 0.2
+
 
 @dataclass(frozen=True, slots=True)
 class BotConfig:
-    """Configuration for one Trading Bot run."""
+    """One shared-cash replay configuration with explicit execution costs."""
 
     strategy_name: str = "ensemble"
     initial_capital: float = 100_000.0
@@ -57,6 +60,11 @@ class BotConfig:
     trailing_stop_threshold: float = 0.0
     volatility_regime_threshold: float = 0.010
     max_holding_bars: int = 0
+    execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.execution_cost, ExecutionCostConfig):
+            raise ValueError("execution_cost must be an ExecutionCostConfig")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,14 +77,24 @@ class TuningResult:
     baseline_report: BotReport
     optimized_config: BotConfig
     optimized_report: BotReport
-    profit_improvement_pct: float
+    profit_improvement_pct: float | None
     alpha_dollars: float
     evaluated_combinations: int
+    selection_score: float
+    selection_drawdown_pct: float
+    tuning_start_index: int
+    tuning_stop_index: int
+    holdout_start_index: int
+    holdout_stop_index: int
+    dataset_id: str
+    dataset_identity_bound: bool
+    execution_cost: ExecutionCostConfig
+    report_scope: Literal["holdout", "development_family_comparison"] = "holdout"
 
 
 @dataclass(frozen=True, slots=True)
 class BotReport:
-    """Summary of trading bot performance and economics."""
+    """Portfolio performance and explicitly interval-based return diagnostics."""
 
     strategy_name: str
     initial_capital: float
@@ -84,9 +102,9 @@ class BotReport:
     net_pnl: float
     total_return_pct: float
     max_drawdown_pct: float
-    num_trades: int
-    win_rate_pct: float
-    profit_factor: float
+    nonzero_return_intervals: int
+    positive_return_rate_pct: float
+    interval_profit_factor: float
     sharpe_ratio: float
     is_profitable: bool
 
@@ -229,38 +247,41 @@ def calculate_bot_report(
 ) -> BotReport:
     """Extract performance metrics from replay ledger."""
     raw_returns = np.asarray(replay_result.returns.values, dtype=np.float64)
-    # Reconstruct cumulative equity curve from actual realized bar returns
-    equity_multiplier = np.cumprod(1.0 + raw_returns)
-    equity = np.concatenate(([initial_capital], initial_capital * equity_multiplier))
 
     initial_cap = initial_capital
     final_cap = float(replay_result.book.portfolio_value)
     net_pnl = final_cap - initial_cap
     total_ret = (net_pnl / initial_cap) * 100.0
 
-    # Drawdown
-    running_max = np.maximum.accumulate(equity)
-    drawdowns = (running_max - equity) / np.maximum(running_max, 1e-8)
-    max_dd = float(np.max(drawdowns)) * 100.0
+    # The shared-cash book tracks the full execution-path drawdown, including
+    # adverse movement that interval-end returns cannot represent.
+    max_dd = float(replay_result.book.max_drawdown) * 100.0
 
     # Returns & Sharpe
     mean_ret = float(np.mean(raw_returns)) if len(raw_returns) > 0 else 0.0
     std_ret = float(np.std(raw_returns)) if len(raw_returns) > 0 else 0.0
+    annualization_periods = replay_result.returns.annualization_periods_per_year
     sharpe = (
-        float((mean_ret / std_ret) * math.sqrt(252 * 24)) if std_ret > 1e-8 else 0.0
+        float((mean_ret / std_ret) * math.sqrt(annualization_periods))
+        if std_ret > 1e-8
+        else 0.0
     )
 
-    # Trades
+    # These are return-interval metrics, not closed-trade diagnostics.
     positive_returns = raw_returns[raw_returns > 1e-6]
     negative_returns = raw_returns[raw_returns < -1e-6]
     n_win = len(positive_returns)
     n_loss = len(negative_returns)
-    total_trades = n_win + n_loss
-    win_rate = (n_win / total_trades * 100.0) if total_trades > 0 else 0.0
+    nonzero_return_intervals = n_win + n_loss
+    positive_return_rate = (
+        n_win / nonzero_return_intervals * 100.0
+        if nonzero_return_intervals > 0
+        else 0.0
+    )
 
     gross_profit = float(np.sum(positive_returns)) if n_win > 0 else 0.0
     gross_loss = float(abs(np.sum(negative_returns))) if n_loss > 0 else 0.0
-    profit_factor = (
+    interval_profit_factor = (
         (gross_profit / gross_loss)
         if gross_loss > 1e-8
         else (99.0 if gross_profit > 0 else 0.0)
@@ -273,9 +294,9 @@ def calculate_bot_report(
         net_pnl=net_pnl,
         total_return_pct=total_ret,
         max_drawdown_pct=max_dd,
-        num_trades=total_trades,
-        win_rate_pct=win_rate,
-        profit_factor=profit_factor,
+        nonzero_return_intervals=nonzero_return_intervals,
+        positive_return_rate_pct=positive_return_rate,
+        interval_profit_factor=interval_profit_factor,
         sharpe_ratio=sharpe,
         is_profitable=net_pnl > 0,
     )
@@ -284,8 +305,21 @@ def calculate_bot_report(
 def run_trading_bot(
     dataset: MarketDataset,
     config: BotConfig,
+    *,
+    start_index: int = 0,
+    stop_index: int | None = None,
 ) -> tuple[SharedCashReplayResult, BotReport]:
     """Execute trading bot simulation on dataset with configured strategy and risk."""
+    resolved_stop_index = dataset.n_bars - 1 if stop_index is None else stop_index
+    if (
+        isinstance(start_index, bool)
+        or not isinstance(start_index, int)
+        or isinstance(resolved_stop_index, bool)
+        or not isinstance(resolved_stop_index, int)
+        or not 0 <= start_index < resolved_stop_index < dataset.n_bars
+    ):
+        raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(
         max_gross=config.max_gross,
@@ -296,13 +330,13 @@ def run_trading_bot(
     result = run_shared_cash_replay(
         dataset,
         strategies,
-        start_index=0,
-        stop_index=dataset.n_bars - 1,
+        start_index=start_index,
+        stop_index=resolved_stop_index,
         gross_budget=config.gross_budget,
         initial_capital=config.initial_capital,
         risk=risk,
         minimum_hold_bars=config.minimum_hold_bars,
-        execution_cost=ExecutionCostConfig.zero(),
+        execution_cost=config.execution_cost,
         settle_terminal_position=True,
     )
 
@@ -318,8 +352,9 @@ def compare_all_strategies(
     dataset: MarketDataset,
     initial_capital: float = 100_000.0,
     gross_budget: float = 0.2,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> list[BotReport]:
-    """Simulate and rank all candidate strategies to find the one with maximum profit."""
+    """Rank full-range strategy replays as in-sample diagnostics, not selection."""
     strategies_to_test = [
         "adaptive",
         "ensemble",
@@ -336,6 +371,9 @@ def compare_all_strategies(
             strategy_name=strat_name,
             initial_capital=initial_capital,
             gross_budget=gross_budget,
+            execution_cost=(
+                ExecutionCostConfig() if execution_cost is None else execution_cost
+            ),
         )
         _, report = run_trading_bot(dataset, cfg)
         reports.append(report)
@@ -351,17 +389,59 @@ def tune_for_maximum_profit(
     initial_capital: float = 100_000.0,
     objective: str = "profit",
     max_combinations: int = 150,
+    holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> TuningResult:
-    """Systematically explore hyperparameter configurations to maximize profit or Sharpe.
+    """Select parameters on a chronological prefix and report on a later holdout.
 
-    Explores entry/exit thresholds, hold durations, portfolio gross budget,
-    and adaptive profit-taking / trailing stop parameters.
+    The default holdout is the final 20% of usable bars. Candidate eligibility
+    requires tuning-window ledger drawdown at or below 20%; gaps can exceed that
+    limit in either window.
     """
+    if not isinstance(objective, str) or objective not in _ALLOWED_OBJECTIVES:
+        raise ValueError(f"objective must be one of {sorted(_ALLOWED_OBJECTIVES)}")
+    if (
+        isinstance(max_combinations, bool)
+        or not isinstance(max_combinations, int)
+        or max_combinations <= 0
+    ):
+        raise ValueError("max_combinations must be a positive integer")
+    if (
+        isinstance(holdout_fraction, bool)
+        or not isinstance(holdout_fraction, (int, float))
+        or not math.isfinite(holdout_fraction)
+        or not 0.0 < holdout_fraction < 1.0
+    ):
+        raise ValueError("holdout_fraction must be finite and within (0, 1)")
+    resolved_execution_cost = (
+        ExecutionCostConfig() if execution_cost is None else execution_cost
+    )
+    if not isinstance(resolved_execution_cost, ExecutionCostConfig):
+        raise ValueError("execution_cost must be an ExecutionCostConfig")
+
+    usable_stop_index = dataset.n_bars - 1
+    minimum_window_span = resolved_execution_cost.order_latency_bars + 2
+    tuning_stop_index = math.floor(usable_stop_index * (1.0 - float(holdout_fraction)))
+    if (
+        tuning_stop_index < minimum_window_span
+        or usable_stop_index - tuning_stop_index < minimum_window_span
+    ):
+        raise ValueError(
+            "dataset is too short for separate tuning and holdout windows "
+            "with terminal settlement"
+        )
+
     baseline_cfg = BotConfig(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
+        execution_cost=resolved_execution_cost,
     )
-    _, baseline_rep = run_trading_bot(dataset, baseline_cfg)
+    _, baseline_tuning_report = run_trading_bot(
+        dataset,
+        baseline_cfg,
+        start_index=0,
+        stop_index=tuning_stop_index,
+    )
 
     strat_name = strategy_name.lower()
 
@@ -382,9 +462,6 @@ def tune_for_maximum_profit(
         ts_candidates = [0.0]
         vol_regime_candidates = [0.010]
 
-    best_cfg = baseline_cfg
-    best_rep = baseline_rep
-
     def score_report(rep: BotReport) -> float:
         if objective == "profit":
             return rep.net_pnl
@@ -394,59 +471,143 @@ def tune_for_maximum_profit(
             )
         if objective == "balanced":
             dd_penalty = max(0.0, 1.0 - rep.max_drawdown_pct / 100.0)
-            pf_bonus = min(rep.profit_factor, 3.0)
+            pf_bonus = min(rep.interval_profit_factor, 3.0)
             return rep.net_pnl * dd_penalty * (1.0 + pf_bonus)
         return rep.net_pnl
 
-    best_score = score_report(baseline_rep)
-    count = 0
+    best_cfg: BotConfig | None = None
+    best_tuning_report: BotReport | None = None
+    best_score = float("-inf")
+    if baseline_tuning_report.max_drawdown_pct <= _SELECTION_DRAWDOWN_LIMIT_PCT:
+        best_cfg = baseline_cfg
+        best_tuning_report = baseline_tuning_report
+        best_score = score_report(baseline_tuning_report)
 
-    for entry in entry_candidates:
-        for mult in exit_multipliers:
-            exit_th = entry * mult
-            for hold in hold_candidates:
-                for budget in budget_candidates:
-                    for tp in tp_candidates:
-                        for ts in ts_candidates:
-                            for vol_regime in vol_regime_candidates:
-                                count += 1
-                                if count > max_combinations:
-                                    break
-                                test_cfg = BotConfig(
-                                    strategy_name=strategy_name,
-                                    initial_capital=initial_capital,
-                                    gross_budget=budget,
-                                    minimum_hold_bars=hold,
-                                    entry_threshold=entry,
-                                    exit_threshold=exit_th,
-                                    take_profit_threshold=tp,
-                                    trailing_stop_threshold=ts,
-                                    volatility_regime_threshold=vol_regime,
-                                )
-                                _, rep = run_trading_bot(dataset, test_cfg)
-                                score = score_report(rep)
-                                if score > best_score:
-                                    best_score = score
-                                    best_cfg = test_cfg
-                                    best_rep = rep
-                            if count > max_combinations:
-                                break
-                        if count > max_combinations:
-                            break
-                    if count > max_combinations:
-                        break
-                if count > max_combinations:
+    parameter_dimensions = (
+        entry_candidates,
+        exit_multipliers,
+        hold_candidates,
+        budget_candidates,
+        tp_candidates,
+        ts_candidates,
+        vol_regime_candidates,
+    )
+    parameter_space_size = math.prod(
+        len(dimension) for dimension in parameter_dimensions
+    )
+    sample_count = min(max_combinations, parameter_space_size)
+    candidate_combinations: list[tuple[float, float, int, float, float, float, float]]
+    if sample_count == parameter_space_size:
+        candidate_combinations = list(product(*parameter_dimensions))
+    else:
+        sampled_indices: list[list[int]] = []
+        dimension_sizes = (
+            len(entry_candidates),
+            len(exit_multipliers),
+            len(hold_candidates),
+            len(budget_candidates),
+            len(tp_candidates),
+            len(ts_candidates),
+            len(vol_regime_candidates),
+        )
+        for dimension_index, level_count in enumerate(dimension_sizes):
+            if sample_count >= level_count:
+                indices = [
+                    sample_index * level_count // sample_count
+                    for sample_index in range(sample_count)
+                ]
+            elif sample_count == 1:
+                indices = [(level_count - 1) // 2]
+            else:
+                indices = [
+                    math.floor(
+                        sample_index * (level_count - 1) / (sample_count - 1) + 0.5
+                    )
+                    for sample_index in range(sample_count)
+                ]
+            rotation = (
+                dimension_index * max(1, sample_count // len(parameter_dimensions))
+            ) % sample_count
+            sampled_indices.append(indices[rotation:] + indices[:rotation])
+
+        candidate_combinations = []
+        seen_combinations: set[tuple[float, float, int, float, float, float, float]] = (
+            set()
+        )
+        for sample_index in range(sample_count):
+            combination = (
+                entry_candidates[sampled_indices[0][sample_index]],
+                exit_multipliers[sampled_indices[1][sample_index]],
+                hold_candidates[sampled_indices[2][sample_index]],
+                budget_candidates[sampled_indices[3][sample_index]],
+                tp_candidates[sampled_indices[4][sample_index]],
+                ts_candidates[sampled_indices[5][sample_index]],
+                vol_regime_candidates[sampled_indices[6][sample_index]],
+            )
+            if combination not in seen_combinations:
+                candidate_combinations.append(combination)
+                seen_combinations.add(combination)
+        if len(candidate_combinations) < sample_count:
+            for combination in product(*parameter_dimensions):
+                if combination in seen_combinations:
+                    continue
+                candidate_combinations.append(combination)
+                seen_combinations.add(combination)
+                if len(candidate_combinations) == sample_count:
                     break
-            if count > max_combinations:
-                break
-        if count > max_combinations:
-            break
 
-    profit_diff = best_rep.net_pnl - baseline_rep.net_pnl
+    count = 0
+    for entry, mult, hold, budget, tp, ts, vol_regime in candidate_combinations:
+        count += 1
+        test_cfg = BotConfig(
+            strategy_name=strategy_name,
+            initial_capital=initial_capital,
+            gross_budget=budget,
+            minimum_hold_bars=hold,
+            entry_threshold=entry,
+            exit_threshold=entry * mult,
+            take_profit_threshold=tp,
+            trailing_stop_threshold=ts,
+            volatility_regime_threshold=vol_regime,
+            execution_cost=resolved_execution_cost,
+        )
+        _, tuning_report = run_trading_bot(
+            dataset,
+            test_cfg,
+            start_index=0,
+            stop_index=tuning_stop_index,
+        )
+        if tuning_report.max_drawdown_pct > _SELECTION_DRAWDOWN_LIMIT_PCT:
+            continue
+        score = score_report(tuning_report)
+        if best_cfg is None or score > best_score:
+            best_cfg = test_cfg
+            best_tuning_report = tuning_report
+            best_score = score
+
+    if best_cfg is None or best_tuning_report is None:
+        raise ValueError(
+            "no configuration met the 20% tuning-window drawdown eligibility limit"
+        )
+
+    _, baseline_rep = run_trading_bot(
+        dataset,
+        baseline_cfg,
+        start_index=tuning_stop_index,
+        stop_index=usable_stop_index,
+    )
+    _, optimized_rep = run_trading_bot(
+        dataset,
+        best_cfg,
+        start_index=tuning_stop_index,
+        stop_index=usable_stop_index,
+    )
+
+    profit_diff = optimized_rep.net_pnl - baseline_rep.net_pnl
     if abs(baseline_rep.net_pnl) > 1e-4:
         improvement_pct = (profit_diff / abs(baseline_rep.net_pnl)) * 100.0
     else:
-        improvement_pct = 100.0 if profit_diff > 0 else 0.0
+        improvement_pct = None
 
     return TuningResult(
         strategy_name=strategy_name,
@@ -454,10 +615,19 @@ def tune_for_maximum_profit(
         baseline_config=baseline_cfg,
         baseline_report=baseline_rep,
         optimized_config=best_cfg,
-        optimized_report=best_rep,
+        optimized_report=optimized_rep,
         profit_improvement_pct=improvement_pct,
         alpha_dollars=profit_diff,
         evaluated_combinations=count,
+        selection_score=best_score,
+        selection_drawdown_pct=best_tuning_report.max_drawdown_pct,
+        tuning_start_index=0,
+        tuning_stop_index=tuning_stop_index,
+        holdout_start_index=tuning_stop_index,
+        holdout_stop_index=usable_stop_index,
+        dataset_id=dataset.dataset_id,
+        dataset_identity_bound=dataset.identity_payload_json is not None,
+        execution_cost=resolved_execution_cost,
     )
 
 
@@ -466,8 +636,14 @@ def tune_all_strategies(
     initial_capital: float = 100_000.0,
     objective: str = "profit",
     max_combinations_per_strategy: int = 60,
+    holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> list[TuningResult]:
-    """Run hyperparameter profit tuning across all candidate strategies and rank results."""
+    """Compare strategy families on development data, ranked by tuning-window score.
+
+    Because the later report window is exposed for every family, it is a
+    development comparison and must not be treated as a final untouched holdout.
+    """
     candidate_strategies = [
         "adaptive",
         "ensemble",
@@ -483,17 +659,24 @@ def tune_all_strategies(
             initial_capital=initial_capital,
             objective=objective,
             max_combinations=max_combinations_per_strategy,
+            holdout_fraction=holdout_fraction,
+            execution_cost=execution_cost,
         )
         results.append(res)
 
-    results.sort(key=lambda r: r.optimized_report.net_pnl, reverse=True)
-    return results
+    results.sort(key=lambda result: result.selection_score, reverse=True)
+    return [
+        replace(result, report_scope="development_family_comparison")
+        for result in results
+    ]
 
 
 def optimize_bot_parameters(
     dataset: MarketDataset,
     strategy_name: str = "ensemble",
     initial_capital: float = 100_000.0,
+    holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> tuple[BotConfig, BotReport]:
     """Grid search optimization to maximize net return and profit factor."""
     res = tune_for_maximum_profit(
@@ -501,13 +684,15 @@ def optimize_bot_parameters(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
         objective="profit",
+        holdout_fraction=holdout_fraction,
+        execution_cost=execution_cost,
     )
     return res.optimized_config, res.optimized_report
 
 
 def print_report_table(reports: Sequence[BotReport]) -> None:
     """Print an attractive summary table of performance metrics."""
-    header = f"{'Strategy':<18} | {'Final Equity':<14} | {'Net P&L':<12} | {'Return':<9} | {'Max DD':<8} | {'WinRate':<8} | {'PF':<6} | {'Sharpe':<6}"
+    header = f"{'Strategy':<18} | {'Final Equity':<14} | {'Net P&L':<12} | {'Return':<9} | {'Max DD':<8} | {'Positive Rate':<14} | {'Interval PF':<12} | {'Sharpe':<6}"
     sep = "-" * len(header)
     print("\n" + sep)
     print(header)
@@ -520,8 +705,8 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
             f"${r.net_pnl:>10,.2f} | "
             f"{r.total_return_pct:>7.2f}% | "
             f"{r.max_drawdown_pct:>6.2f}% | "
-            f"{r.win_rate_pct:>6.1f}% | "
-            f"{r.profit_factor:>6.2f} | "
+            f"{r.positive_return_rate_pct:>12.1f}% | "
+            f"{r.interval_profit_factor:>10.2f} | "
             f"{r.sharpe_ratio:>6.2f}{star}"
         )
     print(sep + "\n")
@@ -535,11 +720,44 @@ def print_tuning_comparison(res: TuningResult) -> None:
 
     print("\n" + "=" * 68)
     print(
-        f"  PROFIT OPTIMIZATION REPORT: {res.strategy_name.upper()} (Objective: {res.objective})"
+        f"  PARAMETER TUNING REPORT: {res.strategy_name.upper()} (Objective: {res.objective})"
     )
     print(f"  Combinations evaluated: {res.evaluated_combinations}")
+    print(
+        f"  Dataset identity: {res.dataset_id} "
+        f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
+    )
+    print(f"  Execution cost config: {asdict(res.execution_cost)}")
+    report_label = (
+        "development family comparison"
+        if res.report_scope == "development_family_comparison"
+        else "holdout report"
+    )
+    print(
+        f"  Tuning window: [{res.tuning_start_index}, {res.tuning_stop_index}); "
+        f"{report_label}: [{res.holdout_start_index}, {res.holdout_stop_index})"
+    )
+    print(
+        f"  Tuning selection score: {res.selection_score:.4f}; "
+        f"selection drawdown: {res.selection_drawdown_pct:.2f}% "
+        f"(eligibility limit: {_SELECTION_DRAWDOWN_LIMIT_PCT:.0f}%)"
+    )
+    print(
+        "  Adaptive exits use bar-close gross return from average executed entry price; "
+        "fees and carry are excluded, and the exit fills only at a later eligible step."
+    )
     print("=" * 68)
-    print(f"{'Metric':<24} | {'Default Baseline':<18} | {'Tuned / Optimized':<18}")
+    baseline_label = (
+        "Baseline development"
+        if res.report_scope == "development_family_comparison"
+        else "Baseline holdout"
+    )
+    candidate_label = (
+        "Candidate development"
+        if res.report_scope == "development_family_comparison"
+        else "Candidate holdout"
+    )
+    print(f"{'Metric':<24} | {baseline_label:<18} | {candidate_label:<18}")
     print("-" * 68)
     print(
         f"{'Final Equity':<24} | ${b.final_equity:>16,.2f} | ${o.final_equity:>16,.2f}"
@@ -550,17 +768,30 @@ def print_tuning_comparison(res: TuningResult) -> None:
     )
     print(f"{'Sharpe Ratio':<24} | {b.sharpe_ratio:>18.2f} | {o.sharpe_ratio:>18.2f}")
     print(
-        f"{'Profit Factor':<24} | {b.profit_factor:>18.2f} | {o.profit_factor:>18.2f}"
+        f"{'Interval Profit Factor':<24} | {b.interval_profit_factor:>18.2f} | {o.interval_profit_factor:>18.2f}"
     )
     print(
         f"{'Max Drawdown (%)':<24} | {b.max_drawdown_pct:>17.2f}% | {o.max_drawdown_pct:>17.2f}%"
     )
-    print(f"{'Win Rate (%)':<24} | {b.win_rate_pct:>17.1f}% | {o.win_rate_pct:>17.1f}%")
-    print(f"{'Total Trades':<24} | {b.num_trades:>18d} | {o.num_trades:>18d}")
+    print(
+        f"{'Positive Return Rate (%)':<24} | "
+        f"{b.positive_return_rate_pct:>17.1f}% | "
+        f"{o.positive_return_rate_pct:>17.1f}%"
+    )
+    print(
+        f"{'Nonzero Return Intervals':<24} | "
+        f"{b.nonzero_return_intervals:>18d} | "
+        f"{o.nonzero_return_intervals:>18d}"
+    )
     print("-" * 68)
     sign = "+" if res.alpha_dollars >= 0 else ""
+    relative_improvement = (
+        f"{sign}{res.profit_improvement_pct:.2f}%"
+        if res.profit_improvement_pct is not None
+        else "N/A (baseline P&L is near zero)"
+    )
     print(
-        f"🚀 Profit Improvement:  {sign}${res.alpha_dollars:,.2f} USD ({sign}{res.profit_improvement_pct:.2f}%)"
+        f"🚀 Profit Improvement:  {sign}${res.alpha_dollars:,.2f} USD ({relative_improvement})"
     )
     print("🎯 Optimal Parameters:")
     print(f"   - Entry Threshold:      {cfg.entry_threshold}")
@@ -568,15 +799,15 @@ def print_tuning_comparison(res: TuningResult) -> None:
     print(f"   - Min Hold Bars:        {cfg.minimum_hold_bars}")
     print(f"   - Gross Budget:         {cfg.gross_budget * 100:.1f}%")
     if cfg.take_profit_threshold > 0:
-        print(f"   - Take Profit:          +{cfg.take_profit_threshold * 100:.1f}%")
+        print(f"   - Gross TP trigger:     +{cfg.take_profit_threshold * 100:.1f}%")
     if cfg.trailing_stop_threshold > 0:
-        print(f"   - Trailing Stop:        -{cfg.trailing_stop_threshold * 100:.1f}%")
+        print(f"   - Gross trailing exit:  -{cfg.trailing_stop_threshold * 100:.1f}%")
     print("=" * 68 + "\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Unified Trading Bot: Simulate, compare, and optimize for maximum profit."
+        description="Run, compare, and tune shared-cash trading strategies."
     )
     parser.add_argument(
         "--mode",
@@ -599,7 +830,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--dataset",
         type=Path,
         default=None,
-        help="Path to market dataset artifact directory (default: synthetic demo)",
+        help="Path to an existing market dataset artifact directory",
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Explicitly use the generated synthetic demo dataset",
     )
     parser.add_argument(
         "--capital",
@@ -627,17 +863,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.dataset is not None and args.dataset.is_dir():
-        print(f"Loading market dataset from {args.dataset}...")
-        dataset = load_market_dataset_artifact(args.dataset)
-    else:
-        print("Using built-in multi-symbol demo market data...")
-        dataset = generate_demo_dataset()
+    def announce(message: str) -> None:
+        print(message, file=sys.stderr if args.json else sys.stdout)
 
-    print(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
+    if args.dataset is not None and args.demo:
+        parser.error("--dataset and --demo cannot be used together")
+    if args.dataset is not None:
+        if not args.dataset.is_dir():
+            parser.error(f"--dataset must be an existing directory: {args.dataset}")
+        announce(f"Loading market dataset from {args.dataset}...")
+        dataset = load_market_dataset_artifact(args.dataset)
+    elif args.demo:
+        announce("Using explicitly requested synthetic demo market data...")
+        dataset = generate_demo_dataset()
+    else:
+        parser.error(
+            "provide --dataset or --demo; a dataset path must be an existing directory"
+        )
+
+    announce(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
 
     if args.mode == "compare":
-        print("Simulating all candidate strategies to determine maximum profit...")
+        announce(
+            "Running full-dataset in-sample diagnostic comparisons; "
+            "this is not an out-of-sample selection."
+        )
         reports = compare_all_strategies(
             dataset,
             initial_capital=args.capital,
@@ -648,12 +898,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print_report_table(reports)
             winner = reports[0]
-            print(
-                f"🏆 Top Profit Strategy: {winner.strategy_name} (+{winner.total_return_pct:.2f}% / ${winner.net_pnl:,.2f})"
+            announce(
+                f"Highest observed diagnostic P&L: {winner.strategy_name} "
+                f"({winner.total_return_pct:+.2f}% / ${winner.net_pnl:,.2f}); "
+                "not a holdout selection."
             )
     elif args.mode == "optimize":
         if args.strategy.lower() == "all":
-            print(f"Tuning all candidate strategies for maximum {args.objective}...")
+            announce(f"Tuning all candidate strategies for maximum {args.objective}...")
+            announce(
+                "This compares strategy families on development data. The later "
+                "per-family reports are development comparisons; selecting a "
+                "family after viewing them requires a new untouched final window."
+            )
             all_tuning = tune_all_strategies(
                 dataset,
                 initial_capital=args.capital,
@@ -666,12 +923,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print_tuning_comparison(res)
                 champion = all_tuning[0]
                 print(
-                    f"👑 CHAMPION OPTIMIZED STRATEGY: {champion.strategy_name.upper()} "
-                    f"with Net P&L: ${champion.optimized_report.net_pnl:,.2f} "
-                    f"(+{champion.optimized_report.total_return_pct:.2f}%)"
+                    f"👑 TOP TUNING-WINDOW STRATEGY: {champion.strategy_name.upper()} "
+                    f"(selection score {champion.selection_score:.4f}); "
+                    f"development comparison: ${champion.optimized_report.net_pnl:,.2f} "
+                    f"({champion.optimized_report.total_return_pct:+.2f}%)"
                 )
         else:
-            print(
+            announce(
                 f"Optimizing parameters for '{args.strategy}' (Objective: {args.objective})..."
             )
             tuning_res = tune_for_maximum_profit(
@@ -692,7 +950,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             gross_budget=args.gross_budget,
             minimum_hold_bars=args.min_hold,
         )
-        print(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
+        announce(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
         _, report = run_trading_bot(dataset, cfg)
         if args.json:
             print(json.dumps(asdict(report), indent=2))

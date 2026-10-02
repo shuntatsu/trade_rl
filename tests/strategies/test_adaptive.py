@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -17,6 +18,8 @@ def _make_obs(
     current_intent: PositionIntent = PositionIntent.FLAT,
     current_weight: float = 0.0,
     position_age_bars: int = 0,
+    gross_position_return: float | None = None,
+    current_position_quantity: float | None = None,
 ) -> StrategyObservation:
     feat_arr = np.array(features, dtype=np.float32)
     feat_avail = np.ones(len(features), dtype=np.bool_)
@@ -31,6 +34,8 @@ def _make_obs(
         current_intent=current_intent,
         current_weight=current_weight,
         position_age_bars=position_age_bars,
+        gross_position_return=gross_position_return,
+        current_position_quantity=current_position_quantity,
     )
 
 
@@ -55,6 +60,7 @@ def test_adaptive_take_profit() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=0.02,
     )
     decision1 = strategy.decide(obs1)
     assert decision1 is PositionIntent.LONG
@@ -66,6 +72,7 @@ def test_adaptive_take_profit() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=2,
+        gross_position_return=0.04,
     )
     decision2 = strategy.decide(obs2)
     assert decision2 is PositionIntent.FLAT
@@ -87,6 +94,7 @@ def test_adaptive_stop_loss() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=-0.025,
     )
     decision = strategy.decide(obs)
     assert decision is PositionIntent.FLAT
@@ -108,6 +116,7 @@ def test_adaptive_trailing_stop() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=1,
+        gross_position_return=0.03,
     )
     dec1 = strategy.decide(obs1)
     assert dec1 is PositionIntent.LONG
@@ -119,9 +128,92 @@ def test_adaptive_trailing_stop() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=2,
+        gross_position_return=0.01,
     )
     dec2 = strategy.decide(obs2)
     assert dec2 is PositionIntent.FLAT
+    assert strategy.protective_exit_pending
+
+    still_open = _make_obs(
+        [0.0, 0.0],
+        index=3,
+        current_intent=PositionIntent.LONG,
+        current_weight=0.2,
+        position_age_bars=3,
+        gross_position_return=0.0,
+    )
+    assert strategy.decide(still_open) is PositionIntent.FLAT
+    assert strategy.protective_exit_pending
+
+
+def test_adaptive_trailing_peak_resets_on_direct_position_reversal() -> None:
+    cfg = AdaptiveProfitConfig(
+        trend_entry_threshold=0.01,
+        trend_exit_threshold=0.002,
+        volatility_regime_threshold=0.005,
+        trailing_stop_threshold=0.015,
+    )
+    strategy = RegimeAdaptiveStrategy(cfg)
+
+    prior_long = _make_obs(
+        [0.02, 0.02],
+        index=1,
+        current_intent=PositionIntent.LONG,
+        current_weight=0.2,
+        position_age_bars=1,
+        gross_position_return=0.04,
+    )
+    assert strategy.decide(prior_long) is PositionIntent.LONG
+
+    reversed_short = _make_obs(
+        [-0.02, 0.02],
+        index=2,
+        current_intent=PositionIntent.SHORT,
+        current_weight=-0.2,
+        position_age_bars=1,
+        gross_position_return=0.0,
+    )
+    assert strategy.decide(reversed_short) is PositionIntent.SHORT
+    assert not strategy.protective_exit_pending
+
+
+def test_adaptive_latch_tracks_actual_quantity_when_weight_is_zero() -> None:
+    strategy = RegimeAdaptiveStrategy(
+        AdaptiveProfitConfig(
+            trend_entry_threshold=0.01,
+            trend_exit_threshold=0.002,
+            volatility_regime_threshold=0.005,
+            take_profit_threshold=0.02,
+        )
+    )
+
+    trigger = _make_obs(
+        [0.5, 0.5],
+        index=1,
+        current_intent=PositionIntent.LONG,
+        current_weight=0.2,
+        current_position_quantity=1.0,
+        position_age_bars=1,
+        gross_position_return=0.03,
+    )
+    assert strategy.decide(trigger) is PositionIntent.FLAT
+
+    requested_flat_but_still_long = _make_obs(
+        [0.5, 0.5],
+        index=2,
+        current_intent=PositionIntent.FLAT,
+        current_weight=0.0,
+        current_position_quantity=1.0,
+        position_age_bars=2,
+        gross_position_return=0.01,
+    )
+    assert strategy.decide(requested_flat_but_still_long) is PositionIntent.FLAT
+    assert strategy.protective_exit_pending
+
+
+def test_observation_rejects_non_finite_current_position_quantity() -> None:
+    with pytest.raises(ValueError, match="current_position_quantity must be finite"):
+        _make_obs([0.0, 0.0], current_position_quantity=float("nan"))
 
 
 def test_adaptive_max_holding_bars() -> None:
@@ -138,6 +230,7 @@ def test_adaptive_max_holding_bars() -> None:
         current_intent=PositionIntent.LONG,
         current_weight=0.2,
         position_age_bars=5,
+        gross_position_return=0.0,
     )
     decision = strategy.decide(obs)
     assert decision is PositionIntent.FLAT

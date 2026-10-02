@@ -132,6 +132,22 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
+Adaptive rule exits use the optional `StrategyObservation.gross_position_return`
+provided by canonical replay. Replay derives it from the actual average entry
+fill price and the current bar-close mark, signed by the filled position. It is
+a gross mark-to-fill return: fees after entry, funding, and borrow are excluded.
+Replay also supplies the exact `current_position_quantity` from the filled book.
+Adaptive state follows that signed quantity rather than `current_intent`, which
+records the last effective target and can already be FLAT while a missed or
+partial exit leaves the book invested.
+Take-profit, stop-loss, and trailing thresholds are checked at a decision bar
+close. A trigger sends a flat intent to the next eligible execution step and
+remains latched until the filled quantity is actually zero, including through a
+partial or missed fill and a mark recovery below the trigger. Protective exits
+bypass the voluntary minimum-hold constraint.
+Latency, gaps, liquidity, and costs can move realized results past the threshold;
+these triggers do not guarantee a profit or cap a loss.
+
 New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
 `lean_candidate_result_v10` with `shared_cash_replay_ledger_v3`. The artifact
 binds the combined return series, terminal cash / quantities, active-order and
@@ -371,6 +387,18 @@ universal frozen model/policy
 ```
 
 Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益で別銘柄の損失を隠さず、各symbol × strategyについてreturns、drawdown、turnover、execution cost、funding、borrow、trade/fill/rebalance diagnostics、terminationを保持する。
+
+### Trading-bot tuning and holdout reporting
+
+`evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。
+
+上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
+
+CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちらかを要求する。省略時や明示されたpathが存在しない・directoryでない場合は入力errorとして終了し、optimize/compareをsynthetic demo dataへ暗黙にフォールバックしない。
+
+単一strategyのtuning resultは、parameter selection後の後続window reportを返す。一方、`tune_all_strategies` は五つのfamilyそれぞれの後続window reportを表示するため、familyを選ぶ目的で比較した時点でそのwindowはdevelopment evidenceになる。出力の `report_scope=development_family_comparison` はこの意味を示す。family選択後にfinal out-of-sample claimを行うには、さらに後の未閲覧windowで再評価する。
+
+Candidateの選定適格性はtuning-window shared ledger maximum drawdownが20%以下であることを要求する。20%はselection vetoであり、pre-trade stopやholdoutのrealized drawdownを20%以内に保証しない。価格gap、約定損、terminal settlementで観測drawdownが20%を超える場合があるため、holdout drawdownはそのまま報告する。
 
 ## Artifact and evidence rules
 

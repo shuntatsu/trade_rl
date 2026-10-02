@@ -279,6 +279,8 @@ floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
+`StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
+
 ### `evaluation`
 
 lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。

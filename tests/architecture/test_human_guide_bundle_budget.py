@@ -55,3 +55,9 @@ def test_guide_build_uses_compact_runtime_index_and_enforces_budget() -> None:
         encoding="utf-8"
     )
     assert 'from "../../.generated/code-symbols-runtime.json"' in browser_index
+
+    app_source = (ROOT / "guide" / "src" / "app" / "App.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert 'import("../components/MarkdownArticle")' in app_source
+    assert 'from "../components/MarkdownArticle"' not in app_source

@@ -34,12 +34,17 @@ default `gamma=0.99`, fixed `gae_lambda=0.95`, and enabled advantage
 normalization.
 
 New Run Core semantic identity uses `resolved_run_config_v6` to bind
-`ppo_gamma`, the fixed reward schema, and the fixed GAE lambda. The generic
-Controlled Experiment layer has a `PPO_DISCOUNT` factor that may change only
-`ppo_gamma`; reward shaping, reward scaling, GAE changes, training-layout
-changes, and minimum-hold changes are not part of the same factor. Historical
-v1-v5 Run payloads keep their original meaning and remain readable rather than
-being migrated to v6.
+`ppo_gamma`, the fixed reward schema, and the fixed GAE lambda. Current Candidate
+Run publication also stores the exact objective: ordinary full-coverage results
+use `lean_candidate_result_v8`, while shared-cash results use
+`lean_candidate_result_v9`; the loader recomputes the expected
+`ppo_training_objective_v1` from the persisted gamma and rejects mismatches.
+The generic Controlled Experiment layer has a `PPO_DISCOUNT` factor that may
+change only `ppo_gamma`; reward shaping, reward scaling, GAE changes,
+training-layout changes, and minimum-hold changes are not part of the same
+factor. Historical resolved v1-v5 and Candidate Result v1-v7 payloads keep their
+original meaning and remain readable rather than being migrated to the new
+objective-bound identities.
 
 This change is infrastructure for studying temporal credit assignment. No
 real-data fit, economic replay, gamma comparison, or P&L inspection has been run

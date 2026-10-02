@@ -2089,8 +2089,7 @@ def _validate_v10_accounting_transitions(
                 peak_value = max(peak_value, value)
                 maximum_drawdown = max(
                     maximum_drawdown,
-                    1.0
-                    - value / max(peak_value, float(np.finfo(np.float64).tiny)),
+                    1.0 - value / max(peak_value, float(np.finfo(np.float64).tiny)),
                 )
             if previous_state is not None and not _accounting_states_match(
                 previous_state, state_before
@@ -2204,19 +2203,30 @@ def _validate_v10_accounting_transitions(
                     raise ValueError(
                         "candidate v10 fill transition order is inconsistent"
                     )
-                _require_evidence_fields(
-                    evidence,
-                    {
-                        "cost_amount",
-                        "execution_price",
-                        "filled_notional",
-                        "filled_quantity",
-                        "filled_quantity_exact",
-                        "order_id",
-                        "symbol_index",
-                        "turnover",
-                    },
-                )
+                legacy_fill_fields = {
+                    "cost_amount",
+                    "execution_price",
+                    "filled_notional",
+                    "filled_quantity",
+                    "filled_quantity_exact",
+                    "order_id",
+                    "symbol_index",
+                    "turnover",
+                }
+                exact_fill_fields = legacy_fill_fields | {
+                    "book_applied_quantity_exact",
+                    "filled_lot_count",
+                    "filled_lot_size",
+                }
+                evidence_fields = frozenset(evidence)
+                if evidence_fields not in {
+                    frozenset(legacy_fill_fields),
+                    frozenset(exact_fill_fields),
+                }:
+                    raise ValueError(
+                        "candidate v10 accounting transition evidence is malformed"
+                    )
+                has_exact_fill_evidence = set(evidence) == exact_fill_fields
                 if (
                     isinstance(event_sequence, bool)
                     or not isinstance(event_sequence, int)
@@ -2242,6 +2252,58 @@ def _validate_v10_accounting_transitions(
                         "candidate v10 exact fill quantity is malformed"
                     ) from error
                 exact_fill_projection = _quantity_as_float(raw_exact_quantity)
+                applied_fill_quantity: Fraction | None = None
+                if has_exact_fill_evidence:
+                    raw_applied_quantity = evidence["book_applied_quantity_exact"]
+                    raw_lot_count = evidence["filled_lot_count"]
+                    lot_size = _finite_number(
+                        evidence["filled_lot_size"], "filled lot size"
+                    )
+                    if not isinstance(raw_applied_quantity, str):
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is malformed"
+                        )
+                    try:
+                        applied_fill_quantity = Fraction(raw_applied_quantity)
+                    except (TypeError, ValueError, ZeroDivisionError) as error:
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is malformed"
+                        ) from error
+                    if (
+                        str(applied_fill_quantity) != raw_applied_quantity
+                        or isinstance(raw_lot_count, bool)
+                        or (
+                            raw_lot_count is not None
+                            and (
+                                not isinstance(raw_lot_count, int) or raw_lot_count == 0
+                            )
+                        )
+                        or lot_size < 0.0
+                    ):
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is malformed"
+                        )
+                    if raw_lot_count is None:
+                        if lot_size != 0.0:
+                            raise ValueError(
+                                "candidate v10 fill lot evidence is inconsistent"
+                            )
+                        expected_exact_fill = Fraction(str(float(quantity)))
+                    else:
+                        if lot_size <= 0.0:
+                            raise ValueError(
+                                "candidate v10 fill lot evidence is inconsistent"
+                            )
+                        expected_exact_fill = Fraction(
+                            cast(int, raw_lot_count)
+                        ) * Fraction(str(lot_size))
+                    if (
+                        exact_fill_quantity != expected_exact_fill
+                        or _project_exact_quantity(exact_fill_quantity) != quantity
+                    ):
+                        raise ValueError(
+                            "candidate v10 exact fill quantity is inconsistent"
+                        )
                 if (
                     fill_event is None
                     or fill_event.event_type not in {"filled", "partial_fill"}
@@ -2276,8 +2338,36 @@ def _validate_v10_accounting_transitions(
                         "candidate v10 accounting fill event link is inconsistent"
                     )
                 fill_sequences.add(event_sequence)
+                old_quantity = quantities_before[symbol_index]
+                if has_exact_fill_evidence:
+                    if applied_fill_quantity is None:
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is malformed"
+                        )
+                    projected_close = _project_exact_quantity(old_quantity)
+                    expected_applied_quantity = (
+                        -old_quantity
+                        if raw_lot_count is None
+                        and old_quantity != 0
+                        and quantity == -projected_close
+                        else exact_fill_quantity
+                    )
+                    if applied_fill_quantity != expected_applied_quantity:
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is inconsistent"
+                        )
+                    fill_delta = applied_fill_quantity
+                else:
+                    # Older v10 artifacts did not persist lot allocation or the
+                    # book-applied delta, so retain their original strict contract.
+                    actual_delta = quantities_after[symbol_index] - old_quantity
+                    if actual_delta != exact_fill_quantity:
+                        raise ValueError(
+                            "candidate v10 applied fill quantity is inconsistent"
+                        )
+                    fill_delta = exact_fill_quantity
                 expected_quantities = tuple(
-                    old + exact_fill_quantity if index == symbol_index else old
+                    old + fill_delta if index == symbol_index else old
                     for index, old in enumerate(quantities_before)
                 )
                 expected_cash -= float(cast(int | float, quantity)) * float(
@@ -2569,9 +2659,7 @@ def _validate_v10_accounting_transitions(
             _accounting_nav(previous_state), interval["portfolio_value_after"]
         ):
             raise ValueError("candidate v10 portfolio value accounting is inconsistent")
-        if not _numbers_are_close(
-            interval.get("max_drawdown_after"), maximum_drawdown
-        ):
+        if not _numbers_are_close(interval.get("max_drawdown_after"), maximum_drawdown):
             raise ValueError("candidate v10 accounting drawdown link is inconsistent")
         previous_interval_end_state = previous_state
 
@@ -2797,6 +2885,22 @@ def _quantity_as_float(value: object) -> float | None:
     except (OverflowError, ValueError, ZeroDivisionError):
         return None
     return quantity if math.isfinite(quantity) else None
+
+
+def _project_exact_quantity(value: Fraction) -> float:
+    """Match the conservative float projection used by exact book quantities."""
+
+    try:
+        projected = float(value)
+    except OverflowError as error:
+        raise ValueError(
+            "candidate v10 exact quantity is outside float range"
+        ) from error
+    if not math.isfinite(projected):
+        raise ValueError("candidate v10 exact quantity is outside float range")
+    while abs(Fraction(str(projected))) > abs(value):
+        projected = math.nextafter(projected, 0.0)
+    return projected
 
 
 def _validate_shared_cash_terminal_links(

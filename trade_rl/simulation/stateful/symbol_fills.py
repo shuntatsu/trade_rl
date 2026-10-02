@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -395,6 +396,14 @@ class StatefulSymbolFillProcessor:
                     path=order_path,
                 )
                 if fill_before is not None:
+                    accepted_quantity = accepted_fill_quantity(
+                        allocation.filled_quantity,
+                        lot_size=allocation.lot_size,
+                        lot_count=allocation.filled_lot_count,
+                    )
+                    applied_quantity = runtime.book.exact_quantities[symbol] - Fraction(
+                        fill_before.exact_quantities[symbol]
+                    )
                     runtime.record_accounting_transition(
                         transition_type="fill",
                         processing_index=processing_index,
@@ -404,13 +413,10 @@ class StatefulSymbolFillProcessor:
                             "execution_price": float(execution_price),
                             "filled_notional": float(allocation.filled_notional),
                             "filled_quantity": float(allocation.filled_quantity),
-                            "filled_quantity_exact": str(
-                                accepted_fill_quantity(
-                                    allocation.filled_quantity,
-                                    lot_size=allocation.lot_size,
-                                    lot_count=allocation.filled_lot_count,
-                                )
-                            ),
+                            "filled_quantity_exact": str(accepted_quantity),
+                            "filled_lot_size": float(allocation.lot_size),
+                            "filled_lot_count": allocation.filled_lot_count,
+                            "book_applied_quantity_exact": str(applied_quantity),
                             "order_id": order.order_id,
                             "symbol_index": symbol,
                             "turnover": float(

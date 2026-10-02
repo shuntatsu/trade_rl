@@ -1030,6 +1030,27 @@ def test_v10_shared_cash_artifact_rejects_forged_execution_state(tmp_path) -> No
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
     )
+    assert replay.ledger_evidence is not None
+    from fractions import Fraction
+
+    exact_close_fill_observed = False
+    for interval in replay.ledger_evidence.intervals:
+        for transition in interval.accounting_transitions:
+            if transition.transition_type != "fill":
+                continue
+            symbol_index = int(transition.evidence["symbol_index"])
+            before_quantity = Fraction(
+                transition.state_before.exact_quantities[symbol_index]
+            )
+            after_quantity = Fraction(
+                transition.state_after.exact_quantities[symbol_index]
+            )
+            accepted_quantity = Fraction(
+                str(transition.evidence["filled_quantity_exact"])
+            )
+            if after_quantity == 0 and before_quantity + accepted_quantity != 0:
+                exact_close_fill_observed = True
+    assert exact_close_fill_observed
     diagnostics = replay.diagnostics
     shared_cash_ppo = SharedCashStrategyComparisonEntry(
         name="ppo",
@@ -1065,6 +1086,21 @@ def test_v10_shared_cash_artifact_rejects_forged_execution_state(tmp_path) -> No
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
     ledger_payload = loaded.summary["shared_cash_ppo"]["ledger_evidence"]["payload"]
     intervals = ledger_payload["intervals"]
+    exact_close_transition = next(
+        transition
+        for interval in intervals
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+        and Fraction(transition["state_after"]["exact_quantities"][0]) == 0
+        and Fraction(transition["state_before"]["exact_quantities"][0])
+        + Fraction(transition["evidence"]["filled_quantity_exact"])
+        != 0
+    )
+    exact_close_evidence = exact_close_transition["evidence"]
+    assert exact_close_evidence["filled_lot_count"] is None
+    assert Fraction(exact_close_evidence["book_applied_quantity_exact"]) == -Fraction(
+        exact_close_transition["state_before"]["exact_quantities"][0]
+    )
     order_events = [
         event for interval in intervals for event in interval["order_events"]
     ]
@@ -1077,9 +1113,79 @@ def test_v10_shared_cash_artifact_rejects_forged_execution_state(tmp_path) -> No
     )
     assert capacity_events
 
-    from fractions import Fraction
+    original_summary = published.summary_path.read_text(encoding="utf-8")
 
-    forged_summary = json.loads(published.summary_path.read_text(encoding="utf-8"))
+    legacy_summary = json.loads(original_summary)
+    legacy_ledger = legacy_summary["shared_cash_ppo"]["ledger_evidence"]
+    legacy_payload = legacy_ledger["payload"]
+    legacy_fill_count = 0
+    for interval in legacy_payload["intervals"]:
+        for transition in interval["accounting_transitions"]:
+            if transition["transition_type"] != "fill":
+                continue
+            evidence = transition["evidence"]
+            symbol_index = evidence["symbol_index"]
+            actual_delta = Fraction(
+                transition["state_after"]["exact_quantities"][symbol_index]
+            ) - Fraction(transition["state_before"]["exact_quantities"][symbol_index])
+            if actual_delta == Fraction(evidence["filled_quantity_exact"]):
+                evidence.pop("book_applied_quantity_exact")
+                evidence.pop("filled_lot_count")
+                evidence.pop("filled_lot_size")
+                legacy_fill_count += 1
+    assert legacy_fill_count > 0
+    legacy_ledger["digest"] = content_digest(legacy_payload)
+    published.summary_path.write_text(json.dumps(legacy_summary), encoding="utf-8")
+    candidate_artifact.load_candidate_run_artifact(published.root)
+
+    stripped_close_summary = json.loads(original_summary)
+    stripped_close_ledger = stripped_close_summary["shared_cash_ppo"]["ledger_evidence"]
+    stripped_close_payload = stripped_close_ledger["payload"]
+    stripped_close_transition = next(
+        transition
+        for interval in stripped_close_payload["intervals"]
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+        and transition["state_after"]["exact_quantities"][0] == "0"
+        and Fraction(transition["state_before"]["exact_quantities"][0])
+        + Fraction(transition["evidence"]["filled_quantity_exact"])
+        != 0
+    )
+    for field in (
+        "book_applied_quantity_exact",
+        "filled_lot_count",
+        "filled_lot_size",
+    ):
+        stripped_close_transition["evidence"].pop(field)
+    stripped_close_ledger["digest"] = content_digest(stripped_close_payload)
+    published.summary_path.write_text(
+        json.dumps(stripped_close_summary), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="applied fill quantity is inconsistent"):
+        candidate_artifact.load_candidate_run_artifact(published.root)
+
+    forged_summary = json.loads(original_summary)
+    forged_ledger = forged_summary["shared_cash_ppo"]["ledger_evidence"]
+    forged_payload = forged_ledger["payload"]
+    forged_transition = next(
+        transition
+        for interval in forged_payload["intervals"]
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+        and transition["state_after"]["exact_quantities"][0] == "0"
+        and Fraction(transition["state_before"]["exact_quantities"][0])
+        + Fraction(transition["evidence"]["filled_quantity_exact"])
+        != 0
+    )
+    forged_transition["evidence"]["book_applied_quantity_exact"] = forged_transition[
+        "evidence"
+    ]["filled_quantity_exact"]
+    forged_ledger["digest"] = content_digest(forged_payload)
+    published.summary_path.write_text(json.dumps(forged_summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="applied fill quantity is inconsistent"):
+        candidate_artifact.load_candidate_run_artifact(published.root)
+
+    forged_summary = json.loads(original_summary)
     forged_ledger = forged_summary["shared_cash_ppo"]["ledger_evidence"]
     forged_payload = forged_ledger["payload"]
     forged_intervals = forged_payload["intervals"]
@@ -1224,9 +1330,7 @@ def test_v10_shared_cash_ledger_records_ordered_accounting_transitions(
         symbols=dataset.symbols,
         summary={
             "evaluation": {"initial_capital": 1_000.0},
-            "shared_cash_ppo": {
-                "metrics": {"max_drawdown": replay.book.max_drawdown}
-            },
+            "shared_cash_ppo": {"metrics": {"max_drawdown": replay.book.max_drawdown}},
         },
     )
     if scenario == "split":
@@ -1504,8 +1608,6 @@ def test_v10_accounting_accepts_exact_lot_fill_with_lossy_float_projection() -> 
         symbols=dataset.symbols,
         summary={
             "evaluation": {"initial_capital": 1_000.0},
-            "shared_cash_ppo": {
-                "metrics": {"max_drawdown": replay.book.max_drawdown}
-            },
+            "shared_cash_ppo": {"metrics": {"max_drawdown": replay.book.max_drawdown}},
         },
     )

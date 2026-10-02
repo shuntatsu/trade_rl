@@ -114,12 +114,18 @@ def test_v3_accounting_evidence_is_opt_in_and_keeps_legacy_mapping_shape() -> No
     }
 
 
-def test_v3_fill_accounting_binds_exact_accepted_quantity() -> None:
+def test_v3_fill_accounting_binds_exact_accepted_and_applied_quantities() -> None:
     fill_source = getsource(symbol_fills)
     validator_source = getsource(
         candidate_artifact._validate_v10_accounting_transitions
     )
 
     assert '"filled_quantity_exact": str(' in fill_source
+    assert '"filled_lot_size": float(allocation.lot_size)' in fill_source
+    assert '"filled_lot_count": allocation.filled_lot_count' in fill_source
+    assert '"book_applied_quantity_exact": str(applied_quantity)' in fill_source
     assert '"filled_quantity_exact"' in validator_source
     assert "exact_fill_quantity" in validator_source
+    assert '"book_applied_quantity_exact"' in validator_source
+    assert "expected_applied_quantity" in validator_source
+    assert "_project_exact_quantity" in validator_source

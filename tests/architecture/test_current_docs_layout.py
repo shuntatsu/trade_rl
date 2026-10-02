@@ -438,11 +438,12 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         ROOT / "guide" / "content" / "pages" / "research-status.md"
     ).read_text(encoding="utf-8")
     assert "100,000 USDT" in guide_status
-    assert "銘柄ごとの損益平均ではなく" in guide_status
+    assert "個別銘柄リターンの平均ではなく" in guide_status
     assert "各時間帯の約定・保有・リスク判断を完全な記録として保存" in guide_status
     assert "学習と評価の売買判断を同じ市場データで照合するテスト" in guide_status
     assert "複数銘柄を扱う時の資金・費用計算を手計算で照合するテスト" in guide_status
     assert "新しい独立レビューと関連テストが完了するまで" in guide_status
+    assert "台帳に実際に適用した数量差分" in guide_status
 
 
 def test_v10_shared_cash_accounting_contract_is_documented() -> None:
@@ -471,18 +472,16 @@ def test_v10_shared_cash_accounting_contract_is_documented() -> None:
 
 
 def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> None:
-    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(
-        encoding="utf-8"
-    )
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
     current_status = (DOCS / "research" / "current-status.md").read_text(
         encoding="utf-8"
     )
-    research_assurance = (
-        DOCS / "architecture" / "research-assurance.md"
-    ).read_text(encoding="utf-8")
-    guide_status = (ROOT / "guide" / "content" / "pages" / "research-status.md").read_text(
+    research_assurance = (DOCS / "architecture" / "research-assurance.md").read_text(
         encoding="utf-8"
     )
+    guide_status = (
+        ROOT / "guide" / "content" / "pages" / "research-status.md"
+    ).read_text(encoding="utf-8")
     lean_core = " ".join(lean_core.split())
     current_status = " ".join(current_status.split())
     research_assurance = " ".join(research_assurance.split())
@@ -491,7 +490,7 @@ def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> Non
     assert "not derived from the interval-end return series alone" in lean_core
     assert "interval-end return series alone cannot capture" in current_status
     assert "including bar-open gaps and intra-bar revaluation" in research_assurance
-    assert "バー開始時の価格gapとバー内の評価替えを含めます" in guide_status
+    assert "バー開始時の価格gapとバー内の評価替えを含めるため" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:

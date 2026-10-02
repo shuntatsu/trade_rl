@@ -88,9 +88,7 @@ def evaluate_performance(
     max_drawdown = (
         _max_drawdown(values)
         if observed_max_drawdown is None
-        else _require_non_negative(
-            observed_max_drawdown, field="observed_max_drawdown"
-        )
+        else _require_non_negative(observed_max_drawdown, field="observed_max_drawdown")
     )
     if max_drawdown > 1.0:
         raise ValueError("observed_max_drawdown must not exceed 1")

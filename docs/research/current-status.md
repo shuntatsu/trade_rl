@@ -56,10 +56,12 @@ complete per-interval shared-cash ledger; its loader checks ledger digest and
 coverage, while comparison schema v4 recomputes each seed's combined return /
 drawdown and selects on shared-cash results rather than averaging symbol
 accounts. Mocked bootstrap and full Study-lifecycle tests exercise this path.
-Candidate Run v10 with ledger v3 now preserves exact accepted lot quantities in
-fill-transition evidence as well as its float order-event projection; a
-regression covers values that cannot be recovered from that float. Termination
-flatten evidence is also required for non-flat margin-call closure. Shared-cash
+Candidate Run v10 with ledger v3 preserves the exact accepted fill quantity,
+lot allocation, and exact quantity delta applied by the book alongside the
+float order-event projection. The loader validates no-lot full closes, where
+the applied delta consumes the exact position even if the projected fill leaves
+a tiny rational residual, and remains compatible with earlier v10 evidence.
+Termination flatten evidence is also required for non-flat margin-call closure. Shared-cash
 `metrics.max_drawdown` is recomputed from ordered transition states, so it
 includes bar-open price gaps and intra-bar revaluation that an interval-end
 return series alone cannot capture. Total return remains bound to the saved

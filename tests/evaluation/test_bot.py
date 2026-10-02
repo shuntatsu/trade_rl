@@ -160,6 +160,18 @@ def test_bot_report_sharpe_uses_return_series_periods_per_year() -> None:
 
 def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
     dataset = generate_demo_dataset(n_bars=60, n_symbols=1, seed=29)
+    prices = (100.0 * np.exp(0.01 * np.arange(dataset.n_bars)))[:, np.newaxis]
+    features = dataset.features.copy()
+    features[:, :, 0] = 0.1
+    dataset = replace(
+        dataset,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        features=features,
+        identity_payload_json=None,
+    )
     tuning = tune_for_maximum_profit(
         dataset,
         strategy_name="trend",
@@ -180,6 +192,7 @@ def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
     assert tuning.optimized_config == shocked_tuning.optimized_config
     assert tuning.selection_score == shocked_tuning.selection_score
     assert tuning.selection_drawdown_pct == shocked_tuning.selection_drawdown_pct
+    assert tuning.optimized_config.strategy_name == "trend"
     assert tuning.optimized_report != shocked_tuning.optimized_report
 
     _, direct_holdout_report = run_trading_bot(

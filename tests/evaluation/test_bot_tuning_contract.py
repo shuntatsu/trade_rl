@@ -3,6 +3,7 @@ import subprocess
 import sys
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 from trade_rl.evaluation import bot
@@ -203,3 +204,152 @@ def test_walk_forward_module_entry_point():
         window["optimized_report"]["terminal_settled"]
         for window in result["window_results"]
     )
+
+
+@pytest.mark.parametrize("objective", ["profit", "sharpe", "balanced"])
+@pytest.mark.parametrize("walk_forward", [False, True])
+def test_loss_only_tuning_selects_cash_on_the_same_market(objective, walk_forward):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+    prices = np.full_like(dataset.close, 100.0)
+    features = dataset.features.copy()
+    features[:, :, 0] = 0.1
+    dataset = replace(
+        dataset,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        features=features,
+        identity_payload_json=None,
+    )
+    if walk_forward:
+        results = bot.walk_forward_tune(
+            dataset,
+            strategy_name="trend",
+            objective=objective,
+            max_combinations=8,
+        ).window_results
+    else:
+        results = (
+            bot.tune_for_maximum_profit(
+                dataset,
+                strategy_name="trend",
+                objective=objective,
+                max_combinations=8,
+            ),
+        )
+
+    for result in results:
+        assert result.strategy_name == "trend"
+        assert result.baseline_report.net_pnl < 0.0
+        assert result.optimized_config.strategy_name == "cash"
+        assert result.optimized_report.strategy_name == "cash"
+        assert result.optimized_report.net_pnl == 0.0
+        assert result.optimized_report.terminal_settled
+        assert result.selection_score == 0.0
+        assert result.evaluated_combinations == 8
+        _, direct_cash = bot.run_trading_bot(
+            dataset,
+            result.optimized_config,
+            start_index=result.holdout_start_index,
+            stop_index=result.holdout_stop_index,
+        )
+        assert result.optimized_report == direct_cash
+
+
+def test_positive_tuning_candidate_is_not_replaced_after_a_losing_holdout(monkeypatch):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(dataset, config, **kwargs):
+        if config.strategy_name == "cash":
+            pnl = 0.0
+        elif kwargs["start_index"] == 0:
+            pnl = 10.0 if config.gross_budget == 0.2 else 100.0
+        else:
+            pnl = -1000.0
+        return None, _report(config, pnl)
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=8
+    )
+    assert result.optimized_config.strategy_name == "trend"
+    assert result.selection_score == 100.0
+    assert result.optimized_report.net_pnl == -1000.0
+
+
+def test_cash_is_selected_when_every_trading_configuration_is_ineligible(monkeypatch):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+    observed = []
+
+    def fake_run(dataset, config, **kwargs):
+        observed.append((config, kwargs["start_index"], kwargs["stop_index"]))
+        is_cash = config.strategy_name == "cash"
+        report = _report(config, 0.0 if is_cash else 1000.0)
+        return None, replace(report, terminal_settled=is_cash)
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", initial_capital=12345.0, max_combinations=8
+    )
+    assert result.optimized_config.strategy_name == "cash"
+    assert not result.baseline_report.terminal_settled
+    cash_tuning = [
+        config
+        for config, start, stop in observed
+        if config.strategy_name == "cash"
+        and start == result.tuning_start_index
+        and stop == result.tuning_stop_index
+    ]
+    assert len(cash_tuning) == 1
+    assert cash_tuning[0].initial_capital == 12345.0
+    assert cash_tuning[0].execution_cost == result.execution_cost
+
+
+@pytest.mark.parametrize("cash_pnl", [50.0, -50.0])
+def test_cash_control_keeps_actual_economic_return(monkeypatch, cash_pnl):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(dataset, config, **kwargs):
+        return None, _report(
+            config, cash_pnl if config.strategy_name == "cash" else 10.0
+        )
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=1
+    )
+    if cash_pnl > 0.0:
+        assert result.optimized_config.strategy_name == "cash"
+        assert result.selection_score == cash_pnl
+        assert result.optimized_report.net_pnl == cash_pnl
+    else:
+        assert result.optimized_config.strategy_name == "trend"
+        assert result.selection_score == 10.0
+
+
+def test_cash_control_does_not_fabricate_success_when_its_replay_is_invalid(
+    monkeypatch,
+):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(dataset, config, **kwargs):
+        return None, replace(_report(config, 0.0), terminal_settled=False)
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    with pytest.raises(ValueError, match="no configuration"):
+        bot.tune_for_maximum_profit(dataset, strategy_name="trend", max_combinations=1)
+
+
+def test_tuning_text_names_the_selected_cash_control(monkeypatch, capsys):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(dataset, config, **kwargs):
+        return None, _report(config, 0.0 if config.strategy_name == "cash" else -10.0)
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=1
+    )
+    bot.print_tuning_comparison(result)
+    assert "Selected strategy: cash" in capsys.readouterr().out

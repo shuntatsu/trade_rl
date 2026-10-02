@@ -112,6 +112,13 @@ class BotReport:
     terminal_position_quantities: tuple[float, ...] = ()
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     termination_reason: str | None = None
+    # Amounts use account currency; turnover is summed fill notional / interval equity.
+    total_execution_cost: float | None = None
+    funding_pnl: float | None = None
+    borrow_cost: float | None = None
+    turnover_total: float | None = None
+    fill_count: int | None = None
+    rebalance_events: int | None = None
 
 
 def generate_demo_dataset(
@@ -360,6 +367,12 @@ def calculate_bot_report(
             if isinstance(termination_reason, EconomicTerminationReason)
             else termination_reason
         ),
+        total_execution_cost=float(replay_result.book.total_cost),
+        funding_pnl=float(replay_result.book.funding_pnl),
+        borrow_cost=float(replay_result.book.borrow_cost),
+        turnover_total=float(replay_result.book.turnover_total),
+        fill_count=replay_result.book.fill_count,
+        rebalance_events=replay_result.book.rebalance_events,
     )
 
 
@@ -599,6 +612,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"  PARAMETER TUNING REPORT: {res.strategy_name.upper()} (Objective: {res.objective})"
     )
     print(f"  Combinations evaluated: {res.evaluated_combinations}")
+    print(f"  Selected strategy: {cfg.strategy_name}")
     print(
         f"  Dataset identity: {res.dataset_id} "
         f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
@@ -844,7 +858,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 champion = all_tuning[0]
                 print(
                     f"👑 TOP TUNING-WINDOW STRATEGY: {champion.strategy_name.upper()} "
-                    f"(selection score {champion.selection_score:.4f}); "
+                    f"(selected {champion.optimized_config.strategy_name}, "
+                    f"selection score {champion.selection_score:.4f}); "
                     f"development comparison: ${champion.optimized_report.net_pnl:,.2f} "
                     f"({champion.optimized_report.total_return_pct:+.2f}%)"
                 )
@@ -1086,6 +1101,8 @@ def _tune_with_fixed_windows(
         vol_regime_candidates = [0.010]
 
     def score_report(rep: BotReport) -> float:
+        if rep.strategy_name == "cash" and rep.net_pnl == 0.0:
+            return 0.0
         if objective == "profit":
             return rep.net_pnl
         if objective == "sharpe":
@@ -1103,13 +1120,31 @@ def _tune_with_fixed_windows(
     best_cfg: BotConfig | None = None
     best_tuning_report: BotReport | None = None
     best_score = float("-inf")
+    # Cash is an economic control outside the parameter budget. Replay it so
+    # interest/carry and failure remain real outcomes rather than a zero floor.
+    cash_cfg = replace(baseline_cfg, strategy_name="cash")
+    _, cash_tuning_report = run_trading_bot(
+        dataset,
+        cash_cfg,
+        start_index=tune_start_index,
+        stop_index=tune_stop_index,
+    )
+    if (
+        cash_tuning_report.terminal_settled
+        and cash_tuning_report.max_drawdown_pct <= _SELECTION_DRAWDOWN_LIMIT_PCT
+    ):
+        best_cfg = cash_cfg
+        best_tuning_report = cash_tuning_report
+        best_score = score_report(cash_tuning_report)
     if (
         baseline_tuning_report.terminal_settled
         and baseline_tuning_report.max_drawdown_pct <= _SELECTION_DRAWDOWN_LIMIT_PCT
     ):
-        best_cfg = baseline_cfg
-        best_tuning_report = baseline_tuning_report
-        best_score = score_report(baseline_tuning_report)
+        baseline_score = score_report(baseline_tuning_report)
+        if best_cfg is None or baseline_score > best_score:
+            best_cfg = baseline_cfg
+            best_tuning_report = baseline_tuning_report
+            best_score = baseline_score
 
     parameter_dimensions = (
         entry_candidates,
@@ -1285,14 +1320,15 @@ def print_walk_forward_summary(result: WalkForwardResult) -> None:
     )
     print("=" * 68)
     print(
-        f"  {'Window':<8} | {'Return':>10} | {'Sharpe':>8} | {'Max DD':>8} | {'Terminal settled'}"
+        f"  {'Window':<8} | {'Selected':<18} | {'Return':>10} | {'Sharpe':>8} | {'Max DD':>8} | {'Terminal settled'}"
     )
     print("  " + "-" * 56)
     for i, wr in enumerate(result.window_results):
         rep = wr.optimized_report
         settled = "yes" if rep.terminal_settled else "NO"
         print(
-            f"  {i + 1:<8} | {rep.total_return_pct:>+9.2f}% | {rep.sharpe_ratio:>8.2f} | "
+            f"  {i + 1:<8} | {wr.optimized_config.strategy_name:<18} | "
+            f"{rep.total_return_pct:>+9.2f}% | {rep.sharpe_ratio:>8.2f} | "
             f"{rep.max_drawdown_pct:>7.2f}% | {settled}"
         )
     print("  " + "-" * 56)

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-02 (JST)
+更新基準: 2026-10-03 (JST)
 
 ## 結論
 
@@ -16,6 +16,12 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
 ## Trading-bot validation repair (2026-10-03)
+
+継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
+
+adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
+
+cash追加の開発診断契約は同じBTC/ETH 2024Q1、adaptive/ balanced/8 grid候補/3fold/capital100,000/costを固定し、cash追加後も正のprefixで選定した既存configと後続結果が変わらないことを確認する。実book・raw return・ledgerを保持し、base-prefixで選んだconfigを再選定せずexecution multiplier2とlatency+1のstressへ適用する。software修復のPASSはprefix選択とcash/ledger契約の一致であり、経済screenは各base/stressでafter-cost returnが正、observed drawdown20%以下、終端flat/order remainderなしを要求する。一つでも満たさなければprofitabilityは未確立とし、winner/final/liveへ昇格しない。protocol・review・実行receiptは新しいignored `data/bot-cash-control-2024q1/`へ保存する。
 
 Botの`balanced` scoreは損失の符号を反転していた。channel戦略はchannelでない列を固定位置で読み、synthetic channelは現在足のextremaを含んでいた。これらを独立計算とmocked reportのRED testで再現し、符号付きscore、名前で解決する既存prior-candle channel、終端決済完了を要求する選択条件へ修復する。replay/accounting ownerやPPO研究の機構は変更しない。
 

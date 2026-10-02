@@ -31,20 +31,41 @@ class AdaptiveProfitConfig:
     max_holding_bars: int = 0
 
     def __post_init__(self) -> None:
-        if self.signal_index < 0 or self.volatility_index < 0:
-            raise ValueError("indices must be non-negative")
+        for field_name, integer_value in (
+            ("signal_index", self.signal_index),
+            ("volatility_index", self.volatility_index),
+            ("max_holding_bars", self.max_holding_bars),
+        ):
+            if (
+                isinstance(integer_value, bool)
+                or not isinstance(integer_value, int)
+                or integer_value < 0
+            ):
+                raise ValueError(f"{field_name} must be a non-negative integer")
+        for field_name, threshold in (
+            ("trend_entry_threshold", self.trend_entry_threshold),
+            ("trend_exit_threshold", self.trend_exit_threshold),
+            ("reversion_entry_threshold", self.reversion_entry_threshold),
+            ("reversion_exit_threshold", self.reversion_exit_threshold),
+            ("volatility_regime_threshold", self.volatility_regime_threshold),
+            ("take_profit_threshold", self.take_profit_threshold),
+            ("stop_loss_threshold", self.stop_loss_threshold),
+            ("trailing_stop_threshold", self.trailing_stop_threshold),
+        ):
+            if (
+                isinstance(threshold, bool)
+                or not math.isfinite(threshold)
+                or threshold < 0.0
+            ):
+                raise ValueError(f"{field_name} must be finite and non-negative")
+        if self.trend_entry_threshold <= 0.0:
+            raise ValueError("trend_entry_threshold must be positive")
+        if self.reversion_entry_threshold <= 0.0:
+            raise ValueError("reversion_entry_threshold must be positive")
         if self.trend_entry_threshold <= self.trend_exit_threshold:
             raise ValueError("trend entry must exceed exit threshold")
         if self.reversion_entry_threshold <= self.reversion_exit_threshold:
             raise ValueError("reversion entry must exceed exit threshold")
-        if self.take_profit_threshold < 0.0:
-            raise ValueError("take_profit_threshold must be non-negative")
-        if self.stop_loss_threshold < 0.0:
-            raise ValueError("stop_loss_threshold must be non-negative")
-        if self.trailing_stop_threshold < 0.0:
-            raise ValueError("trailing_stop_threshold must be non-negative")
-        if self.max_holding_bars < 0:
-            raise ValueError("max_holding_bars must be non-negative")
 
 
 class RegimeAdaptiveStrategy:

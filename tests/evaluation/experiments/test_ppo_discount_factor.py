@@ -29,6 +29,7 @@ def test_ppo_discount_factor_changes_only_gamma() -> None:
 def test_resolved_run_v6_binds_fixed_reward_contract_and_gamma() -> None:
     config = _resolved(
         schema_version="resolved_run_config_v6",
+        ppo_observation_schema="ppo_observation_v2",
         ppo_gamma=0.9975,
     )
 

@@ -32,7 +32,10 @@ from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMA_V3,
     ppo_observation_contract_payload,
 )
-from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
+from trade_rl.strategies.rl.ppo_training import (
+    expected_ppo_realized_timesteps,
+    ppo_training_objective_contract_payload,
+)
 
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
@@ -41,6 +44,8 @@ _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
+_RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
+_RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -50,6 +55,8 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -102,7 +109,12 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+        if schema not in {
+            _RESULT_SCHEMA_V6,
+            _RESULT_SCHEMA_V7,
+            _RESULT_SCHEMA_V8,
+            _RESULT_SCHEMA_V9,
+        }:
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -144,7 +156,7 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema == _RESULT_SCHEMA_V7:
+        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9}:
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -293,12 +305,18 @@ def _result_payload(
             }
         )
 
+    if lean_config.ppo_gamma != config.ppo_gamma:
+        raise ValueError("resolved PPO gamma differs between raw and lean config")
+    training_objective = ppo_training_objective_contract_payload(
+        gamma=lean_config.ppo_gamma
+    )
     summary: dict[str, object] = {
         "schema_version": (
-            _RESULT_SCHEMA_V7
+            _RESULT_SCHEMA_V9
             if result.comparison.shared_cash_ppo is not None
-            else _RESULT_SCHEMA_V6
+            else _RESULT_SCHEMA_V8
         ),
+        "ppo_training_objective": training_objective,
         "ppo_observation": ppo_observation_contract_payload(
             config.ppo_observation_schema
         ),
@@ -322,6 +340,7 @@ def _result_payload(
             "forecast_exit_threshold": lean_config.forecast_exit_threshold,
             "ppo_total_timesteps": lean_config.ppo_total_timesteps,
             "ppo_seed": lean_config.ppo_seed,
+            "ppo_gamma": lean_config.ppo_gamma,
             "ppo_training_layout": lean_config.ppo_training_layout,
             "ppo_rollout_steps_per_env": lean_config.ppo_rollout_steps_per_env,
             "ppo_minimum_hold_bars": lean_config.ppo_minimum_hold_bars,
@@ -604,6 +623,8 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -647,7 +668,13 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+    if result_schema in {
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V8,
+        _RESULT_SCHEMA_V9,
+    }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -708,6 +735,26 @@ def _validate_ppo_training_evidence(
                 )
             if float(risk_config["drawdown_stop"]) > 0.20:
                 raise ValueError("PPO drawdown stop must not exceed 20%")
+
+
+def _validate_ppo_training_objective(summary: Mapping[str, object]) -> None:
+    candidate_config = summary.get("candidate_config")
+    objective = summary.get("ppo_training_objective")
+    if not isinstance(candidate_config, Mapping) or not isinstance(objective, Mapping):
+        raise ValueError("candidate PPO training objective is malformed")
+    gamma = candidate_config.get("ppo_gamma")
+    if (
+        isinstance(gamma, bool)
+        or not isinstance(gamma, (int, float))
+        or not math.isfinite(float(gamma))
+    ):
+        raise ValueError("candidate PPO training objective is malformed")
+    try:
+        expected = ppo_training_objective_contract_payload(gamma=float(gamma))
+    except ValueError as error:
+        raise ValueError("candidate PPO training objective is malformed") from error
+    if dict(objective) != expected:
+        raise ValueError("candidate PPO training objective differs from config")
 
 
 def _validate_replay_evidence(
@@ -1282,6 +1329,14 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v7_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V8:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_ppo_training_objective(summary)
+        _validate_v6_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V9:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_ppo_training_objective(summary)
+        _validate_v7_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -1294,6 +1349,10 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V6:
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V7:
+        _validate_v7_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V8:
+        _validate_v6_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V9:
         _validate_v7_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,

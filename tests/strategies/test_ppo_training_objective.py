@@ -51,7 +51,6 @@ def test_ppo_training_objective_contract_binds_economic_reward_and_discount() ->
         "schema": "ppo_training_objective_v1",
         "reward_schema": PPO_REWARD_SCHEMA,
         "reward_scope": "per_symbol_account_after_cost_log_return",
-        "terminal_settlement": "included_in_terminal_transition",
         "gamma": PPO_DEFAULT_GAMMA,
         "gae_lambda": PPO_DEFAULT_GAE_LAMBDA,
         "normalize_advantage": True,

@@ -75,9 +75,9 @@
       "id": "replay-observation",
       "symbol": "trade_rl.evaluation.replay._observation",
       "kind": "function",
-      "source_sha256": "044f2c8265092f16d0229b7b2c4d30d3f0e1fd03df03314f3f427e565c3e3ec6",
+      "source_sha256": "b36faf7a075037e0e38f297d0c80331fe19afb7d12a3ce2460d7b7b80871982c",
       "label_ja": "その時点の観測を組み立てる",
-      "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図・ウェイト・実約定後の保有年齢を加えてStrategyObservationを作ります。",
+      "description_ja": "現在バーのfeature、利用可能性、staleness、global feature情報に、現在の売買意図・ウェイト・実約定数量・保有年齢を加えてStrategyObservationを作ります。intentは直近目標、quantityは実保有状態を表します。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_single_symbol_replay.py"

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | integrations | provider固有レスポンスを内部source evidenceへ変換 | 売買判断 |
 | data | causalな`MarketDataset`、availability、staleness、dataset identity | strategy固有の意思決定 |
-| strategies | 共通観測から論理的な売買意図を返す。保有経過時間とminimum-hold制約も実約定数量を基準に共有し、AdaptiveはReplay由来のgross position returnでprotective exitを判断する | fill、fee、accounting |
+| strategies | 共通観測から論理的な売買意図を返す。保有経過時間とminimum-hold制約も実約定数量を基準に共有し、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
 | simulation | fill、cost、funding、borrow、margin、`BookState` | winner判断 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |

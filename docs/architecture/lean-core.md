@@ -136,10 +136,15 @@ Adaptive rule exits use the optional `StrategyObservation.gross_position_return`
 provided by canonical replay. Replay derives it from the actual average entry
 fill price and the current bar-close mark, signed by the filled position. It is
 a gross mark-to-fill return: fees after entry, funding, and borrow are excluded.
+Replay also supplies the exact `current_position_quantity` from the filled book.
+Adaptive state follows that signed quantity rather than `current_intent`, which
+records the last effective target and can already be FLAT while a missed or
+partial exit leaves the book invested.
 Take-profit, stop-loss, and trailing thresholds are checked at a decision bar
 close. A trigger sends a flat intent to the next eligible execution step and
-remains latched until the book is actually flat, including through a partial or
-missed fill. Protective exits bypass the voluntary minimum-hold constraint.
+remains latched until the filled quantity is actually zero, including through a
+partial or missed fill and a mark recovery below the trigger. Protective exits
+bypass the voluntary minimum-hold constraint.
 Latency, gaps, liquidity, and costs can move realized results past the threshold;
 these triggers do not guarantee a profit or cap a loss.
 

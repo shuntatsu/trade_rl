@@ -36,6 +36,7 @@ class StrategyObservation:
     feature_staleness: np.ndarray | None = None
     position_age_bars: int = 0
     gross_position_return: float | None = None
+    current_position_quantity: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -62,6 +63,10 @@ class StrategyObservation:
             self.gross_position_return
         ):
             raise ValueError("gross_position_return must be finite when present")
+        if self.current_position_quantity is not None and not math.isfinite(
+            self.current_position_quantity
+        ):
+            raise ValueError("current_position_quantity must be finite when present")
 
         features = _readonly_vector(self.features, field="features")
         feature_available = (

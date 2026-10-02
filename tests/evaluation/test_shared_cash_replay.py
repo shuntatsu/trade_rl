@@ -10,6 +10,7 @@ from trade_rl.evaluation import replay as replay_module
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.orders.model import OrderEvent, OrderStatus
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rules.adaptive import (
     AdaptiveProfitConfig,
@@ -253,6 +254,56 @@ def test_adaptive_protective_exit_uses_filled_gross_return_and_bypasses_hold() -
     assert result.decisions[3].minimum_hold_suppressed == (False,)
     assert result.decisions[3].intents == (PositionIntent.FLAT,)
     assert result.decisions[3].position_quantity_after == pytest.approx((0.0,))
+
+
+def test_adaptive_protective_exit_stays_latched_after_missed_fill_and_recovery() -> (
+    None
+):
+    class RecordingAdaptiveStrategy(RegimeAdaptiveStrategy):
+        def __init__(self, config: AdaptiveProfitConfig) -> None:
+            super().__init__(config)
+            self.pending_by_index: dict[int, bool] = {}
+
+        def decide(self, observation: StrategyObservation) -> PositionIntent:
+            intent = super().decide(observation)
+            self.pending_by_index[observation.index] = self.protective_exit_pending
+            return intent
+
+    dataset = _market(
+        np.asarray([[100.0], [100.0], [103.0], [101.0], [101.0], [101.0]]),
+        signal_values=np.full((6, 1), 0.5),
+        tradable_values=np.asarray([[True], [True], [True], [False], [True], [True]]),
+    )
+    strategy = RecordingAdaptiveStrategy(
+        AdaptiveProfitConfig(
+            signal_index=0,
+            volatility_index=0,
+            trend_entry_threshold=0.01,
+            trend_exit_threshold=0.002,
+            volatility_regime_threshold=0.005,
+            take_profit_threshold=0.02,
+        )
+    )
+
+    result = replay_module.run_shared_cash_replay(
+        dataset,
+        (strategy,),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        minimum_hold_bars=5,
+    )
+
+    missed_exit = result.decisions[2]
+    recovered_mark = result.decisions[3]
+    assert missed_exit.intents == (PositionIntent.FLAT,)
+    assert missed_exit.effective_intents == (PositionIntent.FLAT,)
+    assert missed_exit.position_quantity_after[0] != pytest.approx(0.0)
+    assert recovered_mark.position_quantity_before[0] != pytest.approx(0.0)
+    assert recovered_mark.intents == (PositionIntent.FLAT,)
+    assert strategy.pending_by_index[3]
 
 
 def test_execution_gross_position_return_is_invariant_across_split() -> None:

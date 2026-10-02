@@ -384,6 +384,7 @@ def _observation(
         ],
         current_intent=current_intent,
         current_weight=float(book.weights[symbol_index]),
+        current_position_quantity=float(book.quantities[symbol_index]),
         position_age_bars=position_age_bars,
         gross_position_return=gross_position_return,
     )

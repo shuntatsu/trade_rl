@@ -21,7 +21,7 @@ GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `-
 
 `codex/profit-engine-hardening` の修正では、optimize / compareに明示的なDatasetまたは明示的な `--demo` を要求し、canonical non-zero `ExecutionCostConfig()` を既定のreplay costにした。単一strategyのparameter選択はchronological tuning prefixだけで行い、baseline / candidate reportは後続holdoutのfresh replayから計算する。tuning-windowの最大drawdownが20%を超えるcandidateは選択対象外だが、これはeligibility vetoであり、gapやexecution timingを越えたdrawdown上限の保証ではない。`compare` はfull-rangeのin-sample診断である。`tune_all_strategies` の複数family報告windowはfamily間で比較した時点でdevelopment evidenceとして扱い、最終評価にはさらに後の未閲覧windowを使う。
 
-Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、flat intentをlatchedして最低保有期間をbypassするが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
+Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 
 ## Active PPO medium-term holding-duration design
 

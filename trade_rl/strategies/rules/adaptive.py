@@ -82,7 +82,20 @@ class RegimeAdaptiveStrategy:
         sig_idx = self.config.signal_index
         gross_position_return = observation.gross_position_return
         if gross_position_return is not None:
-            position_side = observation.current_intent
+            # The intent records the most recent target request and can be FLAT
+            # while a missed/partial exit leaves the filled book invested.
+            position_quantity = observation.current_position_quantity
+            if position_quantity is None:
+                # Keep direct StrategyObservation callers source-compatible;
+                # canonical replay always supplies the exact filled quantity.
+                position_quantity = observation.current_weight
+            position_side = (
+                PositionIntent.LONG
+                if position_quantity > 0.0
+                else PositionIntent.SHORT
+                if position_quantity < 0.0
+                else PositionIntent.FLAT
+            )
             new_position = self._tracked_position_side is not position_side or (
                 observation.index != self._last_index
                 and observation.position_age_bars == 1

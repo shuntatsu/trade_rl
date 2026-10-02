@@ -471,6 +471,8 @@ def test_historical_v5_candidate_artifact_remains_readable(tmp_path: Path) -> No
     )
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
     summary["schema_version"] = "lean_candidate_result_v5"
+    summary.pop("ppo_training_objective")
+    summary["candidate_config"].pop("ppo_gamma")
     summary["evaluation"].pop("expected_periods")
     artifact.summary_path.write_text(
         json.dumps(summary, sort_keys=True, indent=2),
@@ -504,6 +506,8 @@ def test_historical_v5_terminal_flag_is_not_full_coverage_evidence(
             )
             summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
             summary["schema_version"] = "lean_candidate_result_v5"
+            summary.pop("ppo_training_objective")
+            summary["candidate_config"].pop("ppo_gamma")
             summary["evaluation"].pop("expected_periods")
             artifact.summary_path.write_text(
                 json.dumps(summary, sort_keys=True, indent=2),

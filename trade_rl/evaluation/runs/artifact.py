@@ -1311,6 +1311,25 @@ def _load_with_evidence(
     result_schema = summary.get("schema_version")
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
+    candidate_config = summary.get("candidate_config")
+    if result_schema in {
+        _RESULT_SCHEMA_V1,
+        _RESULT_SCHEMA_V2,
+        _RESULT_SCHEMA_V3,
+        _RESULT_SCHEMA_V4,
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+    } and (
+        "ppo_training_objective" in summary
+        or (
+            isinstance(candidate_config, Mapping)
+            and "ppo_gamma" in candidate_config
+        )
+    ):
+        raise ValueError(
+            "legacy candidate schema cannot carry PPO objective or training objective semantics"
+        )
     if (
         result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()

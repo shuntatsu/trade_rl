@@ -202,6 +202,21 @@ configurations, invalid drawdown values, and proposals outside that limit
 continue through `PreTradeRisk.constrain` so its validation and projection remain
 in force.
 
+PPOのeconomic rewardは引き続き、canonical execution/accountingが返す
+after-cost `interval_net_return` の `log1p` とする。terminal settlementを使う場合は、
+settlement各intervalの実現log wealth changeを最後のterminal transitionへ加える。
+`ppo_training_objective_v1` はこのreward schemaを
+`net_log_return_v1` として明示し、既定 `gamma=0.99`、既定
+`gae_lambda=0.95`、advantage normalization有効をtraining objectiveの意味として
+記録する。新規Runは `resolved_run_config_v6` でこのreward schema、`ppo_gamma`、
+固定GAE lambdaをidentityへbindする。`ppo_gamma` は有限な `(0, 1]` のみを許し、
+`PPO_DISCOUNT` Controlled Factorではこの値だけを変更できる。reward schemaと
+GAE lambdaを同じExperimentで変更してはならない。これはtemporal credit
+assignmentを独立に研究できるようにする契約であり、reward式、execution、
+accounting、risk、action semanticsを変更しない。また、per-symbol trainingと
+shared-cash evaluationのcapital scope差やpolicy inputにaccount drawdownがない
+既知のmismatchを解消するものではない。
+
 Directional PPOのfitとdevelopment評価は `DIRECTIONAL_BASE_EXECUTION_COST` を共通authorityとして使う。zero overlayでもDataset由来のfee / spread / funding / borrowは消さず、特に `borrow_rate_multiplier=1.0` を学習・評価の両方で維持する。過去のPPO evidenceは生成時の旧implementation SHAにbindされたままであり、このcorrected execution contractのcontrolとして自動再利用しない。
 
 `fit_ppo_strategy` の既定は従来どおり `sequential` であり、単一 `PPOTradingEnv` がfit symbolをfull-window episode単位でround-robinする。既存Studyやcandidateがlayoutを明示しない場合の意味は変えない。

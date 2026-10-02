@@ -41,6 +41,36 @@ class SequenceIntent:
         return intent
 
 
+def _fill_event(sequence: int, filled: float, price: float) -> OrderEvent:
+    return OrderEvent(
+        schema_version="order_event_v1",
+        sequence=sequence,
+        order_id=f"{sequence + 1:064x}",
+        replaced_order_id=None,
+        dataset_id="d" * 64,
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        event_type="partial_fill",
+        processing_index=sequence,
+        timestamp_ns=sequence,
+        previous_status=OrderStatus.ELIGIBLE,
+        new_status=OrderStatus.PARTIALLY_FILLED,
+        requested_quantity=1.0,
+        remaining_quantity=1.0,
+        filled_quantity=filled,
+        execution_price=price,
+        filled_notional=abs(filled * price),
+        capacity_before=1.0,
+        capacity_after=1.0,
+        participation_rate=0.0,
+        trigger_segment=None,
+        available_volume_fraction=1.0,
+        reason=None,
+        path_mode="conservative",
+        path_points=(),
+    )
+
+
 def _market(
     close: np.ndarray,
     *,
@@ -335,42 +365,30 @@ def test_fill_tracker_handles_tiny_position_reversal_without_product_underflow()
     None
 ):
     tracker = replay_module._ExecutedEntryPrices(1)
-
-    def event(sequence: int, filled: float, price: float) -> OrderEvent:
-        return OrderEvent(
-            schema_version="order_event_v1",
-            sequence=sequence,
-            order_id=f"{sequence + 1:064x}",
-            replaced_order_id=None,
-            dataset_id="d" * 64,
-            execution_policy_digest="e" * 64,
-            symbol_index=0,
-            event_type="partial_fill",
-            processing_index=sequence,
-            timestamp_ns=sequence,
-            previous_status=OrderStatus.ELIGIBLE,
-            new_status=OrderStatus.PARTIALLY_FILLED,
-            requested_quantity=1.0,
-            remaining_quantity=1.0,
-            filled_quantity=filled,
-            execution_price=price,
-            filled_notional=abs(filled * price),
-            capacity_before=1.0,
-            capacity_after=1.0,
-            participation_rate=0.0,
-            trigger_segment=None,
-            available_volume_fraction=1.0,
-            reason=None,
-            path_mode="conservative",
-            path_points=(),
-        )
-
-    tracker.ingest((event(0, 1e-200, 100.0),), np.asarray([1e-200]))
-    tracker.ingest((event(1, -2e-200, 200.0),), np.asarray([-1e-200]))
+    tracker.ingest((_fill_event(0, 1e-200, 100.0),), np.asarray([1e-200]))
+    tracker.ingest((_fill_event(1, -2e-200, 200.0),), np.asarray([-1e-200]))
 
     assert tracker.mark_gross_return(
         0, quantity=-1e-200, mark_price=200.0
     ) == pytest.approx(0.0)
+
+
+def test_fill_tracker_only_resets_for_explicit_inactive_flat_positions() -> None:
+    tracker = replay_module._ExecutedEntryPrices(1)
+    tracker.ingest((_fill_event(0, 0.5, 100.0),), np.asarray([0.5]))
+
+    with pytest.raises(
+        RuntimeError, match="execution fill events diverged from book quantities"
+    ):
+        tracker.ingest((), np.asarray([0.0]))
+
+    tracker.ingest((), np.asarray([0.0]), inactive_flat_mask=np.asarray([True]))
+    assert tracker.mark_gross_return(0, quantity=0.0, mark_price=100.0) is None
+
+    with pytest.raises(
+        RuntimeError, match="inactive fill tracker reset requires a flat book"
+    ):
+        tracker.ingest((), np.asarray([0.5]), inactive_flat_mask=np.asarray([True]))
 
 
 def test_shared_cash_hold_age_uses_partial_fill_and_cancels_unfilled_remainder() -> (

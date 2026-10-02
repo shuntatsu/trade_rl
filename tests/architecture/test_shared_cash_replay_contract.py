@@ -133,6 +133,8 @@ def test_v3_fill_accounting_binds_exact_accepted_and_applied_quantities() -> Non
     assert '"book_applied_quantity_exact"' in validator_source
     assert "expected_applied_quantity" in validator_source
     assert "_project_exact_quantity" in validator_source
+
+
 def test_adaptive_exit_contract_uses_execution_return_and_can_bypass_hold() -> None:
     observation_fields = {field.name for field in fields(StrategyObservation)}
     hold_parameters = signature(constrain_intent_for_minimum_hold).parameters
@@ -156,7 +158,9 @@ def test_adaptive_exit_fill_state_invariant_is_documented_with_oracle() -> None:
 
     assert "current_position_quantity" in lean_core
     assert "missed fill and a mark recovery below the trigger" in lean_core
+    assert "inactive asset's lifecycle settlement" in lean_core
     assert "signed filled quantity" in package_boundaries
+    assert "inactive assetのlifecycle settlement" in package_boundaries
     assert (
         "test_adaptive_protective_exit_stays_latched_after_missed_fill_and_recovery"
         in assurance

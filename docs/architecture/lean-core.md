@@ -137,6 +137,9 @@ provided by canonical replay. Replay derives it from the actual average entry
 fill price and the current bar-close mark, signed by the filled position. It is
 a gross mark-to-fill return: fees after entry, funding, and borrow are excluded.
 Replay also supplies the exact `current_position_quantity` from the filled book.
+When an inactive asset's lifecycle settlement leaves its book quantity at zero,
+replay clears the derived fill-price tracker before the next observation. Active
+assets and non-flat quantities must still reconcile with fill events.
 Adaptive state follows that signed quantity rather than `current_intent`, which
 records the last effective target and can already be FLAT while a missed or
 partial exit leaves the book invested.

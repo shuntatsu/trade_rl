@@ -271,6 +271,7 @@ class _ExecutedEntryPrices:
         quantities: np.ndarray,
         *,
         terminated: bool = False,
+        inactive_flat_mask: np.ndarray | None = None,
     ) -> None:
         for event in events:
             filled = float(event.filled_quantity)
@@ -299,6 +300,16 @@ class _ExecutedEntryPrices:
         actual = np.asarray(quantities, dtype=np.float64)
         if actual.shape != self._quantities.shape:
             raise RuntimeError("execution fill events diverged from book quantities")
+        if inactive_flat_mask is not None:
+            inactive_flat = np.asarray(inactive_flat_mask, dtype=np.bool_)
+            if inactive_flat.shape != self._quantities.shape:
+                raise RuntimeError(
+                    "inactive flat mask does not match the fill tracker roster"
+                )
+            if np.any(inactive_flat & (actual != 0.0)):
+                raise RuntimeError("inactive fill tracker reset requires a flat book")
+            self._quantities[inactive_flat] = 0.0
+            self._average_prices[inactive_flat] = 0.0
         if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
             if terminated:
                 self._quantities = actual.copy()
@@ -608,6 +619,10 @@ def run_single_symbol_replay(
             latest_execution_observation.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            inactive_flat_mask=(
+                ~dataset.resolved_array("asset_active")[execution.next_index]
+                & (execution.book.quantities == 0.0)
+            ),
         )
         book = execution.book
         position_age_bars = next_position_age_bars(
@@ -672,6 +687,10 @@ def run_single_symbol_replay(
                 latest_execution_observation.order_events,
                 execution.book.quantities,
                 terminated=execution.termination_reason is not None,
+                inactive_flat_mask=(
+                    ~dataset.resolved_array("asset_active")[execution.next_index]
+                    & (execution.book.quantities == 0.0)
+                ),
             )
             book = execution.book
             position_age_bars = next_position_age_bars(
@@ -884,6 +903,10 @@ def run_shared_cash_replay(
             stateful_evidence.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            inactive_flat_mask=(
+                ~dataset.resolved_array("asset_active")[execution.next_index]
+                & (execution.book.quantities == 0.0)
+            ),
         )
         if capture_ledger_evidence:
             if execution_observation_count != len(ledger_intervals) + 1:

@@ -135,6 +135,49 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert features.flags.writeable is False
 
 
+def test_replay_clears_fill_price_after_inactive_asset_settlement() -> None:
+    dataset = _rising_market()
+    asset_active = np.ones((dataset.n_bars, dataset.n_symbols), dtype=np.bool_)
+    asset_active[2:, 0] = False
+    tradable = np.ones((dataset.n_bars, dataset.n_symbols), dtype=np.bool_)
+    tradable[2:, 0] = False
+    feature_available = np.ones(
+        (dataset.n_bars, dataset.n_symbols, dataset.features.shape[2]),
+        dtype=np.bool_,
+    )
+    feature_available[2:, 0] = False
+    feature_staleness = np.asarray(dataset.feature_staleness).copy()
+    feature_staleness[2:, 0] = 1.0
+    information_available = np.asarray(
+        dataset.information_available, dtype=np.bool_
+    ).copy()
+    information_available[2:, 0] = False
+    dataset = replace(
+        dataset,
+        asset_active=asset_active,
+        symbol_active=asset_active,
+        tradable=tradable,
+        feature_available=feature_available,
+        feature_staleness=feature_staleness,
+        information_available=information_available,
+    )
+    strategy = AlwaysLong()
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        strategy,
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+
+    settled_observation = strategy.observations[2]
+    assert result.book.quantities[0] == 0.0
+    assert settled_observation.current_position_quantity == 0.0
+    assert settled_observation.gross_position_return is None
+
+
 def test_replay_exposes_terminal_active_order_remainders() -> None:
     result = evaluation.run_single_symbol_replay(
         _rising_market(),

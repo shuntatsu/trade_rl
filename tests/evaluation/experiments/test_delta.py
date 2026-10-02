@@ -112,6 +112,10 @@ EXPECTED_RULES = {
         ),
         frozenset(set(STRATEGIES) - {"ppo"}),
     ),
+    ControlledFactor.PPO_DISCOUNT: (
+        frozenset({("ppo_gamma",)}),
+        frozenset(set(STRATEGIES) - {"ppo"}),
+    ),
     ControlledFactor.PPO_MINIMUM_HOLD: (
         frozenset({("ppo_minimum_hold_bars",)}),
         frozenset(set(STRATEGIES) - {"ppo"}),

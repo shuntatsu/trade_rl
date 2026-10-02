@@ -709,7 +709,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--objective",
         choices=["profit", "sharpe", "balanced"],
         default="profit",
-        help="Optimization objective function for --mode optimize (default: profit)",
+        help="Objective for optimize/walk-forward modes (default: profit)",
     )
     parser.add_argument(
         "--windows",
@@ -744,13 +744,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--gross-budget",
         type=float,
         default=0.2,
-        help="Gross portfolio allocation fraction per symbol (default: 0.2)",
+        help="Allocation fraction per symbol for run/compare (default: 0.2); tuning searches this parameter",
     )
     parser.add_argument(
         "--min-hold",
         type=int,
         default=4,
-        help="Minimum position holding bars (default: 4)",
+        help="Minimum holding bars for run mode (default: 4); tuning searches this parameter",
     )
     parser.add_argument(
         "--json",

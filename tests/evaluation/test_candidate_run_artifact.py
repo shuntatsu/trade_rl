@@ -176,6 +176,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_gamma": 0.99,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
         "ppo_minimum_hold_bars": 0,

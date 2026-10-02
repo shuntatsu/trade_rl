@@ -45,7 +45,6 @@ def ppo_training_objective_contract_payload(
         "schema": "ppo_training_objective_v1",
         "reward_schema": PPO_REWARD_SCHEMA,
         "reward_scope": "per_symbol_account_after_cost_log_return",
-        "terminal_settlement": "included_in_terminal_transition",
         "gamma": validated_ppo_gamma(gamma),
         "gae_lambda": PPO_DEFAULT_GAE_LAMBDA,
         "normalize_advantage": True,

@@ -103,6 +103,7 @@ def _result() -> object:
         evaluation_stop_exclusive=np.datetime64("2026-01-03T00:00:00", "ns"),
         gross_budget=0.5,
         initial_capital=1000.0,
+        ppo_gamma=0.99,
         ppo_observation_schema="ppo_observation_v2",
         ppo_settle_terminal_position=False,
         pretrade_risk_config=None,
@@ -118,6 +119,7 @@ def _result() -> object:
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        ppo_gamma=0.99,
         ppo_training_layout="sequential",
         ppo_rollout_steps_per_env=None,
         ppo_minimum_hold_bars=0,
@@ -266,7 +268,7 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
     assert candidate_config["ppo_training_timesteps"] == 2048
 
 
-def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
+def test_candidate_v8_binds_age_observation_and_holding_duration_and_risk(
     tmp_path: Path,
 ) -> None:
     result = _result()

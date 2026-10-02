@@ -1,4 +1,4 @@
-"""Stable PPO layout and rollout-budget contract values."""
+"""Stable PPO layout, rollout-budget, and training-objective contract values."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ class _PPOTrainingObjectivePayload(TypedDict):
     schema: str
     reward_schema: str
     reward_scope: str
-    terminal_settlement: str
     gamma: float
     gae_lambda: float
     normalize_advantage: bool

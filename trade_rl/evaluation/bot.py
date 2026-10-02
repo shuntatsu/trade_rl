@@ -451,6 +451,7 @@ def tune_for_maximum_profit(
         hold_candidates = [2, 4, 6]
         budget_candidates = [0.15, 0.25, 0.35]
         tp_candidates = [0.0, 0.015, 0.030]
+        sl_candidates = [0.0, 0.015, 0.025]
         ts_candidates = [0.0, 0.010]
         vol_regime_candidates = [0.008, 0.012]
     else:
@@ -459,6 +460,7 @@ def tune_for_maximum_profit(
         hold_candidates = [2, 4, 8]
         budget_candidates = [0.15, 0.25, 0.35]
         tp_candidates = [0.0]
+        sl_candidates = [0.0]
         ts_candidates = [0.0]
         vol_regime_candidates = [0.010]
 
@@ -470,9 +472,12 @@ def tune_for_maximum_profit(
                 rep.sharpe_ratio if rep.net_pnl > 0 else -100.0 + rep.net_pnl / 1000.0
             )
         if objective == "balanced":
-            dd_penalty = max(0.0, 1.0 - rep.max_drawdown_pct / 100.0)
+            # Calmar-like score: 年率相当リターン / 最大DD でリスク調整後リターンを優先
+            dd_denom = max(rep.max_drawdown_pct, 0.1)  # ゼロDD除外
+            calmar_proxy = rep.total_return_pct / dd_denom
             pf_bonus = min(rep.interval_profit_factor, 3.0)
-            return rep.net_pnl * dd_penalty * (1.0 + pf_bonus)
+            profit_sign = 1.0 if rep.net_pnl > 0 else -1.0
+            return calmar_proxy * (1.0 + pf_bonus) * profit_sign
         return rep.net_pnl
 
     best_cfg: BotConfig | None = None
@@ -489,6 +494,7 @@ def tune_for_maximum_profit(
         hold_candidates,
         budget_candidates,
         tp_candidates,
+        sl_candidates,
         ts_candidates,
         vol_regime_candidates,
     )
@@ -496,7 +502,9 @@ def tune_for_maximum_profit(
         len(dimension) for dimension in parameter_dimensions
     )
     sample_count = min(max_combinations, parameter_space_size)
-    candidate_combinations: list[tuple[float, float, int, float, float, float, float]]
+    candidate_combinations: list[
+        tuple[float, float, int, float, float, float, float, float]
+    ]
     if sample_count == parameter_space_size:
         candidate_combinations = list(product(*parameter_dimensions))
     else:
@@ -507,6 +515,7 @@ def tune_for_maximum_profit(
             len(hold_candidates),
             len(budget_candidates),
             len(tp_candidates),
+            len(sl_candidates),
             len(ts_candidates),
             len(vol_regime_candidates),
         )
@@ -531,9 +540,9 @@ def tune_for_maximum_profit(
             sampled_indices.append(indices[rotation:] + indices[:rotation])
 
         candidate_combinations = []
-        seen_combinations: set[tuple[float, float, int, float, float, float, float]] = (
-            set()
-        )
+        seen_combinations: set[
+            tuple[float, float, int, float, float, float, float, float]
+        ] = set()
         for sample_index in range(sample_count):
             combination = (
                 entry_candidates[sampled_indices[0][sample_index]],
@@ -541,8 +550,9 @@ def tune_for_maximum_profit(
                 hold_candidates[sampled_indices[2][sample_index]],
                 budget_candidates[sampled_indices[3][sample_index]],
                 tp_candidates[sampled_indices[4][sample_index]],
-                ts_candidates[sampled_indices[5][sample_index]],
-                vol_regime_candidates[sampled_indices[6][sample_index]],
+                sl_candidates[sampled_indices[5][sample_index]],
+                ts_candidates[sampled_indices[6][sample_index]],
+                vol_regime_candidates[sampled_indices[7][sample_index]],
             )
             if combination not in seen_combinations:
                 candidate_combinations.append(combination)
@@ -557,7 +567,7 @@ def tune_for_maximum_profit(
                     break
 
     count = 0
-    for entry, mult, hold, budget, tp, ts, vol_regime in candidate_combinations:
+    for entry, mult, hold, budget, tp, sl, ts, vol_regime in candidate_combinations:
         count += 1
         test_cfg = BotConfig(
             strategy_name=strategy_name,
@@ -567,6 +577,7 @@ def tune_for_maximum_profit(
             entry_threshold=entry,
             exit_threshold=entry * mult,
             take_profit_threshold=tp,
+            stop_loss_threshold=sl,
             trailing_stop_threshold=ts,
             volatility_regime_threshold=vol_regime,
             execution_cost=resolved_execution_cost,
@@ -800,6 +811,8 @@ def print_tuning_comparison(res: TuningResult) -> None:
     print(f"   - Gross Budget:         {cfg.gross_budget * 100:.1f}%")
     if cfg.take_profit_threshold > 0:
         print(f"   - Gross TP trigger:     +{cfg.take_profit_threshold * 100:.1f}%")
+    if cfg.stop_loss_threshold > 0:
+        print(f"   - Gross SL trigger:     -{cfg.stop_loss_threshold * 100:.1f}%")
     if cfg.trailing_stop_threshold > 0:
         print(f"   - Gross trailing exit:  -{cfg.trailing_stop_threshold * 100:.1f}%")
     print("=" * 68 + "\n")

@@ -232,7 +232,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
             "resolved_run_config_v3",
             "resolved_run_config_v4",
             "resolved_run_config_v5",
-        "resolved_run_config_v6",
+            "resolved_run_config_v6",
         }:
             raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
@@ -335,7 +335,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
-        "resolved_run_config_v6",
+                    "resolved_run_config_v6",
                 }
                 else "sequential"
             ),
@@ -346,7 +346,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
-        "resolved_run_config_v6",
+                    "resolved_run_config_v6",
                 }
                 or raw["ppo_rollout_steps_per_env"] is None
                 else _as_int(
@@ -360,7 +360,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 not in {
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
-        "resolved_run_config_v6",
+                    "resolved_run_config_v6",
                 }
                 else _as_int(
                     raw["ppo_minimum_hold_bars"],
@@ -373,7 +373,8 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     raw["pretrade_risk_config"],
                     field=f"{field}.pretrade_risk_config",
                 )
-                if schema_version in {"resolved_run_config_v5", "resolved_run_config_v6"}
+                if schema_version
+                in {"resolved_run_config_v5", "resolved_run_config_v6"}
                 else None
             ),
         )
@@ -579,7 +580,12 @@ def _candidate_config_payload(
         payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
         payload["ppo_observation_schema"] = config.ppo_observation_schema
         payload["ppo_settle_terminal_position"] = config.ppo_settle_terminal_position
-    if resolved_schema_version == "resolved_run_config_v5":
+    if resolved_schema_version == "resolved_run_config_v6":
+        payload["ppo_gamma"] = config.ppo_gamma
+    if resolved_schema_version in {
+        "resolved_run_config_v5",
+        "resolved_run_config_v6",
+    }:
         payload["pretrade_risk_config"] = (
             None
             if config.pretrade_risk_config is None
@@ -624,6 +630,7 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ppo_total_timesteps=config.ppo_total_timesteps,
             ppo_seed=config.ppo_seed,
             gross_budget=config.gross_budget,
+            ppo_gamma=config.ppo_gamma,
             initial_capital=config.initial_capital,
             ppo_training_layout=config.ppo_training_layout,
             ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,

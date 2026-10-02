@@ -23,6 +23,8 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
+このsmokeはsource `a526cc1810e9560897b322fe9b8cd69c4bfbce43` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
+
 ## Trading-bot tuning contract correction (2026-10-02)
 
 GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。

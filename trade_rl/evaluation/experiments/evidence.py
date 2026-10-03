@@ -340,13 +340,17 @@ def _candidate_shared_cash_ledger(
     ledger_evidence = portfolio.get("ledger_evidence")
     if not isinstance(ledger_evidence, Mapping):
         raise ArtifactIntegrityError("shared-cash candidate source ledger is missing")
-    if ledger_evidence.get("schema_version") != "shared_cash_replay_ledger_v3":
+    ledger_schema = ledger_evidence.get("schema_version")
+    if ledger_schema not in {
+        "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
+    }:
         raise ArtifactIntegrityError("candidate source ledger schema is unsupported")
     ledger = ledger_evidence.get("payload")
     if not isinstance(ledger, Mapping):
         raise ArtifactIntegrityError("candidate source ledger payload is invalid")
     if (
-        ledger.get("schema_version") != "shared_cash_replay_ledger_v3"
+        ledger.get("schema_version") != ledger_schema
         or ledger.get("dataset_id") != dataset.dataset_id
     ):
         raise ArtifactIntegrityError("candidate source ledger identity mismatch")
@@ -523,6 +527,36 @@ def _validate_candidate_source_transition(
             expected_index=expected_index,
         )
         last_mark_source = (mark_prices[expected_index], "mark_price row")
+    elif transition_type == "ohlc_drawdown_stress":
+        phase = evidence.get("phase")
+        expected_fields = {
+            "adverse_prices",
+            "favorable_prices",
+            "high_prices",
+            "low_prices",
+            "phase",
+        }
+        if phase == "after_fill":
+            expected_fields.add("fill_event_sequence")
+        if (
+            phase not in {"pre_fill", "after_fill", "post_fill"}
+            or set(evidence) != expected_fields
+        ):
+            raise ArtifactIntegrityError(
+                "candidate source ledger OHLC stress phase is invalid"
+            )
+        _require_candidate_source_prices(
+            evidence.get("high_prices"),
+            dataset.high[expected_index],
+            source_row="high row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_prices(
+            evidence.get("low_prices"),
+            dataset.low[expected_index],
+            source_row="low row",
+            processing_index=expected_index,
+        )
     elif transition_type == "split":
         _require_candidate_source_values(
             evidence.get("split_factors"),
@@ -625,6 +659,7 @@ def _validate_candidate_source_interval(
     dataset: MarketDataset,
     mark_prices: np.ndarray,
     expected_start: int,
+    require_ohlc_stress: bool,
 ) -> None:
     expected_next = expected_start + 1
     if (
@@ -648,6 +683,32 @@ def _validate_candidate_source_interval(
         raise ArtifactIntegrityError(
             "candidate source ledger accounting transitions are missing"
         )
+    raw_order_events = interval.get("order_events")
+    if not isinstance(raw_order_events, Sequence) or isinstance(
+        raw_order_events, (str, bytes, bytearray)
+    ):
+        raise ArtifactIntegrityError("candidate source ledger order events are missing")
+    expected_fill_sequences: set[int] = set()
+    for raw_event in raw_order_events:
+        if not isinstance(raw_event, Mapping):
+            raise ArtifactIntegrityError(
+                "candidate source ledger order event is invalid"
+            )
+        if raw_event.get("event_type") in {"filled", "partial_fill"}:
+            sequence = _candidate_source_index(
+                raw_event.get("sequence"), field="fill event sequence"
+            )
+            if (
+                sequence in expected_fill_sequences
+                or _candidate_source_index(
+                    raw_event.get("processing_index"), field="fill processing_index"
+                )
+                != expected_next
+            ):
+                raise ArtifactIntegrityError(
+                    "candidate source ledger fill events are inconsistent"
+                )
+            expected_fill_sequences.add(sequence)
     processing_year_fraction, gap_year_fraction = _candidate_source_year_fractions(
         dataset,
         start_index=expected_start,
@@ -656,12 +717,42 @@ def _validate_candidate_source_interval(
     counts: dict[str, int] = {}
     cash_phases: dict[str, int] = {}
     borrow_phases: dict[str, int] = {}
+    ohlc_stress_phases: list[str] = []
+    source_fill_sequences: set[int] = set()
+    ohlc_stress_fill_sequences: set[int] = set()
+    pending_fill_stress_sequence: int | None = None
+    funding_mark_seen = False
     last_mark_source: tuple[np.ndarray, str] | None = None
     for transition in transitions:
         if not isinstance(transition, Mapping):
             raise ArtifactIntegrityError(
                 "candidate source ledger accounting transition is invalid"
             )
+        transition_type_value = transition.get("transition_type")
+        event_sequence = transition.get("order_event_sequence")
+        if require_ohlc_stress and transition_type_value == "fill":
+            if (
+                pending_fill_stress_sequence is not None
+                or funding_mark_seen
+                or isinstance(event_sequence, bool)
+                or not isinstance(event_sequence, int)
+                or event_sequence not in expected_fill_sequences
+                or event_sequence in source_fill_sequences
+            ):
+                raise ArtifactIntegrityError(
+                    "candidate source ledger fill transition link is invalid"
+                )
+            source_fill_sequences.add(event_sequence)
+            pending_fill_stress_sequence = event_sequence
+        elif require_ohlc_stress and (
+            pending_fill_stress_sequence is not None
+            and transition_type_value != "ohlc_drawdown_stress"
+        ):
+            raise ArtifactIntegrityError(
+                "candidate source ledger post-fill OHLC stress is missing"
+            )
+        if transition_type_value == "funding_mark":
+            funding_mark_seen = True
         transition_type, carry_phase, last_mark_source = (
             _validate_candidate_source_transition(
                 transition,
@@ -674,6 +765,54 @@ def _validate_candidate_source_interval(
             )
         )
         counts[transition_type] = counts.get(transition_type, 0) + 1
+        if transition_type == "ohlc_drawdown_stress":
+            raw_evidence = transition.get("evidence")
+            phase = (
+                raw_evidence.get("phase") if isinstance(raw_evidence, Mapping) else None
+            )
+            if isinstance(phase, str):
+                if phase == "pre_fill":
+                    if ohlc_stress_phases or source_fill_sequences:
+                        raise ArtifactIntegrityError(
+                            "candidate source ledger pre-fill OHLC stress order is invalid"
+                        )
+                elif phase == "after_fill":
+                    linked_sequence = (
+                        raw_evidence.get("fill_event_sequence")
+                        if isinstance(raw_evidence, Mapping)
+                        else None
+                    )
+                    if (
+                        funding_mark_seen
+                        or not ohlc_stress_phases
+                        or ohlc_stress_phases[0] != "pre_fill"
+                        or any(
+                            value != "after_fill" for value in ohlc_stress_phases[1:]
+                        )
+                        or pending_fill_stress_sequence != linked_sequence
+                        or isinstance(linked_sequence, bool)
+                        or not isinstance(linked_sequence, int)
+                        or linked_sequence in ohlc_stress_fill_sequences
+                    ):
+                        raise ArtifactIntegrityError(
+                            "candidate source ledger OHLC stress fill link is invalid"
+                        )
+                    ohlc_stress_fill_sequences.add(linked_sequence)
+                    pending_fill_stress_sequence = None
+                elif phase == "post_fill":
+                    if (
+                        not funding_mark_seen
+                        or pending_fill_stress_sequence is not None
+                        or not ohlc_stress_phases
+                        or ohlc_stress_phases[0] != "pre_fill"
+                        or any(
+                            value != "after_fill" for value in ohlc_stress_phases[1:]
+                        )
+                    ):
+                        raise ArtifactIntegrityError(
+                            "candidate source ledger post-fill OHLC stress order is invalid"
+                        )
+                ohlc_stress_phases.append(phase)
         if transition_type == "cash_interest" and carry_phase is not None:
             cash_phases[carry_phase] = cash_phases.get(carry_phase, 0) + 1
         if transition_type == "borrow_charge" and carry_phase is not None:
@@ -702,6 +841,21 @@ def _validate_candidate_source_interval(
         or cash_phases.get("gap", 0) != expected_gap_phases
         or borrow_phases.get("processing", 0) != 1
         or borrow_phases.get("gap", 0) != expected_gap_phases
+        or (
+            require_ohlc_stress
+            and (
+                ohlc_stress_phases
+                != [
+                    "pre_fill",
+                    *("after_fill" for _ in expected_fill_sequences),
+                    "post_fill",
+                ]
+                or source_fill_sequences != expected_fill_sequences
+                or ohlc_stress_fill_sequences != expected_fill_sequences
+                or pending_fill_stress_sequence is not None
+            )
+        )
+        or (not require_ohlc_stress and counts.get("ohlc_drawdown_stress", 0) != 0)
     ):
         raise ArtifactIntegrityError(
             "candidate source ledger accounting transitions do not cover source rows"
@@ -755,6 +909,9 @@ def _validate_shared_cash_candidate_source_binding(
             dataset=dataset,
             mark_prices=mark_prices,
             expected_start=start_index + offset,
+            require_ohlc_stress=(
+                ledger.get("schema_version") == "shared_cash_replay_ledger_v4"
+            ),
         )
     if not dataset.identity_verified:
         raise ArtifactIntegrityError(

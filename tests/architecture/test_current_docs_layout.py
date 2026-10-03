@@ -449,7 +449,7 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "台帳に実際に適用した数量差分" in guide_status
 
 
-def test_v10_shared_cash_accounting_contract_is_documented() -> None:
+def test_v11_shared_cash_accounting_contract_is_documented() -> None:
     lean_core = (ROOT / "docs" / "architecture" / "lean-core.md").read_text(
         encoding="utf-8"
     )
@@ -463,13 +463,15 @@ def test_v10_shared_cash_accounting_contract_is_documented() -> None:
         ROOT / "docs" / "architecture" / "research-assurance.md"
     ).read_text(encoding="utf-8")
 
-    assert "lean_candidate_result_v10" in lean_core
-    assert "shared_cash_replay_ledger_v3" in lean_core
+    assert "lean_candidate_result_v11" in lean_core
+    assert "shared_cash_replay_ledger_v4" in lean_core
+    assert "lean_candidate_result_v10" in controlled_loop
+    assert "v10 fill証跡も読み込み可能" in controlled_loop
     assert "dataset digest" in lean_core and "source rows" in lean_core
     assert "ordered accounting transition" in package_boundaries
     assert "termination-flatten" in controlled_loop
-    assert "lean_candidate_result_v10" in research_assurance
-    assert "shared_cash_replay_ledger_v3" in research_assurance
+    assert "lean_candidate_result_v11" in research_assurance
+    assert "shared_cash_replay_ledger_v4" in research_assurance
     assert "does not reopen Dataset source rows" in research_assurance
     assert "Dataset source rows" in research_assurance
     assert "Mutation tests change these inputs" in research_assurance
@@ -491,7 +493,7 @@ def test_v10_shared_cash_accounting_contract_is_documented() -> None:
     )
 
 
-def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> None:
+def test_v11_shared_cash_drawdown_uses_conservative_ohlc_stress() -> None:
     lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
     current_status = (DOCS / "research" / "current-status.md").read_text(
         encoding="utf-8"
@@ -506,11 +508,13 @@ def test_v10_shared_cash_drawdown_uses_ordered_intrabar_accounting_path() -> Non
     current_status = " ".join(current_status.split())
     research_assurance = " ".join(research_assurance.split())
 
-    assert "including bar-open gaps and intra-bar revaluation" in lean_core
-    assert "not derived from the interval-end return series alone" in lean_core
-    assert "interval-end return series alone cannot capture" in current_status
-    assert "including bar-open gaps and intra-bar revaluation" in research_assurance
-    assert "バー開始時の価格gapとバー内の評価替えを含めるため" in guide_status
+    assert "favorable marks establish the portfolio peak before" in lean_core
+    assert "not a reconstruction of the realized path" in lean_core
+    assert "25% OHLC stress drawdown when interval returns imply only 10%" in (
+        current_status
+    )
+    assert "OHLC does not reveal the intrabar price order" in research_assurance
+    assert "実現経路の再現ではなく、保守的な価格幅のstress" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -598,6 +602,75 @@ def test_research_assurance_is_durable_current_architecture() -> None:
     assert "research-assurance.md" in controlled_loop
     assert "G0-G2" in controlled_loop
     assert "G4 authorization is blocked" in controlled_loop
+
+
+def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    research_assurance = (DOCS / "architecture" / "research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    current_status = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    guide_status = (
+        ROOT / "guide" / "content" / "pages" / "research-status.md"
+    ).read_text(encoding="utf-8")
+    guide_experiment_loop = (
+        ROOT / "guide" / "content" / "pages" / "experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    study_contract = (
+        ROOT / "trade_rl" / "evaluation" / "experiments" / "contracts" / "study.py"
+    ).read_text(encoding="utf-8")
+
+    assert "candidate portfolio total returnのseed中央値が正でない" in controlled_loop
+    assert "candidate portfolio total-return medianが正" in controlled_loop
+    assert "median absolute candidate portfolio return is positive" in " ".join(
+        research_assurance.split()
+    )
+    rationale = (
+        "a positive paired improvement alone can still leave the candidate loss-making"
+    )
+    assert rationale in " ".join(research_assurance.split()).lower()
+    assert "paired improvement alone can still leave an arm loss-making" in (
+        " ".join(current_status.split()).lower()
+    )
+    assert "canonical v6 bootstrap passed network-free inspection" in (
+        " ".join(current_status.split()).lower()
+    )
+    assert "8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464" in (
+        current_status
+    )
+    assert "1f484ab2d294fa01890417036fd79f13f6bcdad8d8dd3e74d3013cf817bd7f57" in (
+        current_status
+    )
+    assert "c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d" in (
+        current_status
+    )
+    assert "no baseline or experiments were published" in " ".join(
+        current_status.split()
+    )
+    assert "median absolute candidate " in study_contract
+    assert (
+        "portfolio return is positive, and median paired total-return improvement"
+        in (study_contract)
+    )
+    assert "median absolute candidate portfolio return" in current_status
+    assert (
+        "research-only diagnostic and does not change the operational target"
+        in lean_core
+    )
+    assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_status
+    assert "candidateのseed中央値returnが正" in guide_status
+    assert "paired return中央値も正" in guide_status
+    rationale_ja = "H=0を上回っても、候補が損失のままなら利益目標は満たしません"
+    assert rationale_ja in guide_status
+    assert "candidateのseed中央値returnが正" in guide_experiment_loop
+    assert "paired return中央値も正" in guide_experiment_loop
+    assert rationale_ja in guide_experiment_loop
+    assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_experiment_loop
 
 
 def test_current_relative_markdown_links_resolve() -> None:

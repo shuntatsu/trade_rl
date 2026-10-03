@@ -29,8 +29,14 @@ def _with_holdout_shock(dataset, start_index: int):
     close = dataset.close.copy()
     factors = np.linspace(0.95, 0.4, dataset.n_bars - start_index)
     close[start_index:] *= factors[:, np.newaxis]
-    high = np.maximum(dataset.open, close) * 1.01
-    low = np.minimum(dataset.open, close) * 0.99
+    high = dataset.high.copy()
+    low = dataset.low.copy()
+    high[start_index:] = (
+        np.maximum(dataset.open[start_index:], close[start_index:]) * 1.01
+    )
+    low[start_index:] = (
+        np.minimum(dataset.open[start_index:], close[start_index:]) * 0.99
+    )
     features = dataset.features.copy()
     features[start_index:, :, 0] = -np.abs(features[start_index:, :, 0]) - 0.05
     return replace(dataset, close=close, high=high, low=low, features=features)
@@ -179,6 +185,14 @@ def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
         holdout_fraction=0.2,
     )
     shocked = _with_holdout_shock(dataset, tuning.holdout_start_index + 1)
+    np.testing.assert_array_equal(
+        shocked.high[: tuning.holdout_start_index],
+        dataset.high[: tuning.holdout_start_index],
+    )
+    np.testing.assert_array_equal(
+        shocked.low[: tuning.holdout_start_index],
+        dataset.low[: tuning.holdout_start_index],
+    )
     shocked_tuning = tune_for_maximum_profit(
         shocked,
         strategy_name="trend",

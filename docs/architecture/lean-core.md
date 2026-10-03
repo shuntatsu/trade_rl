@@ -8,6 +8,8 @@ Trade RLの現行coreは、**causalなmarket data、1つのexecution/accounting 
 
 現在の研究目的は、**実運用では一度に1銘柄を独立accountとして売買する**一方、銘柄IDに依存しない共通strategy/model/policyを複数銘柄の学習・検証へ適用し、未知・未使用の銘柄や期間でも転用可能な汎用性を検証することである。複数銘柄のtraining dataを使うことは、複数銘柄を同時保有するshared-cash portfolioを意味しない。各銘柄への適用ではpoint-in-time情報と同一の約定・会計条件を使い、コスト控除後の結果がunused dataでも維持されるかを確認する。
 
+The `ppo_shared_cash_holding_duration_v2` comparison is a research-only diagnostic and does not change the operational target. It measures how existing single-symbol PPO policies behave when their proposals share one evaluation account; it does not establish jointly trained portfolio control.
+
 ## Core flow
 
 ```text
@@ -152,7 +154,7 @@ Latency, gaps, liquidity, and costs can move realized results past the threshold
 these triggers do not guarantee a profit or cap a loss.
 
 New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
-`lean_candidate_result_v10` with `shared_cash_replay_ledger_v3`. The artifact
+`lean_candidate_result_v11` with `shared_cash_replay_ledger_v4`. The artifact
 binds the combined return series, terminal cash / quantities, active-order and
 settlement state, execution events, decisions, and sequence-ordered accounting
 transitions. Each transition records cash, exact quantities, marks, and
@@ -166,16 +168,18 @@ and every policy decision through the stop boundary recomputed from the frozen
 execution overlay and settlement configuration; only the replay-defined
 terminal-settlement tail may lack policy decisions. Decision outputs are
 replayed through the persisted minimum-hold and pre-trade-risk configuration
-and linked to interval execution state. The v10 shared-cash
-`metrics.max_drawdown` is recomputed from ordered accounting snapshots,
-including bar-open gaps and intra-bar revaluation; it is not derived from the
-interval-end return series alone. Total return remains checked against that
-interval-end series. The loader recomputes balances from
-  persisted transition inputs; it does not independently reopen source rows from
-  the dataset digest. Historical
-`lean_candidate_result_v9` ledger-v2 and `lean_candidate_result_v8` ledger-v1/v2
-artifacts remain readable under their prior contracts, and v7 artifacts remain
-readable with digest-only ledger evidence. This provides the v2 Study's
+and linked to interval execution state. The v11 shared-cash
+`metrics.max_drawdown` is recomputed from ordered accounting transitions. For
+each OHLC stress point, favorable marks establish the portfolio peak before
+adverse marks measure drawdown: a long uses the bar high as favorable and low as
+adverse, while a short uses the reverse. Because OHLC data does not record the
+intrabar price order, this is a conservative range stress estimate, not a
+reconstruction of the realized path. Total return remains checked against the
+interval-end return series. The loader recomputes balances from persisted
+transition inputs; it does not independently reopen source rows from the
+dataset digest. Historical `lean_candidate_result_v10` /
+`shared_cash_replay_ledger_v3`, v9 ledger-v2, v8 ledger-v1/v2, and v7
+digest-only artifacts remain readable under their prior contracts. This provides the v2 Study's
 single-account comparison input while preserving v1 per-symbol selection
 semantics.
 

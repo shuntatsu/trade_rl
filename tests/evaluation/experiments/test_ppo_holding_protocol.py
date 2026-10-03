@@ -533,7 +533,7 @@ def test_holding_protocol_preregisters_all_horizons_and_enforces_realized_drawdo
     factor_effect = comparison.to_payload()["factor_effect"]
     assert factor_effect["schema_version"] == "controlled_evidence_comparison_v3"
 
-    with pytest.raises(InvalidExperimentStateError, match="20% realized drawdown"):
+    with pytest.raises(InvalidExperimentStateError, match="20% drawdown gate"):
         decide_experiment(
             root,
             1,

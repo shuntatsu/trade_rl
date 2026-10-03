@@ -619,7 +619,7 @@ def decide_experiment(
                 raise InvalidExperimentStateError(
                     "PPO holding-duration decision must follow complete flat "
                     "terminal settlement, positive paired improvement, and the "
-                    "20% realized drawdown gate"
+                    "20% drawdown gate"
                 )
         resolved = ExperimentDecision(
             study_digest=state.plan.digest,

@@ -425,6 +425,11 @@ class StatefulSymbolFillProcessor:
                         },
                         order_event_sequence=runtime.events[-1].sequence,
                     )
+                runtime.record_ohlc_drawdown_stress(
+                    processing_index=processing_index,
+                    phase="after_fill",
+                    fill_event_sequence=runtime.events[-1].sequence,
+                )
                 executor._update_margin(
                     runtime.book,
                     processing_index=processing_index,

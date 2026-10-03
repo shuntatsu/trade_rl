@@ -169,6 +169,10 @@ class StatefulBarLifecycle:
             },
         )
         runtime.book.refresh_drawdown()
+        runtime.record_ohlc_drawdown_stress(
+            processing_index=processing_index,
+            phase="pre_fill",
+        )
         if gap_year_fraction > 0.0:
             executor._update_margin(
                 runtime.book,
@@ -318,6 +322,10 @@ class StatefulBarLifecycle:
         runtime.record_funding_boundary(
             processing_index=processing_index,
             funding_amount=funding_amount,
+        )
+        runtime.record_ohlc_drawdown_stress(
+            processing_index=processing_index,
+            phase="post_fill",
         )
         executor._update_margin(
             runtime.book,

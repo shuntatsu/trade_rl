@@ -211,6 +211,37 @@ class StatefulExecutionRuntime:
             )
         )
 
+    def record_ohlc_drawdown_stress(
+        self,
+        *,
+        processing_index: int,
+        phase: str,
+        fill_event_sequence: int | None = None,
+    ) -> None:
+        dataset = self.executor.dataset
+        highs = dataset.high[processing_index]
+        lows = dataset.low[processing_index]
+        state_before = self.capture_accounting_state()
+        adverse_prices, favorable_prices = self.book.record_ohlc_drawdown_stress(
+            high_prices=highs,
+            low_prices=lows,
+        )
+        evidence: dict[str, object] = {
+            "adverse_prices": adverse_prices,
+            "favorable_prices": favorable_prices,
+            "high_prices": tuple(float(value) for value in highs),
+            "low_prices": tuple(float(value) for value in lows),
+            "phase": phase,
+        }
+        if fill_event_sequence is not None:
+            evidence["fill_event_sequence"] = fill_event_sequence
+        self.record_accounting_transition(
+            transition_type="ohlc_drawdown_stress",
+            processing_index=processing_index,
+            state_before=state_before,
+            evidence=evidence,
+        )
+
     def append_event(
         self,
         *,

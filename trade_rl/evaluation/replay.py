@@ -222,7 +222,11 @@ class SharedCashReplayLedgerEvidence:
             "intervals": tuple(
                 interval.to_mapping(
                     include_accounting_transitions=(
-                        self.schema_version == "shared_cash_replay_ledger_v3"
+                        self.schema_version
+                        in {
+                            "shared_cash_replay_ledger_v3",
+                            "shared_cash_replay_ledger_v4",
+                        }
                     )
                 )
                 for interval in self.intervals
@@ -237,11 +241,15 @@ class SharedCashReplayLedgerEvidence:
         if self.schema_version in {
             "shared_cash_replay_ledger_v2",
             "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
         }:
             payload["decisions"] = tuple(
                 decision.to_mapping() for decision in self.decisions
             )
-        if self.schema_version == "shared_cash_replay_ledger_v3":
+        if self.schema_version in {
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        }:
             payload["contract_multipliers"] = self.contract_multipliers
             payload["initial_mark_prices"] = self.initial_mark_prices
         return payload
@@ -1157,7 +1165,7 @@ def run_shared_cash_replay(
                 float(value) for value in dataset.resolved_array("contract_multipliers")
             ),
             schema_version=(
-                "shared_cash_replay_ledger_v3"
+                "shared_cash_replay_ledger_v4"
                 if capture_accounting_evidence
                 else (
                     "shared_cash_replay_ledger_v2"

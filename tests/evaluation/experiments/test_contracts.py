@@ -76,6 +76,16 @@ def study_plan(**overrides: object) -> StudyPlan:
     return StudyPlan(**values)  # type: ignore[arg-type]
 
 
+def test_shared_cash_selection_rule_names_ohlc_drawdown_stress() -> None:
+    assert (
+        "conservative maximum drawdown under favorable and adverse marks from "
+        "each bar's OHLC range is at most 20%"
+    ) in PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+    assert "realized maximum drawdown" not in (
+        PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+    )
+
+
 def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
     config = resolved_config()
     assert config.digest == content_digest(config.to_payload())

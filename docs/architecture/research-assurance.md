@@ -131,19 +131,37 @@ config v6 / StudyPlan v6 identity. Each seed has one 100,000 USDT account shared
 across the full symbol roster. At every hourly decision, per-symbol PPO
 proposals enter one portfolio-wide risk projection and execution, with the
 same frozen costs, capacity, and terminal settlement for baseline and candidate.
-The v2 selector uses each combined portfolio's total return and realized maximum
-drawdown, not an average of independent symbol accounts. An arm is eligible
-only when all five paired baseline/candidate portfolios complete flat terminal
-settlement with no active order remainder, each portfolio's observed maximum
-drawdown is at most 20%, and the median paired portfolio return difference is
-positive. The primary score is the median candidate portfolio total return;
-ties go to the shorter hold. No eligible arm means NO_WINNER.
+The v2 selector uses each combined portfolio's total return and conservative
+maximum drawdown under favorable and adverse marks from each bar's OHLC range,
+not an average of independent symbol accounts. An arm is eligible only when
+all five paired baseline/candidate portfolios complete flat terminal
+settlement with no active order remainder, each portfolio's OHLC-stress drawdown
+is at most 20%, the median absolute candidate portfolio return is
+positive, and the median paired portfolio return difference is positive. The
+primary score is the median candidate portfolio total return; ties go to the
+shorter hold. No eligible arm means NO_WINNER. This shared-cash comparison is a
+research-only diagnostic and does not change the operational target of one
+independently traded symbol account at a time.
+
+The v2 G0 question is whether a minimum-hold treatment can produce a positive
+median after-cost shared-cash portfolio return while improving on a freshly
+trained H=0 PPO and keeping conservative maximum drawdown under favorable and
+adverse marks from each bar's OHLC range at or below 20%. A positive paired
+improvement alone can still leave the candidate loss-making, so it does not meet
+the profitability objective this diagnostic is screening for. The positive
+absolute-return requirement is therefore an explicit development guardrail, not
+a claim of future profitability. Its result-blind falsifiers are a nonpositive
+candidate-return median, a nonpositive paired-improvement median, incomplete
+terminal settlement, or any seed portfolio exceeding the drawdown limit.
 
 The frozen v2 account scale is exactly 100,000 USDT. The entire symbol roster
 shares that one cash balance and one portfolio value; each per-symbol target is
 expressed against that combined portfolio value. The shared portfolio's
 drawdown is the risk-control input, and the 20% limit is also checked against
-the realized equity path for every seed. Bootstrap and StudyPlan validation
+the conservative OHLC high/low stress drawdown for every seed. Favorable marks
+establish each bar's peak before adverse marks measure the stress drawdown. OHLC
+does not reveal the intrabar price order, so this screen is not a reconstructed
+realized equity path. Bootstrap and StudyPlan validation
 reject any other starting capital because order minima, quantity rounding, and
 capacity can otherwise change the fills under the same protocol identity.
 
@@ -235,22 +253,24 @@ re-entry while any quantity remains.
 The evaluation layer also exposes a distinct `run_shared_cash_replay` path that
 can enforce per-symbol age from actual shared-book fills, then apply one
 portfolio risk projection and terminal settlement through one ledger. The
-`shared_cash_replay_ledger_v3` payload records raw/effective intents, ages,
-quantities, suppression/unlock state, and ordered before/after accounting
-transitions. The `lean_candidate_result_v10` artifact persists that complete
-interval ledger and binds its interval returns to the saved portfolio-return
-array. The loader recomputes cash, exact inventory, marks, multipliers, NAV,
-and transition balances from the persisted transitions, then checks that evidence
-against fills, corporate actions, carry, and terminal settlement. The v10
-shared-cash `metrics.max_drawdown` is recomputed from ordered accounting states,
-including bar-open gaps and intra-bar revaluation; it is not derived from the
-interval-end return series alone. Total return remains bound to the saved
-interval-return array. Controlled comparison uses this validated ledger
-drawdown for the risk gate and validates total return against the saved
-interval-return array. It must not reconstruct shared-cash drawdown from those
-interval returns. Historical v9
-ledger-v2, v8 ledger-v1/v2, and v7 digest-only artifacts retain their previous
-read contracts.
+current `shared_cash_replay_ledger_v4` payload records raw/effective intents,
+ages, quantities, suppression/unlock state, ordered before/after accounting
+transitions, and favorable/adverse OHLC stress marks. The
+`lean_candidate_result_v11` artifact persists that complete interval ledger
+and binds its interval returns to the saved portfolio-return array. The loader
+recomputes cash, exact inventory, marks, multipliers, NAV, and transition
+balances from the persisted transitions, then checks that evidence against
+fills, corporate actions, carry, and terminal settlement. The v11 shared-cash
+`metrics.max_drawdown` is recomputed from ordered accounting states and per-bar
+OHLC stress marks: favorable marks establish peaks before adverse marks measure
+drawdown, including after each fill. Because OHLC omits intrabar price order,
+this is a conservative range stress, not realized-path reconstruction. Total
+return remains bound to the saved interval-return array. Controlled comparison
+uses this validated ledger stress drawdown for the risk gate and validates total
+return against the saved interval-return array. It must not reconstruct
+shared-cash drawdown from those interval returns. Historical
+`lean_candidate_result_v10` / `shared_cash_replay_ledger_v3`, v9 ledger-v2, v8
+ledger-v1/v2, and v7 digest-only artifacts retain their previous read contracts.
 Same-market training/replay parity and an independently hand-calculated
 multi-symbol cash/cost oracle exercise this boundary. The candidate-run loader
 does not reopen Dataset source rows from its digest, so internal artifact

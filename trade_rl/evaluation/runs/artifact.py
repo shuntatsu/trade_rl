@@ -57,6 +57,7 @@ _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
 _RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
 _RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
 _RESULT_SCHEMA_V10 = "lean_candidate_result_v10"
+_RESULT_SCHEMA_V11 = "lean_candidate_result_v11"
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -69,6 +70,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
         _RESULT_SCHEMA_V10,
+        _RESULT_SCHEMA_V11,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -127,6 +129,7 @@ class LoadedCandidateRun:
             _RESULT_SCHEMA_V8,
             _RESULT_SCHEMA_V9,
             _RESULT_SCHEMA_V10,
+            _RESULT_SCHEMA_V11,
         }:
             return False
         evaluation = self.summary.get("evaluation")
@@ -174,6 +177,7 @@ class LoadedCandidateRun:
             _RESULT_SCHEMA_V8,
             _RESULT_SCHEMA_V9,
             _RESULT_SCHEMA_V10,
+            _RESULT_SCHEMA_V11,
         }:
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
@@ -259,10 +263,10 @@ def _evaluation_payload(result: CandidateRunResult) -> dict[str, object]:
             settle_terminal_position=config.ppo_settle_terminal_position,
         )
         ledger = result.comparison.shared_cash_ppo.replay.ledger_evidence
-        if (
-            ledger is not None
-            and ledger.schema_version == "shared_cash_replay_ledger_v3"
-        ):
+        if ledger is not None and ledger.schema_version in {
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        }:
             payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
     return payload
 
@@ -363,15 +367,22 @@ def _result_payload(
 
     summary: dict[str, object] = {
         "schema_version": (
-            _RESULT_SCHEMA_V10
+            _RESULT_SCHEMA_V11
             if result.comparison.shared_cash_ppo is not None
             and result.comparison.shared_cash_ppo.replay.ledger_evidence is not None
             and result.comparison.shared_cash_ppo.replay.ledger_evidence.schema_version
-            == "shared_cash_replay_ledger_v3"
+            == "shared_cash_replay_ledger_v4"
             else (
-                _RESULT_SCHEMA_V9
+                _RESULT_SCHEMA_V10
                 if result.comparison.shared_cash_ppo is not None
-                else _RESULT_SCHEMA_V6
+                and result.comparison.shared_cash_ppo.replay.ledger_evidence is not None
+                and result.comparison.shared_cash_ppo.replay.ledger_evidence.schema_version
+                == "shared_cash_replay_ledger_v3"
+                else (
+                    _RESULT_SCHEMA_V9
+                    if result.comparison.shared_cash_ppo is not None
+                    else _RESULT_SCHEMA_V6
+                )
             )
         ),
         "ppo_observation": ppo_observation_contract_payload(
@@ -669,6 +680,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
         _RESULT_SCHEMA_V10,
+        _RESULT_SCHEMA_V11,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -719,6 +731,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V8,
         _RESULT_SCHEMA_V9,
         _RESULT_SCHEMA_V10,
+        _RESULT_SCHEMA_V11,
     }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
@@ -1163,7 +1176,11 @@ def _validate_v7_replay_evidence(
     if ledger["schema_version"] not in {
         "shared_cash_replay_ledger_v1",
         "shared_cash_replay_ledger_v2",
-        *(("shared_cash_replay_ledger_v3",) if strict_ledger_semantics else ()),
+        *(
+            ("shared_cash_replay_ledger_v3", "shared_cash_replay_ledger_v4")
+            if strict_ledger_semantics
+            else ()
+        ),
     }:
         raise ValueError("candidate shared-cash ledger schema is unsupported")
     digest = ledger["digest"]
@@ -1235,7 +1252,10 @@ def _validate_shared_cash_ledger_payload(
     }
     if schema == "shared_cash_replay_ledger_v2":
         expected_fields.add("decisions")
-    elif schema == "shared_cash_replay_ledger_v3":
+    elif schema in {
+        "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
+    }:
         expected_fields.update(
             {"contract_multipliers", "decisions", "initial_mark_prices"}
         )
@@ -1247,7 +1267,10 @@ def _validate_shared_cash_ledger_payload(
         raise ValueError(
             "candidate shared-cash ledger dataset identity is inconsistent"
         )
-    if schema == "shared_cash_replay_ledger_v3":
+    if schema in {
+        "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
+    }:
         for field in ("contract_multipliers", "initial_mark_prices"):
             values = payload[field]
             if (
@@ -1322,7 +1345,10 @@ def _validate_shared_cash_ledger_payload(
         "turnover_total_after",
         "turnover_total_before",
     }
-    if schema == "shared_cash_replay_ledger_v3":
+    if schema in {
+        "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
+    }:
         interval_fields.add("accounting_transitions")
     previous_next_index = start
     for interval in intervals:
@@ -1353,9 +1379,10 @@ def _validate_shared_cash_ledger_payload(
         for field in ("order_events", "capacity_events", "funding_events"):
             if not isinstance(interval[field], (list, tuple)):
                 raise ValueError("candidate shared-cash ledger events are malformed")
-        if schema == "shared_cash_replay_ledger_v3" and not isinstance(
-            interval["accounting_transitions"], (list, tuple)
-        ):
+        if schema in {
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        } and not isinstance(interval["accounting_transitions"], (list, tuple)):
             raise ValueError(
                 "candidate shared-cash accounting transitions are malformed"
             )
@@ -1423,6 +1450,7 @@ def _validate_shared_cash_ledger_payload(
     if schema in {
         "shared_cash_replay_ledger_v2",
         "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
     }:
         decisions = payload["decisions"]
         if (
@@ -1971,7 +1999,11 @@ def _validate_v10_accounting_transitions(
     intervals: Sequence[object],
     symbols: Sequence[object],
     summary: Mapping[str, object],
+    require_ohlc_stress: bool = False,
 ) -> None:
+    require_ohlc_stress = require_ohlc_stress or (
+        payload.get("schema_version") == "shared_cash_replay_ledger_v4"
+    )
     initial_marks = _finite_positive_vector(
         payload.get("initial_mark_prices"),
         size=len(symbols),
@@ -2062,6 +2094,9 @@ def _validate_v10_accounting_transitions(
         processing_interest_seen = False
         processing_borrow_seen = False
         funding_mark_seen = False
+        ohlc_stress_phases: list[str] = []
+        ohlc_stress_fill_sequences: set[int] = set()
+        pending_fill_stress_sequence: int | None = None
 
         for sequence, raw_transition in enumerate(raw_transitions):
             transition = _accounting_transition_mapping(raw_transition)
@@ -2077,6 +2112,12 @@ def _validate_v10_accounting_transitions(
                 raise ValueError(
                     "candidate v10 accounting transition type is malformed"
                 )
+            if (
+                require_ohlc_stress
+                and pending_fill_stress_sequence is not None
+                and transition_type != "ohlc_drawdown_stress"
+            ):
+                raise ValueError("candidate v11 post-fill OHLC stress is missing")
             transition_types.append(transition_type)
             state_before = _accounting_state_mapping(
                 transition["state_before"], size=len(symbols)
@@ -2198,6 +2239,189 @@ def _validate_v10_accounting_transitions(
                 expected_marks = _finite_positive_vector(
                     evidence["mark_prices"], size=len(symbols), field="mark prices"
                 )
+            elif transition_type == "ohlc_drawdown_stress":
+                if not require_ohlc_stress:
+                    raise ValueError(
+                        "candidate v10 accounting transition type is unsupported"
+                    )
+                phase = evidence["phase"]
+                if phase == "pre_fill":
+                    _require_evidence_fields(
+                        evidence,
+                        {
+                            "adverse_prices",
+                            "favorable_prices",
+                            "high_prices",
+                            "low_prices",
+                            "phase",
+                        },
+                    )
+                    if (
+                        not open_mark_seen
+                        or dividend_seen
+                        or fill_sequences
+                        or ohlc_stress_phases
+                    ):
+                        raise ValueError(
+                            "candidate v11 pre-fill OHLC stress order is inconsistent"
+                        )
+                elif phase == "after_fill":
+                    _require_evidence_fields(
+                        evidence,
+                        {
+                            "adverse_prices",
+                            "fill_event_sequence",
+                            "favorable_prices",
+                            "high_prices",
+                            "low_prices",
+                            "phase",
+                        },
+                    )
+                    fill_event_sequence = evidence["fill_event_sequence"]
+                    fill_event = (
+                        parsed_events.get(fill_event_sequence)
+                        if isinstance(fill_event_sequence, int)
+                        and not isinstance(fill_event_sequence, bool)
+                        else None
+                    )
+                    if (
+                        not open_mark_seen
+                        or dividend_seen
+                        or funding_mark_seen
+                        or not ohlc_stress_phases
+                        or ohlc_stress_phases[0] != "pre_fill"
+                        or any(
+                            previous_phase != "after_fill"
+                            for previous_phase in ohlc_stress_phases[1:]
+                        )
+                        or isinstance(fill_event_sequence, bool)
+                        or not isinstance(fill_event_sequence, int)
+                        or pending_fill_stress_sequence != fill_event_sequence
+                        or fill_event_sequence not in fill_sequences
+                        or fill_event_sequence in ohlc_stress_fill_sequences
+                        or fill_event is None
+                        or fill_event.event_type not in {"filled", "partial_fill"}
+                        or fill_event.processing_index != processing_index
+                    ):
+                        raise ValueError(
+                            "candidate v11 OHLC stress fill event link is inconsistent"
+                        )
+                    ohlc_stress_fill_sequences.add(fill_event_sequence)
+                    pending_fill_stress_sequence = None
+                elif phase == "post_fill":
+                    _require_evidence_fields(
+                        evidence,
+                        {
+                            "adverse_prices",
+                            "favorable_prices",
+                            "high_prices",
+                            "low_prices",
+                            "phase",
+                        },
+                    )
+                    if (
+                        not funding_mark_seen
+                        or not ohlc_stress_phases
+                        or ohlc_stress_phases[0] != "pre_fill"
+                        or any(
+                            previous_phase != "after_fill"
+                            for previous_phase in ohlc_stress_phases[1:]
+                        )
+                        or pending_fill_stress_sequence is not None
+                    ):
+                        raise ValueError(
+                            "candidate v11 post-fill OHLC stress order is inconsistent"
+                        )
+                else:
+                    raise ValueError("candidate v11 OHLC stress phase is malformed")
+                if not _accounting_states_match(state_before, state_after):
+                    raise ValueError(
+                        "candidate v11 OHLC stress changed the account state"
+                    )
+                highs = _finite_positive_vector(
+                    evidence["high_prices"],
+                    size=len(symbols),
+                    field="OHLC stress highs",
+                )
+                lows = _finite_positive_vector(
+                    evidence["low_prices"],
+                    size=len(symbols),
+                    field="OHLC stress lows",
+                )
+                if any(low > high for low, high in zip(lows, highs, strict=True)):
+                    raise ValueError("candidate v11 OHLC stress range is invalid")
+                adverse_prices = _finite_positive_vector(
+                    evidence["adverse_prices"],
+                    size=len(symbols),
+                    field="OHLC adverse prices",
+                )
+                favorable_prices = _finite_positive_vector(
+                    evidence["favorable_prices"],
+                    size=len(symbols),
+                    field="OHLC favorable prices",
+                )
+                expected_adverse_prices = tuple(
+                    low if quantity > 0 else high if quantity < 0 else mark
+                    for quantity, low, high, mark in zip(
+                        quantities_before,
+                        lows,
+                        highs,
+                        marks_before,
+                        strict=True,
+                    )
+                )
+                if any(
+                    not _numbers_are_close(actual, expected)
+                    for actual, expected in zip(
+                        adverse_prices, expected_adverse_prices, strict=True
+                    )
+                ):
+                    raise ValueError(
+                        "candidate v11 OHLC adverse prices are inconsistent"
+                    )
+                expected_favorable_prices = tuple(
+                    high if quantity > 0 else low if quantity < 0 else mark
+                    for quantity, low, high, mark in zip(
+                        quantities_before,
+                        lows,
+                        highs,
+                        marks_before,
+                        strict=True,
+                    )
+                )
+                if any(
+                    not _numbers_are_close(actual, expected)
+                    for actual, expected in zip(
+                        favorable_prices, expected_favorable_prices, strict=True
+                    )
+                ):
+                    raise ValueError(
+                        "candidate v11 OHLC favorable prices are inconsistent"
+                    )
+                stressed_value = _accounting_nav(
+                    (
+                        cash_before,
+                        quantities_before,
+                        adverse_prices,
+                        state_multipliers,
+                    )
+                )
+                favorable_value = _accounting_nav(
+                    (
+                        cash_before,
+                        quantities_before,
+                        favorable_prices,
+                        state_multipliers,
+                    )
+                )
+                peak_value = max(peak_value, max(favorable_value, 0.0))
+                maximum_drawdown = max(
+                    maximum_drawdown,
+                    1.0
+                    - max(stressed_value, 0.0)
+                    / max(peak_value, float(np.finfo(np.float64).tiny)),
+                )
+                ohlc_stress_phases.append(cast(str, phase))
             elif transition_type == "fill":
                 if not open_mark_seen or dividend_seen:
                     raise ValueError(
@@ -2231,6 +2455,7 @@ def _validate_v10_accounting_transitions(
                     isinstance(event_sequence, bool)
                     or not isinstance(event_sequence, int)
                     or event_sequence in fill_sequences
+                    or pending_fill_stress_sequence is not None
                 ):
                     raise ValueError(
                         "candidate v10 accounting fill event link is malformed"
@@ -2338,6 +2563,8 @@ def _validate_v10_accounting_transitions(
                         "candidate v10 accounting fill event link is inconsistent"
                     )
                 fill_sequences.add(event_sequence)
+                if require_ohlc_stress:
+                    pending_fill_stress_sequence = event_sequence
                 old_quantity = quantities_before[symbol_index]
                 if has_exact_fill_evidence:
                     if applied_fill_quantity is None:
@@ -2669,6 +2896,19 @@ def _validate_v10_accounting_transitions(
             or transition_types.count("dividend") != 1
             or not processing_interest_seen
             or not processing_borrow_seen
+            or (
+                require_ohlc_stress
+                and (
+                    ohlc_stress_phases
+                    != [
+                        "pre_fill",
+                        *("after_fill" for _ in fill_sequences),
+                        "post_fill",
+                    ]
+                    or ohlc_stress_fill_sequences != fill_sequences
+                    or pending_fill_stress_sequence is not None
+                )
+            )
         ):
             raise ValueError(
                 "candidate v10 accounting transition coverage is incomplete"
@@ -3093,6 +3333,43 @@ def _validate_v10_replay_evidence(summary: Mapping[str, object]) -> None:
     )
 
 
+def _validate_v11_replay_evidence(summary: Mapping[str, object]) -> None:
+    _validate_v7_replay_evidence(
+        summary,
+        require_ledger_payload=True,
+        strict_ledger_semantics=True,
+    )
+    portfolio = summary.get("shared_cash_ppo")
+    ledger = (
+        portfolio.get("ledger_evidence") if isinstance(portfolio, Mapping) else None
+    )
+    if not isinstance(ledger, Mapping) or ledger.get("schema_version") != (
+        "shared_cash_replay_ledger_v4"
+    ):
+        raise ValueError("candidate v11 shared-cash ledger schema must be v4")
+    payload = ledger.get("payload")
+    symbols = summary.get("symbols")
+    intervals = payload.get("intervals") if isinstance(payload, Mapping) else None
+    if (
+        not isinstance(payload, Mapping)
+        or not isinstance(symbols, list)
+        or not isinstance(intervals, (list, tuple))
+    ):
+        raise ValueError("candidate v11 accounting evidence is malformed")
+    _validate_v10_accounting_transitions(
+        payload=payload,
+        intervals=intervals,
+        symbols=symbols,
+        summary=summary,
+        require_ohlc_stress=True,
+    )
+    _validate_v10_decision_content(
+        payload=payload,
+        intervals=intervals,
+        summary=summary,
+    )
+
+
 def _validate_v10_decision_content(
     *,
     payload: Mapping[str, object],
@@ -3466,7 +3743,10 @@ def _validate_v7_return_coverage(
         maximum_drawdown = max(maximum_drawdown, 1.0 - wealth / peak)
     total_return = wealth - 1.0
     checked_metrics = [("total_return", total_return)]
-    if summary.get("schema_version") != _RESULT_SCHEMA_V10:
+    if summary.get("schema_version") not in {
+        _RESULT_SCHEMA_V10,
+        _RESULT_SCHEMA_V11,
+    }:
         checked_metrics.append(("max_drawdown", maximum_drawdown))
     for field, actual in checked_metrics:
         reported = metrics.get(field)
@@ -3544,6 +3824,9 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V10:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v10_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V11:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        _validate_v11_replay_evidence(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -3563,6 +3846,9 @@ def _load_with_evidence(
         _validate_v7_return_coverage(summary, returns)
         _validate_v9_interval_return_binding(summary, returns)
     if result_schema == _RESULT_SCHEMA_V10:
+        _validate_v7_return_coverage(summary, returns)
+        _validate_v9_interval_return_binding(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V11:
         _validate_v7_return_coverage(summary, returns)
         _validate_v9_interval_return_binding(summary, returns)
     loaded = LoadedCandidateRun(

@@ -361,11 +361,13 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_ledger_and_intrabar_dr
     close = np.full(dataset.close.shape, 100.0, dtype=np.float64)
     open_prices = close.copy()
     open_prices[5, 0] = 60.0
+    low_prices = np.minimum(open_prices, close)
+    low_prices[5, 0] = 40.0
     dataset = replace(
         dataset,
         open=open_prices,
         high=np.maximum(open_prices, close),
-        low=np.minimum(open_prices, close),
+        low=low_prices,
         close=close,
         mark_price=close.copy(),
     )
@@ -465,17 +467,17 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_ledger_and_intrabar_dr
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
 
     assert loaded.has_verified_full_evaluation_coverage
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v10"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v11"
     portfolio = loaded.summary["shared_cash_ppo"]
     assert portfolio["name"] == "ppo"
     assert portfolio["final_portfolio_value"] == 1_000.0
-    assert portfolio["metrics"]["max_drawdown"] == pytest.approx(0.2)
+    assert portfolio["metrics"]["max_drawdown"] == pytest.approx(0.3)
     assert portfolio["terminal_settlement_complete"] is True
     assert portfolio["ledger_evidence"]["interval_count"] == 4
     assert len(portfolio["ledger_evidence"]["digest"]) == 64
     ledger_payload = portfolio["ledger_evidence"]["payload"]
     assert content_digest(ledger_payload) == portfolio["ledger_evidence"]["digest"]
-    assert ledger_payload["schema_version"] == "shared_cash_replay_ledger_v3"
+    assert ledger_payload["schema_version"] == "shared_cash_replay_ledger_v4"
     transitions = [
         transition
         for interval in ledger_payload["intervals"]
@@ -487,7 +489,7 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_ledger_and_intrabar_dr
         for transition in transitions
     )
     assert len(ledger_payload["intervals"]) == 4
-    assert ledger_payload["final_max_drawdown"] == pytest.approx(0.2)
+    assert ledger_payload["final_max_drawdown"] == pytest.approx(0.3)
     assert (
         len(ledger_payload["decisions"])
         == portfolio["ledger_evidence"]["decision_count"]
@@ -1304,7 +1306,7 @@ def test_v10_shared_cash_ledger_records_ordered_accounting_transitions(
 
     assert replay.ledger_evidence is not None
     ledger = replay.ledger_evidence.to_mapping()
-    assert ledger["schema_version"] == "shared_cash_replay_ledger_v3"
+    assert ledger["schema_version"] == "shared_cash_replay_ledger_v4"
     transitions = [
         transition
         for interval in ledger["intervals"]
@@ -1333,6 +1335,28 @@ def test_v10_shared_cash_ledger_records_ordered_accounting_transitions(
             "shared_cash_ppo": {"metrics": {"max_drawdown": replay.book.max_drawdown}},
         },
     )
+    if scenario == "split":
+        forged_ledger = deepcopy(ledger)
+        fill_stress = next(
+            transition
+            for interval in forged_ledger["intervals"]
+            for transition in interval["accounting_transitions"]
+            if transition["transition_type"] == "ohlc_drawdown_stress"
+            and transition["evidence"]["phase"] == "after_fill"
+        )
+        fill_stress["evidence"]["fill_event_sequence"] += 1000
+        with pytest.raises(ValueError, match="OHLC stress fill event link"):
+            candidate_artifact._validate_v10_accounting_transitions(
+                payload=forged_ledger,
+                intervals=forged_ledger["intervals"],
+                symbols=dataset.symbols,
+                summary={
+                    "evaluation": {"initial_capital": 1_000.0},
+                    "shared_cash_ppo": {
+                        "metrics": {"max_drawdown": replay.book.max_drawdown}
+                    },
+                },
+            )
     if scenario == "split":
         forged_ledger = deepcopy(ledger)
         fill_interval = next(
@@ -1434,6 +1458,13 @@ def test_v10_shared_cash_ledger_rejects_unexplained_mark_jump() -> None:
             evidence["mark_prices"] = tuple(
                 value * 0.5 for value in evidence["mark_prices"]
             )
+        if transition["transition_type"] == "ohlc_drawdown_stress":
+            evidence["adverse_prices"] = tuple(
+                value * 0.5 for value in evidence["adverse_prices"]
+            )
+            evidence["favorable_prices"] = tuple(
+                value * 0.5 for value in evidence["favorable_prices"]
+            )
     for event in later_interval["funding_events"]:
         event["mark_prices"] = tuple(value * 0.5 for value in event["mark_prices"])
 
@@ -1444,6 +1475,62 @@ def test_v10_shared_cash_ledger_rejects_unexplained_mark_jump() -> None:
             symbols=dataset.symbols,
             summary={"evaluation": {"initial_capital": 1_000.0}},
         )
+
+
+def test_v10_shared_cash_ledger_v3_accepts_fill_without_ohlc_stress() -> None:
+    dataset = market()
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.5,
+            max_turnover=None,
+            drawdown_start=0.5,
+            drawdown_stop=0.9,
+        )
+    )
+    replay = run_shared_cash_replay(
+        dataset,
+        tuple(ConstantIntentStrategy(PositionIntent.LONG) for _ in dataset.symbols),
+        start_index=4,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        minimum_hold_bars=0,
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    assert replay.ledger_evidence is not None
+    ledger = deepcopy(replay.ledger_evidence.to_mapping())
+    ledger["schema_version"] = "shared_cash_replay_ledger_v3"
+    intervals = ledger["intervals"]
+    fill_count = 0
+    for interval in intervals:
+        interval["accounting_transitions"] = [
+            transition
+            for transition in interval["accounting_transitions"]
+            if transition["transition_type"] != "ohlc_drawdown_stress"
+        ]
+        fill_count += sum(
+            transition["transition_type"] == "fill"
+            for transition in interval["accounting_transitions"]
+        )
+        for sequence, transition in enumerate(interval["accounting_transitions"]):
+            transition["sequence"] = sequence
+
+    assert fill_count > 0
+    candidate_artifact._validate_v10_accounting_transitions(
+        payload=ledger,
+        intervals=intervals,
+        symbols=dataset.symbols,
+        summary={
+            "evaluation": {"initial_capital": 1_000.0},
+            "shared_cash_ppo": {"metrics": {"max_drawdown": replay.book.max_drawdown}},
+        },
+    )
 
 
 def test_v10_shared_cash_ledger_requires_termination_flatten_evidence() -> None:

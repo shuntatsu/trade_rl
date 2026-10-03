@@ -90,19 +90,21 @@ complete per-interval shared-cash ledger; its loader checks ledger digest and
 coverage, while comparison schema v4 recomputes each seed's combined return /
 drawdown and selects on shared-cash results rather than averaging symbol
 accounts. Mocked bootstrap and full Study-lifecycle tests exercise this path.
-Candidate Run v10 with ledger v3 preserves the exact accepted fill quantity,
+Candidate Run v11 with ledger v4 preserves the exact accepted fill quantity,
 lot allocation, and exact quantity delta applied by the book alongside the
 float order-event projection. The loader validates no-lot full closes, where
 the applied delta consumes the exact position even if the projected fill leaves
 a tiny rational residual, and remains compatible with earlier v10 evidence.
-Termination flatten evidence is also required for non-flat margin-call closure. Shared-cash
-`metrics.max_drawdown` is recomputed from ordered transition states, so it
-includes bar-open price gaps and intra-bar revaluation that an interval-end
-return series alone cannot capture. Total return remains bound to the saved
-interval returns. The controlled comparison now carries the loader-validated
-ledger drawdown into the shared-account 20% eligibility gate instead of
-reconstructing it from interval returns. A regression covers a 25% intra-bar
-drawdown when interval returns imply only 10%. The
+Termination flatten evidence is also required for non-flat margin-call closure.
+Shared-cash `metrics.max_drawdown` uses ordered OHLC stress transitions: for
+each bar, favorable marks establish the peak before adverse marks measure the
+drawdown, and a stress record follows every fill. A long uses the high for its
+favorable mark and the low for its adverse mark; shorts use the reverse. OHLC
+does not reveal intrabar price order, so this is a conservative range stress,
+not a reconstructed realized path. Total return remains bound to saved interval
+returns. The controlled comparison carries the loader-validated ledger stress
+drawdown into the shared-account 20% eligibility gate. A regression covers a
+25% OHLC stress drawdown when interval returns imply only 10%. The
 capital-boundary and full-ledger artifact tests, same-market PPO training/replay
 parity test, and independently hand-calculated multi-symbol cash/cost oracle
 pass locally. A source-row mutation oracle now rejects a shared-cash ledger when
@@ -113,7 +115,29 @@ and elapsed carry time to their Dataset rows. It also recomputes the canonical
 Dataset identity across all identity arrays; tests cover changes to volume,
 maximum participation, per-row fees, and closing prices. A fresh exact-head
 result-blind G0-G2 review and the repository quality gates are still required.
-No v2 fit or economic replay has been run. The previous sealed
+The v2 selector also requires the median absolute candidate portfolio return
+to be positive, the median paired excess versus H=0 to be positive, complete
+terminal settlement, and conservative maximum drawdown under favorable and
+adverse marks from each bar's OHLC range at or below 20% for every seed.
+Paired improvement alone can still leave an arm loss-making after costs, so it
+does not answer the development question of whether the holding period produces
+positive portfolio profit. The absolute-return threshold is a screening
+guardrail, not evidence of future profitability.
+This shared-cash comparison is a research-only evaluation diagnostic; the
+operational target remains one independently traded symbol account at a time.
+On 2026-10-03, the canonical v6 bootstrap passed network-free inspection. Its
+bootstrap digest is
+`8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464`, its
+Dataset ID is
+`1f484ab2d294fa01890417036fd79f13f6bcdad8d8dd3e74d3013cf817bd7f57`, its
+Dataset artifact digest is
+`36ab05b9c9ea963408cf05b997273dd9bbe89c127904cacf1ff9e68c2b8dc173`, and its
+StudyPlan digest is
+`c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d`. The
+workspace-only packet is at
+`report/ppo-shared-cash-canonical-v6-20261003/`; its Study directory contains
+only the immutable plan, and no baseline or experiments were published. No v2 fit or economic
+replay has been run. The previous sealed
 one-shot normalization run 36356182462 completed all ten execution slots, but
 independent verification failed because a fresh bundle replay differed from its
 published result. Finalization was skipped and no verified comparison was

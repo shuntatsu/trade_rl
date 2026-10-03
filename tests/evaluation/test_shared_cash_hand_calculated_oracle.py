@@ -23,6 +23,15 @@ class _AlwaysLong:
         return PositionIntent.LONG
 
 
+@dataclass
+class _FixedIntent:
+    intent: PositionIntent
+
+    def decide(self, observation: object) -> PositionIntent:
+        del observation
+        return self.intent
+
+
 def _two_symbol_market() -> MarketDataset:
     close = np.asarray(
         [
@@ -57,6 +66,219 @@ def _two_symbol_market() -> MarketDataset:
         periods_per_year=8_760,
         mark_price=close.copy(),
     )
+
+
+@pytest.mark.parametrize(
+    ("intent", "adverse_field", "adverse_price"),
+    (
+        (PositionIntent.LONG, "low", 10.0),
+        (PositionIntent.SHORT, "high", 190.0),
+    ),
+)
+def test_shared_cash_drawdown_captures_adverse_ohlc_excursion(
+    intent: PositionIntent,
+    adverse_field: str,
+    adverse_price: float,
+) -> None:
+    base = _two_symbol_market()
+    close = np.tile(np.asarray((100.0, 200.0)), (base.n_bars, 1))
+    open_price = close.copy()
+    high = close.copy()
+    low = close.copy()
+    if adverse_field == "low":
+        low[1, 0] = adverse_price
+    else:
+        high[1, 0] = adverse_price
+    dataset = replace(
+        base,
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        mark_price=close.copy(),
+        identity_payload_json=None,
+    )
+
+    result = run_shared_cash_replay(
+        dataset,
+        (_FixedIntent(intent), _FixedIntent(PositionIntent.FLAT)),
+        start_index=0,
+        stop_index=1,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=0.75,
+                max_abs_weight=0.5,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    assert result.book.quantities[0] == pytest.approx(intent.value * 2.5)
+    assert result.book.max_drawdown == pytest.approx(0.225)
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+    assert result.book.mark_prices[0] == pytest.approx(100.0)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert ledger.schema_version == "shared_cash_replay_ledger_v4"
+    stress_transitions = [
+        transition
+        for interval in ledger.intervals
+        for transition in interval.accounting_transitions
+        if transition.transition_type == "ohlc_drawdown_stress"
+    ]
+    fill_sequences = {
+        event.sequence
+        for interval in ledger.intervals
+        for event in interval.order_events
+        if event.event_type in {"filled", "partial_fill"}
+    }
+    after_fill_transitions = [
+        transition
+        for transition in stress_transitions
+        if transition.evidence["phase"] == "after_fill"
+    ]
+    assert len(stress_transitions) == 2 + len(fill_sequences)
+    assert [transition.evidence["phase"] for transition in stress_transitions] == [
+        "pre_fill",
+        *("after_fill" for _ in fill_sequences),
+        "post_fill",
+    ]
+    assert {
+        transition.evidence["fill_event_sequence"]
+        for transition in after_fill_transitions
+    } == fill_sequences
+    assert stress_transitions[0].evidence["low_prices"] == tuple(low[1])
+    assert stress_transitions[0].evidence["high_prices"] == tuple(high[1])
+
+
+def test_shared_cash_source_binding_checks_ohlc_fill_event_link() -> None:
+    dataset = _two_symbol_market().with_content_identity()
+    result = run_shared_cash_replay(
+        dataset,
+        (_AlwaysLong(), _AlwaysLong()),
+        start_index=0,
+        stop_index=1,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=0.75,
+                max_abs_weight=0.5,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    ledger_payload = ledger.to_mapping()
+    candidate_summary = {
+        "dataset_id": dataset.dataset_id,
+        "dataset_artifact": {"artifact_digest": "d" * 64},
+        "shared_cash_ppo": {
+            "ledger_evidence": {
+                "schema_version": ledger.schema_version,
+                "payload": ledger_payload,
+            }
+        },
+    }
+    _validate_shared_cash_candidate_source_binding(
+        candidate_summary=candidate_summary,
+        dataset=dataset,
+        expected_dataset_artifact_digest="d" * 64,
+    )
+
+    forged_payload = ledger.to_mapping()
+    forged_interval = next(
+        interval
+        for interval in forged_payload["intervals"]
+        if any(
+            transition["transition_type"] == "ohlc_drawdown_stress"
+            and transition["evidence"]["phase"] == "after_fill"
+            for transition in interval["accounting_transitions"]
+        )
+    )
+    stress = next(
+        transition
+        for transition in forged_interval["accounting_transitions"]
+        if transition["transition_type"] == "ohlc_drawdown_stress"
+        and transition["evidence"]["phase"] == "after_fill"
+    )
+    stress["evidence"]["fill_event_sequence"] += 1000
+    forged_summary = {
+        **candidate_summary,
+        "shared_cash_ppo": {
+            "ledger_evidence": {
+                "schema_version": ledger.schema_version,
+                "payload": forged_payload,
+            }
+        },
+    }
+
+    with pytest.raises(ArtifactIntegrityError, match="OHLC stress fill link"):
+        _validate_shared_cash_candidate_source_binding(
+            candidate_summary=forged_summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest="d" * 64,
+        )
+
+
+def test_shared_cash_ohlc_stress_counts_intrabar_favorable_peak() -> None:
+    base = _two_symbol_market()
+    close = np.tile(np.asarray((100.0, 200.0)), (base.n_bars, 1))
+    high = close.copy()
+    low = close.copy()
+    high[1, 0] = 120.0
+    low[1, 0] = 90.0
+    dataset = replace(
+        base,
+        open=close.copy(),
+        high=high,
+        low=low,
+        close=close,
+        mark_price=close.copy(),
+        identity_payload_json=None,
+    )
+
+    result = run_shared_cash_replay(
+        dataset,
+        (_FixedIntent(PositionIntent.LONG), _FixedIntent(PositionIntent.FLAT)),
+        start_index=0,
+        stop_index=1,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=0.75,
+                max_abs_weight=0.5,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    # The long position's 2.5 units produce a $1,050 favorable extreme and a
+    # $975 adverse extreme. The conservative OHLC stress drawdown is 75 / 1050.
+    assert result.book.max_drawdown == pytest.approx(75.0 / 1_050.0)
 
 
 def test_shared_cash_terminal_cash_and_cost_match_hand_calculation() -> None:
@@ -464,7 +686,7 @@ def test_shared_cash_source_binding_rejects_changed_accounting_source_rows(
 
 @pytest.mark.parametrize(
     "source_field",
-    ("volume", "max_participation_rate", "fee_rate", "close"),
+    ("volume", "max_participation_rate", "fee_rate", "close", "high", "low"),
 )
 def test_shared_cash_source_binding_rejects_changed_dataset_identity_rows(
     source_field: str,
@@ -473,6 +695,8 @@ def test_shared_cash_source_binding_rejects_changed_dataset_identity_rows(
     changed_values = getattr(dataset, source_field).copy()
     if source_field == "max_participation_rate":
         changed_values[2, 0] = max(0.01, changed_values[2, 0] * 0.5)
+    elif source_field == "low":
+        changed_values[2, 0] *= 0.99
     else:
         changed_values[2, 0] += 0.01
     changes: dict[str, object] = {source_field: changed_values}
@@ -486,7 +710,10 @@ def test_shared_cash_source_binding_rejects_changed_dataset_identity_rows(
 
     with pytest.raises(
         ArtifactIntegrityError,
-        match="candidate source Dataset content identity mismatch",
+        match=(
+            "candidate (ledger does not match source (high|low) row at index 2|"
+            "source Dataset content identity mismatch)"
+        ),
     ):
         _validate_shared_cash_candidate_source_binding(
             candidate_summary=candidate_summary,

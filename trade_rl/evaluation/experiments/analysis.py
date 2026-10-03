@@ -127,27 +127,38 @@ def _shared_cash_ppo_metrics(run: LoadedCandidateRun) -> dict[str, object]:
         raise ArtifactIntegrityError("shared-cash PPO result is malformed")
     if values is None:
         raise ArtifactIntegrityError("shared-cash PPO return series is missing")
+    ledger_evidence = payload.get("ledger_evidence")
+    ledger_payload = (
+        ledger_evidence.get("payload") if isinstance(ledger_evidence, Mapping) else None
+    )
+    if not isinstance(ledger_payload, Mapping):
+        raise ArtifactIntegrityError("shared-cash PPO ledger evidence is missing")
+    ledger_maximum_drawdown = _require_metric_number(
+        ledger_payload, "final_max_drawdown"
+    )
+    reported_maximum_drawdown = _require_metric_number(metrics, "max_drawdown")
+    if not np.isclose(
+        reported_maximum_drawdown,
+        ledger_maximum_drawdown,
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO max_drawdown does not match its validated ledger"
+        )
     series = _return_series(values, metrics)
     wealth = 1.0
-    peak = 1.0
-    maximum_drawdown = 0.0
     for value in series.values:
         wealth *= 1.0 + value
-        peak = max(peak, wealth)
-        maximum_drawdown = max(maximum_drawdown, 1.0 - wealth / peak)
     total_return = wealth - 1.0
-    for field, actual in (
-        ("total_return", total_return),
-        ("max_drawdown", maximum_drawdown),
-    ):
-        reported = _require_metric_number(metrics, field)
-        if not np.isclose(reported, actual, rtol=1e-12, atol=1e-12):
-            raise ArtifactIntegrityError(
-                f"shared-cash PPO {field} does not match raw portfolio returns"
-            )
+    reported_total_return = _require_metric_number(metrics, "total_return")
+    if not np.isclose(reported_total_return, total_return, rtol=1e-12, atol=1e-12):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO total_return does not match raw portfolio returns"
+        )
     return {
         "total_return": total_return,
-        "max_drawdown": maximum_drawdown,
+        "max_drawdown": ledger_maximum_drawdown,
         "terminal_settlement_complete": settled,
         "n_periods": len(series.values),
     }

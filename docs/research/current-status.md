@@ -83,16 +83,69 @@ one account, with a versioned per-decision ledger. The immutable v5 StudyPlan
 above still means five independent 100,000 USDT accounts and retains that
 historical selection semantics. A new `ppo_shared_cash_holding_duration_v2`
 protocol now has a separate `canonical_m2_bootstrap_config_v6` /
-`controlled_study_plan_v6` identity. Its
-Candidate Run schema v7 persists the combined portfolio return series,
-terminal account state, and shared-ledger identity; comparison schema v4
-recomputes each seed's combined return / drawdown and selects on shared-cash
-results rather than averaging symbol accounts. Mocked bootstrap and full
-Study-lifecycle tests exercise this path. The local implementation is not yet
-cleared by the required fresh result-blind G0-G2 review, and no v2 fit or
-economic replay has been run. The previous sealed one-shot normalization run
-36356182462 completed execution but its independent verification failed, so it
-published no verified comparison. No verified PPO profitability result exists.
+`controlled_study_plan_v6` identity, and fixes the shared account scale at
+100,000 USDT in both bootstrap and StudyPlan validation. Candidate Run schema
+v8 persists the combined portfolio return series, terminal account state, and
+complete per-interval shared-cash ledger; its loader checks ledger digest and
+coverage, while comparison schema v4 recomputes each seed's combined return /
+drawdown and selects on shared-cash results rather than averaging symbol
+accounts. Mocked bootstrap and full Study-lifecycle tests exercise this path.
+Candidate Run v11 with ledger v4 preserves the exact accepted fill quantity,
+lot allocation, and exact quantity delta applied by the book alongside the
+float order-event projection. The loader validates no-lot full closes, where
+the applied delta consumes the exact position even if the projected fill leaves
+a tiny rational residual, and remains compatible with earlier v10 evidence.
+Termination flatten evidence is also required for non-flat margin-call closure.
+Shared-cash `metrics.max_drawdown` uses ordered OHLC stress transitions: for
+each bar, favorable marks establish the peak before adverse marks measure the
+drawdown, and a stress record follows every fill. A long uses the high for its
+favorable mark and the low for its adverse mark; shorts use the reverse. OHLC
+does not reveal intrabar price order, so this is a conservative range stress,
+not a reconstructed realized path. Total return remains bound to saved interval
+returns. The controlled comparison carries the loader-validated ledger stress
+drawdown into the shared-account 20% eligibility gate. A regression covers a
+25% OHLC stress drawdown when interval returns imply only 10%. This shared-cash
+stress mode is an explicit policy option, can run without accounting-evidence
+capture, and is included in the execution-policy digest. Accounting evidence
+uses ledger v4 with OHLC stress and v3 without it. Ordinary single-symbol replay
+does not apply the range stress to its drawdown or risk decisions. The
+capital-boundary and full-ledger artifact tests, same-market PPO training/replay
+parity test, and independently hand-calculated multi-symbol cash/cost oracle
+pass locally. A source-row mutation oracle now rejects a shared-cash ledger when
+accounting inputs change while the saved ledger, Dataset ID, and expected
+artifact digest remain fixed. It binds initial and interval marks, split and
+delisting terms, dividends, funding due flags and rates, cash and borrow rates,
+and elapsed carry time to their Dataset rows. It also recomputes the canonical
+Dataset identity across all identity arrays; tests cover changes to volume,
+maximum participation, per-row fees, and closing prices. A fresh exact-head
+result-blind G0-G2 review and the repository quality gates are still required.
+The v2 selector also requires the median absolute candidate portfolio return
+to be positive, the median paired excess versus H=0 to be positive, complete
+terminal settlement, and conservative maximum drawdown under favorable and
+adverse marks from each bar's OHLC range at or below 20% for every seed.
+Paired improvement alone can still leave an arm loss-making after costs, so it
+does not answer the development question of whether the holding period produces
+positive portfolio profit. The absolute-return threshold is a screening
+guardrail, not evidence of future profitability.
+This shared-cash comparison is a research-only evaluation diagnostic; the
+operational target remains one independently traded symbol account at a time.
+On 2026-10-03, the canonical v6 bootstrap passed network-free inspection. Its
+bootstrap digest is
+`8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464`, its
+Dataset ID is
+`1f484ab2d294fa01890417036fd79f13f6bcdad8d8dd3e74d3013cf817bd7f57`, its
+Dataset artifact digest is
+`36ab05b9c9ea963408cf05b997273dd9bbe89c127904cacf1ff9e68c2b8dc173`, and its
+StudyPlan digest is
+`c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d`. The
+workspace-only packet is at
+`report/ppo-shared-cash-canonical-v6-20261003/`; its Study directory contains
+only the immutable plan, and no baseline or experiments were published. No v2 fit or economic
+replay has been run. The previous sealed
+one-shot normalization run 36356182462 completed all ten execution slots, but
+independent verification failed because a fresh bundle replay differed from its
+published result. Finalization was skipped and no verified comparison was
+published. No verified PPO profitability result exists.
 
 The result-blind `ppo_holding_duration_v1` code path and focused contract tests
 are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, the new

@@ -75,6 +75,7 @@ class StudyProtocol(StrEnum):
 PPO_HOLDING_DURATION_HORIZONS = (72, 168, 336, 504)
 PPO_HOLDING_DURATION_SEED_COUNT = 5
 PPO_HOLDING_DURATION_MAX_DRAWDOWN = 0.20
+PPO_SHARED_CASH_INITIAL_CAPITAL = 100_000.0
 PPO_HOLDING_DURATION_RISK_CONFIG = PreTradeRiskConfig(
     max_gross=0.5,
     max_abs_weight=0.1,
@@ -108,8 +109,10 @@ PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE = (
     "seeds of the combined portfolio's after-cost total return. An arm is "
     "eligible only if every H=0 and candidate portfolio completes terminal "
     "settlement flat with no active order remainder, each combined portfolio's "
-    "realized maximum drawdown is at most 20%, and median paired total-return "
-    "improvement versus H=0 is positive. Select the eligible arm with the "
+    "conservative maximum drawdown under favorable and adverse marks from "
+    "each bar's OHLC range is at most 20%, the median absolute candidate "
+    "portfolio return is positive, and median paired total-return improvement "
+    "versus H=0 is positive. Select the eligible arm with the "
     "highest primary score; break exact ties toward the shorter hold. If no arm "
     "is eligible, record NO_WINNER. PPO is still trained on single-symbol "
     "episodes; shared-cash evaluation does not establish joint-portfolio "
@@ -326,6 +329,14 @@ class StudyPlan:
             ):
                 raise ContractViolationError(
                     "StudyPlan violates the PPO holding-duration protocol"
+                )
+            if (
+                protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                and self.baseline_config.initial_capital
+                != PPO_SHARED_CASH_INITIAL_CAPITAL
+            ):
+                raise ContractViolationError(
+                    "shared-cash PPO StudyPlan requires initial capital of 100,000 USDT"
                 )
             selection_rule = (
                 PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE

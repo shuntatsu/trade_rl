@@ -8,6 +8,8 @@ Trade RLの現行coreは、**causalなmarket data、1つのexecution/accounting 
 
 現在の研究目的は、**実運用では一度に1銘柄を独立accountとして売買する**一方、銘柄IDに依存しない共通strategy/model/policyを複数銘柄の学習・検証へ適用し、未知・未使用の銘柄や期間でも転用可能な汎用性を検証することである。複数銘柄のtraining dataを使うことは、複数銘柄を同時保有するshared-cash portfolioを意味しない。各銘柄への適用ではpoint-in-time情報と同一の約定・会計条件を使い、コスト控除後の結果がunused dataでも維持されるかを確認する。
 
+The `ppo_shared_cash_holding_duration_v2` comparison is a research-only diagnostic and does not change the operational target. It measures how existing single-symbol PPO policies behave when their proposals share one evaluation account; it does not establish jointly trained portfolio control.
+
 ## Core flow
 
 ```text
@@ -137,6 +139,9 @@ provided by canonical replay. Replay derives it from the actual average entry
 fill price and the current bar-close mark, signed by the filled position. It is
 a gross mark-to-fill return: fees after entry, funding, and borrow are excluded.
 Replay also supplies the exact `current_position_quantity` from the filled book.
+When an inactive asset's lifecycle settlement leaves its book quantity at zero,
+replay clears the derived fill-price tracker before the next observation. Active
+assets and non-flat quantities must still reconcile with fill events.
 Adaptive state follows that signed quantity rather than `current_intent`, which
 records the last effective target and can already be FLAT while a missed or
 partial exit leaves the book invested.
@@ -149,11 +154,53 @@ Latency, gaps, liquidity, and costs can move realized results past the threshold
 these triggers do not guarantee a profit or cap a loss.
 
 New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
-`lean_candidate_result_v7`. The artifact binds the combined return series,
-terminal cash / quantities, active-order and settlement state, and versioned
-shared-cash ledger digest; loading recomputes return and maximum drawdown from
-the return series. This provides the v2 Study's single-account comparison input
-while preserving v1 per-symbol selection semantics.
+`lean_candidate_result_v11` with `shared_cash_replay_ledger_v4`. The artifact
+binds the combined return series, terminal cash / quantities, active-order and
+settlement state, execution events, decisions, and sequence-ordered accounting
+transitions. Each transition records cash, exact quantities, marks, and
+multipliers before and after the mutation. Loading recomputes portfolio value
+from cash and marked positions, reconciles the canonical exact filled quantity
+with its order-event float projection and exact inventory delta, then reconciles
+price / notional and cash. It checks split, delisting, dividend, cash-interest,
+borrow, funding, and termination-flatten adjustments. It also verifies finite
+financial values, interval continuity, terminal summary links, return links,
+and every policy decision through the stop boundary recomputed from the frozen
+execution overlay and settlement configuration; only the replay-defined
+terminal-settlement tail may lack policy decisions. Decision outputs are
+replayed through the persisted minimum-hold and pre-trade-risk configuration
+and linked to interval execution state. The v11 shared-cash
+`metrics.max_drawdown` is recomputed from ordered accounting transitions. For
+each OHLC stress point, favorable marks establish the portfolio peak before
+adverse marks measure drawdown: a long uses the bar high as favorable and low as
+adverse, while a short uses the reverse. Because OHLC data does not record the
+intrabar price order, this is a conservative range stress estimate, not a
+reconstruction of the realized path. Total return remains checked against the
+interval-end return series. The loader recomputes balances from persisted
+transition inputs; it does not independently reopen source rows from the
+dataset digest. Historical `lean_candidate_result_v10` /
+`shared_cash_replay_ledger_v3`, v9 ledger-v2, v8 ledger-v1/v2, and v7
+digest-only artifacts remain readable under their prior contracts. This provides the v2 Study's
+single-account comparison input while preserving v1 per-symbol selection
+semantics.
+
+During shared-cash PPO EvidenceSet source binding, fill transitions are also
+checked against the frozen Dataset and registered execution overlay. The
+validator links each fill to its exact order event and execution-policy digest,
+then recomputes tick-rounded price, filled notional, source-liquidity
+participation, and fee / spread / impact cost from Dataset rows. Randomized
+slippage is rejected because this source oracle cannot reconstruct its draw.
+This evidence check does not claim exchange-live fill accuracy.
+
+OHLC stress is an explicit execution-policy option and affects replay whether
+accounting transitions are captured or not. Accounting evidence uses ledger v4
+when OHLC stress is enabled and v3 when it is disabled.
+
+The OHLC range stress is explicitly enabled for shared-cash replay and is
+independent of accounting-evidence capture. The ordinary single-symbol replay
+does not apply intrabar OHLC stress to its book or drawdown-driven risk
+decisions; its drawdown follows the replay's marked account path. The stress
+mode is included in the execution-policy digest so artifacts distinguish the
+two evaluation contracts.
 
 ### PPO training layout
 

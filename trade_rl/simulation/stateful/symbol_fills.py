@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -356,6 +357,11 @@ class StatefulSymbolFillProcessor:
                 fill_prices[symbol] = execution_price
                 valuation_prices = runtime.book.mark_prices.copy()
                 valuation_prices[symbol] = execution_price
+                fill_before = (
+                    runtime.capture_accounting_state()
+                    if executor.capture_accounting_evidence
+                    else None
+                )
                 runtime.book.execute_fill(
                     symbol_index=symbol,
                     quantity=allocation.filled_quantity,
@@ -366,7 +372,6 @@ class StatefulSymbolFillProcessor:
                     cost_amount=cost_amount,
                     turnover=(allocation.filled_notional / context.period_start_value),
                 )
-                executor._update_margin(runtime.book)
                 runtime.order_book = runtime.order_book.replace(updated)
                 runtime.append_event(
                     previous=order,
@@ -389,6 +394,45 @@ class StatefulSymbolFillProcessor:
                     available_volume_fraction=(trigger.available_volume_fraction),
                     reason=updated.terminal_reason,
                     path=order_path,
+                )
+                if fill_before is not None:
+                    accepted_quantity = accepted_fill_quantity(
+                        allocation.filled_quantity,
+                        lot_size=allocation.lot_size,
+                        lot_count=allocation.filled_lot_count,
+                    )
+                    applied_quantity = runtime.book.exact_quantities[symbol] - Fraction(
+                        fill_before.exact_quantities[symbol]
+                    )
+                    runtime.record_accounting_transition(
+                        transition_type="fill",
+                        processing_index=processing_index,
+                        state_before=fill_before,
+                        evidence={
+                            "cost_amount": float(cost_amount),
+                            "execution_price": float(execution_price),
+                            "filled_notional": float(allocation.filled_notional),
+                            "filled_quantity": float(allocation.filled_quantity),
+                            "filled_quantity_exact": str(accepted_quantity),
+                            "filled_lot_size": float(allocation.lot_size),
+                            "filled_lot_count": allocation.filled_lot_count,
+                            "book_applied_quantity_exact": str(applied_quantity),
+                            "order_id": order.order_id,
+                            "symbol_index": symbol,
+                            "turnover": float(
+                                allocation.filled_notional / context.period_start_value
+                            ),
+                        },
+                        order_event_sequence=runtime.events[-1].sequence,
+                    )
+                runtime.record_ohlc_drawdown_stress(
+                    processing_index=processing_index,
+                    phase="after_fill",
+                    fill_event_sequence=runtime.events[-1].sequence,
+                )
+                executor._update_margin(
+                    runtime.book,
+                    processing_index=processing_index,
                 )
                 runtime.total_cost += cost_amount
                 runtime.filled_notional += allocation.filled_notional

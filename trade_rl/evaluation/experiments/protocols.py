@@ -55,7 +55,8 @@ class PPOSharedCashHoldingDurationMetrics:
     @property
     def eligible(self) -> bool:
         return (
-            self.median_excess_return > 0.0
+            self.score > 0.0
+            and self.median_excess_return > 0.0
             and self.worst_max_drawdown <= PPO_HOLDING_DURATION_MAX_DRAWDOWN
             and self.terminal_settlement_complete
         )

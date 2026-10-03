@@ -133,6 +133,18 @@ def test_v6_config_round_trips_shared_cash_protocol_and_complete_ppo_baseline(
     assert config.to_payload() == payload
 
 
+def test_v6_shared_cash_protocol_rejects_unregistered_initial_capital(
+    tmp_path: Path,
+) -> None:
+    payload = _ppo_shared_cash_v6_payload()
+    baseline = payload["baseline"]
+    assert isinstance(baseline, dict)
+    baseline["initial_capital"] = 99_999.0
+
+    with pytest.raises(ValueError, match="shared-cash.*capital|capital.*100,000"):
+        load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+
 def test_v6_config_rejects_the_independent_account_protocol(
     tmp_path: Path,
 ) -> None:

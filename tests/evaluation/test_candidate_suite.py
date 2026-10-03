@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -7,12 +8,24 @@ import pytest
 
 import trade_rl.evaluation.runs.candidate_suite as candidate_suite
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
+from trade_rl.evaluation import UniversalStrategyComparison
 from trade_rl.evaluation.experiments.contracts import StudyPlan
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
+
+
+def test_universal_comparison_records_training_and_suppressed_counts() -> None:
+    comparison = UniversalStrategyComparison(
+        (),
+        ppo_training_timesteps=2048,
+        ppo_training_minimum_hold_suppressed_count=6,
+    )
+
+    assert comparison.ppo_training_timesteps == 2048
+    assert comparison.ppo_training_minimum_hold_suppressed_count == 6
+    assert comparison.shared_cash_ppo is None
 
 
 def market(*, bar_hours: int = 1) -> MarketDataset:
@@ -89,7 +102,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
 
     def fake_ppo_wrapper(*args, **kwargs):
         calls["ppo_wrapper_kwargs"] = kwargs
-        return ConstantIntentStrategy(PositionIntent.FLAT)
+        return ConstantIntentStrategy(PositionIntent.LONG)
 
     monkeypatch.setattr(candidate_suite, "PPOIntentStrategy", fake_ppo_wrapper)
 
@@ -108,6 +121,17 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         fake_compare,
     )
     dataset = market()
+    close = np.full(dataset.close.shape, 100.0, dtype=np.float64)
+    open_prices = close.copy()
+    open_prices[56, 0] = 20.0
+    dataset = replace(
+        dataset,
+        open=open_prices,
+        high=np.maximum(open_prices, close),
+        low=np.minimum(open_prices, close),
+        close=close,
+        mark_price=close.copy(),
+    )
     config = candidate_suite.LeanCandidateConfig(
         signal_index=0,
         feature_indices=(0,),
@@ -128,7 +152,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     risk = PreTradeRisk(
         PreTradeRiskConfig(
             max_gross=0.5,
-            max_abs_weight=0.1,
+            max_abs_weight=0.5,
             max_turnover=None,
             drawdown_start=0.1,
             drawdown_stop=0.2,
@@ -151,6 +175,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert result.shared_cash_ppo.name == "ppo"
     assert result.shared_cash_ppo.replay.book.portfolio_value == 1_000.0
     assert result.shared_cash_ppo.metrics.total_return == 0.0
+    assert result.shared_cash_ppo.metrics.max_drawdown == pytest.approx(0.2)
     assert result.shared_cash_ppo.replay.ledger_evidence is not None
     assert len(result.shared_cash_ppo.replay.returns.values) == 5
     assert result.ppo_training_timesteps == 512

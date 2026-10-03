@@ -68,6 +68,12 @@ def _with_shared_cash_portfolio(
             "periods_per_year": 8_760,
         },
         "terminal_settlement_complete": settled,
+        "ledger_evidence": {
+            "payload": {
+                "schema_version": "shared_cash_replay_ledger_v3",
+                "final_max_drawdown": maximum_drawdown,
+            }
+        },
     }
     returns = dict(run.returns)
     returns["shared_cash_ppo"] = np.asarray(values, dtype=np.float64)
@@ -489,6 +495,52 @@ def test_shared_cash_selector_accepts_exact_twenty_percent_drawdown() -> None:
     assert metrics.median_excess_return > 0.0
     assert metrics.terminal_settlement_complete
     assert metrics.eligible
+
+
+@pytest.mark.parametrize("candidate_portfolio_return", (-0.05, 0.0))
+def test_shared_cash_selector_rejects_nonpositive_absolute_profit(
+    candidate_portfolio_return: float,
+) -> None:
+    seeds = (0, 1, 2, 3, 4)
+    baseline = {
+        seed: _with_shared_cash_portfolio(_run(seed), (-0.10, 0.0, 0.0, 0.0))
+        for seed in seeds
+    }
+    candidate = {
+        seed: _with_shared_cash_portfolio(
+            _run(seed, candidate_shift=0.10),
+            (candidate_portfolio_return, 0.0, 0.0, 0.0),
+        )
+        for seed in seeds
+    }
+    payload = compare_evidence_sets(
+        baseline,
+        candidate,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+    comparison = ExperimentComparison(
+        study_digest="a" * 64,
+        experiment_digest="b" * 64,
+        baseline_evidence_digest="c" * 64,
+        candidate_evidence_digest="d" * 64,
+        verification_digest="e" * 64,
+        baseline_analysis_digest="f" * 64,
+        candidate_analysis_digest="1" * 64,
+        factor_effect_digest=payload["analysis_digest"],
+        factor_effect=payload,
+    )
+
+    metrics = ppo_shared_cash_holding_metrics(comparison, expected_seeds=seeds)
+
+    assert metrics.score == pytest.approx(candidate_portfolio_return)
+    assert metrics.median_excess_return == pytest.approx(
+        candidate_portfolio_return + 0.10
+    )
+    assert metrics.worst_max_drawdown <= 0.20
+    assert metrics.terminal_settlement_complete
+    assert not metrics.eligible
 
 
 def test_holding_protocol_records_incomplete_terminal_accounts() -> None:

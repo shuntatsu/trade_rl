@@ -631,6 +631,71 @@ class BookState:
 
         self._update_drawdown()
 
+    def record_ohlc_drawdown_stress(
+        self,
+        *,
+        high_prices: np.ndarray,
+        low_prices: np.ndarray,
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """Apply a conservative OHLC-envelope drawdown stress without re-marking.
+
+        OHLC does not reveal the chronological intrabar path. The stress therefore
+        pairs the portfolio's favorable price envelope with its adverse envelope;
+        it is a conservative screen, not a reconstructed realized path.
+        """
+
+        highs = _finite_vector(high_prices, field_name="high_prices")
+        lows = _finite_vector(low_prices, field_name="low_prices")
+        if (
+            highs.shape != self.quantities.shape
+            or lows.shape != self.quantities.shape
+            or np.any(highs <= 0.0)
+            or np.any(lows <= 0.0)
+            or np.any(lows > highs)
+        ):
+            raise ValueError("OHLC stress prices must match the book and be valid")
+
+        adverse_prices = self.mark_prices.copy()
+        favorable_prices = self.mark_prices.copy()
+        adverse_prices[self.quantities > 0.0] = lows[self.quantities > 0.0]
+        adverse_prices[self.quantities < 0.0] = highs[self.quantities < 0.0]
+        favorable_prices[self.quantities > 0.0] = highs[self.quantities > 0.0]
+        favorable_prices[self.quantities < 0.0] = lows[self.quantities < 0.0]
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        try:
+            stressed_value = float(self.cash) + math.fsum(
+                float(quantity) * float(price) * float(multiplier)
+                for quantity, price, multiplier in zip(
+                    self.quantities,
+                    adverse_prices,
+                    multipliers,
+                    strict=True,
+                )
+            )
+            favorable_value = float(self.cash) + math.fsum(
+                float(quantity) * float(price) * float(multiplier)
+                for quantity, price, multiplier in zip(
+                    self.quantities,
+                    favorable_prices,
+                    multipliers,
+                    strict=True,
+                )
+            )
+        except OverflowError as error:
+            raise ValueError("OHLC stress equity must remain finite") from error
+        if not math.isfinite(stressed_value) or not math.isfinite(favorable_value):
+            raise ValueError("OHLC stress equity must remain finite")
+        self.peak_value = max(self.peak_value, max(favorable_value, 0.0))
+        self.max_drawdown = max(
+            self.max_drawdown,
+            1.0 - max(stressed_value, 0.0) / max(self.peak_value, _MIN_EQUITY),
+        )
+        return (
+            tuple(float(value) for value in adverse_prices),
+            tuple(float(value) for value in favorable_prices),
+        )
+
     def _update_drawdown(self) -> None:
         value = max(self.portfolio_value, 0.0)
         self.peak_value = max(self.peak_value, value)

@@ -427,16 +427,95 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "ppo_holding_duration_v1" in research
     assert "ppo_shared_cash_holding_duration_v2" in research
     assert "one 100,000 USDT account shared" in research
+    assert "Candidate Run schema" in research
+    assert "v8 persists" in research
+    assert "complete per-interval shared-cash ledger" in research
+    assert "independently hand-calculated multi-symbol" in research
     assert "StudyResearchContext" in research
     assert "既存artifactは当時の意味を維持" in research
 
     guide_status = (
         ROOT / "guide" / "content" / "pages" / "research-status.md"
     ).read_text(encoding="utf-8")
-    assert "ppo_shared_cash_holding_duration_v2" in guide_status
     assert "100,000 USDT" in guide_status
     assert "個別銘柄リターンの平均ではなく" in guide_status
-    assert "G0-G2" in guide_status
+    assert "各時間帯の約定・保有・リスク判断を完全な記録として保存" in guide_status
+    assert "学習と評価の売買判断を同じ市場データで照合するテスト" in guide_status
+    assert "複数銘柄を扱う時の資金・費用計算を手計算で照合するテスト" in guide_status
+    assert (
+        "G2は新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。"
+        in guide_status
+    )
+    assert "台帳に実際に適用した数量差分" in guide_status
+
+
+def test_v11_shared_cash_accounting_contract_is_documented() -> None:
+    lean_core = (ROOT / "docs" / "architecture" / "lean-core.md").read_text(
+        encoding="utf-8"
+    )
+    package_boundaries = (
+        ROOT / "docs" / "architecture" / "package-boundaries.md"
+    ).read_text(encoding="utf-8")
+    controlled_loop = (
+        ROOT / "docs" / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    research_assurance = (
+        ROOT / "docs" / "architecture" / "research-assurance.md"
+    ).read_text(encoding="utf-8")
+
+    assert "lean_candidate_result_v11" in lean_core
+    assert "shared_cash_replay_ledger_v4" in lean_core
+    assert "lean_candidate_result_v10" in controlled_loop
+    assert "v10 fill証跡も読み込み可能" in controlled_loop
+    assert "dataset digest" in lean_core and "source rows" in lean_core
+    assert "ordered accounting transition" in package_boundaries
+    assert "termination-flatten" in controlled_loop
+    assert "lean_candidate_result_v11" in research_assurance
+    assert "shared_cash_replay_ledger_v4" in research_assurance
+    assert "does not reopen Dataset source rows" in research_assurance
+    assert "Dataset source rows" in research_assurance
+    assert "Mutation tests change these inputs" in research_assurance
+    assert all(
+        source in research_assurance
+        for source in (
+            "split_factor",
+            "delisting_recovery",
+            "funding_due",
+            "cash_rate",
+            "borrow_rate",
+            "volume",
+            "max_participation_rate",
+            "fee_rate",
+        )
+    )
+    assert "corporate-action and carry source rows remain outside this oracle" not in (
+        research_assurance
+    )
+
+
+def test_v11_shared_cash_drawdown_uses_conservative_ohlc_stress() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    current_status = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    research_assurance = (DOCS / "architecture" / "research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    guide_status = (
+        ROOT / "guide" / "content" / "pages" / "research-status.md"
+    ).read_text(encoding="utf-8")
+    lean_core = " ".join(lean_core.split())
+    current_status = " ".join(current_status.split())
+    research_assurance = " ".join(research_assurance.split())
+
+    assert "favorable marks establish the portfolio peak before" in lean_core
+    assert "not a reconstruction of the realized path" in lean_core
+    assert "25% OHLC stress drawdown when interval returns imply only 10%" in (
+        current_status
+    )
+    assert "Ordinary single-symbol replay does not apply the" in current_status
+    assert "OHLC does not reveal the intrabar price order" in research_assurance
+    assert "実現経路の再現ではなく、保守的な価格幅のstress" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -524,6 +603,75 @@ def test_research_assurance_is_durable_current_architecture() -> None:
     assert "research-assurance.md" in controlled_loop
     assert "G0-G2" in controlled_loop
     assert "G4 authorization is blocked" in controlled_loop
+
+
+def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> None:
+    lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    research_assurance = (DOCS / "architecture" / "research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    current_status = (DOCS / "research" / "current-status.md").read_text(
+        encoding="utf-8"
+    )
+    guide_status = (
+        ROOT / "guide" / "content" / "pages" / "research-status.md"
+    ).read_text(encoding="utf-8")
+    guide_experiment_loop = (
+        ROOT / "guide" / "content" / "pages" / "experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    study_contract = (
+        ROOT / "trade_rl" / "evaluation" / "experiments" / "contracts" / "study.py"
+    ).read_text(encoding="utf-8")
+
+    assert "candidate portfolio total returnのseed中央値が正でない" in controlled_loop
+    assert "candidate portfolio total-return medianが正" in controlled_loop
+    assert "median absolute candidate portfolio return is positive" in " ".join(
+        research_assurance.split()
+    )
+    rationale = (
+        "a positive paired improvement alone can still leave the candidate loss-making"
+    )
+    assert rationale in " ".join(research_assurance.split()).lower()
+    assert "paired improvement alone can still leave an arm loss-making" in (
+        " ".join(current_status.split()).lower()
+    )
+    assert "canonical v6 bootstrap passed network-free inspection" in (
+        " ".join(current_status.split()).lower()
+    )
+    assert "8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464" in (
+        current_status
+    )
+    assert "1f484ab2d294fa01890417036fd79f13f6bcdad8d8dd3e74d3013cf817bd7f57" in (
+        current_status
+    )
+    assert "c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d" in (
+        current_status
+    )
+    assert "no baseline or experiments were published" in " ".join(
+        current_status.split()
+    )
+    assert "median absolute candidate " in study_contract
+    assert (
+        "portfolio return is positive, and median paired total-return improvement"
+        in (study_contract)
+    )
+    assert "median absolute candidate portfolio return" in current_status
+    assert (
+        "research-only diagnostic and does not change the operational target"
+        in lean_core
+    )
+    assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_status
+    assert "candidateのseed中央値returnが正" in guide_status
+    assert "paired return中央値も正" in guide_status
+    rationale_ja = "H=0を上回っても、候補が損失のままなら利益目標は満たしません"
+    assert rationale_ja in guide_status
+    assert "candidateのseed中央値returnが正" in guide_experiment_loop
+    assert "paired return中央値も正" in guide_experiment_loop
+    assert rationale_ja in guide_experiment_loop
+    assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_experiment_loop
 
 
 def test_current_relative_markdown_links_resolve() -> None:

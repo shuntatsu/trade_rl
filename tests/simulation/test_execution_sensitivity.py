@@ -98,6 +98,18 @@ def test_enabled_rule_stress_changes_execution_policy_identity() -> None:
     assert stressed.execution_policy_digest != nominal.execution_policy_digest
 
 
+def test_ohlc_drawdown_stress_is_explicit_in_execution_policy_identity() -> None:
+    dataset = _market()
+    nominal = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    stressed = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero(),
+        ohlc_drawdown_stress=True,
+    )
+
+    assert stressed.execution_policy_digest != nominal.execution_policy_digest
+
+
 def test_executor_digest_cache_tracks_input_identity_and_trigger_fraction_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

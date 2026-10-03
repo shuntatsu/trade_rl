@@ -15,11 +15,14 @@ from trade_rl.evaluation.experiments.contracts.experiment import (
     ExperimentDefinition,
     ExperimentFailure,
 )
+from trade_rl.evaluation.experiments.contracts.research import StudyResearchContext
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
+    PPO_HOLDING_DURATION_RISK_CONFIG,
     PPO_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
@@ -71,6 +74,16 @@ def study_plan(**overrides: object) -> StudyPlan:
     }
     values.update(overrides)
     return StudyPlan(**values)  # type: ignore[arg-type]
+
+
+def test_shared_cash_selection_rule_names_ohlc_drawdown_stress() -> None:
+    assert (
+        "conservative maximum drawdown under favorable and adverse marks from "
+        "each bar's OHLC range is at most 20%"
+    ) in PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+    assert "realized maximum drawdown" not in (
+        PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+    )
 
 
 def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
@@ -146,6 +159,50 @@ def test_ppo_holding_study_plan_requires_the_exact_preregistered_risk_profile() 
             max_experiments=4,
             protocol=StudyProtocol.PPO_HOLDING_DURATION,
             schema_version="controlled_study_plan_v4",
+        )
+
+
+def test_shared_cash_holding_study_plan_rejects_unregistered_initial_capital() -> None:
+    baseline = replace(
+        resolved_config(ppo_seed=0),
+        schema_version="resolved_run_config_v5",
+        initial_capital=99_999.0,
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_minimum_hold_bars=0,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=PPO_HOLDING_DURATION_RISK_CONFIG,
+    )
+    context = StudyResearchContext.from_payload(
+        {
+            "schema_version": "study_research_context_v1",
+            "parent_context_digests": [],
+            "consumed_evidence": [
+                {
+                    "evidence_kind": "EXPERIMENT_DECISION",
+                    "evidence_digest": "e" * 64,
+                    "development_start": "2023-01-01T00:00:00.000000000",
+                    "development_stop_exclusive": "2025-01-01T00:00:00.000000000",
+                    "uses": ["HYPOTHESIS_FORMATION"],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ContractViolationError, match="shared-cash.*capital|100,000"):
+        study_plan(
+            research_question=(
+                "Compare shared-cash PPO holding durations.\n\n"
+                + PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+            ),
+            baseline_config=baseline,
+            ppo_seeds=(0, 1, 2, 3, 4),
+            allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+            max_experiments=4,
+            final_evaluation_start="2026-03-01T00:00:00.000000000",
+            final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+            research_context=context,
+            protocol=StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+            schema_version="controlled_study_plan_v6",
         )
 
 

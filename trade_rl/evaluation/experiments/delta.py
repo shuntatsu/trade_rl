@@ -299,14 +299,18 @@ def _fixed_config_violations(
     violations: list[str] = []
     for field in plan.FIXED_RESOLVED_FIELDS:
         if (
-            field == "pretrade_risk_config"
+            field in {"ppo_settle_terminal_position", "pretrade_risk_config"}
             and field not in evidence.semantic_config
             and field not in plan_semantic
         ):
             continue
-        if field not in evidence.semantic_config or (
-            _canonical_value(evidence.semantic_config[field])
-            != _canonical_value(plan_semantic[field])
+        if (
+            field not in evidence.semantic_config
+            or field not in plan_semantic
+            or (
+                _canonical_value(evidence.semantic_config[field])
+                != _canonical_value(plan_semantic[field])
+            )
         ):
             violations.append(
                 f"{label} fixed resolved field differs from frozen Study plan: {field}"

@@ -60,7 +60,7 @@ trade_rl/
 │   ├── orders/{model.py,admission.py,reconciliation.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py}
 │   ├── targets/execution.py
-│   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
+│   └── diagnostics/{accounting_transition.py,execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
 │   ├── dataset_scope.py
 │   ├── position_duration.py
@@ -253,6 +253,10 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのa
 
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
+`diagnostics/accounting_transition.py` defines immutable before/after snapshots
+and typed transition evidence for shared-cash artifact verification. It records
+state around the canonical BookState mutations and does not own another ledger.
+
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
 `liquidity.py` takes an explicit exact initial position for reduce-only requests
@@ -276,7 +280,7 @@ floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
-`StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
+`StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。inactive assetのlifecycle settlementでbook quantityが0になった場合は、次のobservation前に派生fill-price trackerもresetする。active assetまたはnon-flat quantityのfill mismatchは引き続きerrorとする。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
 
 ### `evaluation`
 
@@ -286,12 +290,12 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 - `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。
 - `config.py`: Run JSONの単一parse/resolution authority。
-- `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
+- `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seamと、登録済みexecution overlayを`ExecutionCostConfig`へ解決する`execution_cost_for_overlay`。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v7`へ追加portolio return seriesとsettlement / ledger evidenceをbindし、loaderがreturn / maximum drawdownをraw seriesから再計算する。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v10` / `shared_cash_replay_ledger_v3`へcombined portfolio return series、settlement state、完全なshared-cash ledger trace、ordered accounting transitionとpolicy decision evidenceを保存する。loaderはcash・exact quantities・marks・multipliersからinterval NAVとtransition balancesを再計算し、fill・corporate action・carry・termination flatten、decision/config/state linksを検証する。fillでは割当ロットの正確な数量とbookが適用した数量差分を別々に保存し、no-lot full-closeの丸め差を検証する。旧v10のfill証跡も読み込める。transition inputsはpersisted ledgerから検証し、dataset digestからsource rowsを再取得してはいない。Historical v9 ledger-v2、v8 ledger-v1/v2、およびv7 digest-only evidenceはread互換を維持する。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
-`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
+`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。`execution_cost_for_overlay`もfacadeの公開面であり、Run Core外の検証コードが保存済みexecution overlayを解決するときに使う。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
 
 `runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`contracts/research.py` の `StudyResearchContext` / `ConsumedEvidence` はStudyをまたいで既知development evidenceが次の研究定義へ流入した事実をmachine-readableに表し、context-bound `StudyPlan` digestの一部となる。これはresult/selection oracleではなくprovenance authorityである。`contracts/study.py` がversioned `StudyProtocol` identityと、PPO holding-duration protocolの完全一致risk profileを所有し、`protocols.py` はv1 independent-account / v2 shared-cash result eligibilityとwinner orderingをpure selectorとして共有する。`analysis.py` はv3 seed-symbol comparisonとv4 combined shared-cash portfolio comparisonを所有し、v4はpersisted portfolio seriesから再計算されたreturn / drawdownを選定へ渡す。`codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
 

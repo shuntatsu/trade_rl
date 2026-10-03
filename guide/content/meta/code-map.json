@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "c1db6ec88170fa3d3baf82d13d120d9617b1e14dfdc404c07cdeed38ac5264c2"
+      "sha256": "b5c9861abc42cc83cf30790a2dfb7cd9802926eb9bb0a062c039471441504d53"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -32,7 +32,7 @@
       "id": "ppo-holding-study-plan",
       "symbol": "trade_rl.evaluation.experiments.contracts.study.StudyPlan",
       "kind": "class",
-      "source_sha256": "8b49a4f09138b7b4c50aae091e9f9dd316291c7c6eba54feb158e1b424ca4cc2",
+      "source_sha256": "86d07f78a53c41ccb173b9233fc42bc6f334feaf36bfc108a03f2e1063d04317",
       "label_ja": "比較protocolとrisk条件を固定するStudyPlan",
       "description_ja": "PPO保有期間protocol identity、horizon/seed/selection条件、完全一致のrisk profileを結果を見る前に不変Studyへbindします。",
       "variables": [],
@@ -94,7 +94,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "57d6654a033a6e07af3d1ceb4f998487c943fb9de6b141a2636b0a07d71c9ce6",
+      "source_sha256": "ccffa5c53852ce7bcf9eb9120ee2cc588cdfd2c440e010be2f9f9710eda76843",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -106,7 +106,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "49b031e85f08364caa081b3eb6175f9ca83623aac41d952f84606ffc4e100a1d",
+      "source_sha256": "3dcea9c525562e78a051693e5887a85628fafd714631992bba31934df96a8fbc",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],

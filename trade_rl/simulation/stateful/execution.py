@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.diagnostics.accounting_transition import (
+    AccountingTransitionEvidence,
+)
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import (
@@ -37,6 +40,7 @@ class StatefulExecutionResult:
     order_events: tuple[OrderEvent, ...]
     capacity_evidence: tuple[SymbolCapacityEvidence, ...]
     funding_evidence: tuple[FundingBoundaryEvidence, ...]
+    accounting_transitions: tuple[AccountingTransitionEvidence, ...]
     interval_cost: float
     interval_funding: float
     interval_borrow_cost: float
@@ -72,6 +76,7 @@ class StatefulExecutionObservation:
     order_events: tuple[OrderEvent, ...]
     capacity_evidence: tuple[SymbolCapacityEvidence, ...]
     funding_evidence: tuple[FundingBoundaryEvidence, ...]
+    accounting_transitions: tuple[AccountingTransitionEvidence, ...]
     active_order_remainders: tuple[tuple[str, float], ...]
     terminal_order_reasons: tuple[tuple[str, str], ...]
 
@@ -90,6 +95,7 @@ class StatefulExecutionObservation:
             order_events=result.order_events,
             capacity_evidence=result.capacity_evidence,
             funding_evidence=result.funding_evidence,
+            accounting_transitions=result.accounting_transitions,
             active_order_remainders=tuple(
                 (order.order_id, float(order.remaining_quantity))
                 for order in result.order_book.active_orders
@@ -119,6 +125,9 @@ def execute_stateful_orders(
         raise ValueError("book quantities do not match market symbols")
 
     runtime = StatefulExecutionRuntime.create(executor, book, order_book)
+    executor._accounting_runtime = (
+        runtime if executor.capture_accounting_evidence else None
+    )
     cancellation_ids: set[str] = set()
     for previous, updated in reconciliation_cancellations:
         if previous.order_id in cancellation_ids:
@@ -171,6 +180,8 @@ def execute_stateful_orders(
         )
         lifecycle.finish_bar(runtime, context)
 
-    return StatefulExecutionResult(
+    result = StatefulExecutionResult(
         **runtime.result_payload(start_index=start_index, bars=bars)
     )
+    executor._accounting_runtime = None
+    return result

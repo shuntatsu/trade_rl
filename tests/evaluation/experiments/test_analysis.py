@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +12,7 @@ from trade_rl.evaluation.comparison.seed_robustness import (
     summarize_seed_robustness,
 )
 from trade_rl.evaluation.experiments.analysis import (
+    _shared_cash_ppo_metrics,
     analyze_evidence_set,
     compare_evidence_sets,
 )
@@ -256,3 +257,48 @@ def test_cross_symbol_summary_is_descriptive_only() -> None:
     assert summary["symbol_count"] == 2
     assert summary["worst_excess_total_return"] <= summary["median_excess_total_return"]
     assert summary["median_excess_total_return"] <= summary["best_excess_total_return"]
+
+
+def test_shared_cash_drawdown_uses_validated_ledger_intrabar_path() -> None:
+    interval_returns = np.asarray((0.10, -0.10), dtype=np.float64)
+    run = LoadedCandidateRun(
+        root=Path("/synthetic/shared-cash-intrabar-drawdown"),
+        summary={
+            "shared_cash_ppo": {
+                "name": "ppo",
+                "return_key": "shared_cash_ppo",
+                "metrics": {
+                    "total_return": -0.01,
+                    "max_drawdown": 0.25,
+                    "n_periods": 2,
+                    "return_kind": "base_bar",
+                    "periods_per_year": 8_760,
+                },
+                "terminal_settlement_complete": True,
+                "ledger_evidence": {
+                    "payload": {
+                        "schema_version": "shared_cash_replay_ledger_v3",
+                        "final_max_drawdown": 0.25,
+                    }
+                },
+            }
+        },
+        returns={"shared_cash_ppo": interval_returns},
+        provenance={},
+    )
+
+    metrics = _shared_cash_ppo_metrics(run)
+
+    assert metrics["total_return"] == pytest.approx(-0.01)
+    assert metrics["max_drawdown"] == pytest.approx(0.25)
+
+    summary = dict(run.summary)
+    portfolio = dict(summary["shared_cash_ppo"])
+    reported_metrics = dict(portfolio["metrics"])
+    reported_metrics["max_drawdown"] = 0.24
+    portfolio["metrics"] = reported_metrics
+    summary["shared_cash_ppo"] = portfolio
+    mismatched_run = replace(run, summary=summary)
+
+    with pytest.raises(ArtifactIntegrityError, match="validated ledger"):
+        _shared_cash_ppo_metrics(mismatched_run)

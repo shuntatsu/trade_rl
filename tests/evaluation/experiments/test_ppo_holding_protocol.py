@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tests.evaluation.experiments.test_evidence import (
@@ -13,6 +14,7 @@ from tests.evaluation.experiments.test_evidence import (
     _fake_execute,
 )
 from trade_rl.data import publish_market_dataset_artifact
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import SharedCashStrategyComparisonEntry
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
@@ -41,6 +43,7 @@ from trade_rl.evaluation.experiments.protocols import (
 )
 from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
@@ -98,6 +101,8 @@ def _fake_shared_cash_execute():
             minimum_hold_bars=spec.config.ppo_minimum_hold_bars,
             settle_terminal_position=spec.config.ppo_settle_terminal_position,
             capture_ledger_evidence=True,
+            capture_accounting_evidence=True,
+            ohlc_drawdown_stress=True,
         )
         diagnostics = replay.diagnostics
         shared = SharedCashStrategyComparisonEntry(
@@ -138,11 +143,14 @@ def _holding_study(
     )
     monkeypatch.setattr(evidence_module, "execute_candidate_run", execute)
     root = tmp_path / "study"
+    baseline_config = _holding_config()
+    if protocol == "ppo_shared_cash_holding_duration_v2":
+        baseline_config = replace(baseline_config, initial_capital=100_000.0)
     snapshot = create_study(
         root,
         dataset_root=dataset_root,
         research_question="Does a PPO minimum holding period improve net returns?",
-        baseline_config=_holding_config(),
+        baseline_config=baseline_config,
         ppo_seeds=(2, 5, 9, 13, 17),
         allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
         max_experiments=len(_HORIZONS),
@@ -195,6 +203,8 @@ def test_handwritten_review_record_is_not_an_authoritative_assurance_gate(
 def _define_all_horizons(root: Path, dataset_root: Path, baseline) -> None:
     assert baseline.baseline is not None
     config = _holding_config()
+    if baseline.plan.is_ppo_shared_cash_holding_duration_study:
+        config = replace(config, initial_capital=100_000.0)
     for horizon in _HORIZONS:
         define_experiment(
             root,
@@ -248,6 +258,186 @@ def test_shared_cash_holding_protocol_is_bound_to_a_separate_plan_schema(
     assert "do not average independent per-symbol accounts" in (
         snapshot.plan.research_question
     )
+
+
+def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    root, dataset_root, _ = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v2",
+    )
+    calls = 0
+
+    validate_source_binding = (
+        evidence_module._validate_shared_cash_candidate_source_binding
+    )
+
+    def mutate_source_then_validate(**kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        dataset = kwargs["dataset"]
+        candidate_summary = kwargs["candidate_summary"]
+        portfolio = candidate_summary["shared_cash_ppo"]
+        ledger_evidence = portfolio["ledger_evidence"]
+        ledger = ledger_evidence["payload"]
+        transition = next(
+            transition
+            for interval in ledger["intervals"]
+            for transition in interval["accounting_transitions"]
+            if transition["transition_type"] == "mark_revaluation"
+        )
+        processing_index = transition["processing_index"]
+        changed_open = dataset.open.copy()
+        changed_open[processing_index, 0] += 1.0
+        kwargs["dataset"] = replace(
+            dataset,
+            identity_payload_json=None,
+            open=changed_open,
+            high=np.maximum(dataset.high, changed_open),
+            low=np.minimum(dataset.low, changed_open),
+        )
+        validate_source_binding(**kwargs)
+
+    monkeypatch.setattr(
+        evidence_module,
+        "_validate_shared_cash_candidate_source_binding",
+        mutate_source_then_validate,
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="source open row"):
+        run_baseline(root, dataset_root=dataset_root)
+
+    assert calls == 1
+    assert not (root / "baseline").exists()
+
+
+def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evidence(
+    tmp_path: Path,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    dataset = _dataset()
+    dataset_artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    replay = run_shared_cash_replay(
+        dataset,
+        (ConstantIntentStrategy(PositionIntent.LONG),),
+        start_index=12,
+        stop_index=20,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
+    )
+    assert replay.ledger_evidence is not None
+    ledger_payload = json.loads(json.dumps(replay.ledger_evidence.to_mapping()))
+    ledger_evidence = {
+        "schema_version": replay.ledger_evidence.schema_version,
+        "digest": content_digest(ledger_payload),
+        "payload": ledger_payload,
+    }
+    summary = {
+        "dataset_id": dataset.dataset_id,
+        "dataset_artifact": {"artifact_digest": dataset_artifact.artifact_digest},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
+        "shared_cash_ppo": {"ledger_evidence": ledger_evidence},
+    }
+    evidence_module._validate_shared_cash_candidate_source_binding(
+        candidate_summary=summary,
+        dataset=dataset,
+        expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+    )
+
+    payload = ledger_evidence["payload"]
+    fill_interval = next(
+        interval
+        for interval in payload["intervals"]
+        if any(
+            event["event_type"] in {"filled", "partial_fill"}
+            for event in interval["order_events"]
+        )
+    )
+    fill_event = next(
+        event
+        for event in fill_interval["order_events"]
+        if event["event_type"] in {"filled", "partial_fill"}
+    )
+    fill_transition = next(
+        transition
+        for transition in fill_interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+        and transition["order_event_sequence"] == fill_event["sequence"]
+    )
+    symbol = fill_event["symbol_index"]
+    processing_index = fill_event["processing_index"]
+    original_price = fill_event["execution_price"]
+    forged_price = original_price + 0.01
+    assert dataset.low[processing_index, symbol] <= forged_price
+    assert forged_price <= dataset.high[processing_index, symbol]
+    forged_notional = (
+        abs(fill_event["filled_quantity"])
+        * forged_price
+        * float(dataset.resolved_array("contract_multipliers")[symbol])
+    )
+    notional_delta = forged_notional - fill_event["filled_notional"]
+    fill_event["execution_price"] = forged_price
+    fill_event["filled_notional"] = forged_notional
+    fill_evidence = fill_transition["evidence"]
+    fill_evidence["execution_price"] = forged_price
+    fill_evidence["filled_notional"] = forged_notional
+    fill_evidence["turnover"] = (
+        forged_notional / fill_interval["portfolio_value_before"]
+    )
+    fill_interval["turnover_total_after"] += (
+        notional_delta / fill_interval["portfolio_value_before"]
+    )
+    ledger_evidence["digest"] = content_digest(payload)
+
+    with pytest.raises(ArtifactIntegrityError):
+        evidence_module._validate_shared_cash_candidate_source_binding(
+            candidate_summary=summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+        )
+
+    cost_payload = json.loads(json.dumps(ledger_evidence["payload"]))
+    cost_interval = next(
+        interval
+        for interval in cost_payload["intervals"]
+        if any(
+            transition["transition_type"] == "fill"
+            for transition in interval["accounting_transitions"]
+        )
+    )
+    cost_transition = next(
+        transition
+        for transition in cost_interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+    )
+    cost_transition["evidence"]["cost_amount"] += 0.01
+    forged_cost_ledger = {
+        **ledger_evidence,
+        "digest": content_digest(cost_payload),
+        "payload": cost_payload,
+    }
+    forged_cost_summary = {
+        **summary,
+        "shared_cash_ppo": {"ledger_evidence": forged_cost_ledger},
+    }
+    with pytest.raises(ArtifactIntegrityError, match="execution economics"):
+        evidence_module._validate_shared_cash_candidate_source_binding(
+            candidate_summary=forged_cost_summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+        )
 
 
 def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
@@ -469,7 +659,7 @@ def test_holding_protocol_preregisters_all_horizons_and_enforces_realized_drawdo
     factor_effect = comparison.to_payload()["factor_effect"]
     assert factor_effect["schema_version"] == "controlled_evidence_comparison_v3"
 
-    with pytest.raises(InvalidExperimentStateError, match="20% realized drawdown"):
+    with pytest.raises(InvalidExperimentStateError, match="20% drawdown gate"):
         decide_experiment(
             root,
             1,
@@ -688,3 +878,65 @@ def test_holding_arm_at_exactly_twenty_percent_is_eligible_and_ties_prefer_short
     assert (
         ppo_holding_winner_digest(((504, 0.10, "long"), (72, 0.10, "short"))) == "short"
     )
+
+
+def test_shared_cash_replay_matches_hand_calculated_dividend_and_interest() -> None:
+    bars = 5
+    shape = (bars, 1)
+    close = np.full(shape, 100.0)
+    dividend = np.zeros(shape)
+    dividend[1, 0] = 1.0
+    cash_rate = np.zeros(bars)
+    cash_rate[1] = 0.05
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(bars) * np.timedelta64(1, "h"),
+        features=np.zeros((bars, 1, 1), dtype=np.float32),
+        global_features=np.zeros((bars, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(shape, 1_000_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((bars, 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        dividend=dividend,
+        cash_rate=cash_rate,
+    )
+
+    replay = run_shared_cash_replay(
+        dataset,
+        (ConstantIntentStrategy(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
+    )
+
+    ledger = replay.ledger_evidence
+    assert ledger is not None
+    expected_dividend = 5.0
+    expected_interest = (500.0 + expected_dividend) * 0.05 / 8_760
+    expected_final_cash = 1_000.0 + expected_dividend + expected_interest
+    assert sum(item.interval_dividend for item in ledger.intervals) == pytest.approx(
+        expected_dividend
+    )
+    assert sum(
+        item.interval_cash_interest for item in ledger.intervals
+    ) == pytest.approx(expected_interest)
+    assert ledger.final_cash == pytest.approx(expected_final_cash)
+    assert replay.book.portfolio_value == pytest.approx(expected_final_cash)
+    assert replay.book.quantities.tolist() == pytest.approx([0.0])
+    assert ledger.terminal_exact_quantities == ("0",)
+    assert ledger.active_order_remainders == ()

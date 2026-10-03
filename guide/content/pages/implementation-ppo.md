@@ -149,6 +149,18 @@ reward = log1p(interval_net_return)
 
 したがって、取引コストを無視したpolicy scoreを別経路で最大化しているわけではありません。
 
+rewardそのものと、PPOが将来rewardをどこまで重く見るかは別契約です。
+`ppo_training_objective_v1` はrewardを `net_log_return_v1` に固定したまま、
+既定 `gamma=0.99`、固定 `gae_lambda=0.95`、advantage normalization有効を
+明示します。新しいRunは `resolved_run_config_v6` にこの意味を保存します。
+`PPO_DISCOUNT` 実験で変更できるのは `ppo_gamma` だけです。つまりgammaを
+変えてもledgerの損益、手数料、reward式は変わりません。GAE、reward scale、
+reward shaping、training layoutは同じ実験へ混ぜず、別の比較として扱います。
+
+これは「大きいgammaほど良い」という意味ではありません。gammaはcredit
+assignmentの仮説として比較する対象であり、実利益の改善は同じcanonical replayと
+未使用データ境界で別途確認する必要があります。
+
 ## 学習時と実行時で同じ観測契約を使う
 
 `PPOIntentStrategy`の実行時は`StrategyObservation`を`_encode_observation`へ渡します。学習時の`PPOTradingEnv`は、Studyで選んだ同じObservation schemaの入力フィールドをデータセットから直接読み、`_encode_observation_fields`で符号化します。学習中は公開レコードの生成を省きますが、policyへ渡すベクトルの意味と順序は実行時と一致します。

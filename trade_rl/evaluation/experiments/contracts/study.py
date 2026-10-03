@@ -132,6 +132,8 @@ class StudyPlan:
         "schema_version",
         "ppo_observation_schema",
         "ppo_global_feature_names",
+        "ppo_reward_schema",
+        "ppo_gae_lambda",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
     )

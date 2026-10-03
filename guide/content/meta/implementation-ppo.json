@@ -170,9 +170,9 @@
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "f6958bc1e8f7f6a40cbd8150ecbb508b526141c3107171f8f3e37162504c93eb",
+      "source_sha256": "8b645d824ef31bb91c6eb8bd8c4d30452a105e8a5d511c2617ea85dd8a3f6d82",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。minimum_hold_barsとObservation schemaを学習環境へ同じ契約で渡し、Observation v3では実約定後の年齢をpolicy入力へ含めます。",
+      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。minimum_hold_barsとObservation schemaを学習環境へ同じ契約で渡し、reward式とGAE lambdaを固定したまま明示gammaをSB3へ渡します。",
       "variables": [
         {
           "name": "training_layout",
@@ -183,6 +183,11 @@
           "name": "rollout_steps_per_env",
           "label_ja": "各固定銘柄envのrollout長",
           "description_ja": "interleaved時だけcallerが明示する各envのn_stepsです。結果から自動選択しません。"
+        },
+        {
+          "name": "gamma",
+          "label_ja": "将来rewardの割引率",
+          "description_ja": "economic reward式を変えず、PPOが将来rewardへ割り当てるtemporal creditだけを制御します。"
         },
         {
           "name": "minimum_hold_bars",
@@ -199,7 +204,8 @@
         "tests/strategies/test_ppo_intent.py",
         "tests/strategies/test_ppo_interleaved_training.py",
         "tests/strategies/test_ppo_terminal_settlement.py",
-        "tests/integrations/test_ppo_sb3_runtime.py"
+        "tests/integrations/test_ppo_sb3_runtime.py",
+        "tests/strategies/test_ppo_training_objective.py"
       ]
     },
     {

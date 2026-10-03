@@ -86,6 +86,15 @@ def _v5_payload() -> dict[str, object]:
     return payload
 
 
+def _v6_payload() -> dict[str, object]:
+    payload = _v5_payload()
+    payload["schema_version"] = "resolved_run_config_v6"
+    payload["ppo_gamma"] = 0.9975
+    payload["ppo_reward_schema"] = "net_log_return_v1"
+    payload["ppo_gae_lambda"] = 0.95
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -150,6 +159,48 @@ def test_resolved_run_v4_binds_holding_duration_and_terminal_settlement() -> Non
         resolved.digest
         != _resolved_from_payload(changed_horizon, field="changed").digest
     )
+
+
+def test_resolved_run_v6_binds_discount_without_reclassifying_v5() -> None:
+    payload = _v6_payload()
+
+    resolved = _resolved_from_payload(payload, field="current")
+    candidate = _candidate_config_from_resolved(resolved)
+    requested = _candidate_config_payload(
+        candidate,
+        resolved_schema_version=resolved.schema_version,
+    )
+
+    assert resolved.to_payload() == payload
+    assert resolved.ppo_gamma == pytest.approx(0.9975)
+    assert requested["ppo_gamma"] == pytest.approx(0.9975)
+    assert _resolved_from_payload(_v5_payload(), field="legacy-v5").to_payload() == (
+        _v5_payload()
+    )
+
+    changed = dict(payload, ppo_gamma=0.999)
+    assert (
+        resolved.digest
+        != _resolved_from_payload(changed, field="changed-discount").digest
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("ppo_reward_schema", "shaped_reward_v1"),
+        ("ppo_gae_lambda", 0.99),
+    ],
+)
+def test_resolved_run_v6_keeps_reward_and_gae_fixed(
+    field: str,
+    value: object,
+) -> None:
+    payload = _v6_payload()
+    payload[field] = value
+
+    with pytest.raises(ArtifactIntegrityError, match="resolved-run contract"):
+        _resolved_from_payload(payload, field="changed-objective")
 
 
 def test_experiment_definition_v5_reconstructs_exact_candidate_semantics() -> None:

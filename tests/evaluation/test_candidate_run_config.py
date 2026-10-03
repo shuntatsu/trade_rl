@@ -66,6 +66,7 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.feature_names == ("signal", "f1")
     assert config.fit_symbol_names == ("BTCUSDT", "ETHUSDT")
     assert config.ppo_seed == 7
+    assert config.ppo_gamma == pytest.approx(0.99)
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
 
 
@@ -250,6 +251,14 @@ def test_candidate_run_config_binds_explicit_twenty_percent_drawdown_risk() -> N
         (
             lambda raw: raw.__setitem__("ppo_seed", -1),
             "ppo_seed must be a non-negative integer",
+        ),
+        (
+            lambda raw: raw.__setitem__("ppo_gamma", 0.0),
+            "ppo_gamma must be a finite number within",
+        ),
+        (
+            lambda raw: raw.__setitem__("ppo_gamma", 1.01),
+            "ppo_gamma must be a finite number within",
         ),
     ],
 )

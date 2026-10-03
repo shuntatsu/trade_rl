@@ -112,6 +112,10 @@ EXPECTED_RULES = {
         ),
         frozenset(set(STRATEGIES) - {"ppo"}),
     ),
+    ControlledFactor.PPO_DISCOUNT: (
+        frozenset({("ppo_gamma",)}),
+        frozenset(set(STRATEGIES) - {"ppo"}),
+    ),
     ControlledFactor.PPO_MINIMUM_HOLD: (
         frozenset({("ppo_minimum_hold_bars",)}),
         frozenset(set(STRATEGIES) - {"ppo"}),
@@ -315,6 +319,15 @@ def _loaded_evidence(
     return LoadedEvidenceSet(evidence=evidence, semantic_config=semantic, runs=runs)
 
 
+def _resolved_for_factor(factor: ControlledFactor) -> ResolvedRunConfig:
+    if factor is ControlledFactor.PPO_DISCOUNT:
+        return _resolved(
+            schema_version="resolved_run_config_v6",
+            ppo_observation_schema="ppo_observation_v2",
+        )
+    return _resolved()
+
+
 def _candidate_for_factor(
     base: ResolvedRunConfig,
     factor: ControlledFactor,
@@ -345,6 +358,8 @@ def _candidate_for_factor(
             ppo_training_layout="interleaved",
             ppo_rollout_steps_per_env=512,
         )
+    if factor is ControlledFactor.PPO_DISCOUNT:
+        return replace(base, ppo_gamma=0.9975)
     if factor is ControlledFactor.PPO_MINIMUM_HOLD:
         return replace(base, ppo_minimum_hold_bars=168)
     if factor is ControlledFactor.GROSS_BUDGET:
@@ -558,7 +573,7 @@ def test_ppo_training_layout_rejects_raw_return_drift_for_each_non_ppo_strategy(
 def test_each_declared_factor_accepts_only_its_registered_delta(
     factor: ControlledFactor,
 ) -> None:
-    base = _resolved()
+    base = _resolved_for_factor(factor)
     plan = _plan(base)
     baseline = _loaded_evidence(base, plan)
     candidate_config = _candidate_for_factor(base, factor)
@@ -585,7 +600,7 @@ def test_each_declared_factor_accepts_only_its_registered_delta(
 
 @pytest.mark.parametrize("factor", tuple(ControlledFactor))
 def test_unrelated_second_delta_is_invalid(factor: ControlledFactor) -> None:
-    base = _resolved()
+    base = _resolved_for_factor(factor)
     plan = _plan(base)
     baseline = _loaded_evidence(base, plan)
     candidate_config = replace(
@@ -715,7 +730,7 @@ def test_study_fixed_evidence_contracts_prevent_controlled_status(
 def test_unaffected_strategy_raw_return_drift_is_invalid(
     factor: ControlledFactor,
 ) -> None:
-    base = _resolved()
+    base = _resolved_for_factor(factor)
     plan = _plan(base)
     baseline = _loaded_evidence(base, plan)
     candidate_config = _candidate_for_factor(base, factor)
@@ -754,7 +769,7 @@ def test_unaffected_strategy_raw_return_drift_is_invalid(
 def test_affected_strategy_drift_is_not_rejected_by_unaffected_oracle(
     factor: ControlledFactor,
 ) -> None:
-    base = _resolved()
+    base = _resolved_for_factor(factor)
     plan = _plan(base)
     baseline = _loaded_evidence(base, plan)
     candidate_config = _candidate_for_factor(base, factor)

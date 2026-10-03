@@ -19,6 +19,8 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
 
+追加のfirst-holdout-open shockで、終端決済のfillがreplay `stop_index`行のopenを参照し、evaluation開始と同じstopを渡すとfirst evaluation barがtuning scoreとdrawdown eligibilityへ漏れることを再現した。selection replayを最後のtuning bar内で終端決済し、walk-forwardも同じhelperで境界を分離する。修正前source `a526cc18` のQ1 development smokeは探索的な診断として保持し、first evaluation barから独立したholdout証拠とは扱わない。この修正ではreal-market replayを実行せず、新たなprofitability evidenceも作らない。
+
 adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
 
 実SB3 integrationでPPO inference bundleの単発directory renameがWindows permission failureで停止したため、既存のbounded atomic-publication primitiveをこの経路にも使う。transient lockとretry exhaustionをfake policyの回帰テストで再現し、staging cleanupを確認する。training objectiveやhistorical model bytesの意味は変更しない。
@@ -37,6 +39,8 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 未統合のwalk-forward実装は既存tunerと異なる探索を重複して持ち、少数candidateで探索axisを落とし、最後の残余barを捨てていた。同じ探索実装へ統一し、CLIでdevelopment diagnosticとして実行できる契約を追加する。windowごとのcapital/state resetと仮想return積を明示し、continuous wealthやsealed final profitabilityとは扱わない。scopeはソフトウェア修復と開発実行の確認であり、live注文接続や新しいPPO実験の認可ではない。
 
+追加の契約テストでは、未決済reportのpositive marked P&Lが`profitable_windows`へ入る集計漏れと、walk-forward内のwindow reportが`holdout` scopeのまま出力される不整合を確認した。集計をpositive P&Lかつterminal settlement確認済みの場合だけ数えるよう修復し、手動reportで未提供の決済状態はunknown (`None`) としてfail-closedに扱う。各nested windowにも`development_walk_forward` scopeを付ける。これは評価報告の正確性を直すものであり、以前の開発結果を書き換えず、profitability evidenceも追加しない。
+
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
 このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
@@ -46,6 +50,8 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。
 
 `codex/profit-engine-hardening` の修正では、optimize / compareに明示的なDatasetまたは明示的な `--demo` を要求し、canonical non-zero `ExecutionCostConfig()` を既定のreplay costにした。単一strategyのparameter選択はchronological tuning prefixだけで行い、baseline / candidate reportは後続holdoutのfresh replayから計算する。tuning-windowの最大drawdownが20%を超えるcandidateは選択対象外だが、これはeligibility vetoであり、gapやexecution timingを越えたdrawdown上限の保証ではない。`compare` はfull-rangeのin-sample診断である。`tune_all_strategies` の複数family報告windowはfamily間で比較した時点でdevelopment evidenceとして扱い、最終評価にはさらに後の未閲覧windowを使う。
+
+明示Datasetにprice-channel featuresがない場合、botの`channel_breakout`実行と全戦略のcompare / optimizeは、直前480本・240本のcandleから因果的なchannelを導出する。導出後はsource Dataset IDとwindow定義を含む新しいcontent identityへbindする。4列の一部だけがあるDatasetは拒否し、導出時は最低481 barsを要求する。
 
 Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 

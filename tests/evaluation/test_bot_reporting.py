@@ -8,8 +8,10 @@ import pytest
 
 from trade_rl.evaluation.bot import (
     BotConfig,
+    BotReport,
     calculate_bot_report,
     generate_demo_dataset,
+    print_report_table,
     run_trading_bot,
 )
 from trade_rl.evaluation.replay import SharedCashReplayResult
@@ -21,6 +23,28 @@ def cash_replay() -> SharedCashReplayResult:
     dataset = generate_demo_dataset(n_bars=4, n_symbols=1)
     result, _ = run_trading_bot(dataset, BotConfig(strategy_name="cash"))
     return result
+
+
+def test_bot_report_without_ledger_evidence_does_not_claim_terminal_settlement(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    report = BotReport(
+        strategy_name="manual",
+        initial_capital=100.0,
+        final_equity=100.0,
+        net_pnl=0.0,
+        total_return_pct=0.0,
+        max_drawdown_pct=0.0,
+        nonzero_return_intervals=0,
+        positive_return_rate_pct=0.0,
+        interval_profit_factor=0.0,
+        sharpe_ratio=0.0,
+        is_profitable=False,
+    )
+
+    assert report.terminal_settled is None
+    print_report_table([report])
+    assert "unknown" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -124,3 +148,17 @@ def test_cash_cost_diagnostics_are_zero(cash_replay: SharedCashReplayResult) -> 
     )
     assert report.turnover_total == 0.0
     assert report.fill_count == report.rebalance_events == 0
+
+
+def test_bot_report_preserves_nonzero_funding_and_borrow_costs(
+    cash_replay: SharedCashReplayResult,
+) -> None:
+    book = cash_replay.book.clone()
+    book.funding_pnl = -12.34
+    book.borrow_cost = 5.67
+
+    report = calculate_bot_report(replace(cash_replay, book=book), "cash")
+    payload = json.loads(json.dumps(asdict(report)))
+
+    assert payload["funding_pnl"] == -12.34
+    assert payload["borrow_cost"] == 5.67

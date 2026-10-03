@@ -90,7 +90,9 @@ class TuningResult:
     dataset_id: str
     dataset_identity_bound: bool
     execution_cost: ExecutionCostConfig
-    report_scope: Literal["holdout", "development_family_comparison"] = "holdout"
+    report_scope: Literal[
+        "holdout", "development_family_comparison", "development_walk_forward"
+    ] = "holdout"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +110,7 @@ class BotReport:
     interval_profit_factor: float
     sharpe_ratio: float
     is_profitable: bool
-    terminal_settled: bool = True
+    terminal_settled: bool | None = None
     terminal_position_quantities: tuple[float, ...] = ()
     active_order_remainders: tuple[tuple[str, float], ...] = ()
     termination_reason: str | None = None
@@ -199,6 +201,24 @@ def generate_demo_dataset(
     exit_bars = min(10, entry_bars - 1)
     augmented = with_price_channels(dataset, entry_bars=entry_bars, exit_bars=exit_bars)
     return replace(augmented, identity_payload_json=None)
+
+
+def _with_channel_breakout_features(dataset: MarketDataset) -> MarketDataset:
+    present = tuple(name for name in CHANNEL_NAMES if name in dataset.feature_names)
+    if len(present) == len(CHANNEL_NAMES):
+        return dataset
+    if present:
+        missing = tuple(name for name in CHANNEL_NAMES if name not in present)
+        raise ValueError(
+            "dataset has an incomplete price-channel feature set; missing: "
+            + ", ".join(missing)
+        )
+    if dataset.n_bars <= 480:
+        raise ValueError(
+            "channel_breakout needs all named price channels or at least 481 bars "
+            "to derive them"
+        )
+    return with_price_channels(dataset)
 
 
 def create_strategy_instances(
@@ -394,6 +414,9 @@ def run_trading_bot(
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
 
+    if config.strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(
         max_gross=config.max_gross,
@@ -430,6 +453,7 @@ def compare_all_strategies(
     execution_cost: ExecutionCostConfig | None = None,
 ) -> list[BotReport]:
     """Rank full-range strategy replays as in-sample diagnostics, not selection."""
+    dataset = _with_channel_breakout_features(dataset)
     strategies_to_test = [
         "adaptive",
         "ensemble",
@@ -494,12 +518,16 @@ def tune_for_maximum_profit(
     if not isinstance(resolved_execution_cost, ExecutionCostConfig):
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
+    if strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     usable_stop_index = dataset.n_bars - 1
-    minimum_window_span = resolved_execution_cost.order_latency_bars + 2
+    minimum_tuning_window_span = resolved_execution_cost.order_latency_bars + 3
+    minimum_holdout_window_span = resolved_execution_cost.order_latency_bars + 2
     tuning_stop_index = math.floor(usable_stop_index * (1.0 - float(holdout_fraction)))
     if (
-        tuning_stop_index < minimum_window_span
-        or usable_stop_index - tuning_stop_index < minimum_window_span
+        tuning_stop_index < minimum_tuning_window_span
+        or usable_stop_index - tuning_stop_index < minimum_holdout_window_span
     ):
         raise ValueError(
             "dataset is too short for separate tuning and holdout windows "
@@ -533,6 +561,7 @@ def tune_all_strategies(
     Because the later report window is exposed for every family, it is a
     development comparison and must not be treated as a final untouched holdout.
     """
+    dataset = _with_channel_breakout_features(dataset)
     candidate_strategies = [
         "adaptive",
         "ensemble",
@@ -588,6 +617,7 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
     print(sep)
     for r in reports:
         star = " *" if r.is_profitable else ""
+        settled = _terminal_settlement_label(r.terminal_settled)
         print(
             f"{r.strategy_name:<18} | "
             f"${r.final_equity:>12,.2f} | "
@@ -596,9 +626,102 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
             f"{r.max_drawdown_pct:>6.2f}% | "
             f"{r.positive_return_rate_pct:>12.1f}% | "
             f"{r.interval_profit_factor:>10.2f} | "
-            f"{r.sharpe_ratio:>6.2f}{star} | {'yes' if r.terminal_settled else 'NO'}"
+            f"{r.sharpe_ratio:>6.2f}{star} | {settled}"
         )
     print(sep + "\n")
+
+
+def _terminal_settlement_label(terminal_settled: bool | None) -> str:
+    if terminal_settled is None:
+        return "unknown"
+    return "yes" if terminal_settled else "NO"
+
+
+def _print_execution_diagnostics(baseline: BotReport, candidate: BotReport) -> None:
+    def format_value(
+        value: float | int | None, *, account_currency: bool = False
+    ) -> str:
+        if value is None:
+            return "unavailable"
+        if account_currency:
+            return f"${value:,.2f}"
+        return f"{value:,.6g}"
+
+    def format_quantities(
+        values: tuple[float, ...], terminal_settled: bool | None
+    ) -> str:
+        if not values and terminal_settled is None:
+            return "unavailable"
+        return "[" + ", ".join(f"{value:.6g}" for value in values) + "]"
+
+    def format_remainders(
+        values: tuple[tuple[str, float], ...], terminal_settled: bool | None
+    ) -> str:
+        if not values:
+            return "none" if terminal_settled is not None else "unavailable"
+        return ", ".join(f"{order_id}={quantity:.6g}" for order_id, quantity in values)
+
+    def format_activity(fill_count: int | None, rebalance_events: int | None) -> str:
+        return f"{format_value(fill_count)} / {format_value(rebalance_events)}"
+
+    diagnostics = (
+        (
+            "Execution cost (account currency)",
+            format_value(baseline.total_execution_cost, account_currency=True),
+            format_value(candidate.total_execution_cost, account_currency=True),
+        ),
+        (
+            "Funding P&L (account currency)",
+            format_value(baseline.funding_pnl, account_currency=True),
+            format_value(candidate.funding_pnl, account_currency=True),
+        ),
+        (
+            "Borrow cost (account currency)",
+            format_value(baseline.borrow_cost, account_currency=True),
+            format_value(candidate.borrow_cost, account_currency=True),
+        ),
+        (
+            "Turnover total",
+            format_value(baseline.turnover_total),
+            format_value(candidate.turnover_total),
+        ),
+        (
+            "Fills / rebalances",
+            format_activity(baseline.fill_count, baseline.rebalance_events),
+            format_activity(candidate.fill_count, candidate.rebalance_events),
+        ),
+        (
+            "Terminal quantities (dataset symbol order)",
+            format_quantities(
+                baseline.terminal_position_quantities, baseline.terminal_settled
+            ),
+            format_quantities(
+                candidate.terminal_position_quantities, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Active order remainders",
+            format_remainders(
+                baseline.active_order_remainders, baseline.terminal_settled
+            ),
+            format_remainders(
+                candidate.active_order_remainders, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Termination reason",
+            baseline.termination_reason
+            or ("none" if baseline.terminal_settled is not None else "unavailable"),
+            candidate.termination_reason
+            or ("none" if candidate.terminal_settled is not None else "unavailable"),
+        ),
+    )
+
+    print("\nExecution and settlement diagnostics")
+    print(f"{'Metric':<40} | {'Baseline':>18} | {'Candidate':>18}")
+    print("-" * 84)
+    for label, baseline_value, candidate_value in diagnostics:
+        print(f"{label:<40} | {baseline_value:>18} | {candidate_value:>18}")
 
 
 def print_tuning_comparison(res: TuningResult) -> None:
@@ -618,11 +741,11 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
     )
     print(f"  Execution cost config: {asdict(res.execution_cost)}")
-    report_label = (
-        "development family comparison"
-        if res.report_scope == "development_family_comparison"
-        else "holdout report"
-    )
+    report_label = {
+        "holdout": "holdout report",
+        "development_family_comparison": "development family comparison",
+        "development_walk_forward": "development walk-forward",
+    }[res.report_scope]
     print(
         f"  Tuning window: [{res.tuning_start_index}, {res.tuning_stop_index}); "
         f"{report_label}: [{res.holdout_start_index}, {res.holdout_stop_index})"
@@ -637,16 +760,17 @@ def print_tuning_comparison(res: TuningResult) -> None:
         "fees and carry are excluded, and the exit fills only at a later eligible step."
     )
     print("=" * 68)
-    baseline_label = (
-        "Baseline development"
-        if res.report_scope == "development_family_comparison"
-        else "Baseline holdout"
-    )
-    candidate_label = (
-        "Candidate development"
-        if res.report_scope == "development_family_comparison"
-        else "Candidate holdout"
-    )
+    baseline_label, candidate_label = {
+        "holdout": ("Baseline holdout", "Candidate holdout"),
+        "development_family_comparison": (
+            "Baseline development",
+            "Candidate development",
+        ),
+        "development_walk_forward": (
+            "Baseline development",
+            "Candidate development",
+        ),
+    }[res.report_scope]
     print(f"{'Metric':<24} | {baseline_label:<18} | {candidate_label:<18}")
     print("-" * 68)
     print(
@@ -654,7 +778,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
     )
     print(f"{'Net Profit ($)':<24} | ${b.net_pnl:>16,.2f} | ${o.net_pnl:>16,.2f}")
     print(
-        f"{'Terminal settled':<24} | {str(b.terminal_settled):>18} | {str(o.terminal_settled):>18}"
+        f"{'Terminal settled':<24} | {_terminal_settlement_label(b.terminal_settled):>18} | {_terminal_settlement_label(o.terminal_settled):>18}"
     )
     if not b.terminal_settled or not o.terminal_settled:
         print(
@@ -680,6 +804,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"{b.nonzero_return_intervals:>18d} | "
         f"{o.nonzero_return_intervals:>18d}"
     )
+    _print_execution_diagnostics(b, o)
     print("-" * 68)
     sign = "+" if res.alpha_dollars >= 0 else ""
     relative_improvement = (
@@ -988,7 +1113,7 @@ def walk_forward_tune(
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
     usable_bars = dataset.n_bars - 1  # last bar reserved for terminal settlement
-    minimum_window_span = resolved_cost.order_latency_bars + 2
+    minimum_window_span = resolved_cost.order_latency_bars + 3
     window_size = usable_bars // n_windows
     if window_size < minimum_window_span:
         raise ValueError(
@@ -1019,13 +1144,17 @@ def walk_forward_tune(
             eval_stop_index=eval_stop,
             execution_cost=resolved_cost,
         )
-        window_results.append(tuning_res)
+        window_results.append(
+            replace(tuning_res, report_scope="development_walk_forward")
+        )
 
     returns_pct = [r.optimized_report.total_return_pct for r in window_results]
     sharpes = [r.optimized_report.sharpe_ratio for r in window_results]
     max_dds = [r.optimized_report.max_drawdown_pct for r in window_results]
     profitable_count = sum(
-        1 for r in window_results if r.optimized_report.is_profitable
+        1
+        for r in window_results
+        if r.optimized_report.is_profitable and r.optimized_report.terminal_settled
     )
 
     mean_ret = float(np.mean(returns_pct)) if returns_pct else 0.0
@@ -1067,6 +1196,10 @@ def _tune_with_fixed_windows(
     execution_cost: ExecutionCostConfig,
 ) -> TuningResult:
     """Internal helper: grid search on [tune_start, tune_stop) and evaluate on [eval_start, eval_stop)."""
+    # run_trading_bot terminal settlement fills on the open at stop_index.
+    # Stop on the final tuning bar so that the first evaluation bar cannot
+    # affect candidate P&L, drawdown eligibility, or selection score.
+    tuning_replay_stop_index = tune_stop_index - 1
     baseline_cfg = BotConfig(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
@@ -1076,7 +1209,7 @@ def _tune_with_fixed_windows(
         dataset,
         baseline_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
 
     strat_name = strategy_name.lower()
@@ -1127,7 +1260,7 @@ def _tune_with_fixed_windows(
         dataset,
         cash_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
     if (
         cash_tuning_report.terminal_settled
@@ -1244,7 +1377,7 @@ def _tune_with_fixed_windows(
             dataset,
             test_cfg,
             start_index=tune_start_index,
-            stop_index=tune_stop_index,
+            stop_index=tuning_replay_stop_index,
         )
         if (
             not tuning_report.terminal_settled
@@ -1325,7 +1458,7 @@ def print_walk_forward_summary(result: WalkForwardResult) -> None:
     print("  " + "-" * 56)
     for i, wr in enumerate(result.window_results):
         rep = wr.optimized_report
-        settled = "yes" if rep.terminal_settled else "NO"
+        settled = _terminal_settlement_label(rep.terminal_settled)
         print(
             f"  {i + 1:<8} | {wr.optimized_config.strategy_name:<18} | "
             f"{rep.total_return_pct:>+9.2f}% | {rep.sharpe_ratio:>8.2f} | "

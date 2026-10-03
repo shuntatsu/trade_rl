@@ -112,7 +112,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(encoded)
-        staging.rename(root)
+        atomic_rename_directory(staging, root)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

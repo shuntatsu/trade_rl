@@ -404,3 +404,143 @@ def test_tuning_text_names_the_selected_cash_control(monkeypatch, capsys):
     )
     bot.print_tuning_comparison(result)
     assert "Selected strategy: cash" in capsys.readouterr().out
+
+
+def test_optimize_all_text_includes_execution_ledger_diagnostics(monkeypatch, capsys):
+    dataset = bot.generate_demo_dataset(n_bars=12, n_symbols=1)
+    families = (
+        "adaptive",
+        "ensemble",
+        "trend",
+        "mean_reversion",
+        "channel_breakout",
+    )
+    results = []
+    for index, family in enumerate(families, start=1):
+        baseline_config = bot.BotConfig(strategy_name=family, initial_capital=1000.0)
+        optimized_config = replace(baseline_config, gross_budget=0.3)
+        order_id = f"{index:x}" * 64
+        baseline_report = replace(
+            _report(baseline_config, -20.0),
+            terminal_settled=None if index == 1 else False,
+            terminal_position_quantities=()
+            if index == 1
+            else (index / 100.0, -index / 10.0),
+            active_order_remainders=()
+            if index == 1
+            else (
+                (order_id, index / 1000.0),
+                (f"{index + 5:x}" * 64, index / 500.0),
+            ),
+            termination_reason=None if index == 1 else "drawdown_stop",
+            total_execution_cost=10.0 + index,
+            funding_pnl=-index - 0.25,
+            borrow_cost=index + 0.5,
+            turnover_total=index + 0.75,
+            fill_count=10 + index,
+            rebalance_events=None if index == 1 else 5 + index,
+        )
+        optimized_report = replace(
+            _report(optimized_config, 30.0),
+            terminal_settled=True,
+            terminal_position_quantities=(0.0, 0.0),
+            total_execution_cost=20.0 + index,
+            funding_pnl=index + 0.25,
+            borrow_cost=index + 0.75,
+            turnover_total=index + 1.25,
+            fill_count=None if index == 1 else 20 + index,
+            rebalance_events=15 + index,
+        )
+        results.append(
+            bot.TuningResult(
+                strategy_name=family,
+                objective="profit",
+                baseline_config=baseline_config,
+                baseline_report=baseline_report,
+                optimized_config=optimized_config,
+                optimized_report=optimized_report,
+                profit_improvement_pct=250.0,
+                alpha_dollars=50.0,
+                evaluated_combinations=1,
+                selection_score=30.0,
+                selection_drawdown_pct=5.0,
+                tuning_start_index=0,
+                tuning_stop_index=9,
+                holdout_start_index=9,
+                holdout_stop_index=11,
+                dataset_id="0" * 64,
+                dataset_identity_bound=True,
+                execution_cost=bot.ExecutionCostConfig(),
+                report_scope="development_family_comparison",
+            )
+        )
+
+    monkeypatch.setattr(bot, "generate_demo_dataset", lambda: dataset)
+    monkeypatch.setattr(bot, "tune_all_strategies", lambda *_args, **_kwargs: results)
+
+    assert bot.main(["--mode", "optimize", "--strategy", "all", "--demo"]) == 0
+
+    output = capsys.readouterr().out
+    blocks = output.split("PARAMETER TUNING REPORT:")[1:]
+    assert len(blocks) == len(families)
+
+    def cells(rows, label):
+        return [cell.strip() for cell in rows[label]]
+
+    def monetary_pair(rows, label):
+        return [
+            float(cell.replace("$", "").replace(",", "")) for cell in cells(rows, label)
+        ]
+
+    for index, (family, block) in enumerate(
+        zip(families, blocks, strict=True), start=1
+    ):
+        assert block.startswith(f" {family.upper()} ")
+        rows = {
+            line.split("|", maxsplit=1)[0].strip(): line.split("|")[1:]
+            for line in block.splitlines()
+            if "|" in line
+        }
+
+        assert monetary_pair(rows, "Execution cost (account currency)") == [
+            10.0 + index,
+            20.0 + index,
+        ]
+        assert monetary_pair(rows, "Funding P&L (account currency)") == [
+            -index - 0.25,
+            index + 0.25,
+        ]
+        assert monetary_pair(rows, "Borrow cost (account currency)") == [
+            index + 0.5,
+            index + 0.75,
+        ]
+        assert [float(cell) for cell in cells(rows, "Turnover total")] == [
+            index + 0.75,
+            index + 1.25,
+        ]
+        if index == 1:
+            assert cells(rows, "Fills / rebalances") == [
+                "11 / unavailable",
+                "unavailable / 16",
+            ]
+            assert cells(rows, "Terminal quantities (dataset symbol order)") == [
+                "unavailable",
+                "[0, 0]",
+            ]
+            assert cells(rows, "Active order remainders") == ["unavailable", "none"]
+            assert cells(rows, "Termination reason") == ["unavailable", "none"]
+        else:
+            assert [
+                tuple(int(value.strip()) for value in cell.split("/"))
+                for cell in cells(rows, "Fills / rebalances")
+            ] == [(10 + index, 5 + index), (20 + index, 15 + index)]
+            assert cells(rows, "Terminal quantities (dataset symbol order)") == [
+                f"[{index / 100.0:.6g}, {-index / 10.0:.6g}]",
+                "[0, 0]",
+            ]
+            assert cells(rows, "Active order remainders") == [
+                f"{f'{index:x}' * 64}={index / 1000.0:.6g}, "
+                f"{f'{index + 5:x}' * 64}={index / 500.0:.6g}",
+                "none",
+            ]
+            assert cells(rows, "Termination reason") == ["drawdown_stop", "none"]

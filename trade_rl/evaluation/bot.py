@@ -637,6 +637,93 @@ def _terminal_settlement_label(terminal_settled: bool | None) -> str:
     return "yes" if terminal_settled else "NO"
 
 
+def _print_execution_diagnostics(baseline: BotReport, candidate: BotReport) -> None:
+    def format_value(
+        value: float | int | None, *, account_currency: bool = False
+    ) -> str:
+        if value is None:
+            return "unavailable"
+        if account_currency:
+            return f"${value:,.2f}"
+        return f"{value:,.6g}"
+
+    def format_quantities(
+        values: tuple[float, ...], terminal_settled: bool | None
+    ) -> str:
+        if not values and terminal_settled is None:
+            return "unavailable"
+        return "[" + ", ".join(f"{value:.6g}" for value in values) + "]"
+
+    def format_remainders(
+        values: tuple[tuple[str, float], ...], terminal_settled: bool | None
+    ) -> str:
+        if not values:
+            return "none" if terminal_settled is not None else "unavailable"
+        return ", ".join(f"{order_id}={quantity:.6g}" for order_id, quantity in values)
+
+    def format_activity(fill_count: int | None, rebalance_events: int | None) -> str:
+        return f"{format_value(fill_count)} / {format_value(rebalance_events)}"
+
+    diagnostics = (
+        (
+            "Execution cost (account currency)",
+            format_value(baseline.total_execution_cost, account_currency=True),
+            format_value(candidate.total_execution_cost, account_currency=True),
+        ),
+        (
+            "Funding P&L (account currency)",
+            format_value(baseline.funding_pnl, account_currency=True),
+            format_value(candidate.funding_pnl, account_currency=True),
+        ),
+        (
+            "Borrow cost (account currency)",
+            format_value(baseline.borrow_cost, account_currency=True),
+            format_value(candidate.borrow_cost, account_currency=True),
+        ),
+        (
+            "Turnover total",
+            format_value(baseline.turnover_total),
+            format_value(candidate.turnover_total),
+        ),
+        (
+            "Fills / rebalances",
+            format_activity(baseline.fill_count, baseline.rebalance_events),
+            format_activity(candidate.fill_count, candidate.rebalance_events),
+        ),
+        (
+            "Terminal quantities (dataset symbol order)",
+            format_quantities(
+                baseline.terminal_position_quantities, baseline.terminal_settled
+            ),
+            format_quantities(
+                candidate.terminal_position_quantities, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Active order remainders",
+            format_remainders(
+                baseline.active_order_remainders, baseline.terminal_settled
+            ),
+            format_remainders(
+                candidate.active_order_remainders, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Termination reason",
+            baseline.termination_reason
+            or ("none" if baseline.terminal_settled is not None else "unavailable"),
+            candidate.termination_reason
+            or ("none" if candidate.terminal_settled is not None else "unavailable"),
+        ),
+    )
+
+    print("\nExecution and settlement diagnostics")
+    print(f"{'Metric':<40} | {'Baseline':>18} | {'Candidate':>18}")
+    print("-" * 84)
+    for label, baseline_value, candidate_value in diagnostics:
+        print(f"{label:<40} | {baseline_value:>18} | {candidate_value:>18}")
+
+
 def print_tuning_comparison(res: TuningResult) -> None:
     """Print detailed comparison between default baseline and tuned bot."""
     b = res.baseline_report
@@ -717,6 +804,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"{b.nonzero_return_intervals:>18d} | "
         f"{o.nonzero_return_intervals:>18d}"
     )
+    _print_execution_diagnostics(b, o)
     print("-" * 68)
     sign = "+" if res.alpha_dollars >= 0 else ""
     relative_improvement = (

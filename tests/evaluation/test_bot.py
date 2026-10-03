@@ -412,7 +412,7 @@ def test_tune_all_strategies_executes_and_ranks() -> None:
         assert ranked[i].selection_score >= ranked[i + 1].selection_score
 
 
-@pytest.mark.parametrize("objective", ["sharpe", "balanced"])
+@pytest.mark.parametrize("objective", ["profit", "sharpe", "balanced"])
 def test_tune_all_strategies_ranks_by_the_selected_objective(
     monkeypatch,
     objective: str,

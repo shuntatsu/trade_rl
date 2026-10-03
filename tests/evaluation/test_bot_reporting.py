@@ -148,3 +148,17 @@ def test_cash_cost_diagnostics_are_zero(cash_replay: SharedCashReplayResult) -> 
     )
     assert report.turnover_total == 0.0
     assert report.fill_count == report.rebalance_events == 0
+
+
+def test_bot_report_preserves_nonzero_funding_and_borrow_costs(
+    cash_replay: SharedCashReplayResult,
+) -> None:
+    book = cash_replay.book.clone()
+    book.funding_pnl = -12.34
+    book.borrow_cost = 5.67
+
+    report = calculate_bot_report(replace(cash_replay, book=book), "cash")
+    payload = json.loads(json.dumps(asdict(report)))
+
+    assert payload["funding_pnl"] == -12.34
+    assert payload["borrow_cost"] == 5.67

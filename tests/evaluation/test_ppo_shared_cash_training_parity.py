@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -50,13 +51,18 @@ class _TrainingRow:
     info: dict[str, object]
     quantity_before: float
     quantity_after: float
+    reward: float
     terminated: bool
     truncated: bool
 
 
 def _hourly_market() -> MarketDataset:
-    prices = np.full((6, 1), 100.0, dtype=np.float64)
+    prices = np.asarray((100.0, 102.0, 101.0, 105.0, 103.0, 110.0)).reshape(-1, 1)
     participation = np.asarray((1e-6, 1e-6, 1e-6, 1.0, 1.0, 1.0)).reshape(-1, 1)
+    funding_due = np.zeros((6, 1), dtype=np.bool_)
+    funding_due[2, 0] = True
+    funding_rate = np.zeros((6, 1), dtype=np.float64)
+    funding_rate[2, 0] = 0.02
     return MarketDataset(
         dataset_id="b" * 64,
         symbols=("SYNTHUSDT",),
@@ -69,7 +75,8 @@ def _hourly_market() -> MarketDataset:
         low=prices.copy(),
         close=prices.copy(),
         volume=np.full((6, 1), 1_000_000.0),
-        funding_rate=np.zeros((6, 1)),
+        funding_rate=funding_rate,
+        funding_due=funding_due,
         tradable=np.ones((6, 1), dtype=np.bool_),
         feature_available=np.ones((6, 1, 1), dtype=np.bool_),
         feature_names=("synthetic_signal",),
@@ -77,6 +84,7 @@ def _hourly_market() -> MarketDataset:
         periods_per_year=8_760,
         mark_price=prices.copy(),
         max_participation_rate=participation,
+        cash_rate=np.full(6, 0.0876, dtype=np.float64),
     )
 
 
@@ -94,7 +102,14 @@ def _risk() -> PreTradeRisk:
 
 def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
     dataset = _hourly_market()
-    execution_cost = ExecutionCostConfig.zero()
+    execution_cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        spread_rate=0.0004,
+        impact_rate=0.0002,
+        max_participation_rate=1.0,
+    )
     risk_config = _risk().config
     environment = PPOTradingEnv(
         dataset,
@@ -130,7 +145,7 @@ def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
     for action in _ACTIONS:
         age_before = environment.position_age_bars
         quantity_before = float(environment.book.quantities[0])
-        _, _, terminated, truncated, info = environment.step(action)
+        _, reward, terminated, truncated, info = environment.step(action)
         training_rows.append(
             _TrainingRow(
                 age_before=age_before,
@@ -140,6 +155,7 @@ def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
                 info=info,
                 quantity_before=quantity_before,
                 quantity_after=float(environment.book.quantities[0]),
+                reward=reward,
                 terminated=terminated,
                 truncated=truncated,
             )
@@ -152,6 +168,10 @@ def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
     assert len(evidence.intervals) == 5
     assert len(replay.returns.values) == 5
     assert len(strategy.observations) == len(_INTENTS)
+    assert replay.book.total_cost > 0.0
+    assert any(abs(value) > 1e-8 for value in replay.returns.values)
+    assert any(abs(item.interval_funding) > 1e-8 for item in evidence.intervals)
+    assert any(abs(item.interval_cash_interest) > 1e-8 for item in evidence.intervals)
 
     for index, (training, decision) in enumerate(
         zip(training_rows, replay.decisions, strict=True)
@@ -173,8 +193,8 @@ def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
             decision.position_quantity_after[0]
         )
         assert training.quantity_after - training.quantity_before == pytest.approx(
-            float(ledger_interval.exact_quantities_after[0])
-            - float(ledger_interval.exact_quantities_before[0])
+            float(Fraction(ledger_interval.exact_quantities_after[0]))
+            - float(Fraction(ledger_interval.exact_quantities_before[0]))
         )
         assert info["interval_net_return"] == pytest.approx(
             replay.returns.values[index]
@@ -182,9 +202,16 @@ def test_ppo_training_env_matches_single_symbol_shared_cash_replay() -> None:
         assert info["interval_net_return"] == pytest.approx(
             ledger_interval.interval_net_return
         )
-        assert training.cash_after == pytest.approx(ledger_interval.cash_after)
+        expected_reward = np.log1p(ledger_interval.interval_net_return)
+        if "terminal_settlement_net_return" in info:
+            expected_reward += np.log1p(float(info["terminal_settlement_net_return"]))
+        assert training.reward == pytest.approx(expected_reward)
+        cash_interval = ledger_interval
+        if int(info.get("terminal_settlement_intervals", 0)) > 0:
+            cash_interval = evidence.intervals[index + 1]
+        assert training.cash_after == pytest.approx(cash_interval.cash_after)
         assert training.equity_after == pytest.approx(
-            ledger_interval.portfolio_value_after
+            cash_interval.portfolio_value_after
         )
 
     first_info = training_rows[0].info

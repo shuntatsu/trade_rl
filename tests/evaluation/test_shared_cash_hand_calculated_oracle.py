@@ -110,6 +110,57 @@ def test_shared_cash_terminal_cash_and_cost_match_hand_calculation() -> None:
     assert ledger.final_cash == pytest.approx(expected_terminal_cash)
 
 
+def test_shared_cash_dividend_and_cash_interest_match_hand_calculation() -> None:
+    base = _two_symbol_market()
+    close = np.tile(np.asarray((100.0, 200.0)), (base.n_bars, 1))
+    dividend = np.zeros_like(close)
+    dividend[2, 0] = 0.4
+    cash_rate = np.zeros(base.n_bars, dtype=np.float64)
+    cash_rate[1:3] = 0.0876
+    dataset = replace(
+        base,
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close.copy(),
+        mark_price=close.copy(),
+        dividend=dividend,
+        cash_rate=cash_rate,
+        identity_payload_json=None,
+    )
+
+    result = run_shared_cash_replay(
+        dataset,
+        (_AlwaysLong(), _AlwaysLong()),
+        start_index=0,
+        stop_index=2,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=0.75,
+                max_abs_weight=0.5,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert ledger.intervals[0].exact_quantities_after == ("5/2", "5/4")
+    assert ledger.intervals[0].interval_dividend == pytest.approx(0.0)
+    assert ledger.intervals[0].interval_cash_interest == pytest.approx(0.005)
+    assert ledger.intervals[1].interval_dividend == pytest.approx(1.0)
+    assert ledger.intervals[1].interval_cash_interest == pytest.approx(0.00501005)
+    assert ledger.final_cash == pytest.approx(501.01001005)
+    assert ledger.final_portfolio_value == pytest.approx(1_001.01001005)
+
+
 @pytest.mark.parametrize(
     "source_row",
     ("initial_mark", "open", "mark_price", "open_final", "mark_price_final"),
@@ -312,6 +363,20 @@ def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]
         },
     }
     return dataset, candidate_summary
+
+
+def test_shared_cash_source_binding_rejects_dataset_artifact_digest_mismatch() -> None:
+    dataset, candidate_summary = _eventful_shared_cash_candidate()
+
+    with pytest.raises(
+        ArtifactIntegrityError,
+        match="candidate source Dataset artifact digest mismatch",
+    ):
+        _validate_shared_cash_candidate_source_binding(
+            candidate_summary=candidate_summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest="e" * 64,
+        )
 
 
 def _change_accounting_source_row(

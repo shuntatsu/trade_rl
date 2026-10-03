@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-02 (JST)
+更新基準: 2026-10-03 (JST)
 
 ## 結論
 
@@ -14,6 +14,32 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Trading-bot validation repair (2026-10-03)
+
+継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
+
+adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
+
+実SB3 integrationでPPO inference bundleの単発directory renameがWindows permission failureで停止したため、既存のbounded atomic-publication primitiveをこの経路にも使う。transient lockとretry exhaustionをfake policyの回帰テストで再現し、staging cleanupを確認する。training objectiveやhistorical model bytesの意味は変更しない。
+
+cash追加の開発診断契約は同じBTC/ETH 2024Q1、adaptive/ balanced/8 grid候補/3fold/capital100,000/costを固定し、cash追加後も正のprefixで選定した既存configと後続結果が変わらないことを確認する。実book・raw return・ledgerを保持し、base-prefixで選んだconfigを再選定せずexecution multiplier2とorder_latency_bars=1のstressへ適用する。software修復のPASSはprefix選択とcash/ledger契約の一致であり、経済screenは各base/stressでafter-cost returnが正、observed drawdown20%以下、終端flat/order remainderなしを要求する。一つでも満たさなければprofitabilityは未確立とし、winner/final/liveへ昇格しない。protocol・review・実行receiptは新しいignored `data/bot-cash-control-2024q1/`へ保存する。
+
+source `8ff87cbf` のcash追加診断は、fresh result-blind G0-G2レビューと170件のmachine testを経て一度だけ実行し、software PASS / economic NOT_ESTABLISHEDとなった。正のprefixで選ばれたconfigと元のcore結果は完全に保持された。selectedのafter-cost returnは−1.941582%と+0.579034%、実行costはaccount currencyで1,998.597217と1,509.094741、funding PnLは−78.761112と−36.671020だった。設定を選び直さずcost multiplierを2にした結果は−3.902920%と−0.934769%である。18 replayのraw return・ledger・cost/funding/fill計算と21 artifact hashを独立事後確認し、全cash対照はzero-return / zero-cost / zero-fill、全終端はflatだった。
+
+order eligibilityは`submit_index + order_latency_bars`だが、最初のprocessingは`submit_index + 1`である。したがって設定0と1は最初の約定可能足が同じであり、当初の0→1 armは追加のprocessing waitを検証していなかった。ただし`agent_stop = stop_index - order_latency_bars - 1`も変わるため、全replayの一般的なno-opとは扱わない。
+
+補足のignored `data/bot-effective-latency-2024q1/` は、同じsource・Dataset・既存selected configをfreezeし、latencyだけ2へ変更する。別のfresh result-blindレビューで189件のmachine testを通し、実行前にprotocol `be216073f8298654daabe4e1d34c52ca738f80ffbd39ec280e995805638ae2ba`を固定した。この設定は最初のprocessingを1本待つ一方、terminal予約区間も3本へ変えるexecution-setting treatmentであり、pure-delay effectや同一trade pathは主張しない。after-cost returnは+1.846582%と−2.026866%、agent期間の同一orderでwait→eligible→fillを確認した件数は76と58、双方のterminal settlementは完了した。software PASSだがeffective-latency screenはNOT_ESTABLISHEDであり、winner / final / liveへ昇格しない。
+
+これらは再利用Q1のdevelopment診断であり、候補・threshold・seedを結果後に再選択していない。最大利益や将来のrobustnessは未確立である。独立raw-return検算のclose-only drawdownとledgerのintrainterval最大drawdownは別の証拠であり、後者の全経路をraw returnsだけから再構築したとは主張しない。
+
+Botの`balanced` scoreは損失の符号を反転していた。channel戦略はchannelでない列を固定位置で読み、synthetic channelは現在足のextremaを含んでいた。これらを独立計算とmocked reportのRED testで再現し、符号付きscore、名前で解決する既存prior-candle channel、終端決済完了を要求する選択条件へ修復する。replay/accounting ownerやPPO研究の機構は変更しない。
+
+未統合のwalk-forward実装は既存tunerと異なる探索を重複して持ち、少数candidateで探索axisを落とし、最後の残余barを捨てていた。同じ探索実装へ統一し、CLIでdevelopment diagnosticとして実行できる契約を追加する。windowごとのcapital/state resetと仮想return積を明示し、continuous wealthやsealed final profitabilityとは扱わない。scopeはソフトウェア修復と開発実行の確認であり、live注文接続や新しいPPO実験の認可ではない。
+
+実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
+
+このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
 
 ## Trading-bot tuning contract correction (2026-10-02)
 

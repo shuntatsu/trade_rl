@@ -234,3 +234,87 @@ def test_adaptive_max_holding_bars() -> None:
     )
     decision = strategy.decide(obs)
     assert decision is PositionIntent.FLAT
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "trend_entry_threshold",
+        "trend_exit_threshold",
+        "reversion_entry_threshold",
+        "reversion_exit_threshold",
+        "volatility_regime_threshold",
+        "take_profit_threshold",
+        "stop_loss_threshold",
+        "trailing_stop_threshold",
+    ],
+)
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), -float("inf"), True, False]
+)
+def test_adaptive_config_rejects_nonfinite_or_boolean_thresholds(field_name, value):
+    with pytest.raises(ValueError, match=field_name):
+        AdaptiveProfitConfig(**{field_name: value})
+
+
+@pytest.mark.parametrize(
+    "field_name", ["signal_index", "volatility_index", "max_holding_bars"]
+)
+@pytest.mark.parametrize("value", [-1, True, False, 1.5, float("nan"), float("inf")])
+def test_adaptive_config_requires_nonnegative_integer_clock_and_feature_indexes(
+    field_name, value
+):
+    with pytest.raises(ValueError, match=field_name):
+        AdaptiveProfitConfig(**{field_name: value})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "trend_entry_threshold",
+        "trend_exit_threshold",
+        "reversion_entry_threshold",
+        "reversion_exit_threshold",
+        "volatility_regime_threshold",
+        "take_profit_threshold",
+        "stop_loss_threshold",
+        "trailing_stop_threshold",
+    ],
+)
+def test_adaptive_config_rejects_negative_thresholds(field_name):
+    with pytest.raises(ValueError, match=field_name):
+        AdaptiveProfitConfig(**{field_name: -0.01})
+
+
+@pytest.mark.parametrize(
+    "field_name", ["trend_entry_threshold", "reversion_entry_threshold"]
+)
+def test_adaptive_config_requires_positive_entry_thresholds(field_name):
+    with pytest.raises(ValueError, match=field_name):
+        AdaptiveProfitConfig(**{field_name: 0.0})
+
+
+@pytest.mark.parametrize("gross_return", [-0.5, 0.5])
+def test_adaptive_zero_regime_and_disabled_exit_settings_preserve_trend(gross_return):
+    strategy = RegimeAdaptiveStrategy(
+        AdaptiveProfitConfig(
+            signal_index=0,
+            volatility_index=0,
+            trend_exit_threshold=0.0,
+            reversion_exit_threshold=0.0,
+            volatility_regime_threshold=0.0,
+            take_profit_threshold=0.0,
+            stop_loss_threshold=0.0,
+            trailing_stop_threshold=0.0,
+            max_holding_bars=0,
+        )
+    )
+    observation = _make_obs(
+        [0.02],
+        current_intent=PositionIntent.LONG,
+        current_position_quantity=1.0,
+        gross_position_return=gross_return,
+        position_age_bars=100,
+    )
+    assert strategy.decide(observation) is PositionIntent.LONG
+    assert not strategy.protective_exit_pending

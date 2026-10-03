@@ -73,6 +73,7 @@ trade_rl/
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── bot.py
     ├── metrics.py
     ├── evidence.py
     ├── series.py

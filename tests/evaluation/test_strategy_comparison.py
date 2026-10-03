@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import (
+    SharedCashStrategyComparisonEntry,
     UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,
@@ -134,6 +137,16 @@ def test_comparison_keeps_each_symbol_result_separate() -> None:
 def test_universal_comparison_is_exposed_from_evaluation_public_api() -> None:
     assert evaluation.UniversalStrategyComparison is UniversalStrategyComparison
     assert evaluation.compare_strategies_by_symbol is compare_strategies_by_symbol
+
+
+def test_universal_comparison_preserves_legacy_shared_cash_position() -> None:
+    shared_cash_ppo = cast(SharedCashStrategyComparisonEntry, object())
+
+    comparison = UniversalStrategyComparison((), shared_cash_ppo, 2048)
+
+    assert comparison.shared_cash_ppo is shared_cash_ppo
+    assert comparison.ppo_training_timesteps == 2048
+    assert comparison.ppo_training_minimum_hold_suppressed_count is None
 
 
 def test_comparison_rejects_empty_or_invalid_strategy_names() -> None:

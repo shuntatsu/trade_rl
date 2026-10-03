@@ -16,8 +16,12 @@ from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
-def test_universal_comparison_preserves_positional_training_timesteps() -> None:
-    comparison = UniversalStrategyComparison((), 2048, 6)
+def test_universal_comparison_records_training_and_suppressed_counts() -> None:
+    comparison = UniversalStrategyComparison(
+        (),
+        ppo_training_timesteps=2048,
+        ppo_training_minimum_hold_suppressed_count=6,
+    )
 
     assert comparison.ppo_training_timesteps == 2048
     assert comparison.ppo_training_minimum_hold_suppressed_count == 6

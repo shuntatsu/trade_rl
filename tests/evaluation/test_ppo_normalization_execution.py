@@ -720,9 +720,12 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
 
     replay["returns"] = [0.002]
     with pytest.raises(
-        ValueError, match="fresh bundle replay differs from published result"
-    ):
+        ValueError,
+        match="fresh bundle replay differs from published result; fields=returns",
+    ) as error:
         verify_replication_slot(tmp_path / "source", root, slot)
+    assert "0.001" not in str(error.value)
+    assert "0.002" not in str(error.value)
 
     result_path = root / "slots" / slot / "result.json"
     semantic_result = json.loads(result_path.read_bytes())

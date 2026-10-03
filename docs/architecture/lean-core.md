@@ -204,6 +204,12 @@ CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
 `load_normalized_ppo`; historical standalone research `model.zip` evidence is
 not silently promoted to an inference-safe bundle.
 
+Inference-bundle publication uses the shared atomic directory primitive. A
+transient Windows permission failure is retried a bounded number of times only
+while staging remains a regular directory and the target is absent. Exhaustion
+or changed source/target state fails closed, and the publisher removes its own
+staging directory; it does not publish a partial copy.
+
 The no-refit replication verifier validates the stored slot-result schema
 separately from the replay payload. Slot publication replaces the directional
 evaluator's top-level `schema`, so fresh replay has no persisted schema peer; the
@@ -402,6 +408,18 @@ CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちら
 単一strategyのtuning resultは、parameter selection後の後続window reportを返す。一方、`tune_all_strategies` は五つのfamilyそれぞれの後続window reportを表示するため、familyを選ぶ目的で比較した時点でそのwindowはdevelopment evidenceになる。出力の `report_scope=development_family_comparison` はこの意味を示す。family選択後にfinal out-of-sample claimを行うには、さらに後の未閲覧windowで再評価する。
 
 Candidateの選定適格性はtuning-window shared ledger maximum drawdownが20%以下であることを要求する。20%はselection vetoであり、pre-trade stopやholdoutのrealized drawdownを20%以内に保証しない。価格gap、約定損、terminal settlementで観測drawdownが20%を超える場合があるため、holdout drawdownはそのまま報告する。
+
+`balanced` は符号付きのtotal return / max(drawdown, 0.1%)へinterval profit-factor bonusを掛ける。損失の符号を反転せず、損失candidateをcashや正returnより高く評価しない。この比率は年率換算Calmarではない。tuning candidateは終端のexact quantityが全て0、active order remainderなし、economic terminationなしであることも必要とする。Bot reportはmarked equity/P&Lと`terminal_settled`、残余quantity、active order、termination reasonを同時に保持する。決済不能の後続reportはそのまま表示し、利益や決済完了へ書き換えない。
+
+各tuning prefixでは既存baselineとparameter gridに加え、同じcapital・cost・windowのcash replayを必ず比較する。cashはgrid budgetを消費しない独立controlであり、同点ならcashを優先する。cashの実損益を使い、cash interestが存在するDatasetをzero returnへ書き換えない。zero-P&L cashのSharpe objective scoreは0とする。後続windowの損益は選定に使わず、正のprefixから選んだ取引candidateが後続で損失になっても、その結果をcashへ差し替えない。requested familyは`TuningResult.strategy_name`、実際に選んだfamilyは`optimized_config.strategy_name` / `optimized_report.strategy_name`で区別する。取引候補が全て不適格でも、cashの実replayが適格ならcashを返す。cashを含む全候補が不適格なら成功を捏造せずerrorにする。
+
+Bot reportはbookの`total_execution_cost`、符号付き`funding_pnl`、`borrow_cost`、`turnover_total`、`fill_count`、`rebalance_events`も保持する。cost/funding/borrowはaccount currency、turnoverは各fill notional / interval開始equityの和であり、ドル額やclosed-trade countとは呼ばない。診断値はP&Lへ再加算・再課金せず、execution/accounting ownerの実測値を報告する。手動で作る従来の`BotReport`では未提供の診断値を`None`とし、未計測を0へ偽装しない。
+
+`walk_forward_tune` / `--mode walk-forward` は同じ探索・score・eligibilityを使い、直前foldで選定して次foldをfresh capital / strategy stateでreplayする。最後のfoldには割り切れない残余barを含め、隣接するevaluation intervalは重複しない。最後のmarkは次windowの開始markにもなる。後のtuningで既に評価したfoldを再利用するため、全体は`development_walk_forward`であり、独立標本やsealed final evidenceではない。各windowは同じinitial capitalへresetし、`cumulative_return_pct`は正規化returnの仮想積である。capacityやorder sizingを再投資capitalでreplayしたcontinuous wealth pathを表さない。
+
+Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`をfeature名で解決し、不足時はreplay前にrejectする。閾値ではなく正規channelの符号を使う。synthetic demoはEMA signalと既存のprior-candle channel builderを使い、現在足をchannel extremaへ含めない。adaptive botのregime判定は設定signalの絶対値を使うmomentum判定であり、独立したrealized volatilityの推定ではない。
+
+`AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
 ## Artifact and evidence rules
 

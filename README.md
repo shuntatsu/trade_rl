@@ -46,7 +46,24 @@ Ridge, LightGBM, and PPO are trained as universal models/policies without symbol
 
 ## Run a development comparison
 
-A canonical filesystem market dataset artifact and one JSON run config are required. Market-data artifacts are not committed to this repository.
+The bot diagnostic CLI also runs chronological parameter tuning and walk-forward
+checks on an existing Dataset artifact:
+
+```bash
+uv run python -m trade_rl.evaluation.bot --mode walk-forward \
+  --strategy adaptive --dataset <dataset-artifact-dir> \
+  --objective balanced --windows 3 --max-combinations 60 --json
+```
+
+Each fold resets capital and strategy state. Reports expose terminal settlement
+and residual positions; their compounded return is a hypothetical summary.
+These are development diagnostics. Use `--demo` explicitly for a synthetic
+software smoke. Channel strategies require the four named prior-candle channel
+features from `with_price_channels`; arbitrary first columns are rejected.
+
+The candidate comparison below requires a canonical filesystem market dataset
+artifact and one JSON run config. Market-data artifacts are not committed to this
+repository.
 
 ```bash
 uv run --extra forecast-gbm --extra train-sb3 \

@@ -140,7 +140,7 @@ inspectionは次を拒否する。
 
 Final authorizationをStudy rootへ追記しない。
 
-`evaluation/experiments` はdevelopment lifecycleのauthorityであり、freeze後はimmutableである。final authorizationは別rootのread-only consumerとしてStudyをinspectionするだけである。
+`evaluation/experiments` はdevelopment lifecycleのauthorityであり、freeze後はimmutableである。final authorizationは別rootのread-only consumerとしてStudyをinspectionするだけである。shared-cash Studyではauthorizationの発行とread-backにもsource Datasetが必要となる。APIの`dataset_root`で明示でき、省略時はStudyの親にある`dataset/`を読む。これによりEvidenceSetとledgerをDataset artifactおよび凍結済みexecution overlayへ再結合する。
 
 test oracleはauthorization前後でStudy treeの全file bytes/digestが同一であることを確認する。
 

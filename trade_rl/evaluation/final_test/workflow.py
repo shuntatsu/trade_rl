@@ -25,8 +25,12 @@ _ARTIFACT_NAME = "authorization.json"
 _ARTIFACT_KEYS = frozenset({"schema_version", "authorization_digest", "authorization"})
 
 
-def _winner_snapshot(study_root: str | Path) -> StudySnapshot:
-    snapshot = inspect_study(study_root)
+def _winner_snapshot(
+    study_root: str | Path,
+    *,
+    dataset_root: str | Path | None = None,
+) -> StudySnapshot:
+    snapshot = inspect_study(study_root, dataset_root=dataset_root)
     freeze = snapshot.freeze
     if freeze is None or freeze.outcome is not StudyOutcome.WINNER:
         raise InvalidExperimentStateError(
@@ -313,11 +317,12 @@ def inspect_final_evaluation_authorization(
     output_root: str | Path,
     *,
     study_root: str | Path,
+    dataset_root: str | Path | None = None,
 ) -> FinalEvaluationAuthorization:
     """Read and re-bind one sealed authorization to its frozen development Study."""
 
     authorization = _read_artifact(output_root)
-    snapshot = _winner_snapshot(study_root)
+    snapshot = _winner_snapshot(study_root, dataset_root=dataset_root)
     _validate_study_binding(authorization, snapshot)
     return authorization
 
@@ -328,10 +333,11 @@ def authorize_final_evaluation(
     study_root: str | Path,
     authorized_by: str,
     authorized_at: datetime,
+    dataset_root: str | Path | None = None,
 ) -> FinalEvaluationAuthorization:
     """Issue one authorization without reading final data or mutating the Study."""
 
-    snapshot = _winner_snapshot(study_root)
+    snapshot = _winner_snapshot(study_root, dataset_root=dataset_root)
     authorization = _authorization_from_study(
         snapshot,
         authorized_by=authorized_by,
@@ -345,6 +351,7 @@ def authorize_final_evaluation(
     rebuilt = inspect_final_evaluation_authorization(
         published,
         study_root=study_root,
+        dataset_root=dataset_root,
     )
     if rebuilt != authorization:
         raise ArtifactIntegrityError("published authorization did not reconstruct")

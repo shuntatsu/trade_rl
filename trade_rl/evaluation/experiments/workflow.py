@@ -63,6 +63,7 @@ from trade_rl.evaluation.experiments.errors import (
 )
 from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
+    _load_plan_dataset_source,
     execute_evidence_set,
     load_evidence_set,
 )
@@ -155,7 +156,19 @@ def _build_evidence_node(
         config=config,
         research_context_digest=research_context_digest,
     )
-    loaded = load_evidence_set(staging / "evidence")
+    artifact, dataset = _load_plan_dataset_source(
+        dataset_root=dataset_root,
+        plan=plan,
+    )
+    loaded = load_evidence_set(
+        staging / "evidence",
+        dataset=dataset,
+        expected_dataset_artifact_digest=artifact.artifact_digest,
+        expected_execution_overlay=plan.baseline_config.execution_overlay,
+        require_shared_cash_source_binding=(
+            plan.is_ppo_shared_cash_holding_duration_study
+        ),
+    )
     if _semantic_payload_without_seed(loaded.semantic_config) != expected_semantic:
         raise ArtifactIntegrityError(
             "generated EvidenceSet does not match frozen resolved configuration"
@@ -309,7 +322,7 @@ def create_study(
                     "in the development Dataset"
                 )
         store.publish_json_once("plan.json", plan.to_payload())
-        return _reconstruct(store).snapshot(store.root)
+        return _reconstruct(store, dataset_root=dataset_root).snapshot(store.root)
 
 
 def run_baseline(
@@ -321,7 +334,7 @@ def run_baseline(
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         if state.baseline is not None or (store.root / "baseline").exists():
             raise InvalidExperimentStateError("Study baseline is already published")
@@ -338,7 +351,7 @@ def run_baseline(
                 expected_semantic=_semantic_without_seed(state.plan.baseline_config),
             ),
         )
-        return _reconstruct(store).snapshot(store.root)
+        return _reconstruct(store, dataset_root=dataset_root).snapshot(store.root)
 
 
 def define_experiment(
@@ -354,7 +367,7 @@ def define_experiment(
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         if state.baseline is None:
             raise InvalidExperimentStateError(
@@ -432,7 +445,7 @@ def run_experiment(
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
         if state.plan.is_ppo_holding_duration_study and tuple(
@@ -473,7 +486,7 @@ def run_experiment(
                 ),
             ),
         )
-        rebuilt = _reconstruct(store)
+        rebuilt = _reconstruct(store, dataset_root=dataset_root)
         current = _experiment_state(rebuilt, sequence)
         assert current.candidate is not None
         return current.candidate.evidence
@@ -482,12 +495,14 @@ def run_experiment(
 def verify_experiment(
     root: str | Path,
     sequence: int,
+    *,
+    dataset_root: str | Path | None = None,
 ) -> ControlledVerification:
     """Verify the declared one-factor delta and publish CONTROLLED or INVALID once."""
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
         if experiment.failure is not None:
@@ -517,12 +532,14 @@ def verify_experiment(
 def compare_experiment(
     root: str | Path,
     sequence: int,
+    *,
+    dataset_root: str | Path | None = None,
 ) -> ExperimentComparison:
     """Publish one immutable factor-effect comparison after CONTROLLED verification."""
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
         if experiment.failure is not None:
@@ -597,12 +614,13 @@ def decide_experiment(
     rationale: str,
     decided_by: str,
     decided_at: datetime,
+    dataset_root: str | Path | None = None,
 ) -> ExperimentDecision:
     """Publish one irreversible research decision after comparison evidence exists."""
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
         if experiment.failure is not None:
@@ -645,12 +663,13 @@ def record_experiment_failure(
     reason: str,
     recorded_by: str,
     recorded_at: datetime,
+    dataset_root: str | Path | None = None,
 ) -> ExperimentFailure:
     """Record terminal operational failure before complete candidate evidence exists."""
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         experiment = _experiment_state(state, sequence)
         if experiment.candidate is not None:
@@ -691,12 +710,13 @@ def freeze_study(
     rationale: str,
     frozen_by: str,
     frozen_at: datetime,
+    dataset_root: str | Path | None = None,
 ) -> StudyFreeze:
     """Publish the one-shot terminal development Study outcome."""
 
     store = StudyStore(root)
     with store.mutation_lock():
-        state = _reconstruct(store)
+        state = _reconstruct(store, dataset_root=dataset_root)
         _assert_mutable(state)
         if state.baseline is None:
             raise InvalidExperimentStateError(
@@ -783,7 +803,7 @@ def freeze_study(
                     "WINNER selected evidence must come from an ACCEPT_CANDIDATE decision"
                 )
         store.publish_json_once("freeze.json", frozen.to_payload())
-        rebuilt = _reconstruct(store)
+        rebuilt = _reconstruct(store, dataset_root=dataset_root)
         if rebuilt.frozen is None:
             raise ArtifactIntegrityError("freeze publication did not reconstruct")
         return rebuilt.frozen

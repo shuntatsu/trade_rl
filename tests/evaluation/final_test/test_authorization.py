@@ -140,6 +140,13 @@ def test_authorization_api_has_no_final_window_override() -> None:
     assert "final_evaluation_stop_exclusive" not in parameters
 
 
+def test_authorization_api_accepts_the_source_dataset_for_shared_cash_studies() -> None:
+    assert "dataset_root" in signature(authorize_final_evaluation).parameters
+    assert (
+        "dataset_root" in signature(inspect_final_evaluation_authorization).parameters
+    )
+
+
 def test_authorization_rejects_unfrozen_and_no_winner_studies(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

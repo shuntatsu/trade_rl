@@ -274,20 +274,30 @@ ledger-v1/v2, and v7 digest-only artifacts retain their previous read contracts.
 Same-market training/replay parity and an independently hand-calculated
 multi-symbol cash/cost oracle exercise this boundary. The candidate-run loader
 does not reopen Dataset source rows from its digest, so internal artifact
-validation alone does not establish source binding. During EvidenceSet
-generation for the shared-cash holding-duration protocol, a separate check
-requires the frozen Dataset ID and artifact digest, validates the initial mark
-and contiguous interval window, and binds each accounting transition to its
-source row: `open` and `mark_price`, `split_factor`, `asset_active` and
+validation alone does not establish source binding. EvidenceSet generation
+and every later EvidenceSet reload for the shared-cash holding-duration
+protocol use a separate check against the frozen Dataset ID and artifact
+digest. Reload takes the Dataset artifact from the caller or the Study's
+adjacent `dataset/` directory; it does not trust a Dataset path recorded by the
+result artifact. The validator also matches the Run's execution overlay to the
+frozen StudyPlan, validates the initial mark and contiguous interval window,
+and binds each accounting transition to its source row: `open` and
+`mark_price`, `split_factor`, `asset_active` and
 `delisting_recovery`, `dividend`, `funding_due` and `funding_rate`, `cash_rate`,
-`borrow_rate`, and `timestamps` for elapsed carry time. It also recomputes the
-canonical Dataset identity across all identity arrays, covering source fields
+`borrow_rate`, and `timestamps` for elapsed carry time. For each borrow-charge
+transition it also checks `borrow_rate_multiplier` against the execution cost
+resolved from the registered overlay, rather than trusting the ledger's own
+multiplier. It recomputes the canonical Dataset identity across all identity
+arrays, covering source fields
 that do not appear in accounting transitions, including OHLCV (`open`, `high`,
 `low`, `close`, and `volume`),
 `fee_rate`/`maker_fee_rate`/`taker_fee_rate`/`spread_rate`, and
 `max_participation_rate`. Mutation tests change these inputs while retaining
-the saved ledger, Dataset ID, and expected artifact digest; EvidenceSet
-generation rejects them. A fresh result-blind
+the saved ledger, Dataset ID, and expected artifact digest; both EvidenceSet
+generation and reload reject them. A lifecycle test also changes borrow-rate
+multipliers consistently across an internally valid Run, recomputes the Run
+and EvidenceSet digests and analysis binding, and confirms Study inspection
+still rejects the mismatch against the registered overlay. A fresh result-blind
 G0-G2 review and all contract checks remain required before economic execution.
 For each fill it also links the accounting transition to the exact order event
 and execution-policy digest, then recomputes the tick-rounded open price,

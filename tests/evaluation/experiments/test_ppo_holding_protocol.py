@@ -316,6 +316,86 @@ def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
     assert not (root / "baseline").exists()
 
 
+def test_shared_cash_study_reload_revalidates_resealed_borrow_overlay_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.experiments.codec import _analysis_binding
+    from trade_rl.evaluation.experiments.evidence import _evidence_fingerprint
+    from trade_rl.evaluation.runs import inspect_candidate_run_artifact
+
+    root, dataset_root, _ = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v2",
+    )
+    run_baseline(root, dataset_root=dataset_root)
+
+    evidence_root = root / "baseline" / "evidence"
+    run_root = evidence_root / "runs" / "seed-2"
+    summary_path = run_root / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    ledger_evidence = summary["shared_cash_ppo"]["ledger_evidence"]
+    ledger = ledger_evidence["payload"]
+    # This all-flat fixture has zero borrow amount, so changing the recorded
+    # multiplier leaves the Run's internal arithmetic self-consistent.
+    borrow_transitions = [
+        transition
+        for interval in ledger["intervals"]
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "borrow_charge"
+    ]
+    assert borrow_transitions
+    assert all(
+        transition["evidence"]["borrow_amount"] == 0.0
+        for transition in borrow_transitions
+    )
+    for transition in borrow_transitions:
+        transition["evidence"]["borrow_rate_multiplier"] = 1.0
+    ledger_evidence["digest"] = content_digest(ledger)
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+
+    manifest_path = evidence_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    run_digests = manifest["run_digests"]
+    run_digests[0]["artifact_digest"] = inspect_candidate_run_artifact(
+        run_root
+    ).artifact_digest
+    manifest["run_digests"] = run_digests
+    manifest["fingerprint"] = _evidence_fingerprint(
+        semantic_config_digest=manifest["semantic_config_digest"],
+        ppo_seeds=tuple(manifest["ppo_seeds"]),
+        run_digests=tuple(
+            (entry["ppo_seed"], entry["artifact_digest"]) for entry in run_digests
+        ),
+        research_context_digest=manifest["research_context_digest"],
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    analysis_path = root / "baseline" / "analysis.json"
+    binding = json.loads(analysis_path.read_text(encoding="utf-8"))
+    analysis_path.write_text(
+        json.dumps(
+            _analysis_binding(
+                evidence_fingerprint=manifest["fingerprint"],
+                analysis=binding["analysis"],
+            ),
+            sort_keys=True,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactIntegrityError, match="borrow rate multiplier"):
+        inspect_study(root)
+
+
 def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evidence(
     tmp_path: Path,
 ) -> None:

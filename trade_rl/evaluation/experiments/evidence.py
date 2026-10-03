@@ -168,8 +168,33 @@ def _verify_plan_inputs(
     except ValueError as error:
         raise ArtifactIntegrityError(str(error)) from error
 
-    artifact = inspect_published_market_dataset_artifact(dataset_root)
-    dataset = load_market_dataset_artifact(dataset_root)
+    artifact, dataset = _load_plan_dataset_source(
+        dataset_root=dataset_root,
+        plan=plan,
+    )
+    provenance = build_candidate_run_provenance(
+        research_context_digest=research_context_digest,
+    )
+    if provenance.get("implementation_digest") != plan.implementation_digest:
+        raise ArtifactIntegrityError("Study implementation provenance mismatch")
+    if provenance.get("runtime_environment_digest") != plan.runtime_environment_digest:
+        raise ArtifactIntegrityError("Study runtime provenance mismatch")
+    return artifact, dataset
+
+
+def _load_plan_dataset_source(
+    *,
+    dataset_root: str | Path,
+    plan: StudyPlan,
+) -> tuple[PublishedDatasetArtifact, MarketDataset]:
+    """Load the immutable Dataset identity recorded by a StudyPlan."""
+    try:
+        artifact = inspect_published_market_dataset_artifact(dataset_root)
+        dataset = load_market_dataset_artifact(dataset_root)
+    except ValueError as error:
+        raise ArtifactIntegrityError(
+            "Study dataset artifact cannot be trusted"
+        ) from error
     if dataset.dataset_id != plan.dataset_id:
         raise ArtifactIntegrityError("Study dataset identity mismatch")
     if artifact.schema_version != plan.dataset_artifact_schema:
@@ -178,14 +203,8 @@ def _verify_plan_inputs(
         raise ArtifactIntegrityError("Study dataset artifact digest mismatch")
     if tuple(dataset.symbols) != plan.symbols:
         raise ArtifactIntegrityError("Study dataset symbol roster mismatch")
-
-    provenance = build_candidate_run_provenance(
-        research_context_digest=research_context_digest,
-    )
-    if provenance.get("implementation_digest") != plan.implementation_digest:
-        raise ArtifactIntegrityError("Study implementation provenance mismatch")
-    if provenance.get("runtime_environment_digest") != plan.runtime_environment_digest:
-        raise ArtifactIntegrityError("Study runtime provenance mismatch")
+    if not dataset.identity_verified:
+        raise ArtifactIntegrityError("Study dataset content identity mismatch")
     return artifact, dataset
 
 
@@ -364,42 +383,43 @@ def _candidate_source_execution_cost(
     *,
     dataset: MarketDataset,
     ledger: Mapping[str, object],
+    require_fill_binding: bool,
 ) -> ExecutionCostConfig:
     evaluation = candidate_summary.get("evaluation")
     overlay = (
         evaluation.get("execution_overlay") if isinstance(evaluation, Mapping) else None
     )
     if not isinstance(overlay, str):
-        raise ArtifactIntegrityError(
-            "candidate source fill execution overlay is missing"
-        )
+        raise ArtifactIntegrityError("candidate source execution overlay is missing")
     try:
         execution_cost = execution_cost_for_overlay(overlay)
-        expected_policy_digest = MarketExecutor(
-            dataset,
-            execution_cost,
-            ohlc_drawdown_stress=(
-                ledger.get("schema_version") == "shared_cash_replay_ledger_v4"
-            ),
-        ).execution_policy_digest
+        if require_fill_binding:
+            expected_policy_digest = MarketExecutor(
+                dataset,
+                execution_cost,
+                ohlc_drawdown_stress=(
+                    ledger.get("schema_version") == "shared_cash_replay_ledger_v4"
+                ),
+            ).execution_policy_digest
     except (TypeError, ValueError) as error:
         raise ArtifactIntegrityError(
-            "candidate source fill execution policy is unsupported"
+            "candidate source execution policy is unsupported"
         ) from error
-    if execution_cost.order_type != "market":
-        raise ArtifactIntegrityError(
-            "candidate source fill oracle only accepts market orders"
-        )
-    if execution_cost.slippage_std != 0.0 or (
-        execution_cost.tail_slippage_probability != 0.0
-    ):
-        raise ArtifactIntegrityError(
-            "candidate source fill oracle cannot verify randomized slippage"
-        )
-    if ledger.get("execution_policy_digest") != expected_policy_digest:
-        raise ArtifactIntegrityError(
-            "candidate source fill execution policy identity mismatch"
-        )
+    if require_fill_binding:
+        if execution_cost.order_type != "market":
+            raise ArtifactIntegrityError(
+                "candidate source fill oracle only accepts market orders"
+            )
+        if execution_cost.slippage_std != 0.0 or (
+            execution_cost.tail_slippage_probability != 0.0
+        ):
+            raise ArtifactIntegrityError(
+                "candidate source fill oracle cannot verify randomized slippage"
+            )
+        if ledger.get("execution_policy_digest") != expected_policy_digest:
+            raise ArtifactIntegrityError(
+                "candidate source fill execution policy identity mismatch"
+            )
     return execution_cost
 
 
@@ -826,6 +846,10 @@ def _validate_candidate_source_transition(
             processing_index=expected_index,
         )
     elif transition_type == "borrow_charge":
+        if execution_cost is None:
+            raise ArtifactIntegrityError(
+                "candidate source borrow charge has no registered execution context"
+            )
         raw_phase = evidence.get("carry_phase")
         if raw_phase not in {"gap", "processing"}:
             raise ArtifactIntegrityError(
@@ -839,6 +863,12 @@ def _validate_candidate_source_transition(
             evidence.get("borrow_rate"),
             dataset.resolved_array("borrow_rate")[expected_index],
             source_row="borrow_rate row",
+            processing_index=expected_index,
+        )
+        _require_candidate_source_scalar(
+            evidence.get("borrow_rate_multiplier"),
+            execution_cost.borrow_rate_multiplier,
+            source_row="execution policy borrow rate multiplier",
             processing_index=expected_index,
         )
         _require_candidate_source_scalar(
@@ -1093,6 +1123,7 @@ def _validate_shared_cash_candidate_source_binding(
     candidate_summary: Mapping[str, object],
     dataset: MarketDataset,
     expected_dataset_artifact_digest: str,
+    expected_execution_overlay: str | None = None,
 ) -> None:
     """Bind shared-cash accounting evidence to a content-verified Dataset."""
     ledger = _candidate_shared_cash_ledger(
@@ -1100,6 +1131,16 @@ def _validate_shared_cash_candidate_source_binding(
         dataset=dataset,
         expected_dataset_artifact_digest=expected_dataset_artifact_digest,
     )
+    evaluation = candidate_summary.get("evaluation")
+    execution_overlay = (
+        evaluation.get("execution_overlay") if isinstance(evaluation, Mapping) else None
+    )
+    if expected_execution_overlay is not None and (
+        execution_overlay != expected_execution_overlay
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source execution overlay differs from frozen Study"
+        )
     start_index = _candidate_source_index(
         ledger.get("start_index"), field="start_index"
     )
@@ -1131,14 +1172,11 @@ def _validate_shared_cash_candidate_source_binding(
         )
         for interval in intervals
     )
-    execution_cost = (
-        _candidate_source_execution_cost(
-            candidate_summary,
-            dataset=dataset,
-            ledger=ledger,
-        )
-        if has_fills
-        else None
+    execution_cost = _candidate_source_execution_cost(
+        candidate_summary,
+        dataset=dataset,
+        ledger=ledger,
+        require_fill_binding=has_fills,
     )
     execution_policy_digest = ledger.get("execution_policy_digest")
     if has_fills and not isinstance(execution_policy_digest, str):
@@ -1340,6 +1378,7 @@ def execute_evidence_set(
                     candidate_summary=loaded.summary,
                     dataset=dataset,
                     expected_dataset_artifact_digest=artifact.artifact_digest,
+                    expected_execution_overlay=(plan.baseline_config.execution_overlay),
                 )
             identity = inspect_candidate_run_artifact(run_root)
             loaded_runs[seed] = loaded
@@ -1453,8 +1492,15 @@ def _parse_evidence(
     return evidence, cast(dict[str, object], semantic_config)
 
 
-def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
-    """Load and re-verify one complete Study-owned EvidenceSet."""
+def load_evidence_set(
+    root: str | Path,
+    *,
+    dataset: MarketDataset | None = None,
+    expected_dataset_artifact_digest: str | None = None,
+    expected_execution_overlay: str | None = None,
+    require_shared_cash_source_binding: bool = False,
+) -> LoadedEvidenceSet:
+    """Load and re-verify one EvidenceSet, including its shared-cash source."""
 
     evidence_root = Path(root)
     if evidence_root.is_symlink() or not evidence_root.is_dir():
@@ -1493,6 +1539,22 @@ def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
             raise ArtifactIntegrityError("EvidenceSet Run research context mismatch")
         if _run_summary_seed(loaded) != seed:
             raise ArtifactIntegrityError("EvidenceSet Run seed mismatch")
+        has_shared_cash_result = loaded.summary.get("shared_cash_ppo") is not None
+        if has_shared_cash_result or require_shared_cash_source_binding:
+            if (
+                dataset is None
+                or expected_dataset_artifact_digest is None
+                or expected_execution_overlay is None
+            ):
+                raise ArtifactIntegrityError(
+                    "shared-cash EvidenceSet reload requires its frozen source binding"
+                )
+            _validate_shared_cash_candidate_source_binding(
+                candidate_summary=loaded.summary,
+                dataset=dataset,
+                expected_dataset_artifact_digest=expected_dataset_artifact_digest,
+                expected_execution_overlay=expected_execution_overlay,
+            )
         runs[seed] = loaded
 
     _verify_seed_invariance(

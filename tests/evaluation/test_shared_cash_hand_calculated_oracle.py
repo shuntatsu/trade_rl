@@ -504,7 +504,11 @@ def test_shared_cash_source_binding_rejects_changed_dataset_price_row(
         )
 
 
-def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]:
+def _eventful_shared_cash_candidate(
+    *,
+    intent: PositionIntent = PositionIntent.LONG,
+    borrow_rate_multiplier: float = 0.0,
+) -> tuple[MarketDataset, dict[str, object]]:
     base = _two_symbol_market()
     timestamps = base.timestamps.copy()
     timestamps[2:] += np.timedelta64(2, "h")
@@ -550,14 +554,18 @@ def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]
         borrow_rate=borrow_rate,
         cash_rate=cash_rate,
     ).with_content_identity()
+    execution_cost = replace(
+        ExecutionCostConfig.zero(),
+        borrow_rate_multiplier=borrow_rate_multiplier,
+    )
     result = run_shared_cash_replay(
         dataset,
-        (_AlwaysLong(), _AlwaysLong()),
+        tuple(_FixedIntent(intent) for _ in dataset.symbols),
         start_index=0,
         stop_index=5,
         gross_budget=0.25,
         initial_capital=1_000.0,
-        execution_cost=ExecutionCostConfig.zero(),
+        execution_cost=execution_cost,
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=0.75,
@@ -682,6 +690,47 @@ def test_shared_cash_source_binding_rejects_changed_accounting_source_rows(
         _validate_shared_cash_candidate_source_binding(
             candidate_summary=candidate_summary,
             dataset=changed_dataset,
+            expected_dataset_artifact_digest="d" * 64,
+        )
+
+
+def test_shared_cash_source_binding_rejects_unregistered_borrow_rate_multiplier() -> (
+    None
+):
+    dataset, candidate_summary = _eventful_shared_cash_candidate(
+        intent=PositionIntent.SHORT,
+        borrow_rate_multiplier=1.0,
+    )
+    registered_dataset, registered_summary = _eventful_shared_cash_candidate(
+        intent=PositionIntent.SHORT
+    )
+    ledger = candidate_summary["shared_cash_ppo"]["ledger_evidence"]["payload"]
+    registered_ledger = registered_summary["shared_cash_ppo"]["ledger_evidence"][
+        "payload"
+    ]
+    borrow_transitions = [
+        transition
+        for interval in ledger["intervals"]
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "borrow_charge"
+    ]
+    assert borrow_transitions
+    assert np.any(dataset.borrow_rate > 0.0)
+    assert any(
+        transition["evidence"]["borrow_amount"] > 0.0
+        for transition in borrow_transitions
+    )
+    assert dataset.dataset_id == registered_dataset.dataset_id
+    registered_policy_digest = registered_ledger["execution_policy_digest"]
+    ledger["execution_policy_digest"] = registered_policy_digest
+    for interval in ledger["intervals"]:
+        for event in interval["order_events"]:
+            event["execution_policy_digest"] = registered_policy_digest
+
+    with pytest.raises(ArtifactIntegrityError, match="borrow rate multiplier"):
+        _validate_shared_cash_candidate_source_binding(
+            candidate_summary=candidate_summary,
+            dataset=dataset,
             expected_dataset_artifact_digest="d" * 64,
         )
 

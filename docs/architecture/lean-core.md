@@ -187,7 +187,10 @@ During shared-cash PPO EvidenceSet source binding, fill transitions are also
 checked against the frozen Dataset and registered execution overlay. The
 validator links each fill to its exact order event and execution-policy digest,
 then recomputes tick-rounded price, filled notional, source-liquidity
-participation, and fee / spread / impact cost from Dataset rows. Randomized
+participation, and fee / spread / impact cost from Dataset rows. Borrow-charge
+transitions bind the Dataset borrow-rate row and elapsed carry fraction, and
+check `borrow_rate_multiplier` against the `ExecutionCostConfig` resolved from
+the registered overlay; a ledger cannot choose its own multiplier. Randomized
 slippage is rejected because this source oracle cannot reconstruct its draw.
 This evidence check does not claim exchange-live fill accuracy.
 

@@ -212,7 +212,7 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 ## Failure / tamper contract
 
-loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
+loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。shared-cash StudyのEvidenceSetは生成時と再読込時の両方で、StudyPlanに固定されたDataset artifactとexecution overlayへ再結合する。再読込は`inspect_study(..., dataset_root=...)`でDataset rootを渡せる。省略時はStudy directoryと同じ親の`dataset/`を使い、EvidenceSetがあるのにDatasetを取得できない場合は失敗する。
 
 Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
 

@@ -272,7 +272,10 @@ def _validate_study_against_config(
     *,
     dataset_root: Path,
 ) -> tuple[str, str, str]:
-    snapshot = inspect_study(dataset_root.parent / "study")
+    snapshot = inspect_study(
+        dataset_root.parent / "study",
+        dataset_root=dataset_root,
+    )
     plan = snapshot.plan
     dataset = load_market_dataset_artifact(dataset_root)
     artifact = inspect_published_market_dataset_artifact(dataset_root)

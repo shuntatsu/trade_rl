@@ -113,11 +113,19 @@ capital-boundary and full-ledger artifact tests, same-market PPO training/replay
 parity test, and independently hand-calculated multi-symbol cash/cost oracle
 pass locally. A source-row mutation oracle now rejects a shared-cash ledger when
 accounting inputs change while the saved ledger, Dataset ID, and expected
-artifact digest remain fixed. It binds initial and interval marks, split and
+artifact digest remain fixed. EvidenceSet generation and each Study reload
+repeat source binding against the Dataset artifact and execution overlay frozen
+in StudyPlan; an explicit Dataset path is supported when it is outside the
+Study's sibling `dataset/` directory. A lifecycle test reseals a mutated Run,
+EvidenceSet, and analysis digest chain, then confirms reload rejects its forged
+borrow multiplier. The oracle binds initial and interval marks, split and
 delisting terms, dividends, funding due flags and rates, cash and borrow rates,
-and elapsed carry time to their Dataset rows. It also recomputes the canonical
-Dataset identity across all identity arrays; tests cover changes to volume,
-maximum participation, per-row fees, and closing prices. A fresh exact-head
+and elapsed carry time to their Dataset rows. Each borrow-charge transition's
+rate multiplier is checked against the registered execution overlay rather
+than trusted from the ledger. It also recomputes the canonical Dataset identity
+across all identity arrays; tests cover changes to volume, maximum
+participation, per-row fees, closing prices, and a forged borrow-rate
+multiplier. A fresh exact-head
 result-blind G0-G2 review and the repository quality gates are still required.
 The v2 selector also requires the median absolute candidate portfolio return
 to be positive, the median paired excess versus H=0 to be positive, complete

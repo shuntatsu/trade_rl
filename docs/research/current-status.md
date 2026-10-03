@@ -19,6 +19,8 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
 
+追加のfirst-holdout-open shockで、終端決済のfillがreplay `stop_index`行のopenを参照し、evaluation開始と同じstopを渡すとfirst evaluation barがtuning scoreとdrawdown eligibilityへ漏れることを再現した。selection replayを最後のtuning bar内で終端決済し、walk-forwardも同じhelperで境界を分離する。修正前source `a526cc18` のQ1 development smokeは探索的な診断として保持し、first evaluation barから独立したholdout証拠とは扱わない。この修正ではreal-market replayを実行せず、新たなprofitability evidenceも作らない。
+
 adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
 
 実SB3 integrationでPPO inference bundleの単発directory renameがWindows permission failureで停止したため、既存のbounded atomic-publication primitiveをこの経路にも使う。transient lockとretry exhaustionをfake policyの回帰テストで再現し、staging cleanupを確認する。training objectiveやhistorical model bytesの意味は変更しない。

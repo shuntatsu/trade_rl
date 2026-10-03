@@ -350,7 +350,7 @@ def test_cash_is_selected_when_every_trading_configuration_is_ineligible(monkeyp
         for config, start, stop in observed
         if config.strategy_name == "cash"
         and start == result.tuning_start_index
-        and stop == result.tuning_stop_index
+        and stop == result.tuning_stop_index - 1
     ]
     assert len(cash_tuning) == 1
     assert cash_tuning[0].initial_capital == 12345.0

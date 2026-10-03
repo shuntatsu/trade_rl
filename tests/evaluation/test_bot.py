@@ -211,6 +211,47 @@ def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
     assert tuning.optimized_report == direct_candidate_report
 
 
+def test_tuning_selection_ignores_the_first_holdout_open() -> None:
+    dataset = generate_demo_dataset(n_bars=60, n_symbols=1, seed=29)
+    prices = (100.0 * np.exp(0.01 * np.arange(dataset.n_bars)))[:, np.newaxis]
+    features = dataset.features.copy()
+    features[:, :, 0] = 0.1
+    dataset = replace(
+        dataset,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        features=features,
+        identity_payload_json=None,
+    )
+    tuning = tune_for_maximum_profit(
+        dataset,
+        strategy_name="trend",
+        max_combinations=8,
+        holdout_fraction=0.2,
+    )
+
+    shocked_open = dataset.open.copy()
+    shocked_open[tuning.holdout_start_index, 0] *= 0.5
+    shocked = replace(
+        dataset,
+        open=shocked_open,
+        high=np.maximum(dataset.high, shocked_open),
+        low=np.minimum(dataset.low, shocked_open),
+    )
+    shocked_tuning = tune_for_maximum_profit(
+        shocked,
+        strategy_name="trend",
+        max_combinations=8,
+        holdout_fraction=0.2,
+    )
+
+    assert tuning.optimized_config == shocked_tuning.optimized_config
+    assert tuning.selection_score == shocked_tuning.selection_score
+    assert tuning.selection_drawdown_pct == shocked_tuning.selection_drawdown_pct
+
+
 def test_tuning_rejects_invalid_objective_and_windows() -> None:
     dataset = generate_demo_dataset(n_bars=60, n_symbols=1, seed=31)
 
@@ -290,7 +331,7 @@ def test_drawdown_ineligible_candidate_cannot_win(monkeypatch) -> None:
     assert result.optimized_report.net_pnl == 42.0
     assert result.baseline_report.net_pnl == 11.0
     assert all(
-        stop == result.tuning_stop_index
+        stop == result.tuning_stop_index - 1
         for _, start, stop in calls
         if start == result.tuning_start_index
     )

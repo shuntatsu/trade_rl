@@ -522,11 +522,12 @@ def tune_for_maximum_profit(
         dataset = _with_channel_breakout_features(dataset)
 
     usable_stop_index = dataset.n_bars - 1
-    minimum_window_span = resolved_execution_cost.order_latency_bars + 2
+    minimum_tuning_window_span = resolved_execution_cost.order_latency_bars + 3
+    minimum_holdout_window_span = resolved_execution_cost.order_latency_bars + 2
     tuning_stop_index = math.floor(usable_stop_index * (1.0 - float(holdout_fraction)))
     if (
-        tuning_stop_index < minimum_window_span
-        or usable_stop_index - tuning_stop_index < minimum_window_span
+        tuning_stop_index < minimum_tuning_window_span
+        or usable_stop_index - tuning_stop_index < minimum_holdout_window_span
     ):
         raise ValueError(
             "dataset is too short for separate tuning and holdout windows "
@@ -1024,7 +1025,7 @@ def walk_forward_tune(
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
     usable_bars = dataset.n_bars - 1  # last bar reserved for terminal settlement
-    minimum_window_span = resolved_cost.order_latency_bars + 2
+    minimum_window_span = resolved_cost.order_latency_bars + 3
     window_size = usable_bars // n_windows
     if window_size < minimum_window_span:
         raise ValueError(
@@ -1107,6 +1108,10 @@ def _tune_with_fixed_windows(
     execution_cost: ExecutionCostConfig,
 ) -> TuningResult:
     """Internal helper: grid search on [tune_start, tune_stop) and evaluate on [eval_start, eval_stop)."""
+    # run_trading_bot terminal settlement fills on the open at stop_index.
+    # Stop on the final tuning bar so that the first evaluation bar cannot
+    # affect candidate P&L, drawdown eligibility, or selection score.
+    tuning_replay_stop_index = tune_stop_index - 1
     baseline_cfg = BotConfig(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
@@ -1116,7 +1121,7 @@ def _tune_with_fixed_windows(
         dataset,
         baseline_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
 
     strat_name = strategy_name.lower()
@@ -1167,7 +1172,7 @@ def _tune_with_fixed_windows(
         dataset,
         cash_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
     if (
         cash_tuning_report.terminal_settled
@@ -1284,7 +1289,7 @@ def _tune_with_fixed_windows(
             dataset,
             test_cfg,
             start_index=tune_start_index,
-            stop_index=tune_stop_index,
+            stop_index=tuning_replay_stop_index,
         )
         if (
             not tuning_report.terminal_settled

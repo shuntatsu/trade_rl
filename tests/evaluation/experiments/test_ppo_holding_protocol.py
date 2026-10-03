@@ -760,8 +760,8 @@ def test_shared_cash_replay_matches_hand_calculated_dividend_and_interest() -> N
     close = np.full(shape, 100.0)
     dividend = np.zeros(shape)
     dividend[1, 0] = 1.0
-    cash_rate = np.zeros(shape)
-    cash_rate[1, 0] = 0.05
+    cash_rate = np.zeros(bars)
+    cash_rate[1] = 0.05
     dataset = MarketDataset(
         dataset_id="c" * 64,
         symbols=("BTCUSDT",),

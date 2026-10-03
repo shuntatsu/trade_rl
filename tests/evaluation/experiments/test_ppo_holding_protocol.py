@@ -14,6 +14,7 @@ from tests.evaluation.experiments.test_evidence import (
     _fake_execute,
 )
 from trade_rl.data import publish_market_dataset_artifact
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import SharedCashStrategyComparisonEntry
 from trade_rl.evaluation.experiments import (
     ArtifactIntegrityError,
@@ -751,3 +752,64 @@ def test_holding_arm_at_exactly_twenty_percent_is_eligible_and_ties_prefer_short
     assert (
         ppo_holding_winner_digest(((504, 0.10, "long"), (72, 0.10, "short"))) == "short"
     )
+
+
+def test_shared_cash_replay_matches_hand_calculated_dividend_and_interest() -> None:
+    bars = 5
+    shape = (bars, 1)
+    close = np.full(shape, 100.0)
+    dividend = np.zeros(shape)
+    dividend[1, 0] = 1.0
+    cash_rate = np.zeros(shape)
+    cash_rate[1, 0] = 0.05
+    dataset = MarketDataset(
+        dataset_id="c" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(bars) * np.timedelta64(1, "h"),
+        features=np.zeros((bars, 1, 1), dtype=np.float32),
+        global_features=np.zeros((bars, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full(shape, 1_000_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((bars, 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        dividend=dividend,
+        cash_rate=cash_rate,
+    )
+
+    replay = run_shared_cash_replay(
+        dataset,
+        (ConstantIntentStrategy(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    ledger = replay.ledger_evidence
+    assert ledger is not None
+    expected_dividend = 5.0
+    expected_interest = (500.0 + expected_dividend) * 0.05 / 8_760
+    expected_final_cash = 1_000.0 + expected_dividend + expected_interest
+    assert sum(item.interval_dividend for item in ledger.intervals) == pytest.approx(
+        expected_dividend
+    )
+    assert sum(
+        item.interval_cash_interest for item in ledger.intervals
+    ) == pytest.approx(expected_interest)
+    assert ledger.final_cash == pytest.approx(expected_final_cash)
+    assert replay.book.portfolio_value == pytest.approx(expected_final_cash)
+    assert replay.book.quantities.tolist() == pytest.approx([0.0])
+    assert ledger.terminal_exact_quantities == ("0",)
+    assert ledger.active_order_remainders == ()

@@ -30,11 +30,13 @@ from trade_rl.evaluation.runs import (
     LoadedCandidateRun,
     build_candidate_run_provenance,
     execute_candidate_run,
+    execution_cost_for_overlay,
     inspect_candidate_run_artifact,
     load_candidate_run_artifact,
     publish_candidate_run,
     resolve_candidate_run_spec,
 )
+from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
 _SOURCE_TIME_TOLERANCE_HOURS = 1e-12
@@ -357,6 +359,50 @@ def _candidate_shared_cash_ledger(
     return ledger
 
 
+def _candidate_source_execution_cost(
+    candidate_summary: Mapping[str, object],
+    *,
+    dataset: MarketDataset,
+    ledger: Mapping[str, object],
+) -> ExecutionCostConfig:
+    evaluation = candidate_summary.get("evaluation")
+    overlay = (
+        evaluation.get("execution_overlay") if isinstance(evaluation, Mapping) else None
+    )
+    if not isinstance(overlay, str):
+        raise ArtifactIntegrityError(
+            "candidate source fill execution overlay is missing"
+        )
+    try:
+        execution_cost = execution_cost_for_overlay(overlay)
+        expected_policy_digest = MarketExecutor(
+            dataset,
+            execution_cost,
+            ohlc_drawdown_stress=(
+                ledger.get("schema_version") == "shared_cash_replay_ledger_v4"
+            ),
+        ).execution_policy_digest
+    except (TypeError, ValueError) as error:
+        raise ArtifactIntegrityError(
+            "candidate source fill execution policy is unsupported"
+        ) from error
+    if execution_cost.order_type != "market":
+        raise ArtifactIntegrityError(
+            "candidate source fill oracle only accepts market orders"
+        )
+    if execution_cost.slippage_std != 0.0 or (
+        execution_cost.tail_slippage_probability != 0.0
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source fill oracle cannot verify randomized slippage"
+        )
+    if ledger.get("execution_policy_digest") != expected_policy_digest:
+        raise ArtifactIntegrityError(
+            "candidate source fill execution policy identity mismatch"
+        )
+    return execution_cost
+
+
 def _validate_candidate_source_mark_transition(
     transition: Mapping[str, object],
     *,
@@ -475,6 +521,155 @@ def _validate_candidate_source_funding_events(
         )
 
 
+def _validate_candidate_source_fill_transition(
+    transition: Mapping[str, object],
+    *,
+    event: Mapping[str, object],
+    execution_cost: ExecutionCostConfig,
+    execution_policy_digest: str,
+    dataset: MarketDataset,
+    expected_index: int,
+) -> None:
+    evidence = transition.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise ArtifactIntegrityError("candidate source fill evidence is missing")
+    event_sequence = transition.get("order_event_sequence")
+    symbol = _candidate_source_index(
+        evidence.get("symbol_index"), field="fill symbol_index"
+    )
+    if not 0 <= symbol < dataset.n_symbols:
+        raise ArtifactIntegrityError("candidate source fill symbol is invalid")
+    quantity = evidence.get("filled_quantity")
+    event_quantity = event.get("filled_quantity")
+    price = evidence.get("execution_price")
+    notional = evidence.get("filled_notional")
+    cost_amount = evidence.get("cost_amount")
+    if (
+        isinstance(quantity, bool)
+        or not isinstance(quantity, (int, float))
+        or not np.isfinite(quantity)
+        or isinstance(price, bool)
+        or not isinstance(price, (int, float))
+        or not np.isfinite(price)
+        or isinstance(notional, bool)
+        or not isinstance(notional, (int, float))
+        or not np.isfinite(notional)
+        or isinstance(cost_amount, bool)
+        or not isinstance(cost_amount, (int, float))
+        or not np.isfinite(cost_amount)
+    ):
+        raise ArtifactIntegrityError("candidate source fill economics are malformed")
+    if (
+        event_sequence != event.get("sequence")
+        or event.get("event_type") not in {"filled", "partial_fill"}
+        or event.get("processing_index") != expected_index
+        or event.get("symbol_index") != symbol
+        or event.get("trigger_segment") != "open"
+        or isinstance(event_quantity, bool)
+        or not isinstance(event_quantity, (int, float))
+        or not np.isfinite(event_quantity)
+        or event.get("execution_policy_digest") != execution_policy_digest
+    ):
+        raise ArtifactIntegrityError("candidate source fill event link is invalid")
+    if not np.isclose(
+        float(quantity),
+        float(event_quantity),
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise ArtifactIntegrityError("candidate source fill quantity is inconsistent")
+
+    source_price = float(dataset.open[expected_index, symbol])
+    tick_size = max(
+        execution_cost.tick_size,
+        float(dataset.resolved_array("tick_size")[expected_index, symbol]),
+    )
+    expected_price = source_price
+    if tick_size > 0.0:
+        expected_price = max(
+            float(np.round(source_price / tick_size) * tick_size), tick_size
+        )
+    multipliers = dataset.resolved_array("contract_multipliers")
+    expected_notional = (
+        abs(float(quantity)) * expected_price * float(multipliers[symbol])
+    )
+    multiplier = float(multipliers[symbol])
+    if execution_cost.processing_bar_volume_capacity:
+        reference_index = expected_index
+        reference_prices = dataset.open[expected_index]
+    else:
+        reference_index = expected_index - 1
+        if reference_index < 0:
+            raise ArtifactIntegrityError(
+                "candidate source fill has no prior capacity row"
+            )
+        reference_prices = dataset.close[reference_index]
+    market_notional = float(
+        dataset.market_notional(reference_index, reference_prices)[symbol]
+    )
+    expected_participation = (
+        0.0 if market_notional <= 1e-12 else expected_notional / market_notional
+    )
+    volume = float(dataset.volume[reference_index, symbol])
+    volume_unit = dataset.volume_units[symbol]
+    if volume_unit.value == "base_asset":
+        quantity_capacity = volume / multiplier
+    elif volume_unit.value == "contracts":
+        quantity_capacity = volume
+    else:
+        quantity_capacity = None
+    if quantity_capacity is not None and quantity_capacity > 1e-12:
+        expected_participation = max(
+            expected_participation,
+            abs(float(quantity)) / quantity_capacity,
+        )
+    raw_participation = event.get("participation_rate")
+    if (
+        isinstance(raw_participation, bool)
+        or not isinstance(raw_participation, (int, float))
+        or not np.isfinite(raw_participation)
+        or not np.isclose(
+            float(raw_participation), expected_participation, rtol=1e-12, atol=1e-12
+        )
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source fill participation does not match source liquidity"
+        )
+
+    source_fees = dataset.resolved_array("fee_rate")
+    taker_fees = dataset.resolved_array("taker_fee_rate")
+    source_spread = dataset.resolved_array("spread_rate")
+    expected_unit_cost = execution_cost.multiplier * (
+        execution_cost.fee_rate
+        + float(source_fees[expected_index, symbol])
+        + execution_cost.taker_fee_rate
+        + float(taker_fees[expected_index, symbol])
+        + execution_cost.spread_rate
+        + float(source_spread[expected_index, symbol])
+        + execution_cost.impact_rate * float(np.sqrt(expected_participation))
+    )
+    expected_cost = expected_notional * expected_unit_cost
+
+    def numbers_match(actual: object, expected: float) -> bool:
+        return (
+            not isinstance(actual, bool)
+            and isinstance(actual, (int, float))
+            and bool(np.isfinite(actual))
+            and bool(np.isclose(float(actual), expected, rtol=1e-12, atol=1e-12))
+        )
+
+    if (
+        not numbers_match(price, expected_price)
+        or not numbers_match(event.get("execution_price"), expected_price)
+        or not numbers_match(notional, expected_notional)
+        or not numbers_match(event.get("filled_notional"), expected_notional)
+        or not numbers_match(cost_amount, expected_cost)
+    ):
+        raise ArtifactIntegrityError(
+            "candidate source fill price or cost does not match execution economics"
+        )
+
+
 def _validate_candidate_source_transition(
     transition: Mapping[str, object],
     *,
@@ -484,6 +679,9 @@ def _validate_candidate_source_transition(
     processing_year_fraction: float,
     gap_year_fraction: float,
     last_mark_source: tuple[np.ndarray, str] | None,
+    execution_cost: ExecutionCostConfig | None,
+    execution_policy_digest: str,
+    source_fill_events: Mapping[int, Mapping[str, object]],
 ) -> tuple[str, str | None, tuple[np.ndarray, str] | None]:
     transition_type = transition.get("transition_type")
     if not isinstance(transition_type, str):
@@ -516,9 +714,24 @@ def _validate_candidate_source_transition(
         )
         last_mark_source = (dataset.open[expected_index], "open row")
     elif transition_type == "fill":
-        # Fill events are cross-checked against ledger events by artifact validation;
-        # this validator binds Dataset-backed accounting inputs.
-        pass
+        event_sequence = transition.get("order_event_sequence")
+        if (
+            isinstance(event_sequence, bool)
+            or not isinstance(event_sequence, int)
+            or execution_cost is None
+            or event_sequence not in source_fill_events
+        ):
+            raise ArtifactIntegrityError(
+                "candidate source fill has no verified execution context"
+            )
+        _validate_candidate_source_fill_transition(
+            transition,
+            event=source_fill_events[event_sequence],
+            execution_cost=execution_cost,
+            execution_policy_digest=execution_policy_digest,
+            dataset=dataset,
+            expected_index=expected_index,
+        )
     elif transition_type == "funding_mark":
         _validate_candidate_source_mark_transition(
             transition,
@@ -660,6 +873,8 @@ def _validate_candidate_source_interval(
     mark_prices: np.ndarray,
     expected_start: int,
     require_ohlc_stress: bool,
+    execution_cost: ExecutionCostConfig | None,
+    execution_policy_digest: str,
 ) -> None:
     expected_next = expected_start + 1
     if (
@@ -689,6 +904,7 @@ def _validate_candidate_source_interval(
     ):
         raise ArtifactIntegrityError("candidate source ledger order events are missing")
     expected_fill_sequences: set[int] = set()
+    source_fill_events: dict[int, Mapping[str, object]] = {}
     for raw_event in raw_order_events:
         if not isinstance(raw_event, Mapping):
             raise ArtifactIntegrityError(
@@ -709,6 +925,7 @@ def _validate_candidate_source_interval(
                     "candidate source ledger fill events are inconsistent"
                 )
             expected_fill_sequences.add(sequence)
+            source_fill_events[sequence] = raw_event
     processing_year_fraction, gap_year_fraction = _candidate_source_year_fractions(
         dataset,
         start_index=expected_start,
@@ -762,6 +979,9 @@ def _validate_candidate_source_interval(
                 processing_year_fraction=processing_year_fraction,
                 gap_year_fraction=gap_year_fraction,
                 last_mark_source=last_mark_source,
+                execution_cost=execution_cost,
+                execution_policy_digest=execution_policy_digest,
+                source_fill_events=source_fill_events,
             )
         )
         counts[transition_type] = counts.get(transition_type, 0) + 1
@@ -901,6 +1121,30 @@ def _validate_shared_cash_candidate_source_binding(
         or len(intervals) != stop_index - start_index
     ):
         raise ArtifactIntegrityError("candidate source ledger intervals are incomplete")
+    has_fills = any(
+        isinstance(interval, Mapping)
+        and isinstance(interval.get("order_events"), Sequence)
+        and any(
+            isinstance(event, Mapping)
+            and event.get("event_type") in {"filled", "partial_fill"}
+            for event in cast(Sequence[object], interval["order_events"])
+        )
+        for interval in intervals
+    )
+    execution_cost = (
+        _candidate_source_execution_cost(
+            candidate_summary,
+            dataset=dataset,
+            ledger=ledger,
+        )
+        if has_fills
+        else None
+    )
+    execution_policy_digest = ledger.get("execution_policy_digest")
+    if has_fills and not isinstance(execution_policy_digest, str):
+        raise ArtifactIntegrityError(
+            "candidate source fill execution policy identity is missing"
+        )
     for offset, interval in enumerate(intervals):
         if not isinstance(interval, Mapping):
             raise ArtifactIntegrityError("candidate source ledger interval is invalid")
@@ -911,6 +1155,12 @@ def _validate_shared_cash_candidate_source_binding(
             expected_start=start_index + offset,
             require_ohlc_stress=(
                 ledger.get("schema_version") == "shared_cash_replay_ledger_v4"
+            ),
+            execution_cost=execution_cost,
+            execution_policy_digest=(
+                execution_policy_digest
+                if isinstance(execution_policy_digest, str)
+                else ""
             ),
         )
     if not dataset.identity_verified:

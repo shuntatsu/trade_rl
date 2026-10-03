@@ -28,6 +28,7 @@ def test_shared_cash_replay_binds_age_and_terminal_settlement_inputs() -> None:
 
     assert "minimum_hold_bars" in parameters
     assert "settle_terminal_position" in parameters
+    assert parameters["ohlc_drawdown_stress"].default is False
     assert "position_age_bars_before" in decision_fields
     assert "position_age_bars_after" in decision_fields
     assert "minimum_hold_suppressed" in decision_fields
@@ -50,6 +51,7 @@ def test_ledger_evidence_preserves_positional_schema_version() -> None:
         0.0,
         0.0,
         None,
+        (),
         (),
         (),
         "shared_cash_replay_ledger_v2",
@@ -97,6 +99,7 @@ def test_v3_accounting_evidence_is_opt_in_and_keeps_legacy_mapping_shape() -> No
         0.0,
         0.0,
         None,
+        (),
         (),
         (),
         "shared_cash_replay_ledger_v2",

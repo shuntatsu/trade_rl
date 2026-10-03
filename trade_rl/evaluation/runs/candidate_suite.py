@@ -342,6 +342,7 @@ def run_lean_candidate_suite(
             settle_terminal_position=config.ppo_settle_terminal_position,
             capture_ledger_evidence=True,
             capture_accounting_evidence=True,
+            ohlc_drawdown_stress=True,
         )
         diagnostics = shared_replay.diagnostics
         shared_cash_ppo = SharedCashStrategyComparisonEntry(

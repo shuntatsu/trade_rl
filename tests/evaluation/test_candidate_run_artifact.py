@@ -430,6 +430,7 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_ledger_and_intrabar_dr
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
     diagnostics = shared_replay.diagnostics
     metrics = evaluate_performance(
@@ -901,6 +902,7 @@ def test_v10_shared_cash_minimum_hold_suppression_and_unlock_survive_artifact_ro
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
     diagnostics = shared_replay.diagnostics
     shared_entry = SharedCashStrategyComparisonEntry(
@@ -1031,6 +1033,7 @@ def test_v10_shared_cash_artifact_rejects_forged_execution_state(tmp_path) -> No
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
     assert replay.ledger_evidence is not None
     from fractions import Fraction
@@ -1302,6 +1305,7 @@ def test_v10_shared_cash_ledger_records_ordered_accounting_transitions(
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     assert replay.ledger_evidence is not None
@@ -1435,6 +1439,7 @@ def test_v10_shared_cash_ledger_rejects_unexplained_mark_jump() -> None:
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     assert replay.ledger_evidence is not None
@@ -1501,6 +1506,7 @@ def test_v10_shared_cash_ledger_v3_accepts_fill_without_ohlc_stress() -> None:
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     assert replay.ledger_evidence is not None
@@ -1571,6 +1577,7 @@ def test_v10_shared_cash_ledger_requires_termination_flatten_evidence() -> None:
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     assert replay.ledger_evidence is not None
@@ -1663,6 +1670,7 @@ def test_v10_accounting_accepts_exact_lot_fill_with_lossy_float_projection() -> 
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     assert replay.ledger_evidence is not None

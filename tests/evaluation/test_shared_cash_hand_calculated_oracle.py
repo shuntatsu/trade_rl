@@ -11,6 +11,7 @@ from trade_rl.evaluation.experiments.evidence import (
     _validate_shared_cash_candidate_source_binding,
 )
 from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.position_intent import PositionIntent
@@ -68,6 +69,7 @@ def _two_symbol_market() -> MarketDataset:
     )
 
 
+@pytest.mark.parametrize("capture_accounting_evidence", (False, True))
 @pytest.mark.parametrize(
     ("intent", "adverse_field", "adverse_price"),
     (
@@ -79,6 +81,7 @@ def test_shared_cash_drawdown_captures_adverse_ohlc_excursion(
     intent: PositionIntent,
     adverse_field: str,
     adverse_price: float,
+    capture_accounting_evidence: bool,
 ) -> None:
     base = _two_symbol_market()
     close = np.tile(np.asarray((100.0, 200.0)), (base.n_bars, 1))
@@ -118,7 +121,8 @@ def test_shared_cash_drawdown_captures_adverse_ohlc_excursion(
         ),
         settle_terminal_position=False,
         capture_ledger_evidence=True,
-        capture_accounting_evidence=True,
+        capture_accounting_evidence=capture_accounting_evidence,
+        ohlc_drawdown_stress=True,
     )
 
     assert result.book.quantities[0] == pytest.approx(intent.value * 2.5)
@@ -127,7 +131,11 @@ def test_shared_cash_drawdown_captures_adverse_ohlc_excursion(
     assert result.book.mark_prices[0] == pytest.approx(100.0)
     ledger = result.ledger_evidence
     assert ledger is not None
-    assert ledger.schema_version == "shared_cash_replay_ledger_v4"
+    assert ledger.schema_version == (
+        "shared_cash_replay_ledger_v4"
+        if capture_accounting_evidence
+        else "shared_cash_replay_ledger_v1"
+    )
     stress_transitions = [
         transition
         for interval in ledger.intervals
@@ -145,18 +153,19 @@ def test_shared_cash_drawdown_captures_adverse_ohlc_excursion(
         for transition in stress_transitions
         if transition.evidence["phase"] == "after_fill"
     ]
-    assert len(stress_transitions) == 2 + len(fill_sequences)
-    assert [transition.evidence["phase"] for transition in stress_transitions] == [
-        "pre_fill",
-        *("after_fill" for _ in fill_sequences),
-        "post_fill",
-    ]
-    assert {
-        transition.evidence["fill_event_sequence"]
-        for transition in after_fill_transitions
-    } == fill_sequences
-    assert stress_transitions[0].evidence["low_prices"] == tuple(low[1])
-    assert stress_transitions[0].evidence["high_prices"] == tuple(high[1])
+    if capture_accounting_evidence:
+        assert len(stress_transitions) == 2 + len(fill_sequences)
+        assert [transition.evidence["phase"] for transition in stress_transitions] == [
+            "pre_fill",
+            *("after_fill" for _ in fill_sequences),
+            "post_fill",
+        ]
+        assert {
+            transition.evidence["fill_event_sequence"]
+            for transition in after_fill_transitions
+        } == fill_sequences
+        assert stress_transitions[0].evidence["low_prices"] == tuple(low[1])
+        assert stress_transitions[0].evidence["high_prices"] == tuple(high[1])
 
 
 def test_shared_cash_source_binding_checks_ohlc_fill_event_link() -> None:
@@ -181,6 +190,7 @@ def test_shared_cash_source_binding_checks_ohlc_fill_event_link() -> None:
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     ledger = result.ledger_evidence
@@ -189,6 +199,7 @@ def test_shared_cash_source_binding_checks_ohlc_fill_event_link() -> None:
     candidate_summary = {
         "dataset_id": dataset.dataset_id,
         "dataset_artifact": {"artifact_digest": "d" * 64},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
         "shared_cash_ppo": {
             "ledger_evidence": {
                 "schema_version": ledger.schema_version,
@@ -274,6 +285,7 @@ def test_shared_cash_ohlc_stress_counts_intrabar_favorable_peak() -> None:
         settle_terminal_position=False,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     # The long position's 2.5 units produce a $1,050 favorable extreme and a
@@ -398,14 +410,7 @@ def test_shared_cash_source_binding_rejects_changed_dataset_price_row(
         stop_index=5,
         gross_budget=0.25,
         initial_capital=1_000.0,
-        execution_cost=ExecutionCostConfig(
-            fee_rate=0.01,
-            maker_fee_rate=0.0,
-            taker_fee_rate=0.0,
-            spread_rate=0.0,
-            impact_rate=0.0,
-            max_participation_rate=1.0,
-        ),
+        execution_cost=ExecutionCostConfig.zero(),
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=0.75,
@@ -418,6 +423,7 @@ def test_shared_cash_source_binding_rejects_changed_dataset_price_row(
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
     ledger = result.ledger_evidence
     assert ledger is not None
@@ -429,6 +435,7 @@ def test_shared_cash_source_binding_rejects_changed_dataset_price_row(
     candidate_summary = {
         "dataset_id": dataset.dataset_id,
         "dataset_artifact": {"artifact_digest": artifact_digest},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
         "shared_cash_ppo": {
             "ledger_evidence": {
                 "schema_version": ledger.schema_version,
@@ -550,14 +557,7 @@ def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]
         stop_index=5,
         gross_budget=0.25,
         initial_capital=1_000.0,
-        execution_cost=ExecutionCostConfig(
-            fee_rate=0.01,
-            maker_fee_rate=0.0,
-            taker_fee_rate=0.0,
-            spread_rate=0.0,
-            impact_rate=0.0,
-            max_participation_rate=1.0,
-        ),
+        execution_cost=ExecutionCostConfig.zero(),
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=0.75,
@@ -570,6 +570,7 @@ def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
     ledger = result.ledger_evidence
     assert ledger is not None
@@ -577,6 +578,7 @@ def _eventful_shared_cash_candidate() -> tuple[MarketDataset, dict[str, object]]
     candidate_summary = {
         "dataset_id": dataset.dataset_id,
         "dataset_artifact": {"artifact_digest": artifact_digest},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
         "shared_cash_ppo": {
             "ledger_evidence": {
                 "schema_version": ledger.schema_version,

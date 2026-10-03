@@ -104,7 +104,11 @@ does not reveal intrabar price order, so this is a conservative range stress,
 not a reconstructed realized path. Total return remains bound to saved interval
 returns. The controlled comparison carries the loader-validated ledger stress
 drawdown into the shared-account 20% eligibility gate. A regression covers a
-25% OHLC stress drawdown when interval returns imply only 10%. The
+25% OHLC stress drawdown when interval returns imply only 10%. This shared-cash
+stress mode is an explicit policy option, can run without accounting-evidence
+capture, and is included in the execution-policy digest. Accounting evidence
+uses ledger v4 with OHLC stress and v3 without it. Ordinary single-symbol replay
+does not apply the range stress to its drawdown or risk decisions. The
 capital-boundary and full-ledger artifact tests, same-market PPO training/replay
 parity test, and independently hand-calculated multi-symbol cash/cost oracle
 pass locally. A source-row mutation oracle now rejects a shared-cash ledger when

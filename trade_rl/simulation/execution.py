@@ -336,6 +336,7 @@ class MarketExecutor:
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         capture_accounting_evidence: bool = False,
+        ohlc_drawdown_stress: bool = False,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -352,6 +353,9 @@ class MarketExecutor:
         if not isinstance(capture_accounting_evidence, bool):
             raise TypeError("capture_accounting_evidence must be boolean")
         self.capture_accounting_evidence = capture_accounting_evidence
+        if not isinstance(ohlc_drawdown_stress, bool):
+            raise TypeError("ohlc_drawdown_stress must be boolean")
+        self.ohlc_drawdown_stress = ohlc_drawdown_stress
         self._accounting_runtime: StatefulExecutionRuntime | None = None
         self._execution_policy_digest_cache: str | None = None
         self._execution_policy_digest_cache_inputs: (
@@ -360,6 +364,7 @@ class MarketExecutor:
                 ExecutionRuleStress,
                 MarketOrderProfile | None,
                 tuple[str, ...],
+                bool,
             ]
             | None
         ) = None
@@ -1000,6 +1005,7 @@ class MarketExecutor:
             self.rule_stress,
             self.market_order_profile,
             trigger_fraction_snapshot,
+            self.ohlc_drawdown_stress,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -1010,6 +1016,7 @@ class MarketExecutor:
             and previous_inputs[1] is self.rule_stress
             and previous_inputs[2] is self.market_order_profile
             and previous_inputs[3] == trigger_fraction_snapshot
+            and previous_inputs[4] == self.ohlc_drawdown_stress
         ):
             return cached_digest
 
@@ -1032,6 +1039,14 @@ class MarketExecutor:
             )
         else:
             digest = self.cost.execution_policy_digest
+
+        if self.ohlc_drawdown_stress:
+            digest = content_digest(
+                {
+                    "schema_version": "ohlc_drawdown_stress_policy_v1",
+                    "base_execution_policy_digest": digest,
+                }
+            )
 
         self._execution_policy_digest_cache_inputs = cache_inputs
         self._execution_policy_digest_cache = digest

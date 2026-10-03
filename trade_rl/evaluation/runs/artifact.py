@@ -29,7 +29,7 @@ from trade_rl.evaluation.replay import _agent_stop_index
 from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.evaluation.runs.execute import (
     CandidateRunResult,
-    _execution_cost_for_overlay,
+    execution_cost_for_overlay,
 )
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
@@ -253,7 +253,7 @@ def _evaluation_payload(result: CandidateRunResult) -> dict[str, object]:
         ),
     }
     if result.comparison.shared_cash_ppo is not None:
-        cost = _execution_cost_for_overlay(spec.execution_overlay)
+        cost = execution_cost_for_overlay(spec.execution_overlay)
         payload["evaluation_start_index"] = spec.evaluation_start_index
         payload["evaluation_stop_index"] = spec.evaluation_stop_index
         payload["ppo_policy_decision_stop_index"] = _agent_stop_index(
@@ -1968,7 +1968,7 @@ def _validate_v9_decision_coverage(
         expected_stop = _agent_stop_index(
             start_index=start,
             stop_index=stop,
-            execution_cost=_execution_cost_for_overlay(execution_overlay),
+            execution_cost=execution_cost_for_overlay(execution_overlay),
             settle_terminal_position=settle_terminal_position,
         )
     except ValueError as error:

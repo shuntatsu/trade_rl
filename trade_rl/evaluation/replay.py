@@ -202,8 +202,8 @@ class SharedCashReplayLedgerEvidence:
     termination_reason: str | None
     active_order_remainders: tuple[tuple[str, float], ...]
     terminal_order_reasons: tuple[tuple[str, str], ...]
-    schema_version: str = "shared_cash_replay_ledger_v1"
     decisions: tuple[SharedCashReplayDecision, ...] = ()
+    schema_version: str = "shared_cash_replay_ledger_v1"
     initial_mark_prices: tuple[float, ...] = ()
     contract_multipliers: tuple[float, ...] = ()
 
@@ -762,6 +762,7 @@ def run_shared_cash_replay(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     capture_accounting_evidence: bool = False,
+    ohlc_drawdown_stress: bool = False,
 ) -> SharedCashReplayResult:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -795,6 +796,8 @@ def run_shared_cash_replay(
         raise ValueError("capture_accounting_evidence must be boolean")
     if capture_accounting_evidence and not capture_ledger_evidence:
         raise ValueError("accounting evidence requires ledger evidence")
+    if not isinstance(ohlc_drawdown_stress, bool):
+        raise ValueError("ohlc_drawdown_stress must be boolean")
     if minimum_hold_bars is None:
         hold_bars_by_symbol = tuple(
             getattr(strategy, "minimum_hold_bars", 0) for strategy in strategy_tuple
@@ -856,6 +859,7 @@ def run_shared_cash_replay(
         resolved_execution_cost,
         market_order_profile=market_order_profile,
         capture_accounting_evidence=capture_accounting_evidence,
+        ohlc_drawdown_stress=ohlc_drawdown_stress,
         execution_observer=retain_latest_execution_observation,
     )
     risk_controller = risk or PreTradeRisk.default_for_execution(
@@ -1166,11 +1170,15 @@ def run_shared_cash_replay(
             ),
             schema_version=(
                 "shared_cash_replay_ledger_v4"
-                if capture_accounting_evidence
+                if capture_accounting_evidence and ohlc_drawdown_stress
                 else (
-                    "shared_cash_replay_ledger_v2"
-                    if settle_terminal_position or any(hold_bars_by_symbol)
-                    else "shared_cash_replay_ledger_v1"
+                    "shared_cash_replay_ledger_v3"
+                    if capture_accounting_evidence
+                    else (
+                        "shared_cash_replay_ledger_v2"
+                        if settle_terminal_position or any(hold_bars_by_symbol)
+                        else "shared_cash_replay_ledger_v1"
+                    )
                 )
             ),
         )

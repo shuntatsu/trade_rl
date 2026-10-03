@@ -17,7 +17,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
-def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
+def execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
     if execution_overlay == LEGACY_DATASET_EXECUTION_OVERLAY:
         return ExecutionCostConfig.zero()
     if execution_overlay == CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
@@ -70,7 +70,7 @@ def execute_candidate_run(
         stop_index=spec.evaluation_stop_index,
         gross_budget=spec.config.gross_budget,
         initial_capital=spec.config.initial_capital,
-        execution_cost=_execution_cost_for_overlay(spec.execution_overlay),
+        execution_cost=execution_cost_for_overlay(spec.execution_overlay),
         risk=(
             None
             if spec.config.pretrade_risk_config is None

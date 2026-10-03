@@ -218,6 +218,8 @@ class StatefulExecutionRuntime:
         phase: str,
         fill_event_sequence: int | None = None,
     ) -> None:
+        if not self.executor.ohlc_drawdown_stress:
+            return
         dataset = self.executor.dataset
         highs = dataset.high[processing_index]
         lows = dataset.low[processing_index]

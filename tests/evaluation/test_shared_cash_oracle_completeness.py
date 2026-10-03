@@ -115,6 +115,7 @@ def test_shared_cash_partial_fill_residual_is_settled_at_terminal() -> None:
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     ledger = result.ledger_evidence

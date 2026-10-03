@@ -158,6 +158,29 @@ def test_shared_cash_replay_api_exists() -> None:
     assert callable(replay_module.run_shared_cash_replay)
 
 
+def test_accounting_capture_without_ohlc_stress_uses_v3_ledger() -> None:
+    result = replay_module.run_shared_cash_replay(
+        _market(np.full((5, 1), 100.0)),
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=False,
+    )
+
+    assert result.ledger_evidence is not None
+    assert result.ledger_evidence.schema_version == "shared_cash_replay_ledger_v3"
+    assert all(
+        transition.transition_type != "ohlc_drawdown_stress"
+        for interval in result.ledger_evidence.intervals
+        for transition in interval.accounting_transitions
+    )
+
+
 def test_shared_cash_replay_settles_every_symbol_before_the_exclusive_close() -> None:
     dataset = _market(np.full((6, 2), [100.0, 200.0]))
     result = replay_module.run_shared_cash_replay(

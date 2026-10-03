@@ -164,7 +164,9 @@ def evaluate_directional_arm(
         result.update(
             schema="directional_market_profile_arm_v1",
             execution_policy_digest=MarketExecutor(
-                dataset, execution, market_order_profile=market_order_profile
+                dataset,
+                execution,
+                market_order_profile=market_order_profile,
             ).execution_policy_digest,
             market_order_profile_digest=market_order_profile.digest,
             market_order_profile=market_order_profile.canonical_payload(),

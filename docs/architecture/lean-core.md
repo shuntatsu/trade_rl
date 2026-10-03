@@ -183,6 +183,25 @@ digest-only artifacts remain readable under their prior contracts. This provides
 single-account comparison input while preserving v1 per-symbol selection
 semantics.
 
+During shared-cash PPO EvidenceSet source binding, fill transitions are also
+checked against the frozen Dataset and registered execution overlay. The
+validator links each fill to its exact order event and execution-policy digest,
+then recomputes tick-rounded price, filled notional, source-liquidity
+participation, and fee / spread / impact cost from Dataset rows. Randomized
+slippage is rejected because this source oracle cannot reconstruct its draw.
+This evidence check does not claim exchange-live fill accuracy.
+
+OHLC stress is an explicit execution-policy option and affects replay whether
+accounting transitions are captured or not. Accounting evidence uses ledger v4
+when OHLC stress is enabled and v3 when it is disabled.
+
+The OHLC range stress is explicitly enabled for shared-cash replay and is
+independent of accounting-evidence capture. The ordinary single-symbol replay
+does not apply intrabar OHLC stress to its book or drawdown-driven risk
+decisions; its drawdown follows the replay's marked account path. The stress
+mode is included in the execution-policy digest so artifacts distinguish the
+two evaluation contracts.
+
 ### PPO training layout
 
 `fit_ppo_strategy(normalize_features=True)` explicitly fits one immutable

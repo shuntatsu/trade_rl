@@ -289,6 +289,12 @@ that do not appear in accounting transitions, including OHLCV (`open`, `high`,
 the saved ledger, Dataset ID, and expected artifact digest; EvidenceSet
 generation rejects them. A fresh result-blind
 G0-G2 review and all contract checks remain required before economic execution.
+For each fill it also links the accounting transition to the exact order event
+and execution-policy digest, then recomputes the tick-rounded open price,
+notional, source-liquidity participation, and Dataset plus overlay fee, spread,
+and impact cost. Randomized slippage is rejected because its draw cannot be
+reconstructed from the registered source inputs. This source oracle does not
+establish exchange-live fill accuracy.
 The shared path does not change the frozen v1 Study's independent-account
 denominator, risk, or selection semantics, and does not turn the existing
 one-active-symbol PPO training environment into a jointly trained portfolio

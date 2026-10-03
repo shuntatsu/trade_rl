@@ -43,6 +43,7 @@ from trade_rl.evaluation.experiments.protocols import (
 )
 from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.evaluation.runs.config import LEGACY_DATASET_EXECUTION_OVERLAY
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
@@ -101,6 +102,7 @@ def _fake_shared_cash_execute():
             settle_terminal_position=spec.config.ppo_settle_terminal_position,
             capture_ledger_evidence=True,
             capture_accounting_evidence=True,
+            ohlc_drawdown_stress=True,
         )
         diagnostics = replay.diagnostics
         shared = SharedCashStrategyComparisonEntry(
@@ -312,6 +314,130 @@ def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
 
     assert calls == 1
     assert not (root / "baseline").exists()
+
+
+def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evidence(
+    tmp_path: Path,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    dataset = _dataset()
+    dataset_artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    replay = run_shared_cash_replay(
+        dataset,
+        (ConstantIntentStrategy(PositionIntent.LONG),),
+        start_index=12,
+        stop_index=20,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
+    )
+    assert replay.ledger_evidence is not None
+    ledger_payload = json.loads(json.dumps(replay.ledger_evidence.to_mapping()))
+    ledger_evidence = {
+        "schema_version": replay.ledger_evidence.schema_version,
+        "digest": content_digest(ledger_payload),
+        "payload": ledger_payload,
+    }
+    summary = {
+        "dataset_id": dataset.dataset_id,
+        "dataset_artifact": {"artifact_digest": dataset_artifact.artifact_digest},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
+        "shared_cash_ppo": {"ledger_evidence": ledger_evidence},
+    }
+    evidence_module._validate_shared_cash_candidate_source_binding(
+        candidate_summary=summary,
+        dataset=dataset,
+        expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+    )
+
+    payload = ledger_evidence["payload"]
+    fill_interval = next(
+        interval
+        for interval in payload["intervals"]
+        if any(
+            event["event_type"] in {"filled", "partial_fill"}
+            for event in interval["order_events"]
+        )
+    )
+    fill_event = next(
+        event
+        for event in fill_interval["order_events"]
+        if event["event_type"] in {"filled", "partial_fill"}
+    )
+    fill_transition = next(
+        transition
+        for transition in fill_interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+        and transition["order_event_sequence"] == fill_event["sequence"]
+    )
+    symbol = fill_event["symbol_index"]
+    processing_index = fill_event["processing_index"]
+    original_price = fill_event["execution_price"]
+    forged_price = original_price + 0.01
+    assert dataset.low[processing_index, symbol] <= forged_price
+    assert forged_price <= dataset.high[processing_index, symbol]
+    forged_notional = (
+        abs(fill_event["filled_quantity"])
+        * forged_price
+        * float(dataset.resolved_array("contract_multipliers")[symbol])
+    )
+    notional_delta = forged_notional - fill_event["filled_notional"]
+    fill_event["execution_price"] = forged_price
+    fill_event["filled_notional"] = forged_notional
+    fill_evidence = fill_transition["evidence"]
+    fill_evidence["execution_price"] = forged_price
+    fill_evidence["filled_notional"] = forged_notional
+    fill_evidence["turnover"] = (
+        forged_notional / fill_interval["portfolio_value_before"]
+    )
+    fill_interval["turnover_total_after"] += (
+        notional_delta / fill_interval["portfolio_value_before"]
+    )
+    ledger_evidence["digest"] = content_digest(payload)
+
+    with pytest.raises(ArtifactIntegrityError):
+        evidence_module._validate_shared_cash_candidate_source_binding(
+            candidate_summary=summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+        )
+
+    cost_payload = json.loads(json.dumps(ledger_evidence["payload"]))
+    cost_interval = next(
+        interval
+        for interval in cost_payload["intervals"]
+        if any(
+            transition["transition_type"] == "fill"
+            for transition in interval["accounting_transitions"]
+        )
+    )
+    cost_transition = next(
+        transition
+        for transition in cost_interval["accounting_transitions"]
+        if transition["transition_type"] == "fill"
+    )
+    cost_transition["evidence"]["cost_amount"] += 0.01
+    forged_cost_ledger = {
+        **ledger_evidence,
+        "digest": content_digest(cost_payload),
+        "payload": cost_payload,
+    }
+    forged_cost_summary = {
+        **summary,
+        "shared_cash_ppo": {"ledger_evidence": forged_cost_ledger},
+    }
+    with pytest.raises(ArtifactIntegrityError, match="execution economics"):
+        evidence_module._validate_shared_cash_candidate_source_binding(
+            candidate_summary=forged_cost_summary,
+            dataset=dataset,
+            expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+        )
 
 
 def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
@@ -795,6 +921,7 @@ def test_shared_cash_replay_matches_hand_calculated_dividend_and_interest() -> N
         settle_terminal_position=True,
         capture_ledger_evidence=True,
         capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
     )
 
     ledger = replay.ledger_evidence

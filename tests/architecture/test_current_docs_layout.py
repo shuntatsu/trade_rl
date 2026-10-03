@@ -513,6 +513,7 @@ def test_v11_shared_cash_drawdown_uses_conservative_ohlc_stress() -> None:
     assert "25% OHLC stress drawdown when interval returns imply only 10%" in (
         current_status
     )
+    assert "Ordinary single-symbol replay does not apply the" in current_status
     assert "OHLC does not reveal the intrabar price order" in research_assurance
     assert "実現経路の再現ではなく、保守的な価格幅のstress" in guide_status
 

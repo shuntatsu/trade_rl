@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -503,6 +503,57 @@ def test_shared_cash_drawdown_stop_overrides_minimum_hold() -> None:
     assert stop_decision.target_weights == pytest.approx((0.0,))
     assert "drawdown_deleveraging" in stop_decision.risk_reasons
     assert stop_decision.position_quantity_after == pytest.approx((0.0,))
+
+
+def test_ohlc_stress_drives_next_shared_cash_drawdown_deleveraging() -> None:
+    dataset = _market(np.full((5, 1), 100.0))
+    high = dataset.high.copy()
+    low = dataset.low.copy()
+    high[1, 0] = 150.0
+    low[1, 0] = 80.0
+    dataset = replace(dataset, high=high, low=low)
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+
+    ordinary = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        settle_terminal_position=False,
+    )
+    stressed = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        settle_terminal_position=False,
+        ohlc_drawdown_stress=True,
+    )
+
+    ordinary_next_decision = ordinary.decisions[1]
+    stressed_next_decision = stressed.decisions[1]
+    assert ordinary.book.max_drawdown == 0.0
+    assert ordinary_next_decision.target_weights == pytest.approx((0.5,))
+    assert "drawdown_deleveraging" not in ordinary_next_decision.risk_reasons
+    assert stressed.book.max_drawdown > 0.20
+    assert stressed_next_decision.target_weights == pytest.approx((0.0,))
+    assert "drawdown_deleveraging" in stressed_next_decision.risk_reasons
 
 
 def test_shared_cash_minimum_hold_requires_age_aware_observation() -> None:

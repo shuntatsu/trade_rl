@@ -86,6 +86,12 @@ This consumed-development factor changes only adaptive bot `volatility_regime_th
 
 G2 requires a source-independent paired intent truth table for all prior intents, both signs, unavailable and nonfinite inputs, one-field configuration delta, all-arm coverage/settlement and source-derived cash-carry oracles. Cash selection, nonpositive candidate return or paired difference, excess drawdown, incomplete replay or unsettled terminal falsifies the fixed screen. Fresh result-blind read-only AI review must clear G0-G2 before execution. Normal Python, import origins, worktree, exact HEAD, source/runtime/script/Dataset identities and every arm's raw return/ledger are bound or write-once. Optimized Python is explicitly rejected before preparation/execution. No result rescues a mechanism defect; no consumed-development result establishes unused-future performance, winner or live readiness.
 
+## Research-specific contract: deterministic bot minimum-hold factor
+
+The fixed consumed-development baseline is adaptive with regime threshold0 and hold4. The single candidate changes only `minimum_hold_bars` to24, matching the named24bar signal horizon. G0 tests whether fewer voluntary changes and longer continuation improve net performance; reducing costs alone does not establish an edge. Reversals and funding during locked exposure are economic counterexamples. Shared capital, per-symbol nominal budget, all strategy/risk/cost fields, chronology, cash-priority signed selection and all-arm validity are frozen. Every stress cell must have positive candidate return and a strictly positive baseline difference, with both prefixes choosing candidate.
+
+G1 holds actual filled quantity while nonflat age is below24; flat entry remains available. First fill/sign change gives age1, same-sign exposure advances age, flat gives0, and age24 unlocks. A protective FLAT, global risk and terminal phase take precedence. No guarantee follows that turnover decreases or loss stays below20%. G2 independently checks hold ages, both quantity signs, all requested intents, protective bypass, partial-fill cancellation, unlock/re-entry, global risk and terminal settlement. Fresh result-blind AI review and source/runtime/script/Dataset binding precede economics. All arm raw returns/ledgers and reset-normalized products are retained; result-dependent rescue and unused/final/live claims remain forbidden.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 This is an active result-blind design for a new development Study. It has not

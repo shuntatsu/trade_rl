@@ -15,6 +15,34 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Net-profit redesign: prequential forecast capability (2026-10-05)
+
+Issue #810 P2 now has a software path from the existing causal row selector and
+Ridge solver to frozen future-block packets and the existing cost-aware intent
+controller. The selector records its actual pooled symbol/price/publication
+endpoints. Each fit uses only strictly matured prefix labels; later blocks can
+consume newly matured labels but cannot rewrite earlier vintages or packets.
+Stored model/scaler and selected prediction inputs survive a digest-checked JSON
+round trip. Future-only Dataset suffix mutation must leave causal identities
+unchanged, while the whole-Dataset lineage ID may change.
+
+This is a partial P2 implementation. The default horizon remains 24h; no 72h
+economic comparison, parameter selection or real-data fit/replay has been
+performed for this capability. Forecast completion/latency are declared
+simulation assumptions, not measured receipts. The source only admits inputs
+available on their Dataset row; it does not recover delayed feature histories.
+Log-return forecasts and the current cost proxy do not establish expected simple
+return or an optimal shared-cash allocator.
+
+The non-RL portfolio allocator, downstream RL packet observation, common
+DecisionContext, continuous-account walk-forward recipe, complete source/runtime
+bundle and economic diagnostics remain separate unfinished work. G0/G1 for an
+exact economic Study and G3-G5 are NOT ESTABLISHED. Synthetic timing, algebra,
+tamper and causality tests are software evidence only. The research drawdown
+guardrail remains 20%; there is no new winner, final-data opening or live-order
+authorization. See the result-blind mechanism contract in
+`architecture/research-assurance.md`.
+
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 
 利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
@@ -1024,7 +1052,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 ## Causality and evaluation rules
 
 - `feature_available_time <= decision_time` を守る。
-- supervised labelは `label_end_time < fit_cutoff` で完結する。
+- supervised labelは `label_end_time < fit_cutoff` で完結し、始点と終点の価格行がともに観測済みで、両価格の `available_at < fit_cutoff` を満たす場合だけ採用する。欠損barのforward-fill価格とcutoff時点で未公開の価格を学習labelへ使わない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。

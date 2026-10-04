@@ -69,7 +69,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py,stream.py,prequential.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -314,6 +314,25 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
+
+## Frozen forecast ownership
+
+`strategies.forecasts.supervised` remains the sole supervised-row selector.
+`training_trace` freezes its actual pooled symbol, feature row, label endpoint,
+prices and publication clocks. Ridge fitting consumes that same selected-row
+object through one solver; it does not select rows a second time.
+
+`strategies.forecasts.stream` owns the simulated availability block, Ridge
+vintage, packet and immutable stream JSON contracts. `prequential` fits each
+declared prefix and produces only its following prediction block. Its packet
+strategy uses the existing cost-aware controller and a per-vintage/symbol index;
+it owns no cash book, execution, portfolio risk or RL environment.
+
+The family facade directly exports `ForecastBlock` and `FrozenForecastStream`
+from `stream`, and `fit_prequential_ridge` and `PacketForecastStrategy` from
+`prequential`. The Tier 1 `strategies` facade is unchanged. The forbidden
+`strategies.rl -> strategies.forecasts` import remains forbidden; a future
+downstream adapter needs a separately reviewed ownership contract.
 
 ## Private development study boundary
 

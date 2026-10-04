@@ -713,3 +713,17 @@ cash, including short proceeds or negative cash; it is not a universal futures
 collateral model. Existing intent replay, PPO defaults and historical artifacts
 retain their meanings. This family supplies no fit, Study, terminal-liquidation
 protocol, shared-capital solver, RL environment or live execution authorization.
+
+## Net-profit objective declarations
+
+Issue #810の新規研究向けに `evaluation/objectives` が事業目的と金融時計を宣言する。既存の独立銘柄口座、PPO log報酬、Run/Study schema、過去の選定基準は変更しない。
+
+`CapitalContract` は独立口座ごとの初期資本、または共有口座1つの初期資本を保持する。`ObjectiveContract.net_profit_rate` は `sum(terminal_equity - initial_equity - signed_net_deposits) / sum(initial_equity)` を計算する。独立口座の単純なリターン平均を共有資金の利益へ変換せず、不等資本では資本加重になる。負の終端equityも残債を含む損失として保持する。金額は同じaccount currencyのcanonical ledgerから渡す。費用をこの計算でもう一度控除しない。
+
+`net_profit_objective_v1` は期間のaware UTC境界、期末決済/継続mark評価、economics/risk/deployment recipeのSHA-256参照、20%以下の研究DD基準、税引前・固定インフラ費別報告・符号付き入出金の意味をidentityへbindする。digest参照はprofile内容の検証や執行の適合性の証明ではない。20%はgapや執行不能時にも守られる損失保証ではない。
+
+`FinancialClockContract` はregular clockのdecision/execution/reward間隔、有限horizon、rollout長、gamma、GAE lambda、reward schemaを明示する。初期契約は1 decisionにつき1 reward、execution刻みへの整合、horizonのdecision刻みへの整合を要求する。時間を揃えたdiscountを比較できるが、rollout切断と経済終端のruntime処理は実装しない。固定初期資本を分母とするequity増分の総和はgamma=1で終端純利益へ一致し、log報酬とは異なる。`terminal_profit_aligned` はこの代数的関係だけを表す。
+
+`BoundObjectiveClock` はUTC評価期間の正確な整数秒数と金融時計のeconomic horizonが一致することを要求し、両宣言のdigestを `bound_objective_clock_v1` に結び付ける。この有限評価期間はfitデータ区間や最大保有期間とは別の意味である。小数秒は丸めず拒否する。これは任意の新規bindingであり、個別宣言のconstructorを変更しない。
+
+これらは独立した宣言・算術capabilityであり、既存runner/env/Studyへ接続されていない。共有口座訓練、費用校正、最終評価、研究実行の認可、利益性は証明しない。

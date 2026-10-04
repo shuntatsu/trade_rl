@@ -23,6 +23,8 @@ class EnsembleIntentStrategy:
     ) -> None:
         if not strategies:
             raise ValueError("strategies sequence must not be empty")
+        if type(min_agreement) is not int:
+            raise ValueError("min_agreement must be an integer")
         if min_agreement < 1 or min_agreement > len(strategies):
             raise ValueError(
                 f"min_agreement must be between 1 and {len(strategies)}, got {min_agreement}"

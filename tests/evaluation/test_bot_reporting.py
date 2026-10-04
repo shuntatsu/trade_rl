@@ -8,8 +8,11 @@ import pytest
 
 from trade_rl.evaluation.bot import (
     BotConfig,
+    BotReport,
     calculate_bot_report,
     generate_demo_dataset,
+    main,
+    print_report_table,
     run_trading_bot,
 )
 from trade_rl.evaluation.replay import SharedCashReplayResult
@@ -21,6 +24,66 @@ def cash_replay() -> SharedCashReplayResult:
     dataset = generate_demo_dataset(n_bars=4, n_symbols=1)
     result, _ = run_trading_bot(dataset, BotConfig(strategy_name="cash"))
     return result
+
+
+def test_bot_report_without_ledger_evidence_does_not_claim_terminal_settlement(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    report = BotReport(
+        strategy_name="manual",
+        initial_capital=100.0,
+        final_equity=100.0,
+        net_pnl=0.0,
+        total_return_pct=0.0,
+        max_drawdown_pct=0.0,
+        nonzero_return_intervals=0,
+        positive_return_rate_pct=0.0,
+        interval_profit_factor=0.0,
+        sharpe_ratio=0.0,
+        is_profitable=False,
+    )
+
+    assert report.terminal_settled is None
+    print_report_table([report])
+    assert "unknown" in capsys.readouterr().out
+
+
+def test_calculated_bot_report_without_ledger_evidence_keeps_settlement_unknown(
+    cash_replay: SharedCashReplayResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    replay_without_ledger = replace(cash_replay, ledger_evidence=None)
+
+    report = calculate_bot_report(replay_without_ledger, "cash")
+    print_report_table([report])
+    payload = json.loads(json.dumps(asdict(report)))
+
+    assert report.terminal_settled is None
+    assert report.active_order_remainders is None
+    assert payload["active_order_remainders"] is None
+    assert "unknown" in capsys.readouterr().out
+
+
+def test_main_reports_unknown_settlement_without_claiming_incomplete_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    cash_replay: SharedCashReplayResult,
+) -> None:
+    dataset = generate_demo_dataset(n_bars=4, n_symbols=1)
+    report = calculate_bot_report(replace(cash_replay, ledger_evidence=None), "cash")
+    monkeypatch.setattr(
+        "trade_rl.evaluation.bot.generate_demo_dataset", lambda: dataset
+    )
+    monkeypatch.setattr(
+        "trade_rl.evaluation.bot.run_trading_bot",
+        lambda *_args, **_kwargs: (None, report),
+    )
+
+    assert main(["--demo"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Terminal settlement status unknown" in output
+    assert "Terminal settlement incomplete" not in output
 
 
 @pytest.mark.parametrize(
@@ -90,6 +153,7 @@ def test_bot_cost_diagnostics_match_flat_price_round_trip() -> None:
         high=prices,
         low=prices,
         close=prices,
+        mark_price=prices,
         identity_payload_json=None,
     )
     _, report = run_trading_bot(
@@ -124,3 +188,17 @@ def test_cash_cost_diagnostics_are_zero(cash_replay: SharedCashReplayResult) -> 
     )
     assert report.turnover_total == 0.0
     assert report.fill_count == report.rebalance_events == 0
+
+
+def test_bot_report_preserves_nonzero_funding_and_borrow_costs(
+    cash_replay: SharedCashReplayResult,
+) -> None:
+    book = cash_replay.book.clone()
+    book.funding_pnl = -12.34
+    book.borrow_cost = 5.67
+
+    report = calculate_bot_report(replace(cash_replay, book=book), "cash")
+    payload = json.loads(json.dumps(asdict(report)))
+
+    assert payload["funding_pnl"] == -12.34
+    assert payload["borrow_cost"] == 5.67

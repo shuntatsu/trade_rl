@@ -5,12 +5,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from trade_rl.data.features.price_channels import CHANNEL_NAMES
+from trade_rl.data.features.price_channels import CHANNEL_NAMES, with_price_channels
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.bot import (
     BotConfig,
     create_strategy_instances,
     generate_demo_dataset,
+    run_trading_bot,
+    tune_for_maximum_profit,
+    walk_forward_tune,
 )
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -45,6 +48,27 @@ def _named_channel_dataset() -> MarketDataset:
         feature_names=names,
         global_feature_names=("global",),
         periods_per_year=8_760,
+    )
+
+
+def _dataset_without_price_channels(dataset: MarketDataset) -> MarketDataset:
+    kept_indices = tuple(
+        index
+        for index, name in enumerate(dataset.feature_names)
+        if name not in CHANNEL_NAMES
+    )
+    return replace(
+        dataset,
+        features=dataset.features[:, :, kept_indices].copy(),
+        feature_available=dataset.feature_available[:, :, kept_indices].copy(),
+        feature_names=tuple(
+            name for name in dataset.feature_names if name not in CHANNEL_NAMES
+        ),
+        feature_staleness=None,
+        feature_staleness_hours=None,
+        feature_missing_reason=None,
+        feature_config_digest="0" * 64,
+        identity_payload_json=None,
     )
 
 
@@ -89,6 +113,50 @@ def test_bot_breakout_rejects_missing_named_channels_before_replay() -> None:
     )
     with pytest.raises(ValueError, match="channel_entry_upper"):
         create_strategy_instances(missing, BotConfig(strategy_name="channel_breakout"))
+
+
+def test_channel_breakout_builds_channels_for_a_dataset_without_them() -> None:
+    source = _dataset_without_price_channels(
+        generate_demo_dataset(n_bars=500, n_symbols=1, seed=7)
+    )
+
+    replay, report = run_trading_bot(
+        source, BotConfig(strategy_name="channel_breakout")
+    )
+
+    assert len(replay.decisions) == source.n_bars - 2
+    assert report.terminal_settled
+
+
+def test_channel_tuning_binds_results_to_the_derived_dataset_identity() -> None:
+    source = _dataset_without_price_channels(
+        generate_demo_dataset(n_bars=500, n_symbols=1, seed=11)
+    )
+
+    result = tune_for_maximum_profit(
+        source, strategy_name="channel_breakout", max_combinations=1
+    )
+
+    assert result.dataset_id == with_price_channels(source).dataset_id
+
+
+def test_channel_walk_forward_binds_results_to_the_derived_dataset_identity() -> None:
+    source = _dataset_without_price_channels(
+        generate_demo_dataset(n_bars=500, n_symbols=1, seed=13)
+    )
+
+    result = walk_forward_tune(
+        source,
+        strategy_name="channel_breakout",
+        max_combinations=1,
+        n_windows=2,
+    )
+
+    derived_dataset_id = with_price_channels(source).dataset_id
+    assert result.dataset_id == derived_dataset_id
+    assert all(
+        window.dataset_id == derived_dataset_id for window in result.window_results
+    )
 
 
 def test_demo_channels_use_prior_candles_and_separate_entry_exit_windows() -> None:

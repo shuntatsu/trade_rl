@@ -22,6 +22,7 @@ def _report(config, pnl):
         interval_profit_factor=1.0,
         sharpe_ratio=1.0,
         is_profitable=pnl > 0,
+        terminal_settled=True,
     )
 
 
@@ -111,12 +112,60 @@ def test_bot_reports_unfilled_terminal_close():
     assert report.terminal_position_quantities == tuple(result.book.quantities)
 
 
-def test_unsettled_tuning_candidate_is_ineligible(monkeypatch):
+def test_walk_forward_does_not_count_unsettled_positive_mark_as_profitable(monkeypatch):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_fixed_windows(**kwargs):
+        config = bot.BotConfig(
+            strategy_name="constant_long",
+            initial_capital=kwargs["initial_capital"],
+            execution_cost=kwargs["execution_cost"],
+        )
+        unsettled_profit = replace(_report(config, 100.0), terminal_settled=False)
+        return bot.TuningResult(
+            strategy_name="constant_long",
+            objective=kwargs["objective"],
+            baseline_config=config,
+            baseline_report=_report(config, 0.0),
+            optimized_config=config,
+            optimized_report=unsettled_profit,
+            profit_improvement_pct=None,
+            alpha_dollars=100.0,
+            evaluated_combinations=1,
+            selection_score=100.0,
+            selection_drawdown_pct=5.0,
+            tuning_start_index=kwargs["tune_start_index"],
+            tuning_stop_index=kwargs["tune_stop_index"],
+            holdout_start_index=kwargs["eval_start_index"],
+            holdout_stop_index=kwargs["eval_stop_index"],
+            dataset_id=dataset.dataset_id,
+            dataset_identity_bound=dataset.identity_payload_json is not None,
+            execution_cost=kwargs["execution_cost"],
+        )
+
+    monkeypatch.setattr(bot, "_tune_with_fixed_windows", fake_fixed_windows)
+
+    result = bot.walk_forward_tune(
+        dataset,
+        strategy_name="constant_long",
+        max_combinations=1,
+        n_windows=2,
+    )
+
+    report = result.window_results[-1].optimized_report
+    assert report.net_pnl > 0.0
+    assert not report.terminal_settled
+    assert result.profitable_windows == 0
+
+
+@pytest.mark.parametrize("candidate_settlement", [False, None])
+def test_unsettled_tuning_candidate_is_ineligible(monkeypatch, candidate_settlement):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
         report = _report(config, 1.0 if config.gross_budget == 0.2 else 1000.0)
-        return None, replace(report, terminal_settled=config.gross_budget == 0.2)
+        settlement = True if config.gross_budget == 0.2 else candidate_settlement
+        return None, replace(report, terminal_settled=settlement)
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     result = bot.tune_for_maximum_profit(
@@ -153,6 +202,10 @@ def test_walk_forward_cli_emits_provenance_and_reset_scope(monkeypatch, capsys):
     assert result["dataset_id"] == dataset.dataset_id
     assert result["execution_cost"]["fee_rate"] > 0
     assert len(result["window_results"]) == 2
+    assert all(
+        window["report_scope"] == "development_walk_forward"
+        for window in result["window_results"]
+    )
     assert result["window_results"][-1]["holdout_stop_index"] == 40
 
 
@@ -299,42 +352,52 @@ def test_cash_is_selected_when_every_trading_configuration_is_ineligible(monkeyp
         for config, start, stop in observed
         if config.strategy_name == "cash"
         and start == result.tuning_start_index
-        and stop == result.tuning_stop_index
+        and stop == result.tuning_stop_index - 1
     ]
     assert len(cash_tuning) == 1
     assert cash_tuning[0].initial_capital == 12345.0
     assert cash_tuning[0].execution_cost == result.execution_cost
 
 
-@pytest.mark.parametrize("cash_pnl", [50.0, -50.0])
-def test_cash_control_keeps_actual_economic_return(monkeypatch, cash_pnl):
+@pytest.mark.parametrize(
+    ("cash_pnl", "candidate_pnl", "expected_strategy", "expected_score"),
+    [
+        (50.0, 10.0, "cash", 50.0),
+        (-50.0, 10.0, "trend", 10.0),
+        (-50.0, -10.0, "trend", -10.0),
+    ],
+)
+def test_cash_control_keeps_actual_economic_return(
+    monkeypatch,
+    cash_pnl,
+    candidate_pnl,
+    expected_strategy,
+    expected_score,
+):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
         return None, _report(
-            config, cash_pnl if config.strategy_name == "cash" else 10.0
+            config, cash_pnl if config.strategy_name == "cash" else candidate_pnl
         )
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     result = bot.tune_for_maximum_profit(
         dataset, strategy_name="trend", max_combinations=1
     )
-    if cash_pnl > 0.0:
-        assert result.optimized_config.strategy_name == "cash"
-        assert result.selection_score == cash_pnl
-        assert result.optimized_report.net_pnl == cash_pnl
-    else:
-        assert result.optimized_config.strategy_name == "trend"
-        assert result.selection_score == 10.0
+    assert result.optimized_config.strategy_name == expected_strategy
+    assert result.selection_score == expected_score
+    assert result.optimized_report.net_pnl == expected_score
 
 
+@pytest.mark.parametrize("settlement", [False, None])
 def test_cash_control_does_not_fabricate_success_when_its_replay_is_invalid(
-    monkeypatch,
+    monkeypatch, settlement
 ):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
-        return None, replace(_report(config, 0.0), terminal_settled=False)
+        return None, replace(_report(config, 0.0), terminal_settled=settlement)
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     with pytest.raises(ValueError, match="no configuration"):
@@ -353,3 +416,173 @@ def test_tuning_text_names_the_selected_cash_control(monkeypatch, capsys):
     )
     bot.print_tuning_comparison(result)
     assert "Selected strategy: cash" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("holdout_settlement", "warning"),
+    [(False, "Incomplete settlement"), (None, "Settlement status is unknown")],
+)
+def test_tuning_text_reports_unsettled_or_unknown_status_accurately(
+    monkeypatch, capsys, holdout_settlement, warning
+):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(_dataset, config, *, start_index=0, **_kwargs):
+        report = replace(
+            _report(config, 0.0),
+            terminal_settled=(True if start_index == 0 else holdout_settlement),
+        )
+        return None, report
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=1
+    )
+
+    bot.print_tuning_comparison(result)
+    output = capsys.readouterr().out
+    assert "Terminal settled" in output
+    assert warning in output
+    assert (
+        "Incomplete settlement: equity includes residual marked inventory" not in output
+    )
+
+
+def test_optimize_all_text_includes_execution_ledger_diagnostics(monkeypatch, capsys):
+    dataset = bot.generate_demo_dataset(n_bars=12, n_symbols=1)
+    families = (
+        "adaptive",
+        "ensemble",
+        "trend",
+        "mean_reversion",
+        "channel_breakout",
+    )
+    results = []
+    for index, family in enumerate(families, start=1):
+        baseline_config = bot.BotConfig(strategy_name=family, initial_capital=1000.0)
+        optimized_config = replace(baseline_config, gross_budget=0.3)
+        order_id = f"{index:x}" * 64
+        baseline_report = replace(
+            _report(baseline_config, -20.0),
+            terminal_settled=None if index == 1 else False,
+            terminal_position_quantities=()
+            if index == 1
+            else (index / 100.0, -index / 10.0),
+            active_order_remainders=()
+            if index == 1
+            else (
+                (order_id, index / 1000.0),
+                (f"{index + 5:x}" * 64, index / 500.0),
+            ),
+            termination_reason=None if index == 1 else "drawdown_stop",
+            total_execution_cost=10.0 + index,
+            funding_pnl=-index - 0.25,
+            borrow_cost=index + 0.5,
+            turnover_total=index + 0.75,
+            fill_count=10 + index,
+            rebalance_events=None if index == 1 else 5 + index,
+        )
+        optimized_report = replace(
+            _report(optimized_config, 30.0),
+            terminal_settled=True,
+            terminal_position_quantities=(0.0, 0.0),
+            total_execution_cost=20.0 + index,
+            funding_pnl=index + 0.25,
+            borrow_cost=index + 0.75,
+            turnover_total=index + 1.25,
+            fill_count=None if index == 1 else 20 + index,
+            rebalance_events=15 + index,
+        )
+        results.append(
+            bot.TuningResult(
+                strategy_name=family,
+                objective="profit",
+                baseline_config=baseline_config,
+                baseline_report=baseline_report,
+                optimized_config=optimized_config,
+                optimized_report=optimized_report,
+                profit_improvement_pct=250.0,
+                alpha_dollars=50.0,
+                evaluated_combinations=1,
+                selection_score=30.0,
+                selection_drawdown_pct=5.0,
+                tuning_start_index=0,
+                tuning_stop_index=9,
+                holdout_start_index=9,
+                holdout_stop_index=11,
+                dataset_id="0" * 64,
+                dataset_identity_bound=True,
+                execution_cost=bot.ExecutionCostConfig(),
+                report_scope="development_family_comparison",
+            )
+        )
+
+    monkeypatch.setattr(bot, "generate_demo_dataset", lambda: dataset)
+    monkeypatch.setattr(bot, "tune_all_strategies", lambda *_args, **_kwargs: results)
+
+    assert bot.main(["--mode", "optimize", "--strategy", "all", "--demo"]) == 0
+
+    output = capsys.readouterr().out
+    blocks = output.split("PARAMETER TUNING REPORT:")[1:]
+    assert len(blocks) == len(families)
+
+    def cells(rows, label):
+        return [cell.strip() for cell in rows[label]]
+
+    def monetary_pair(rows, label):
+        return [
+            float(cell.replace("$", "").replace(",", "")) for cell in cells(rows, label)
+        ]
+
+    for index, (family, block) in enumerate(
+        zip(families, blocks, strict=True), start=1
+    ):
+        assert block.startswith(f" {family.upper()} ")
+        rows = {
+            line.split("|", maxsplit=1)[0].strip(): line.split("|")[1:]
+            for line in block.splitlines()
+            if "|" in line
+        }
+
+        assert monetary_pair(rows, "Execution cost (account currency)") == [
+            10.0 + index,
+            20.0 + index,
+        ]
+        assert monetary_pair(rows, "Funding P&L (account currency)") == [
+            -index - 0.25,
+            index + 0.25,
+        ]
+        assert monetary_pair(rows, "Borrow cost (account currency)") == [
+            index + 0.5,
+            index + 0.75,
+        ]
+        assert [float(cell) for cell in cells(rows, "Turnover total")] == [
+            index + 0.75,
+            index + 1.25,
+        ]
+        if index == 1:
+            assert cells(rows, "Fills / rebalances") == [
+                "11 / unavailable",
+                "unavailable / 16",
+            ]
+            assert cells(rows, "Terminal quantities (dataset symbol order)") == [
+                "unavailable",
+                "[0, 0]",
+            ]
+            assert cells(rows, "Active order remainders") == ["unavailable", "none"]
+            assert cells(rows, "Termination reason") == ["unavailable", "none"]
+        else:
+            assert [
+                tuple(int(value.strip()) for value in cell.split("/"))
+                for cell in cells(rows, "Fills / rebalances")
+            ] == [(10 + index, 5 + index), (20 + index, 15 + index)]
+            assert cells(rows, "Terminal quantities (dataset symbol order)") == [
+                f"[{index / 100.0:.6g}, {-index / 10.0:.6g}]",
+                "[0, 0]",
+            ]
+            assert cells(rows, "Active order remainders") == [
+                f"{f'{index:x}' * 64}={index / 1000.0:.6g}, "
+                f"{f'{index + 5:x}' * 64}={index / 500.0:.6g}",
+                "none",
+            ]
+            assert cells(rows, "Termination reason") == ["drawdown_stop", "none"]

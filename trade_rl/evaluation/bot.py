@@ -51,7 +51,6 @@ class BotConfig:
     initial_capital: float = 100_000.0
     gross_budget: float = 0.2
     minimum_hold_bars: int = 4
-    signal_index: int = 0
     entry_threshold: float = 0.01
     exit_threshold: float = 0.002
     max_gross: float = 1.0
@@ -62,6 +61,7 @@ class BotConfig:
     volatility_regime_threshold: float = 0.010
     max_holding_bars: int = 0
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
+    signal_index: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.execution_cost, ExecutionCostConfig):
@@ -90,7 +90,9 @@ class TuningResult:
     dataset_id: str
     dataset_identity_bound: bool
     execution_cost: ExecutionCostConfig
-    report_scope: Literal["holdout", "development_family_comparison"] = "holdout"
+    report_scope: Literal[
+        "holdout", "development_family_comparison", "development_walk_forward"
+    ] = "holdout"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,9 +110,9 @@ class BotReport:
     interval_profit_factor: float
     sharpe_ratio: float
     is_profitable: bool
-    terminal_settled: bool = True
+    terminal_settled: bool | None = None
     terminal_position_quantities: tuple[float, ...] = ()
-    active_order_remainders: tuple[tuple[str, float], ...] = ()
+    active_order_remainders: tuple[tuple[str, float], ...] | None = None
     termination_reason: str | None = None
     # Amounts use account currency; turnover is summed fill notional / interval equity.
     total_execution_cost: float | None = None
@@ -199,6 +201,24 @@ def generate_demo_dataset(
     exit_bars = min(10, entry_bars - 1)
     augmented = with_price_channels(dataset, entry_bars=entry_bars, exit_bars=exit_bars)
     return replace(augmented, identity_payload_json=None)
+
+
+def _with_channel_breakout_features(dataset: MarketDataset) -> MarketDataset:
+    present = tuple(name for name in CHANNEL_NAMES if name in dataset.feature_names)
+    if len(present) == len(CHANNEL_NAMES):
+        return dataset
+    if present:
+        missing = tuple(name for name in CHANNEL_NAMES if name not in present)
+        raise ValueError(
+            "dataset has an incomplete price-channel feature set; missing: "
+            + ", ".join(missing)
+        )
+    if dataset.n_bars <= 480:
+        raise ValueError(
+            "channel_breakout needs all named price channels or at least 481 bars "
+            "to derive them"
+        )
+    return with_price_channels(dataset)
 
 
 def create_strategy_instances(
@@ -340,10 +360,13 @@ def calculate_bot_report(
     termination_reason = replay_result.book.termination_reason
     terminal_quantities = tuple(float(value) for value in replay_result.book.quantities)
     terminal_settled = (
-        ledger is not None
-        and not ledger.active_order_remainders
-        and all(value == 0 for value in replay_result.book.exact_quantities)
-        and replay_result.book.termination_reason is None
+        None
+        if ledger is None
+        else (
+            not ledger.active_order_remainders
+            and all(value == 0 for value in replay_result.book.exact_quantities)
+            and replay_result.book.termination_reason is None
+        )
     )
     return BotReport(
         strategy_name=strategy_name,
@@ -359,9 +382,9 @@ def calculate_bot_report(
         is_profitable=net_pnl > 0,
         terminal_settled=terminal_settled,
         terminal_position_quantities=terminal_quantities,
-        active_order_remainders=()
-        if ledger is None
-        else ledger.active_order_remainders,
+        active_order_remainders=(
+            None if ledger is None else ledger.active_order_remainders
+        ),
         termination_reason=(
             termination_reason.value
             if isinstance(termination_reason, EconomicTerminationReason)
@@ -384,6 +407,7 @@ def run_trading_bot(
     stop_index: int | None = None,
 ) -> tuple[SharedCashReplayResult, BotReport]:
     """Execute trading bot simulation on dataset with configured strategy and risk."""
+    _validate_signal_index(dataset, config.signal_index)
     resolved_stop_index = dataset.n_bars - 1 if stop_index is None else stop_index
     if (
         isinstance(start_index, bool)
@@ -393,6 +417,9 @@ def run_trading_bot(
         or not 0 <= start_index < resolved_stop_index < dataset.n_bars
     ):
         raise ValueError("replay range must satisfy 0 <= start < stop < n_bars")
+
+    if config.strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
 
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(
@@ -428,8 +455,11 @@ def compare_all_strategies(
     initial_capital: float = 100_000.0,
     gross_budget: float = 0.2,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> list[BotReport]:
     """Rank full-range strategy replays as in-sample diagnostics, not selection."""
+    _validate_signal_index(dataset, signal_index)
+    dataset = _with_channel_breakout_features(dataset)
     strategies_to_test = [
         "adaptive",
         "ensemble",
@@ -446,6 +476,7 @@ def compare_all_strategies(
             strategy_name=strat_name,
             initial_capital=initial_capital,
             gross_budget=gross_budget,
+            signal_index=signal_index,
             execution_cost=(
                 ExecutionCostConfig() if execution_cost is None else execution_cost
             ),
@@ -466,6 +497,7 @@ def tune_for_maximum_profit(
     max_combinations: int = 150,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> TuningResult:
     """Select parameters on a chronological prefix and report on a later holdout.
 
@@ -473,6 +505,7 @@ def tune_for_maximum_profit(
     requires tuning-window ledger drawdown at or below 20%; gaps can exceed that
     limit in either window.
     """
+    _validate_signal_index(dataset, signal_index)
     if not isinstance(objective, str) or objective not in _ALLOWED_OBJECTIVES:
         raise ValueError(f"objective must be one of {sorted(_ALLOWED_OBJECTIVES)}")
     if (
@@ -494,12 +527,16 @@ def tune_for_maximum_profit(
     if not isinstance(resolved_execution_cost, ExecutionCostConfig):
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
+    if strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     usable_stop_index = dataset.n_bars - 1
-    minimum_window_span = resolved_execution_cost.order_latency_bars + 2
+    minimum_tuning_window_span = resolved_execution_cost.order_latency_bars + 3
+    minimum_holdout_window_span = resolved_execution_cost.order_latency_bars + 2
     tuning_stop_index = math.floor(usable_stop_index * (1.0 - float(holdout_fraction)))
     if (
-        tuning_stop_index < minimum_window_span
-        or usable_stop_index - tuning_stop_index < minimum_window_span
+        tuning_stop_index < minimum_tuning_window_span
+        or usable_stop_index - tuning_stop_index < minimum_holdout_window_span
     ):
         raise ValueError(
             "dataset is too short for separate tuning and holdout windows "
@@ -517,6 +554,7 @@ def tune_for_maximum_profit(
         eval_start_index=tuning_stop_index,
         eval_stop_index=usable_stop_index,
         execution_cost=resolved_execution_cost,
+        signal_index=signal_index,
     )
 
 
@@ -527,12 +565,15 @@ def tune_all_strategies(
     max_combinations_per_strategy: int = 60,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> list[TuningResult]:
     """Compare strategy families on development data, ranked by tuning-window score.
 
     Because the later report window is exposed for every family, it is a
     development comparison and must not be treated as a final untouched holdout.
     """
+    _validate_signal_index(dataset, signal_index)
+    dataset = _with_channel_breakout_features(dataset)
     candidate_strategies = [
         "adaptive",
         "ensemble",
@@ -550,6 +591,7 @@ def tune_all_strategies(
             max_combinations=max_combinations_per_strategy,
             holdout_fraction=holdout_fraction,
             execution_cost=execution_cost,
+            signal_index=signal_index,
         )
         results.append(res)
 
@@ -566,6 +608,7 @@ def optimize_bot_parameters(
     initial_capital: float = 100_000.0,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> tuple[BotConfig, BotReport]:
     """Grid search optimization to maximize net return and profit factor."""
     res = tune_for_maximum_profit(
@@ -575,6 +618,7 @@ def optimize_bot_parameters(
         objective="profit",
         holdout_fraction=holdout_fraction,
         execution_cost=execution_cost,
+        signal_index=signal_index,
     )
     return res.optimized_config, res.optimized_report
 
@@ -588,6 +632,7 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
     print(sep)
     for r in reports:
         star = " *" if r.is_profitable else ""
+        settled = _terminal_settlement_label(r.terminal_settled)
         print(
             f"{r.strategy_name:<18} | "
             f"${r.final_equity:>12,.2f} | "
@@ -596,9 +641,105 @@ def print_report_table(reports: Sequence[BotReport]) -> None:
             f"{r.max_drawdown_pct:>6.2f}% | "
             f"{r.positive_return_rate_pct:>12.1f}% | "
             f"{r.interval_profit_factor:>10.2f} | "
-            f"{r.sharpe_ratio:>6.2f}{star} | {'yes' if r.terminal_settled else 'NO'}"
+            f"{r.sharpe_ratio:>6.2f}{star} | {settled}"
         )
     print(sep + "\n")
+
+
+def _terminal_settlement_label(terminal_settled: bool | None) -> str:
+    if terminal_settled is None:
+        return "unknown"
+    return "yes" if terminal_settled else "NO"
+
+
+def _print_execution_diagnostics(baseline: BotReport, candidate: BotReport) -> None:
+    def format_value(
+        value: float | int | None, *, account_currency: bool = False
+    ) -> str:
+        if value is None:
+            return "unavailable"
+        if account_currency:
+            return f"${value:,.2f}"
+        return f"{value:,.6g}"
+
+    def format_quantities(
+        values: tuple[float, ...], terminal_settled: bool | None
+    ) -> str:
+        if not values and terminal_settled is None:
+            return "unavailable"
+        return "[" + ", ".join(f"{value:.6g}" for value in values) + "]"
+
+    def format_remainders(
+        values: tuple[tuple[str, float], ...] | None,
+        terminal_settled: bool | None,
+    ) -> str:
+        if values is None:
+            return "none" if terminal_settled is True else "unavailable"
+        if not values:
+            return "none" if terminal_settled is not None else "unavailable"
+        return ", ".join(f"{order_id}={quantity:.6g}" for order_id, quantity in values)
+
+    def format_activity(fill_count: int | None, rebalance_events: int | None) -> str:
+        return f"{format_value(fill_count)} / {format_value(rebalance_events)}"
+
+    diagnostics = (
+        (
+            "Execution cost (account currency)",
+            format_value(baseline.total_execution_cost, account_currency=True),
+            format_value(candidate.total_execution_cost, account_currency=True),
+        ),
+        (
+            "Funding P&L (account currency)",
+            format_value(baseline.funding_pnl, account_currency=True),
+            format_value(candidate.funding_pnl, account_currency=True),
+        ),
+        (
+            "Borrow cost (account currency)",
+            format_value(baseline.borrow_cost, account_currency=True),
+            format_value(candidate.borrow_cost, account_currency=True),
+        ),
+        (
+            "Turnover total",
+            format_value(baseline.turnover_total),
+            format_value(candidate.turnover_total),
+        ),
+        (
+            "Fills / rebalances",
+            format_activity(baseline.fill_count, baseline.rebalance_events),
+            format_activity(candidate.fill_count, candidate.rebalance_events),
+        ),
+        (
+            "Terminal quantities (dataset symbol order)",
+            format_quantities(
+                baseline.terminal_position_quantities, baseline.terminal_settled
+            ),
+            format_quantities(
+                candidate.terminal_position_quantities, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Active order remainders",
+            format_remainders(
+                baseline.active_order_remainders, baseline.terminal_settled
+            ),
+            format_remainders(
+                candidate.active_order_remainders, candidate.terminal_settled
+            ),
+        ),
+        (
+            "Termination reason",
+            baseline.termination_reason
+            or ("none" if baseline.terminal_settled is not None else "unavailable"),
+            candidate.termination_reason
+            or ("none" if candidate.terminal_settled is not None else "unavailable"),
+        ),
+    )
+
+    print("\nExecution and settlement diagnostics")
+    print(f"{'Metric':<40} | {'Baseline':>18} | {'Candidate':>18}")
+    print("-" * 84)
+    for label, baseline_value, candidate_value in diagnostics:
+        print(f"{label:<40} | {baseline_value:>18} | {candidate_value:>18}")
 
 
 def print_tuning_comparison(res: TuningResult) -> None:
@@ -618,11 +759,11 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"(canonical identity bound: {'yes' if res.dataset_identity_bound else 'no'})"
     )
     print(f"  Execution cost config: {asdict(res.execution_cost)}")
-    report_label = (
-        "development family comparison"
-        if res.report_scope == "development_family_comparison"
-        else "holdout report"
-    )
+    report_label = {
+        "holdout": "holdout report",
+        "development_family_comparison": "development family comparison",
+        "development_walk_forward": "development walk-forward",
+    }[res.report_scope]
     print(
         f"  Tuning window: [{res.tuning_start_index}, {res.tuning_stop_index}); "
         f"{report_label}: [{res.holdout_start_index}, {res.holdout_stop_index})"
@@ -637,16 +778,17 @@ def print_tuning_comparison(res: TuningResult) -> None:
         "fees and carry are excluded, and the exit fills only at a later eligible step."
     )
     print("=" * 68)
-    baseline_label = (
-        "Baseline development"
-        if res.report_scope == "development_family_comparison"
-        else "Baseline holdout"
-    )
-    candidate_label = (
-        "Candidate development"
-        if res.report_scope == "development_family_comparison"
-        else "Candidate holdout"
-    )
+    baseline_label, candidate_label = {
+        "holdout": ("Baseline holdout", "Candidate holdout"),
+        "development_family_comparison": (
+            "Baseline development",
+            "Candidate development",
+        ),
+        "development_walk_forward": (
+            "Baseline development",
+            "Candidate development",
+        ),
+    }[res.report_scope]
     print(f"{'Metric':<24} | {baseline_label:<18} | {candidate_label:<18}")
     print("-" * 68)
     print(
@@ -654,11 +796,15 @@ def print_tuning_comparison(res: TuningResult) -> None:
     )
     print(f"{'Net Profit ($)':<24} | ${b.net_pnl:>16,.2f} | ${o.net_pnl:>16,.2f}")
     print(
-        f"{'Terminal settled':<24} | {str(b.terminal_settled):>18} | {str(o.terminal_settled):>18}"
+        f"{'Terminal settled':<24} | {_terminal_settlement_label(b.terminal_settled):>18} | {_terminal_settlement_label(o.terminal_settled):>18}"
     )
-    if not b.terminal_settled or not o.terminal_settled:
+    if b.terminal_settled is False or o.terminal_settled is False:
         print(
-            "  Incomplete settlement: equity includes residual marked inventory; inspect JSON quantities/orders."
+            "  Incomplete settlement: inspect terminal quantities and active order remainders before interpreting equity."
+        )
+    elif b.terminal_settled is None or o.terminal_settled is None:
+        print(
+            "  Settlement status is unknown: inspect terminal quantities and active order remainders before interpreting equity."
         )
     print(
         f"{'Total Return (%)':<24} | {b.total_return_pct:>17.2f}% | {o.total_return_pct:>17.2f}%"
@@ -680,6 +826,7 @@ def print_tuning_comparison(res: TuningResult) -> None:
         f"{b.nonzero_return_intervals:>18d} | "
         f"{o.nonzero_return_intervals:>18d}"
     )
+    _print_execution_diagnostics(b, o)
     print("-" * 68)
     sign = "+" if res.alpha_dollars >= 0 else ""
     relative_improvement = (
@@ -718,6 +865,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--strategy",
         default="adaptive",
         help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash, or 'all' for optimize)",
+    )
+    parser.add_argument(
+        "--signal-feature",
+        default=None,
+        help="Exact dataset feature name for signal-based strategies (default: first feature)",
     )
     parser.add_argument(
         "--objective",
@@ -793,6 +945,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     announce(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
+    signal_index = 0
+    if args.signal_feature is not None:
+        if args.signal_feature not in dataset.feature_names:
+            parser.error(f"signal feature not found in dataset: {args.signal_feature}")
+        signal_index = dataset.feature_names.index(args.signal_feature)
+    announce(
+        f"Signal feature: {dataset.feature_names[signal_index]} (index {signal_index})."
+    )
 
     if args.mode == "compare":
         announce(
@@ -803,6 +963,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dataset,
             initial_capital=args.capital,
             gross_budget=args.gross_budget,
+            signal_index=signal_index,
         )
         if args.json:
             print(json.dumps([asdict(r) for r in reports], indent=2))
@@ -826,6 +987,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             initial_capital=args.capital,
             objective=args.objective,
             n_windows=args.windows,
+            signal_index=signal_index,
             max_combinations=60
             if args.max_combinations is None
             else args.max_combinations,
@@ -846,6 +1008,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dataset,
                 initial_capital=args.capital,
                 objective=args.objective,
+                signal_index=signal_index,
                 max_combinations_per_strategy=60
                 if args.max_combinations is None
                 else args.max_combinations,
@@ -872,6 +1035,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 strategy_name=args.strategy,
                 initial_capital=args.capital,
                 objective=args.objective,
+                signal_index=signal_index,
                 max_combinations=150
                 if args.max_combinations is None
                 else args.max_combinations,
@@ -887,6 +1051,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             initial_capital=args.capital,
             gross_budget=args.gross_budget,
             minimum_hold_bars=args.min_hold,
+            signal_index=signal_index,
         )
         announce(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
         _, report = run_trading_bot(dataset, cfg)
@@ -900,9 +1065,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             else:
                 print(f"⚠️ Bot execution resulted in net change: ${report.net_pnl:,.2f}")
-            if not report.terminal_settled:
+            if report.terminal_settled is False:
                 print(
                     "Terminal settlement incomplete; equity includes residual marked positions."
+                )
+            elif report.terminal_settled is None:
+                print(
+                    "Terminal settlement status unknown; ledger evidence is unavailable."
                 )
 
     return 0
@@ -949,6 +1118,7 @@ def walk_forward_tune(
     n_windows: int = 3,
     max_combinations: int = 60,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> WalkForwardResult:
     """Walk-forward validation: tune on a window, evaluate on the next.
 
@@ -967,10 +1137,12 @@ def walk_forward_tune(
             separately reset evaluation windows.
         max_combinations: Candidate combinations per tuning window.
         execution_cost: Execution cost configuration. Defaults to non-zero costs.
+        signal_index: Fixed dataset signal column shared by all candidates and folds.
 
     Returns:
         WalkForwardResult summarising performance across all evaluation windows.
     """
+    _validate_signal_index(dataset, signal_index)
     if isinstance(n_windows, bool) or not isinstance(n_windows, int) or n_windows < 2:
         raise ValueError("n_windows must be an integer >= 2")
     if not isinstance(objective, str) or objective not in _ALLOWED_OBJECTIVES:
@@ -987,8 +1159,11 @@ def walk_forward_tune(
     if not isinstance(resolved_cost, ExecutionCostConfig):
         raise ValueError("execution_cost must be an ExecutionCostConfig")
 
+    if strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
+
     usable_bars = dataset.n_bars - 1  # last bar reserved for terminal settlement
-    minimum_window_span = resolved_cost.order_latency_bars + 2
+    minimum_window_span = resolved_cost.order_latency_bars + 3
     window_size = usable_bars // n_windows
     if window_size < minimum_window_span:
         raise ValueError(
@@ -1018,14 +1193,19 @@ def walk_forward_tune(
             eval_start_index=tune_stop,
             eval_stop_index=eval_stop,
             execution_cost=resolved_cost,
+            signal_index=signal_index,
         )
-        window_results.append(tuning_res)
+        window_results.append(
+            replace(tuning_res, report_scope="development_walk_forward")
+        )
 
     returns_pct = [r.optimized_report.total_return_pct for r in window_results]
     sharpes = [r.optimized_report.sharpe_ratio for r in window_results]
     max_dds = [r.optimized_report.max_drawdown_pct for r in window_results]
     profitable_count = sum(
-        1 for r in window_results if r.optimized_report.is_profitable
+        1
+        for r in window_results
+        if r.optimized_report.is_profitable and r.optimized_report.terminal_settled
     )
 
     mean_ret = float(np.mean(returns_pct)) if returns_pct else 0.0
@@ -1054,6 +1234,15 @@ def walk_forward_tune(
     )
 
 
+def _validate_signal_index(dataset: MarketDataset, signal_index: int) -> None:
+    if (
+        isinstance(signal_index, bool)
+        or not isinstance(signal_index, int)
+        or not 0 <= signal_index < dataset.n_features
+    ):
+        raise ValueError("signal_index must be an integer within dataset features")
+
+
 def _tune_with_fixed_windows(
     dataset: MarketDataset,
     strategy_name: str,
@@ -1065,18 +1254,24 @@ def _tune_with_fixed_windows(
     eval_start_index: int,
     eval_stop_index: int,
     execution_cost: ExecutionCostConfig,
+    signal_index: int = 0,
 ) -> TuningResult:
     """Internal helper: grid search on [tune_start, tune_stop) and evaluate on [eval_start, eval_stop)."""
+    # run_trading_bot terminal settlement fills on the open at stop_index.
+    # Stop on the final tuning bar so that the first evaluation bar cannot
+    # affect candidate P&L, drawdown eligibility, or selection score.
+    tuning_replay_stop_index = tune_stop_index - 1
     baseline_cfg = BotConfig(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
+        signal_index=signal_index,
     )
     _, baseline_tuning_report = run_trading_bot(
         dataset,
         baseline_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
 
     strat_name = strategy_name.lower()
@@ -1127,7 +1322,7 @@ def _tune_with_fixed_windows(
         dataset,
         cash_cfg,
         start_index=tune_start_index,
-        stop_index=tune_stop_index,
+        stop_index=tuning_replay_stop_index,
     )
     if (
         cash_tuning_report.terminal_settled
@@ -1239,12 +1434,13 @@ def _tune_with_fixed_windows(
             trailing_stop_threshold=ts,
             volatility_regime_threshold=vol_regime,
             execution_cost=execution_cost,
+            signal_index=signal_index,
         )
         _, tuning_report = run_trading_bot(
             dataset,
             test_cfg,
             start_index=tune_start_index,
-            stop_index=tune_stop_index,
+            stop_index=tuning_replay_stop_index,
         )
         if (
             not tuning_report.terminal_settled
@@ -1325,7 +1521,7 @@ def print_walk_forward_summary(result: WalkForwardResult) -> None:
     print("  " + "-" * 56)
     for i, wr in enumerate(result.window_results):
         rep = wr.optimized_report
-        settled = "yes" if rep.terminal_settled else "NO"
+        settled = _terminal_settlement_label(rep.terminal_settled)
         print(
             f"  {i + 1:<8} | {wr.optimized_config.strategy_name:<18} | "
             f"{rep.total_return_pct:>+9.2f}% | {rep.sharpe_ratio:>8.2f} | "

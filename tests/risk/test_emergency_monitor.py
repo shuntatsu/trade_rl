@@ -78,6 +78,40 @@ def test_gap_and_untradable_checks_are_symbol_local() -> None:
     assert set(result.reasons) == {"untradable:BTC", "gap:ETH"}
 
 
+def test_split_does_not_trigger_emergency_price_risk() -> None:
+    dataset = market_with_last_bar_shock()
+    close = np.full((dataset.n_bars, 2), 100.0)
+    close[:4, 0] = (100.0, 101.0, 100.0, 101.0)
+    close[4:, 0] = 50.0
+    open_price = np.vstack((close[0], close[:-1]))
+    open_price[4, 0] = 50.0
+    split_factor = np.ones_like(close)
+    split_factor[4, 0] = 2.0
+    split = replace(
+        dataset,
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        split_factor=split_factor,
+    )
+    monitor = CausalEmergencyRiskMonitor(
+        EmergencyRiskConfig(
+            stop_loss_return=0.4,
+            stop_loss_hours=1.0,
+            gap_return=0.4,
+            volatility_ratio=2.0,
+            volatility_short_hours=0.5,
+            volatility_long_hours=1.0,
+        )
+    )
+
+    result = monitor.assess(split, index=4, weights=np.array([0.5, 0.0]))
+
+    np.testing.assert_array_equal(result.flatten_mask, np.array([False, False]))
+    assert result.reasons == ()
+
+
 def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     dataset = market_with_last_bar_shock()
     current = np.array([0.40, 0.0])

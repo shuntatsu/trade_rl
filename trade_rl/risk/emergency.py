@@ -73,6 +73,9 @@ class CausalEmergencyRiskMonitor:
         position = np.asarray(weights, dtype=np.float64).reshape(-1)
         if position.shape != (dataset.n_symbols,) or not np.isfinite(position).all():
             raise ValueError("emergency weights do not match dataset symbols")
+        split_factor = np.asarray(
+            dataset.resolved_array("split_factor"), dtype=np.float64
+        )
         mask = np.zeros(dataset.n_symbols, dtype=np.bool_)
         reasons: list[str] = []
 
@@ -87,8 +90,14 @@ class CausalEmergencyRiskMonitor:
         if self.config.stop_loss_return > 0.0:
             window = max(1, dataset.bars_for_hours(self.config.stop_loss_hours))
             if index >= window:
+                cumulative_split = np.prod(
+                    split_factor[index - window + 1 : index + 1], axis=0
+                )
                 horizon_return = (
-                    dataset.close[index] / dataset.close[index - window] - 1.0
+                    dataset.close[index]
+                    * cumulative_split
+                    / dataset.close[index - window]
+                    - 1.0
                 )
                 signed_return = np.sign(position) * horizon_return
                 triggered = signed_return <= -self.config.stop_loss_return
@@ -99,7 +108,10 @@ class CausalEmergencyRiskMonitor:
                     reasons.append(f"stop_loss:{dataset.symbols[symbol_index]}")
 
         if self.config.gap_return > 0.0 and index > 0:
-            gap = dataset.open[index] / dataset.close[index - 1] - 1.0
+            gap = (
+                dataset.open[index] * split_factor[index] / dataset.close[index - 1]
+                - 1.0
+            )
             triggered = np.abs(gap) >= self.config.gap_return
             for symbol_index in np.flatnonzero(triggered):
                 mask[symbol_index] = True
@@ -113,6 +125,8 @@ class CausalEmergencyRiskMonitor:
             if index >= long:
                 log_prices = np.log(dataset.close[index - long : index + 1])
                 returns = np.diff(log_prices, axis=0)
+                split_returns = np.log(split_factor[index - long + 1 : index + 1])
+                returns += split_returns
                 short_vol = np.std(returns[-short:], axis=0)
                 long_vol = np.std(returns, axis=0)
                 triggered = short_vol >= self.config.volatility_ratio * np.maximum(

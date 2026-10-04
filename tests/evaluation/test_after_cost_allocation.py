@@ -357,3 +357,149 @@ def test_input_symbol_and_clock_must_match_the_exact_decision(invalid):
             symbol_index=0,
             start_index=0,
         )
+
+
+@pytest.mark.parametrize("change", ["horizon", "source", "target", "terminal_archive"])
+def test_decision_binding_rejects_tampering_even_if_optimal_weight_is_unchanged(
+    monkeypatch, change
+):
+    dataset = market()
+    ex, bk, orders = executor(dataset), book(dataset), OrderBookState.empty()
+    proposal = propose(ex, bk, orders, signal=0.10)
+    if change == "horizon":
+        proposal = replace(
+            proposal,
+            inputs=replace(
+                proposal.inputs,
+                horizon_end=proposal.inputs.horizon_end + np.timedelta64(1, "h"),
+            ),
+        )
+    elif change == "source":
+        proposal = replace(
+            proposal,
+            inputs=replace(proposal.inputs, source_identity="different-recipe"),
+        )
+    elif change == "target":
+        proposal = replace(proposal, target_weight=0.5)
+    else:
+        done = pending(ex, 1.0).cancel(processing_index=0, reason="prior_decision")
+        orders = OrderBookState(active_orders=(), terminal_orders=(done,))
+
+    def forbidden_execution(*args, **kwargs):
+        pytest.fail("tampered decision reached the stateful executor")
+
+    monkeypatch.setattr(
+        StatefulExecutionRuntime, "create", classmethod(forbidden_execution)
+    )
+    with pytest.raises(ValueError):
+        apply(ex, bk, orders, proposal)
+
+
+def test_inconsistent_unrecorded_drawdown_rejects_before_risk_or_execution():
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset)
+    bk.peak_value = 1300.0
+    assert bk.max_drawdown == 0.0
+    with pytest.raises(ValueError, match="drawdown"):
+        propose(ex, bk, OrderBookState.empty())
+
+
+def test_caller_risk_tolerance_cannot_hide_unrecorded_drawdown():
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset)
+    bk.peak_value = 1300.0
+    controller = PreTradeRisk(replace(risk().config, fail_closed_tolerance=0.25))
+    with pytest.raises(ValueError, match="drawdown"):
+        propose(ex, bk, OrderBookState.empty(), controller=controller, signal=0.1)
+
+
+def test_zero_width_drawdown_guardrail_is_rejected_at_stop_boundary():
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset, 3.0)
+    bk.max_drawdown, bk.peak_value = 0.20, 1250.0
+    controller = PreTradeRisk(
+        replace(risk().config, drawdown_start=0.20, drawdown_stop=0.20)
+    )
+    with pytest.raises(ValueError, match="drawdown"):
+        propose(ex, bk, OrderBookState.empty(), controller=controller)
+
+
+@pytest.mark.parametrize("clock", ["latency", "expired", "future_processed"])
+def test_active_order_clock_must_be_compatible_with_the_next_processing_bar(clock):
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset)
+    old = pending(ex, 5.0)
+    if clock == "latency":
+        intent = replace(old.intent, eligible_index=4)
+        old = PendingOrder.from_intent(intent)
+    elif clock == "expired":
+        intent = replace(old.intent, expiry_index=0)
+        old = PendingOrder.from_intent(intent)
+    else:
+        old = old.mark_latency_wait(processing_index=1)
+    with pytest.raises(ValueError, match="clock"):
+        propose(ex, bk, OrderBookState.empty().add(old), signal=0.10, upper=0.5)
+
+
+def test_initial_margin_failure_is_rejected_by_canonical_margin_check():
+    dataset = market()
+    ex = executor(
+        dataset, max_leverage=2.0, maintenance_margin_rate=0.9, collateral_haircut=0.1
+    )
+    bk = book(dataset, 8.0)
+    assert bk.termination_reason is None
+    canonical = bk.clone()
+    ex._update_margin(canonical)
+    assert canonical.termination_reason is EconomicTerminationReason.MARGIN_CALL
+    with pytest.raises(ValueError, match="margin"):
+        propose(ex, bk, OrderBookState.empty(), signal=-0.10)
+    assert bk.termination_reason is None and bk.cash == 200.0
+
+
+def test_return_horizon_cannot_end_before_first_processing_bar():
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset)
+    packet = replace(
+        inputs(ex), horizon_end=dataset.timestamps[0] + np.timedelta64(1, "ns")
+    )
+    with pytest.raises(ValueError, match="horizon"):
+        propose_nonrl_target(
+            ex,
+            bk,
+            OrderBookState.empty(),
+            account_id="a",
+            inputs=packet,
+            allocator=AfterCostTargetAllocator(),
+            pretrade_risk=risk(),
+            symbol_index=0,
+            start_index=0,
+        )
+
+
+def test_future_terminal_transition_cannot_appear_in_a_past_decision():
+    dataset = market()
+    ex, bk = executor(dataset), book(dataset)
+    future = pending(ex, 1).cancel(processing_index=4, reason="future")
+    orders = OrderBookState(active_orders=(), terminal_orders=(future,))
+    with pytest.raises(ValueError, match="clock"):
+        propose(ex, bk, orders)
+
+
+def test_quantity_hold_preserves_nonunit_contract_multiplier_account():
+    dataset = replace(market(next_close=110.0), contract_multipliers=np.array([3.0]))
+    ex = executor(dataset)
+    bk = BookState(
+        np.array([float(Fraction(1, 3))]),
+        900.0,
+        dataset.close[0],
+        1000.0,
+        contract_multipliers=np.array([3.0]),
+        _exact_quantities=("1/3",),
+    )
+    result = apply(
+        ex, bk, OrderBookState.empty(), propose(ex, bk, OrderBookState.empty())
+    )
+    assert result.execution.book.exact_quantities == (Fraction(1, 3),)
+    assert result.execution.book.cash == 900.0
+    assert result.execution.book.portfolio_value == pytest.approx(1010.0)
+    assert result.execution.fill_count == 0

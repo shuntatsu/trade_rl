@@ -34,11 +34,16 @@ EXPECTED_PUBLIC_API = {
     "FactorRule",
     "InvalidExperimentStateError",
     "LoadedEvidenceSet",
+    "PPO_HOLDING_DURATION_HORIZONS",
+    "PPO_HOLDING_DURATION_MAX_DRAWDOWN",
+    "PPO_HOLDING_DURATION_RISK_CONFIG",
+    "PPO_HOLDING_DURATION_SEED_COUNT",
     "ResolvedRunConfig",
     "StudyFreeze",
     "StudyFrozenError",
     "StudyOutcome",
     "StudyPlan",
+    "StudyProtocol",
     "StudySnapshot",
     "UncontrolledDeltaError",
     "bootstrap_canonical_m2_study",
@@ -229,5 +234,5 @@ def test_inspection_exports_preserve_existing_module_identity() -> None:
     assert experiments.inspect_study is inspection.inspect_study
 
 
-def test_experiment_package_public_api_is_unchanged() -> None:
+def test_experiment_package_public_api_is_explicit() -> None:
     assert set(experiments.__all__) == EXPECTED_PUBLIC_API

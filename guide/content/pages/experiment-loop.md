@@ -24,13 +24,34 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 途中でoperational failureが起きた場合は`FAILED`、一因子契約を破った場合は`INVALID`としてfail closedにします。
 
+新しい経済仮説やobservation、risk、execution semanticsを変えるStudyでは、結果を作る前にG0-G2の問い・機構・反証条件を固定し、freshなresult-blind AI reviewと独立oracleを通します。G3のevidence検証はこの前提審査の代わりになりません。条件が未確立の間はStudyPlanの準備までに留め、baselineやcandidateの経済結果は生成しません。
+
+現行のStudy CLIは、外部reviewやoracleの完了を認証する自動gateを持ちません。G0-G2が閉じる前に経済実験を始めないことは、実行者が守るrelease prerequisiteです。
+
 ## 1. Studyを作る
 
 Studyは、Dataset、baseline config、PPO seed方針、変更を許すControlled Factor、実験budgetなどの研究authorityを固定します。
 
-final evaluationへ進める可能性を持つ新規Studyでは、unused windowもdevelopment resultより前にbootstrap v3で事前登録し、StudyPlan v2のdigestへ固定します。historical StudyPlan v1へ後からfinal windowを追加することはしません。 また、final startはdevelopment Datasetに含まれる最後のtimestampより後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
+final evaluationへ進める一般の新規Studyでは、execution economics、unused window、`StudyResearchContext`をbootstrap config v4へ事前登録し、context-bound StudyPlan v3へ固定します。PPO保有期間protocolはbootstrap config v5とStudyPlan v5を使い、protocolと明示baseline/riskも同じ事前登録へbindします。historical StudyPlan v1/v2へ後からfinal windowやcontextを追加することはしません。final startはdevelopment Datasetに含まれる最後のtimestampと申告済みconsumed-evidence scopeの両方より後でなければならず、Datasetには既に存在するがreplayでは未使用だった期間をfinalへ読み替えません。
 
 後続Experimentが勝手に別Datasetや別execution条件へ移動できないようにします。
+
+### PPOの中期保有期間を比較する場合
+
+`ppo_holding_duration_v1`は、同じDataset・評価期間・費用・資金・リスク条件で、Observation v3を使うH=0 PPOと72 / 168 / 336 / 504本の1時間bar（3 / 7 / 14 / 21日）を比較します。5 seedと4つの保有期間を先にStudyPlanへ固定し、4期間すべて登録するまでcandidateを実行しません。各symbolは独立口座として採点し、StudyPlanには次のselection rule全体を結果前に保存します。
+
+- H=0と全candidateのseed × symbol口座が終端決済後にフラットで、未約定注文がなく、各口座の実現最大DDが20%以下。
+- seedごとにsymbolのafter-cost total returnを等重み平均し、その5 seedの中央値をprimary scoreとする。
+- 同じseed内でH=0との差をsymbol平均してから5 seedの中央値を取り、正の場合にeligibleとする。
+- eligibleの中でprimary score最大を選び、同点は短い期間。eligibleなしは`NO_WINNER`。
+
+絶対returnが正かどうかはこのrelative development screenの追加条件にしません。4候補の選定は利益証明ではなく、winner候補にも別のone-shot sealed unused-future評価が必要です。現在の実装はこの事前設計とテストを整備中で、これらの期間のPPO学習・経済replay結果はまだありません。
+
+### 共通資金ポートフォリオで評価する新protocol
+
+`ppo_shared_cash_holding_duration_v2`は5 seedごとに全symbolを一つの100,000 USDT口座で評価し、銘柄平均でなくportfolio return/DDを使います。H=0と候補が終端flat・残注文なし・DD 20%以下で、H=0比のseed中央値が正の場合だけ候補に残します。scoreはportfolio returnのseed中央値、同点なら短い保有期間です。
+
+PPO trainingはsingle-symbolのままで、この比較はそのpolicyを共通資金へ適用した挙動を測ります。価格gapで実現DDが20%を超える可能性があり、fresh review・学習・検証・unused-period評価まで利益性は未確認です。
 
 ## 2. Baseline EvidenceSetを固定する
 
@@ -85,7 +106,7 @@ side effectは開示しますが、formal targetを書き換える理由には�
 
 実験budgetを使い終え、未完了Experimentがなくなった段階でStudyをfreezeします。WINNERを選ぶ場合は、ACCEPT_CANDIDATEとして正当に到達したevidenceだけが候補です。
 
-freeze後もControlled Experiment Loop自身はunused futureへ触れません。結果前にunused windowをbindしたStudyPlan v2がWINNERになった場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・その事前登録windowをone-shot authorizationへbindします。authorization時に別windowへ差し替えることはできません。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
+freeze後もControlled Experiment Loop自身はunused futureへ触れません。結果前にunused windowをbindしたStudyPlan v3またはPPO保有期間用v5がWINNERになった場合だけ、別の `evaluation.final_test` 境界がStudyPlan・StudyFreeze・winner evidence・winner strategy・その事前登録windowをone-shot authorizationへbindします。authorization時に別windowへ差し替えることはできません。このauthorizationはfinal Datasetを取得せず、P&Lも計算しません。実際にunused futureを開く処理はさらに別のfuture consumerの責務です。
 
 ## FAILUREとINVALID
 

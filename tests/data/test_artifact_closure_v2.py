@@ -89,6 +89,9 @@ def test_loader_rejects_undeclared_files_and_symlinks(tmp_path: Path) -> None:
         load_market_dataset_artifact(root)
 
     (root / "extra.txt").unlink()
-    (root / "link").symlink_to(root / "manifest.json")
+    try:
+        (root / "link").symlink_to(root / "manifest.json")
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     with pytest.raises(ValueError, match="symlink"):
         load_market_dataset_artifact(root)

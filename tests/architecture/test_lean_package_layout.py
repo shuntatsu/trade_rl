@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,3 +23,20 @@ def test_evaluation_gate_package_exists() -> None:
 
 def test_forwarding_artifact_codec_is_absent() -> None:
     assert not (PACKAGE / "artifacts" / "codec.py").exists()
+
+
+def test_candidate_and_study_publishers_use_the_shared_directory_primitive() -> None:
+    modules = (
+        PACKAGE / "evaluation" / "runs" / "artifact.py",
+        PACKAGE / "evaluation" / "experiments" / "store.py",
+    )
+    for path in modules:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "atomic_rename_directory"
+        ]
+        assert calls, path.relative_to(ROOT)

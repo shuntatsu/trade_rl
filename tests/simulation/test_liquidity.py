@@ -297,6 +297,73 @@ def test_full_capacity_fill_clamps_division_roundoff_to_remaining_quantity() -> 
     assert abs(allocations[0].filled_quantity) <= abs(remaining)
 
 
+def test_partial_float_quantity_fill_stays_inside_notional_capacity() -> None:
+    capacity = 51_597.20813628225
+    execution_price = 99.04602753195681
+
+    allocations, evidence = allocate_symbol_capacity(
+        requests=(_request("a", -685.1305545102971, price=execution_price),),
+        processing_volume=10_418.834439298358,
+        processing_market_notional=capacity,
+        price=execution_price,
+        contract_multiplier=1.0,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+
+    assert allocations[0].filled_quantity < 0.0
+    assert abs(allocations[0].filled_quantity) == pytest.approx(
+        capacity / execution_price,
+        rel=1e-14,
+        abs=0.0,
+    )
+    assert allocations[0].filled_notional <= capacity
+    assert evidence.remaining_capacity_notional >= 0.0
+
+
+def test_float_capacity_rounding_has_a_finite_adjustment_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.simulation.liquidity as liquidity
+
+    attempts = 0
+    original_nextafter = liquidity.math.nextafter
+
+    class AdjustmentLimitExceeded(Exception):
+        pass
+
+    def nextafter_with_limit(value: float, direction: float) -> float:
+        nonlocal attempts
+        attempts += 1
+        if attempts > 8:
+            raise AdjustmentLimitExceeded
+        return original_nextafter(value, direction)
+
+    monkeypatch.setattr(liquidity.math, "nextafter", nextafter_with_limit)
+    request = _request("b", 100.0, price=1e308)
+
+    try:
+        allocate_symbol_capacity(
+            requests=(request,),
+            processing_volume=10.0,
+            processing_market_notional=10.0,
+            price=1e308,
+            contract_multiplier=1e-308,
+            participation_limit=1.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+        )
+    except AdjustmentLimitExceeded:
+        attempts = 9
+    except LiquidityAllocationError as error:
+        assert "capacity-derived quantity" in str(error)
+    else:
+        pytest.fail("unrepresentable capacity fill must fail closed")
+
+    assert attempts <= 8
+
+
 def test_invalid_requests_and_capacity_inputs_fail_closed() -> None:
     with pytest.raises(LiquidityAllocationError, match="duplicate"):
         allocate_symbol_capacity(

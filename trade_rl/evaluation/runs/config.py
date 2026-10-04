@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import ClassVar, cast
 
@@ -13,7 +13,16 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
+from trade_rl.evaluation.runs.candidate_suite import (
+    LeanCandidateConfig,
+    require_age_aware_hourly_clock,
+)
+from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.intent import (
+    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    PPO_OBSERVATION_SCHEMAS,
+)
 from trade_rl.strategies.rl.ppo_training import (
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
@@ -59,6 +68,10 @@ class CandidateRunConfig:
         "initial_capital",
         "ppo_training_layout",
         "ppo_rollout_steps_per_env",
+        "ppo_minimum_hold_bars",
+        "ppo_observation_schema",
+        "ppo_settle_terminal_position",
+        "pretrade_risk_config",
     )
 
     signal_name: str
@@ -77,6 +90,10 @@ class CandidateRunConfig:
     initial_capital: float
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
+    ppo_minimum_hold_bars: int = 0
+    ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
+    ppo_settle_terminal_position: bool = False
+    pretrade_risk_config: PreTradeRiskConfig | None = None
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -147,6 +164,41 @@ class CandidateRunConfig:
             raise ValueError(
                 "interleaved training requires positive ppo_rollout_steps_per_env"
             )
+        if (
+            isinstance(self.ppo_minimum_hold_bars, bool)
+            or not isinstance(self.ppo_minimum_hold_bars, int)
+            or self.ppo_minimum_hold_bars < 0
+        ):
+            raise ValueError("ppo_minimum_hold_bars must be a non-negative integer")
+        if (
+            not isinstance(self.ppo_observation_schema, str)
+            or self.ppo_observation_schema not in PPO_OBSERVATION_SCHEMAS
+        ):
+            raise ValueError("unsupported PPO observation schema")
+        if (
+            self.ppo_minimum_hold_bars > 0
+            and self.ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+        ):
+            raise ValueError("PPO minimum hold requires the age-aware observation")
+        if not isinstance(self.ppo_settle_terminal_position, bool):
+            raise ValueError("ppo_settle_terminal_position must be boolean")
+        if self.pretrade_risk_config is not None and not isinstance(
+            self.pretrade_risk_config, PreTradeRiskConfig
+        ):
+            raise ValueError(
+                "pretrade_risk_config must be a PreTradeRiskConfig or null"
+            )
+        if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
+            if not self.ppo_settle_terminal_position:
+                raise ValueError(
+                    "age-aware PPO comparison requires terminal settlement"
+                )
+            if self.pretrade_risk_config is None:
+                raise ValueError(
+                    "age-aware PPO comparison requires explicit pre-trade risk config"
+                )
+            if self.pretrade_risk_config.drawdown_stop > 0.20:
+                raise ValueError("PPO drawdown stop must not exceed 20%")
         gross_budget = _require_finite(self.gross_budget, field="gross_budget")
         initial_capital = _require_finite(
             self.initial_capital,
@@ -170,6 +222,8 @@ class CandidateRunConfig:
             value = getattr(self, name)
             if isinstance(value, np.datetime64):
                 payload[name] = str(np.datetime64(value, "ns"))
+            elif isinstance(value, PreTradeRiskConfig):
+                payload[name] = asdict(value)
             elif isinstance(value, tuple):
                 payload[name] = list(value)
             else:
@@ -311,6 +365,58 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     training_layout = raw.get("ppo_training_layout", PPO_TRAINING_LAYOUT_SEQUENTIAL)
     if not isinstance(training_layout, str):
         raise ValueError("ppo_training_layout must be a string")
+    minimum_hold_bars = raw.get("ppo_minimum_hold_bars", 0)
+    if isinstance(minimum_hold_bars, bool) or not isinstance(minimum_hold_bars, int):
+        raise ValueError("ppo_minimum_hold_bars must be a non-negative integer")
+    observation_schema = raw.get("ppo_observation_schema", PPO_OBSERVATION_SCHEMA)
+    if not isinstance(observation_schema, str):
+        raise ValueError("unsupported PPO observation schema")
+    settle_terminal_position = raw.get("ppo_settle_terminal_position", False)
+    if not isinstance(settle_terminal_position, bool):
+        raise ValueError("ppo_settle_terminal_position must be boolean")
+    risk_payload = raw.get("pretrade_risk_config")
+    risk_config: PreTradeRiskConfig | None = None
+    if risk_payload is not None:
+        if not isinstance(risk_payload, dict) or any(
+            not isinstance(key, str) for key in risk_payload
+        ):
+            raise ValueError("pretrade_risk_config must be an object or null")
+        risk_fields = {
+            "max_gross",
+            "max_abs_weight",
+            "max_turnover",
+            "drawdown_start",
+            "drawdown_stop",
+            "emergency_turnover_override",
+            "fail_closed_tolerance",
+        }
+        if set(risk_payload) != risk_fields:
+            raise ValueError("pretrade_risk_config fields differ from contract")
+        for name in (
+            "max_gross",
+            "max_abs_weight",
+            "drawdown_start",
+            "drawdown_stop",
+            "fail_closed_tolerance",
+        ):
+            value = risk_payload[name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"pretrade_risk_config.{name} must be numeric")
+        turnover = risk_payload["max_turnover"]
+        if turnover is not None and (
+            isinstance(turnover, bool) or not isinstance(turnover, (int, float))
+        ):
+            raise ValueError(
+                "pretrade_risk_config.max_turnover must be numeric or null"
+            )
+        if not isinstance(risk_payload["emergency_turnover_override"], bool):
+            raise ValueError(
+                "pretrade_risk_config.emergency_turnover_override must be boolean"
+            )
+        try:
+            risk_config = PreTradeRiskConfig(**risk_payload)
+        except (TypeError, ValueError) as error:
+            raise ValueError("pretrade_risk_config is invalid") from error
     return CandidateRunConfig(
         signal_name=_required_string(raw, "signal_name"),
         feature_names=_required_string_tuple(raw, "feature_names"),
@@ -332,6 +438,10 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
             raw,
             "ppo_rollout_steps_per_env",
         ),
+        ppo_minimum_hold_bars=minimum_hold_bars,
+        ppo_observation_schema=observation_schema,
+        ppo_settle_terminal_position=settle_terminal_position,
+        pretrade_risk_config=risk_config,
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
     )
@@ -385,6 +495,11 @@ def resolve_candidate_run_spec(
 ) -> ResolvedCandidateRunSpec:
     """Bind one validated candidate configuration to an exact dataset artifact."""
 
+    require_age_aware_hourly_clock(
+        dataset,
+        observation_schema=config.ppo_observation_schema,
+    )
+
     feature_indices = tuple(
         _feature_index(dataset, name) for name in config.feature_names
     )
@@ -417,6 +532,9 @@ def resolve_candidate_run_spec(
         ppo_seed=config.ppo_seed,
         ppo_training_layout=config.ppo_training_layout,
         ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
+        ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
+        ppo_observation_schema=config.ppo_observation_schema,
+        ppo_settle_terminal_position=config.ppo_settle_terminal_position,
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from fractions import Fraction
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -9,16 +10,24 @@ import pytest
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
-from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderStatus,
     OrderType,
+    PendingOrder,
     TimeInForce,
 )
 from trade_rl.simulation.quantities import exact_quantity
+from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarContext
+from trade_rl.simulation.stateful.order_transitions import (
+    StatefulOrderTransitionProcessor,
+    _AdmissionBookProjection,
+)
+from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
+from trade_rl.simulation.stateful.symbol_fills import StatefulSymbolFillProcessor
 from trade_rl.simulation.targets.execution import execute_target_statefully
 
 
@@ -101,6 +110,238 @@ def _zero_book(dataset: MarketDataset) -> BookState:
         dataset.close[0],
         dataset.resolved_array("contract_multipliers"),
     )
+
+
+def test_empty_accepted_orders_do_not_scan_dataset_symbols(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market()
+    executor = _executor(dataset)
+    runtime = SimpleNamespace(executor=executor)
+    context = SimpleNamespace(processing_index=0)
+
+    def fail_if_symbol_count_is_read(_dataset: MarketDataset) -> int:
+        pytest.fail("an empty accepted-order list must skip symbol scanning")
+
+    monkeypatch.setattr(
+        MarketDataset,
+        "n_symbols",
+        property(fail_if_symbol_count_is_read),
+    )
+
+    attempted = StatefulSymbolFillProcessor(executor).process_symbols(
+        runtime,
+        context,
+        [],
+    )
+
+    assert attempted == set()
+
+
+def test_empty_order_bar_skips_admission_projection_but_still_marks_book(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close = np.full((6, 1), 100.0)
+    close[1, 0] = 110.0
+    dataset = _market(close=close)
+    executor = _executor(dataset)
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=900.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+
+    def fail_if_projection_is_built(
+        cls: type[_AdmissionBookProjection],
+        book: BookState,
+        *,
+        mark_prices: np.ndarray,
+    ) -> _AdmissionBookProjection:
+        del cls, book, mark_prices
+        pytest.fail("an empty order book must not build an admission projection")
+
+    def fail_if_exact_quantities_are_read(book: BookState) -> tuple[object, ...]:
+        del book
+        pytest.fail("a solvent book with no orders needs no exact-quantity rebase")
+
+    monkeypatch.setattr(
+        _AdmissionBookProjection,
+        "from_book",
+        classmethod(fail_if_projection_is_built),
+    )
+    monkeypatch.setattr(
+        BookState,
+        "exact_quantities",
+        property(fail_if_exact_quantities_are_read),
+    )
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.next_index == 1
+    assert result.book.portfolio_value == pytest.approx(1_010.0)
+    assert result.order_events == ()
+
+
+def test_empty_orders_reconcile_exact_quantities_for_insolvent_book(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _market()
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.array([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        max_gross=1.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    runtime = StatefulExecutionRuntime.create(
+        executor,
+        book,
+        OrderBookState.empty(),
+    )
+    runtime.book.terminate(EconomicTerminationReason.MARGIN_CALL)
+    runtime.book.quantities[0] = 0.0
+    exact_reads: list[tuple[BookState, tuple[Fraction, ...]]] = []
+    original_exact_quantities = BookState.exact_quantities.fget
+    assert original_exact_quantities is not None
+
+    def capture_exact_quantities(book: BookState) -> tuple[Fraction, ...]:
+        quantities = original_exact_quantities(book)
+        exact_reads.append((book, quantities))
+        return quantities
+
+    monkeypatch.setattr(
+        BookState,
+        "exact_quantities",
+        property(capture_exact_quantities),
+    )
+
+    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+        runtime,
+        SimpleNamespace(processing_index=1),
+    )
+
+    assert accepted == []
+    assert len(exact_reads) == 1
+    reconciled_book, quantities = exact_reads[0]
+    assert reconciled_book is runtime.book
+    assert quantities == (Fraction(0),)
+
+
+def test_interleaved_symbol_orders_keep_processing_order_and_fill_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prices = np.array([100.0, 200.0, 50.0])
+    n_bars = 3
+    shape = (n_bars, len(prices))
+    market_prices = np.tile(prices, (n_bars, 1))
+    dataset = MarketDataset(
+        dataset_id="b" * 64,
+        symbols=("S0", "S1", "S2"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((*shape, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=market_prices,
+        high=market_prices,
+        low=market_prices,
+        close=market_prices,
+        volume=np.full(shape, 1_000_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((*shape, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    executor = _executor(dataset, max_leverage=1.0)
+    specifications = (
+        ("symbol-2-first", 2, 2.0),
+        ("symbol-0", 0, 1.0),
+        ("symbol-2-second", 2, 1.0),
+        ("symbol-1", 1, 1.0),
+    )
+    intents = tuple(
+        OrderIntent.create(
+            dataset_id=dataset.dataset_id,
+            target_identity=target_identity,
+            execution_policy_digest=executor.execution_policy_digest,
+            symbol_index=symbol_index,
+            requested_quantity=quantity,
+            order_type=OrderType.STOP_MARKET,
+            time_in_force=TimeInForce.GTC,
+            limit_price=None,
+            stop_price=float(prices[symbol_index]),
+            submit_index=0,
+            eligible_index=1,
+            expiry_index=None,
+            submission_reference_price=float(prices[symbol_index]),
+            decision_equity=1_000.0,
+        )
+        for target_identity, symbol_index, quantity in specifications
+    )
+    accepted_order_ids = tuple(intent.order_id for intent in intents)
+    original_prepare_orders = StatefulOrderTransitionProcessor.prepare_orders
+
+    def prepare_in_interleaved_order(
+        processor: StatefulOrderTransitionProcessor,
+        runtime: StatefulExecutionRuntime,
+        context: StatefulBarContext,
+    ) -> list[PendingOrder]:
+        accepted = original_prepare_orders(processor, runtime, context)
+        accepted_by_id = {order.order_id: order for order in accepted}
+        assert set(accepted_by_id) == set(accepted_order_ids)
+        return [accepted_by_id[order_id] for order_id in accepted_order_ids]
+
+    monkeypatch.setattr(
+        StatefulOrderTransitionProcessor,
+        "prepare_orders",
+        prepare_in_interleaved_order,
+    )
+    result = executor.execute_orders(
+        BookState.zero(
+            len(prices),
+            1_000.0,
+            dataset.close[0],
+            dataset.resolved_array("contract_multipliers"),
+        ),
+        OrderBookState.empty(),
+        intents,
+        start_index=0,
+        bars=1,
+    )
+
+    triggered_order_ids = tuple(
+        event.order_id
+        for event in result.order_events
+        if event.event_type == "triggered"
+    )
+    assert triggered_order_ids == (
+        accepted_order_ids[1],
+        accepted_order_ids[3],
+        accepted_order_ids[0],
+        accepted_order_ids[2],
+    )
+    filled_events = [
+        event for event in result.order_events if event.event_type == "filled"
+    ]
+    assert {event.order_id for event in filled_events} == set(accepted_order_ids)
+    assert {event.order_id: event.filled_quantity for event in filled_events} == {
+        intent.order_id: intent.requested_quantity for intent in intents
+    }
+    assert result.book.exact_quantities == (Fraction(1), Fraction(1), Fraction(3))
+    assert result.book.cash == pytest.approx(550.0)
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+    assert result.filled_notional == pytest.approx(450.0)
+    assert result.completed_fill_count == 4
+    assert len(result.capacity_evidence) == 3
 
 
 def test_identity_split_row_skips_book_split_and_preserves_fill_events(

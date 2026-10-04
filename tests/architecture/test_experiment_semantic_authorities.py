@@ -75,7 +75,7 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
     resolved = ResolvedRunConfig.from_candidate_spec(_spec())
 
     assert resolved.to_payload() == {
-        "schema_version": "resolved_run_config_v3",
+        "schema_version": "resolved_run_config_v5",
         "signal_name": "signal",
         "signal_index": 0,
         "feature_names": ["signal", "volatility"],
@@ -93,6 +93,9 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
         "ppo_global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_settle_terminal_position": False,
+        "pretrade_risk_config": None,
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
@@ -116,6 +119,8 @@ def test_study_plan_owns_fixed_resolved_field_roster() -> None:
         "schema_version",
         "ppo_observation_schema",
         "ppo_global_feature_names",
+        "ppo_settle_terminal_position",
+        "pretrade_risk_config",
     )
 
     for name in ("evidence.py", "workflow.py", "delta.py"):

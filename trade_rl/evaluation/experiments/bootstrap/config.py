@@ -15,7 +15,13 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.evaluation.experiments.contracts import (
     ControlledFactor,
+    StudyProtocol,
     StudyResearchContext,
+)
+from trade_rl.evaluation.experiments.contracts.study import (
+    PPO_HOLDING_DURATION_HORIZONS,
+    PPO_HOLDING_DURATION_RISK_CONFIG,
+    PPO_HOLDING_DURATION_SEED_COUNT,
 )
 from trade_rl.evaluation.runs import (
     CandidateRunConfig,
@@ -25,12 +31,15 @@ from trade_rl.integrations.binance import (
     BinanceMarket,
     binance_interval_milliseconds,
 )
+from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo_training import PPO_TRAINING_LAYOUT_SEQUENTIAL
 
 _SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
 _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
 _SCHEMA_VERSION_V3 = "canonical_m2_bootstrap_config_v3"
 _SCHEMA_VERSION_V4 = "canonical_m2_bootstrap_config_v4"
+_SCHEMA_VERSION_V5 = "canonical_m2_bootstrap_config_v5"
+_SCHEMA_VERSION_V6 = "canonical_m2_bootstrap_config_v6"
 _TOP_LEVEL_KEYS_V1 = frozenset(
     {
         "schema_version",
@@ -54,6 +63,8 @@ _TOP_LEVEL_KEYS_V3 = frozenset(
     (*_TOP_LEVEL_KEYS_V2, "final_evaluation_start", "final_evaluation_stop_exclusive")
 )
 _TOP_LEVEL_KEYS_V4 = frozenset((*_TOP_LEVEL_KEYS_V3, "research_context"))
+_TOP_LEVEL_KEYS_V5 = frozenset((*_TOP_LEVEL_KEYS_V4, "study_protocol"))
+_TOP_LEVEL_KEYS_V6 = _TOP_LEVEL_KEYS_V5
 _BASELINE_FIELDS = (
     "signal_name",
     "feature_names",
@@ -68,6 +79,15 @@ _BASELINE_FIELDS = (
     "ppo_total_timesteps",
     "gross_budget",
     "initial_capital",
+)
+_BASELINE_FIELDS_V5 = frozenset(
+    (
+        *_BASELINE_FIELDS,
+        "ppo_observation_schema",
+        "ppo_minimum_hold_bars",
+        "ppo_settle_terminal_position",
+        "pretrade_risk_config",
+    )
 )
 
 
@@ -246,6 +266,7 @@ class CanonicalM2BootstrapConfig:
     final_evaluation_stop_exclusive: datetime | None = None
     research_context: StudyResearchContext | None = None
     schema_version: str = _SCHEMA_VERSION_V1
+    study_protocol: StudyProtocol | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version not in {
@@ -253,6 +274,8 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V2,
             _SCHEMA_VERSION_V3,
             _SCHEMA_VERSION_V4,
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
         }:
             raise ValueError("schema_version does not match canonical M2 contract")
         if self.schema_version == _SCHEMA_VERSION_V1:
@@ -287,7 +310,7 @@ class CanonicalM2BootstrapConfig:
                 raise ValueError("v3 bootstrap config requires final evaluation window")
             if self.research_context is not None:
                 raise ValueError("v3 bootstrap config forbids research_context")
-        else:
+        elif self.schema_version == _SCHEMA_VERSION_V4:
             if self.execution_economics is None:
                 raise ValueError("v4 bootstrap config requires execution_economics")
             if (
@@ -297,6 +320,30 @@ class CanonicalM2BootstrapConfig:
                 raise ValueError("v4 bootstrap config requires final evaluation window")
             if not isinstance(self.research_context, StudyResearchContext):
                 raise ValueError("v4 bootstrap config requires research_context")
+        elif self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+            if self.execution_economics is None:
+                raise ValueError("v5 bootstrap config requires execution_economics")
+            if (
+                self.final_evaluation_start is None
+                or self.final_evaluation_stop_exclusive is None
+            ):
+                raise ValueError("v5 bootstrap config requires final evaluation window")
+            if not isinstance(self.research_context, StudyResearchContext):
+                raise ValueError("v5 bootstrap config requires research_context")
+            required_protocol = (
+                StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                if self.schema_version == _SCHEMA_VERSION_V6
+                else StudyProtocol.PPO_HOLDING_DURATION
+            )
+            if self.study_protocol is not required_protocol:
+                raise ValueError(
+                    f"{self.schema_version} bootstrap config requires its matching PPO protocol"
+                )
+        if (
+            self.schema_version not in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+            and self.study_protocol is not None
+        ):
+            raise ValueError("study_protocol requires v5 or v6 bootstrap config")
         if self.execution_economics is not None and not isinstance(
             self.execution_economics, ExecutionEconomicsProfile
         ):
@@ -350,7 +397,12 @@ class CanonicalM2BootstrapConfig:
 
         final_start: datetime | None = None
         final_stop: datetime | None = None
-        if self.schema_version in {_SCHEMA_VERSION_V3, _SCHEMA_VERSION_V4}:
+        if self.schema_version in {
+            _SCHEMA_VERSION_V3,
+            _SCHEMA_VERSION_V4,
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+        }:
             assert self.final_evaluation_start is not None
             assert self.final_evaluation_stop_exclusive is not None
             final_start = _normalize_source_datetime(
@@ -371,9 +423,14 @@ class CanonicalM2BootstrapConfig:
                 field="final_evaluation_stop_exclusive",
                 timeframes=timeframes,
             )
-            if final_start < data_stop:
+            if final_start < data_stop or (
+                self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                and final_start == data_stop
+            ):
                 raise ValueError(
-                    "final_evaluation_start must not precede data_stop_exclusive"
+                    "final_evaluation_start must be strictly later than data_stop_exclusive"
+                    if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                    else "final_evaluation_start must not precede data_stop_exclusive"
                 )
             if final_stop <= final_start:
                 raise ValueError(
@@ -381,7 +438,11 @@ class CanonicalM2BootstrapConfig:
                 )
 
         research_context = self.research_context
-        if self.schema_version == _SCHEMA_VERSION_V4:
+        if self.schema_version in {
+            _SCHEMA_VERSION_V4,
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+        }:
             assert research_context is not None
             assert final_start is not None
             assert final_stop is not None
@@ -432,6 +493,28 @@ class CanonicalM2BootstrapConfig:
         )
         bootstrap_seed = _int_value(self.bootstrap_seed, field="bootstrap_seed")
 
+        if self.study_protocol in {
+            StudyProtocol.PPO_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        }:
+            risk = self.baseline.pretrade_risk_config
+            if base_timeframe != "1h":
+                raise ValueError(
+                    "PPO holding-duration protocol requires base_timeframe '1h'"
+                )
+            if (
+                allowed_factors != (ControlledFactor.PPO_MINIMUM_HOLD,)
+                or max_experiments != len(PPO_HOLDING_DURATION_HORIZONS)
+                or len(ppo_seeds) != PPO_HOLDING_DURATION_SEED_COUNT
+                or self.baseline.ppo_minimum_hold_bars != 0
+                or self.baseline.ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+                or not self.baseline.ppo_settle_terminal_position
+                or risk != PPO_HOLDING_DURATION_RISK_CONFIG
+            ):
+                raise ValueError(
+                    "bootstrap config violates the PPO holding-duration protocol"
+                )
+
         object.__setattr__(self, "research_question", research_question)
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "base_timeframe", base_timeframe)
@@ -446,6 +529,7 @@ class CanonicalM2BootstrapConfig:
         object.__setattr__(self, "final_evaluation_start", final_start)
         object.__setattr__(self, "final_evaluation_stop_exclusive", final_stop)
         object.__setattr__(self, "research_context", research_context)
+        object.__setattr__(self, "study_protocol", self.study_protocol)
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -457,7 +541,14 @@ class CanonicalM2BootstrapConfig:
             "feature_timeframes": list(self.feature_timeframes),
             "data_start": self.data_start.astimezone(UTC).isoformat(),
             "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),
-            "baseline": _baseline_payload(self.baseline),
+            "baseline": (
+                {
+                    name: self.baseline.to_json_payload()[name]
+                    for name in _BASELINE_FIELDS_V5
+                }
+                if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                else _baseline_payload(self.baseline)
+            ),
             "ppo_seeds": list(self.ppo_seeds),
             "allowed_factors": [factor.value for factor in self.allowed_factors],
             "max_experiments": self.max_experiments,
@@ -466,7 +557,12 @@ class CanonicalM2BootstrapConfig:
         }
         if self.execution_economics is not None:
             payload["execution_economics"] = self.execution_economics.to_payload()
-        if self.schema_version in {_SCHEMA_VERSION_V3, _SCHEMA_VERSION_V4}:
+        if self.schema_version in {
+            _SCHEMA_VERSION_V3,
+            _SCHEMA_VERSION_V4,
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+        }:
             assert self.final_evaluation_start is not None
             assert self.final_evaluation_stop_exclusive is not None
             payload["final_evaluation_start"] = self.final_evaluation_start.astimezone(
@@ -475,9 +571,16 @@ class CanonicalM2BootstrapConfig:
             payload["final_evaluation_stop_exclusive"] = (
                 self.final_evaluation_stop_exclusive.astimezone(UTC).isoformat()
             )
-        if self.schema_version == _SCHEMA_VERSION_V4:
+        if self.schema_version in {
+            _SCHEMA_VERSION_V4,
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+        }:
             assert self.research_context is not None
             payload["research_context"] = self.research_context.to_payload()
+        if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+            assert self.study_protocol is not None
+            payload["study_protocol"] = self.study_protocol.value
         return payload
 
     @property
@@ -487,6 +590,7 @@ class CanonicalM2BootstrapConfig:
 
 def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
     schema_version = _require_text(raw.get("schema_version"), field="schema_version")
+    study_protocol: StudyProtocol | None = None
     if schema_version == _SCHEMA_VERSION_V1:
         _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V1, field="bootstrap config")
         execution_economics = None
@@ -534,6 +638,34 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
         research_context = StudyResearchContext.from_payload(
             raw.get("research_context")
         )
+    elif schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+        expected_keys = (
+            _TOP_LEVEL_KEYS_V6
+            if schema_version == _SCHEMA_VERSION_V6
+            else _TOP_LEVEL_KEYS_V5
+        )
+        _expect_exact_keys(raw, expected_keys, field="bootstrap config")
+        execution_economics = ExecutionEconomicsProfile.from_payload(
+            raw.get("execution_economics"),
+            field="execution_economics",
+        )
+        final_evaluation_start = _parse_source_datetime(
+            raw.get("final_evaluation_start"),
+            field="final_evaluation_start",
+        )
+        final_evaluation_stop_exclusive = _parse_source_datetime(
+            raw.get("final_evaluation_stop_exclusive"),
+            field="final_evaluation_stop_exclusive",
+        )
+        research_context = StudyResearchContext.from_payload(
+            raw.get("research_context")
+        )
+        try:
+            study_protocol = StudyProtocol(
+                _require_text(raw.get("study_protocol"), field="study_protocol")
+            )
+        except ValueError as error:
+            raise ValueError("study_protocol is not supported") from error
     else:
         raise ValueError("schema_version does not match canonical M2 contract")
 
@@ -569,7 +701,12 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
 
     ppo_seeds = _seed_policy(raw.get("ppo_seeds"))
     baseline_raw = _require_mapping(raw.get("baseline"), field="baseline")
-    _expect_exact_keys(baseline_raw, frozenset(_BASELINE_FIELDS), field="baseline")
+    baseline_fields = (
+        _BASELINE_FIELDS_V5
+        if schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+        else frozenset(_BASELINE_FIELDS)
+    )
+    _expect_exact_keys(baseline_raw, baseline_fields, field="baseline")
     candidate_payload = dict(baseline_raw)
     candidate_payload["ppo_seed"] = ppo_seeds[0]
     baseline = parse_candidate_run_config(candidate_payload)
@@ -607,6 +744,7 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
         final_evaluation_stop_exclusive=final_evaluation_stop_exclusive,
         research_context=research_context,
         schema_version=schema_version,
+        study_protocol=study_protocol,
     )
 
 

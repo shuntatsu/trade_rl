@@ -12,7 +12,9 @@ from trade_rl.evaluation.runs.config import (
     LEGACY_DATASET_EXECUTION_OVERLAY,
     ResolvedCandidateRunSpec,
 )
+from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
@@ -34,6 +36,7 @@ class CandidateRunResult:
     symbols: tuple[str, ...]
     comparison: UniversalStrategyComparison
     ppo_training_timesteps: int
+    ppo_training_minimum_hold_suppressed_count: int = 0
 
     def __post_init__(self) -> None:
         if (
@@ -42,6 +45,14 @@ class CandidateRunResult:
             or self.ppo_training_timesteps <= 0
         ):
             raise ValueError("ppo_training_timesteps must be a positive integer")
+        if (
+            isinstance(self.ppo_training_minimum_hold_suppressed_count, bool)
+            or not isinstance(self.ppo_training_minimum_hold_suppressed_count, int)
+            or self.ppo_training_minimum_hold_suppressed_count < 0
+        ):
+            raise ValueError(
+                "ppo_training_minimum_hold_suppressed_count must be a non-negative integer"
+            )
 
 
 def execute_candidate_run(
@@ -60,7 +71,14 @@ def execute_candidate_run(
         gross_budget=spec.config.gross_budget,
         initial_capital=spec.config.initial_capital,
         execution_cost=_execution_cost_for_overlay(spec.execution_overlay),
-        risk=None,
+        risk=(
+            None
+            if spec.config.pretrade_risk_config is None
+            else PreTradeRisk(spec.config.pretrade_risk_config)
+        ),
+        include_ppo_shared_cash_replay=(
+            spec.config.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3
+        ),
     )
     training_timesteps = suite_result.ppo_training_timesteps
     if training_timesteps is None:
@@ -70,6 +88,9 @@ def execute_candidate_run(
         symbols=tuple(dataset.symbols),
         comparison=suite_result,
         ppo_training_timesteps=training_timesteps,
+        ppo_training_minimum_hold_suppressed_count=(
+            suite_result.ppo_training_minimum_hold_suppressed_count or 0
+        ),
     )
 
 

@@ -52,7 +52,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -122,7 +122,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -293,6 +293,8 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
       github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke-execution'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     steps:
       - name: Require comprehensive verification
         env:
@@ -309,38 +311,63 @@ jobs:
             test "$GUIDE_RESULT" = "success"
           fi
 
-      - name: Evaluate exact-head independent research review
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+
+      - name: Fetch pull request review evidence
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Fetch all reviews for this PR
-          REVIEWS=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
-            --jq '[.[] | select(.commit_id == "'"${HEAD_SHA}"'" and (.body | contains("independent-research-review-audit")))]')
+          PULL_JSON="$RUNNER_TEMP/pull-request.json"
+          REVIEWS_JSON="$RUNNER_TEMP/pull-request-reviews.json"
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}" > "$PULL_JSON"
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            | jq -s 'add' > "$REVIEWS_JSON"
 
-          APPROVED=$(echo "$REVIEWS" | jq '[.[] | select(.state == "APPROVED" or (.body | contains("### Disposition: APPROVED")))] | length')
-          BLOCKED=$(echo "$REVIEWS" | jq '[.[] | select(.body | contains("### Disposition: BLOCKED"))] | length')
+      - name: Evaluate exact-head independent research review
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          PULL_JSON="$RUNNER_TEMP/pull-request.json"
+          REVIEWS_JSON="$RUNNER_TEMP/pull-request-reviews.json"
+          OUTCOME=$(env -u GITHUB_TOKEN -u GH_TOKEN uv run --no-project --python 3.12 python \
+            tools/independent_research_review.py \
+            --pull-json "$PULL_JSON" \
+            --reviews-json "$REVIEWS_JSON" \
+            --expected-head "$HEAD_SHA")
 
-          if [ "$APPROVED" -gt 0 ]; then
+          if [ "$OUTCOME" = "APPROVED" ]; then
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**READY / APPROVED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
             echo "Independent research review audit passed."
             exit 0
-          elif [ "$BLOCKED" -gt 0 ]; then
+          elif [ "$OUTCOME" = "BLOCKED" ]; then
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**BLOCKED** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
             echo "Review audit identified blocking findings. Please resolve before merge."
             exit 1
-          else
+          elif [ "$OUTCOME" = "PENDING" ]; then
             echo "# Independent Research Review" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**PENDING** for exact HEAD \`${HEAD_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
             echo "Independent research review audit is pending."
+            exit 1
+          else
+            echo "Unrecognized review outcome: ${OUTCOME}" >&2
             exit 1
           fi
 

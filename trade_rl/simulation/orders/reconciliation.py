@@ -99,8 +99,12 @@ def reconcile_target(
     tick_sizes: np.ndarray | None = None,
     maximum_gross: float = 1.0,
     reduce_only_symbols: tuple[int, ...] | None = None,
+    valuation_prices: np.ndarray | None = None,
 ) -> ReconciliationResult:
-    """Reconcile a latest target against holdings and active residual orders."""
+    """Size weights at valuation prices and quote orders at reference prices.
+
+    Omitted valuation prices preserve the direct caller's reference-price sizing.
+    """
 
     if not dataset_id:
         raise OrderReconciliationError("dataset_id must be non-empty")
@@ -134,6 +138,11 @@ def reconcile_target(
 
     weights = np.asarray(target_weights, dtype=np.float64).reshape(-1)
     prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
+    sizing_prices = (
+        prices
+        if valuation_prices is None
+        else np.asarray(valuation_prices, dtype=np.float64).reshape(-1)
+    )
     quantities = np.asarray(book.quantities, dtype=np.float64).reshape(-1)
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64).reshape(-1)
     ticks = (
@@ -145,6 +154,7 @@ def reconcile_target(
     if (
         weights.shape != expected_shape
         or prices.shape != expected_shape
+        or sizing_prices.shape != expected_shape
         or multipliers.shape != expected_shape
         or ticks.shape != expected_shape
     ):
@@ -156,6 +166,8 @@ def reconcile_target(
         or not np.isfinite(weights).all()
         or not np.isfinite(prices).all()
         or np.any(prices <= 0.0)
+        or not np.isfinite(sizing_prices).all()
+        or np.any(sizing_prices <= 0.0)
         or not np.isfinite(multipliers).all()
         or np.any(multipliers <= 0.0)
         or not np.isfinite(ticks).all()
@@ -177,25 +189,35 @@ def reconcile_target(
             "reduce-only symbols require unique valid indices and MARKET orders"
         )
 
-    desired = weights * decision_equity / (prices * multipliers)
+    desired = weights * decision_equity / (sizing_prices * multipliers)
     state = order_book
     cancelled: list[PendingOrder] = []
     intents: list[OrderIntent] = []
     residuals = np.zeros_like(desired)
+    exact_quantities = book.exact_quantities
 
     for symbol_index in range(weights.size):
+        current = exact_quantities[symbol_index]
+        wanted = exact_quantity(float(desired[symbol_index]))
         target_delta = desired[symbol_index] - quantities[symbol_index]
-        reduce_only = False
-        if reduce_only_symbols is not None and symbol_index in reduce_only_symbols:
-            current = book.exact_quantities[symbol_index]
-            wanted = exact_quantity(float(desired[symbol_index]))
-            reduce_only = bool(
+        legacy_flatten = bool(
+            reduce_only_symbols is None
+            and order_type is OrderType.MARKET
+            and current
+            and wanted == 0
+        )
+        profile_reduce = bool(
+            reduce_only_symbols is not None
+            and symbol_index in reduce_only_symbols
+            and (
                 current
                 and (wanted == 0 or current * wanted > 0)
                 and abs(wanted) < abs(current)
             )
-            if reduce_only:
-                target_delta = project_quantity(wanted - current)
+        )
+        reduce_only = legacy_flatten or profile_reduce
+        if reduce_only:
+            target_delta = project_quantity(wanted - current)
         active = state.active_for_symbol(symbol_index)
         active_residual = float(sum(order.remaining_quantity for order in active))
         compatible = all(

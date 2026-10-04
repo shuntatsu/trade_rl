@@ -423,6 +423,23 @@ def _fake_trusted_evidence_transport(
     jobs: list[dict[str, object]] | None = None,
     lineage_artifacts: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    workflow = b"name: trusted-reviewer\n"
+    runner = b"print('trusted reviewer')\n"
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_WORKFLOW_SHA256",
+        hashlib.sha256(workflow).hexdigest(),
+    )
+    monkeypatch.setattr(
+        actions,
+        "TRUSTED_REVIEWER_RUNNER_SHA256",
+        hashlib.sha256(runner).hexdigest(),
+    )
+    attestation = dict(
+        attestation,
+        trusted_workflow_file_sha256=actions.TRUSTED_REVIEWER_WORKFLOW_SHA256,
+        trusted_runner_sha256=actions.TRUSTED_REVIEWER_RUNNER_SHA256,
+    )
     attestation_raw = canonical_json_bytes(attestation)
     source = _source(
         trusted_reviewer_attestation_sha256=hashlib.sha256(attestation_raw).hexdigest()
@@ -438,11 +455,9 @@ def _fake_trusted_evidence_transport(
                 return {"status": "identical", "behind_by": 0}
             return {"status": "diverged", "behind_by": 1}
         if "/contents/.github/workflows/ppo-4h-gemini-review.yml?" in url:
-            return _content_record(
-                Path(".github/workflows/ppo-4h-gemini-review.yml").read_bytes()
-            )
+            return _content_record(workflow)
         if "/contents/tools/ppo_4h_gemini_review.py?" in url:
-            return _content_record(Path("tools/ppo_4h_gemini_review.py").read_bytes())
+            return _content_record(runner)
         if url.endswith(
             f"/actions/runs/{RUN_ID}/attempts/{RUN_ATTEMPT}/jobs?per_page=100"
         ):
@@ -522,7 +537,15 @@ def test_require_trusted_attestation_refetches_run_jobs_and_artifact(
         deadline=999999999.0,
     )
 
-    assert result == attestation
+    assert result == {
+        **attestation,
+        "trusted_workflow_file_sha256": hashlib.sha256(
+            b"name: trusted-reviewer\n"
+        ).hexdigest(),
+        "trusted_runner_sha256": hashlib.sha256(
+            b"print('trusted reviewer')\n"
+        ).hexdigest(),
+    }
 
 
 def test_require_trusted_attestation_rejects_wrong_artifact_name(

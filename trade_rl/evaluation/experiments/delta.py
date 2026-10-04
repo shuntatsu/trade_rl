@@ -16,7 +16,10 @@ from trade_rl.evaluation.experiments.contracts import (
     ExperimentDefinition,
     StudyPlan,
 )
-from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments.errors import (
+    ArtifactIntegrityError,
+    ContractViolationError,
+)
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs import LoadedCandidateRun
 from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
@@ -143,6 +146,10 @@ FACTOR_RULES: Mapping[ControlledFactor, FactorRule] = MappingProxyType(
             ),
             unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),
         ),
+        ControlledFactor.PPO_MINIMUM_HOLD: FactorRule(
+            allowed_paths=frozenset({("ppo_minimum_hold_bars",)}),
+            unaffected_strategies=frozenset(set(StudyPlan.STRATEGY_NAMES) - {"ppo"}),
+        ),
         ControlledFactor.GROSS_BUDGET: FactorRule(
             allowed_paths=frozenset({("gross_budget",)}),
             unaffected_strategies=frozenset({"cash"}),
@@ -252,6 +259,30 @@ def _classify_resolved_delta(
     return changed_paths, forbidden
 
 
+def validate_candidate_config_delta(
+    *,
+    factor: ControlledFactor,
+    baseline_config: Mapping[str, object],
+    candidate_config: Mapping[str, object],
+) -> tuple[tuple[str, ...], ...]:
+    """Reject a no-op or uncontrolled config delta before candidate execution."""
+
+    rule = FACTOR_RULES.get(factor)
+    if rule is None:
+        raise ContractViolationError("controlled factor is unsupported")
+    changed_paths, forbidden_paths = _classify_resolved_delta(
+        _without_seed(baseline_config),
+        _without_seed(candidate_config),
+        rule,
+    )
+    if not changed_paths:
+        raise ContractViolationError("declared factor is a no-op")
+    if forbidden_paths:
+        rendered = ", ".join(".".join(path) for path in forbidden_paths)
+        raise ContractViolationError(f"uncontrolled resolved delta: {rendered}")
+    return changed_paths
+
+
 def _without_seed(payload: Mapping[str, object]) -> dict[str, object]:
     normalized = dict(payload)
     normalized.pop("ppo_seed", None)
@@ -267,6 +298,12 @@ def _fixed_config_violations(
     plan_semantic = _without_seed(plan.baseline_config.to_payload())
     violations: list[str] = []
     for field in plan.FIXED_RESOLVED_FIELDS:
+        if (
+            field == "pretrade_risk_config"
+            and field not in evidence.semantic_config
+            and field not in plan_semantic
+        ):
+            continue
         if field not in evidence.semantic_config or (
             _canonical_value(evidence.semantic_config[field])
             != _canonical_value(plan_semantic[field])

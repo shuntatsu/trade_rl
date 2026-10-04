@@ -12,17 +12,24 @@ from typing import Any
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.verified_file import (
     file_digest,
     open_regular_binary,
     verified_private_copy,
 )
-from trade_rl.strategies.rl.intent import ppo_observation_contract_payload
+from trade_rl.strategies.rl.intent import (
+    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    PPO_OBSERVATION_SCHEMAS,
+    ppo_observation_contract_payload,
+)
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
 _SCHEMA = "ppo_normalized_model_v1"
 _INFERENCE_SCHEMA = "ppo_inference_bundle_v1"
+_INFERENCE_SCHEMA_V2 = "ppo_inference_bundle_v2"
 
 
 def _read_regular_bytes(path: Path, *, field: str) -> bytes:
@@ -38,7 +45,12 @@ def _matches_integer(value: object, expected: int) -> bool:
     )
 
 
-def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
+def _validate_policy_spaces(
+    policy: object,
+    *,
+    feature_count: int,
+    observation_schema: str = PPO_OBSERVATION_SCHEMA,
+) -> None:
     try:
         observation_shape = tuple(
             getattr(getattr(policy, "observation_space"), "shape")
@@ -52,7 +64,9 @@ def _validate_policy_spaces(policy: object, *, feature_count: int) -> None:
         len(observation_shape) != 1
         or not _matches_integer(
             observation_shape[0],
-            3 * feature_count + 2,
+            3 * feature_count
+            + 2
+            + int(observation_schema == PPO_OBSERVATION_SCHEMA_V3),
         )
         or not _matches_integer(action_count, 3)
         or not _matches_integer(action_start, 0)
@@ -65,6 +79,13 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     normalizer = strategy.feature_normalizer
     if normalizer is None:
         raise ValueError("a normalized model must include its fitted normalizer")
+    if (
+        strategy.observation_schema != PPO_OBSERVATION_SCHEMA
+        or strategy.minimum_hold_bars != 0
+    ):
+        raise ValueError(
+            "normalized PPO v1 only supports Observation v2 with no minimum hold"
+        )
     normalizer.validate_features(strategy.feature_indices)
     if root.exists() or root.is_symlink():
         raise FileExistsError(f"normalized PPO destination already exists: {root}")
@@ -79,7 +100,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
     try:
         policy_path = staging / "policy.zip"
         getattr(strategy.policy, "save")(str(policy_path))
-        manifest = {
+        manifest: dict[str, object] = {
             "schema": _SCHEMA,
             "observation": ppo_observation_contract_payload(),
             "normalizer": normalizer.to_payload(),
@@ -91,7 +112,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(encoded)
-        staging.rename(root)
+        atomic_rename_directory(staging, root)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -171,12 +192,17 @@ def _load_ppo_policy(
     policy_path: Path,
     *,
     feature_count: int,
+    observation_schema: str = PPO_OBSERVATION_SCHEMA,
 ) -> Any:
     module = importlib.import_module("stable_baselines3")
     torch_module = importlib.import_module("torch")
     getattr(torch_module, "set_num_threads")(1)
     model = getattr(module, "PPO").load(str(policy_path), device="cpu")
-    _validate_policy_spaces(model, feature_count=feature_count)
+    _validate_policy_spaces(
+        model,
+        feature_count=feature_count,
+        observation_schema=observation_schema,
+    )
     return model
 
 
@@ -198,6 +224,12 @@ def save_ppo_inference_bundle(
         raise ValueError(
             "strategy feature schema differs from the inference feed schema"
         )
+    observation_schema = strategy.observation_schema
+    minimum_hold_bars = strategy.minimum_hold_bars
+    if observation_schema not in PPO_OBSERVATION_SCHEMAS:
+        raise ValueError("unsupported PPO observation schema")
+    if minimum_hold_bars > 0 and observation_schema != PPO_OBSERVATION_SCHEMA_V3:
+        raise ValueError("minimum hold requires PPO Observation v3")
     normalizer = strategy.feature_normalizer
     if normalizer is not None:
         normalizer.validate_features(indices)
@@ -209,7 +241,11 @@ def save_ppo_inference_bundle(
         raise FileExistsError(
             f"PPO inference bundle destination already exists: {root}"
         )
-    _validate_policy_spaces(strategy.policy, feature_count=len(indices))
+    _validate_policy_spaces(
+        strategy.policy,
+        feature_count=len(indices),
+        observation_schema=observation_schema,
+    )
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{root.name}.staging-", dir=str(root.parent))
@@ -217,9 +253,13 @@ def save_ppo_inference_bundle(
     try:
         policy_path = staging / "policy.zip"
         getattr(strategy.policy, "save")(str(policy_path))
-        manifest = {
-            "schema": _INFERENCE_SCHEMA,
-            "observation": ppo_observation_contract_payload(),
+        manifest: dict[str, object] = {
+            "schema": (
+                _INFERENCE_SCHEMA
+                if observation_schema == PPO_OBSERVATION_SCHEMA
+                else _INFERENCE_SCHEMA_V2
+            ),
+            "observation": ppo_observation_contract_payload(observation_schema),
             "feature_indices": list(indices),
             "feature_names": list(selected_names),
             "normalizer": None if normalizer is None else normalizer.to_payload(),
@@ -228,10 +268,12 @@ def save_ppo_inference_bundle(
                 field="PPO inference policy",
             ),
         }
+        if observation_schema != PPO_OBSERVATION_SCHEMA:
+            manifest["minimum_hold_bars"] = minimum_hold_bars
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(encoded)
-        staging.rename(root)
+        atomic_rename_directory(staging, root)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -252,7 +294,7 @@ def load_ppo_inference_bundle(
         field="PPO inference manifest",
     )
     manifest = json.loads(raw)
-    expected_keys = {
+    legacy_keys = {
         "schema",
         "observation",
         "feature_indices",
@@ -262,12 +304,45 @@ def load_ppo_inference_bundle(
     }
     if (
         not isinstance(manifest, dict)
-        or set(manifest) != expected_keys
-        or manifest["schema"] != _INFERENCE_SCHEMA
-        or manifest["observation"] != ppo_observation_contract_payload()
         or content_digest(manifest) != expected_digest
         or canonical_json_bytes(manifest) != raw
     ):
+        raise ValueError("PPO inference manifest differs from its pinned contract")
+
+    schema = manifest.get("schema")
+    if schema == _INFERENCE_SCHEMA:
+        if set(manifest) != legacy_keys or manifest[
+            "observation"
+        ] != ppo_observation_contract_payload(PPO_OBSERVATION_SCHEMA):
+            raise ValueError("PPO inference manifest differs from its pinned contract")
+        observation_schema = PPO_OBSERVATION_SCHEMA
+        minimum_hold_bars = 0
+    elif schema == _INFERENCE_SCHEMA_V2:
+        if set(manifest) != legacy_keys | {"minimum_hold_bars"}:
+            raise ValueError("PPO inference manifest differs from its pinned contract")
+        raw_observation = manifest["observation"]
+        if not isinstance(raw_observation, dict):
+            raise ValueError("PPO inference observation contract is malformed")
+        observation_schema_value = raw_observation.get("schema_version")
+        if (
+            not isinstance(observation_schema_value, str)
+            or observation_schema_value not in PPO_OBSERVATION_SCHEMAS
+            or raw_observation
+            != ppo_observation_contract_payload(observation_schema_value)
+        ):
+            raise ValueError("PPO inference observation contract is unsupported")
+        observation_schema = observation_schema_value
+        raw_minimum_hold_bars = manifest["minimum_hold_bars"]
+        if (
+            isinstance(raw_minimum_hold_bars, bool)
+            or not isinstance(raw_minimum_hold_bars, int)
+            or raw_minimum_hold_bars < 0
+        ):
+            raise ValueError("PPO inference minimum_hold_bars is malformed")
+        minimum_hold_bars = raw_minimum_hold_bars
+        if minimum_hold_bars > 0 and observation_schema != PPO_OBSERVATION_SCHEMA_V3:
+            raise ValueError("minimum hold requires PPO Observation v3")
+    else:
         raise ValueError("PPO inference manifest differs from its pinned contract")
 
     raw_indices = manifest["feature_indices"]
@@ -313,10 +388,16 @@ def load_ppo_inference_bundle(
         field="PPO inference policy",
         filename="policy.zip",
     ) as verified_policy:
-        model = _load_ppo_policy(verified_policy, feature_count=len(indices))
+        model = _load_ppo_policy(
+            verified_policy,
+            feature_count=len(indices),
+            observation_schema=observation_schema,
+        )
     return PPOIntentStrategy(
         model,
         feature_indices=indices,
         feature_names=selected_names,
         feature_normalizer=normalizer,
+        observation_schema=observation_schema,
+        minimum_hold_bars=minimum_hold_bars,
     )

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+from trade_rl.artifacts.atomic_write import _temporary_name_suffix
 
 
 class AtomicReplaceDurabilityError(OSError):
@@ -39,7 +40,9 @@ def atomic_replace_bytes(path: Path, payload: bytes) -> AtomicReplaceResult:
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+    temporary = target.with_name(
+        f".{target.name}.tmp-{os.getpid()}-{_temporary_name_suffix()}"
+    )
     try:
         with temporary.open("xb") as handle:
             handle.write(payload)

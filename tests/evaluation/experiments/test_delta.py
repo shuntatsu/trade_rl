@@ -22,7 +22,7 @@ from trade_rl.evaluation.experiments.evidence import EvidenceSet, LoadedEvidence
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_FEATURE_NAMES,
-    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
     expected_ppo_realized_timesteps,
 )
 
@@ -112,6 +112,10 @@ EXPECTED_RULES = {
         ),
         frozenset(set(STRATEGIES) - {"ppo"}),
     ),
+    ControlledFactor.PPO_MINIMUM_HOLD: (
+        frozenset({("ppo_minimum_hold_bars",)}),
+        frozenset(set(STRATEGIES) - {"ppo"}),
+    ),
     ControlledFactor.GROSS_BUDGET: (
         frozenset({("gross_budget",)}),
         frozenset({"cash"}),
@@ -134,16 +138,18 @@ def _resolved(**overrides: object) -> ResolvedRunConfig:
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 266_240,
         "ppo_seed": 2,
-        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
         "ppo_global_feature_names": PPO_GLOBAL_FEATURE_NAMES,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_settle_terminal_position": False,
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 100_000.0,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
-        "schema_version": "resolved_run_config_v3",
+        "schema_version": "resolved_run_config_v4",
     }
     values.update(overrides)
     return ResolvedRunConfig(**values)  # type: ignore[arg-type]
@@ -158,7 +164,11 @@ def _plan(base: ResolvedRunConfig) -> StudyPlan:
         symbols=("BTCUSDT", "ETHUSDT"),
         baseline_config=base,
         ppo_seeds=(2, 5),
-        allowed_factors=tuple(ControlledFactor),
+        allowed_factors=tuple(
+            factor
+            for factor in ControlledFactor
+            if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+        ),
         max_experiments=8,
         n_bootstrap=100,
         bootstrap_seed=7,
@@ -335,6 +345,8 @@ def _candidate_for_factor(
             ppo_training_layout="interleaved",
             ppo_rollout_steps_per_env=512,
         )
+    if factor is ControlledFactor.PPO_MINIMUM_HOLD:
+        return replace(base, ppo_minimum_hold_bars=168)
     if factor is ControlledFactor.GROSS_BUDGET:
         return replace(base, gross_budget=0.8)
     raise AssertionError(f"unsupported factor in test: {factor}")
@@ -535,7 +547,14 @@ def test_ppo_training_layout_rejects_raw_return_drift_for_each_non_ppo_strategy(
     assert any("unaffected strategy" in item for item in verification.violations)
 
 
-@pytest.mark.parametrize("factor", tuple(ControlledFactor))
+@pytest.mark.parametrize(
+    "factor",
+    tuple(
+        factor
+        for factor in ControlledFactor
+        if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+    ),
+)
 def test_each_declared_factor_accepts_only_its_registered_delta(
     factor: ControlledFactor,
 ) -> None:
@@ -724,7 +743,14 @@ def test_unaffected_strategy_raw_return_drift_is_invalid(
     assert any("unaffected strategy" in item for item in verification.violations)
 
 
-@pytest.mark.parametrize("factor", tuple(ControlledFactor))
+@pytest.mark.parametrize(
+    "factor",
+    tuple(
+        factor
+        for factor in ControlledFactor
+        if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+    ),
+)
 def test_affected_strategy_drift_is_not_rejected_by_unaffected_oracle(
     factor: ControlledFactor,
 ) -> None:

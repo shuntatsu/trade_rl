@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -97,6 +99,29 @@ def test_training_set_is_strictly_cutoff_causal_and_future_invariant() -> None:
     assert baseline.labels.flags.writeable is False
     assert baseline.label_end_times.flags.writeable is False
     assert baseline.sample_weights.flags.writeable is False
+
+
+def test_training_set_excludes_labels_unavailable_by_fit_cutoff() -> None:
+    dataset = market()
+    available_at = np.broadcast_to(
+        dataset.timestamps[:, None], (dataset.n_bars, dataset.n_symbols)
+    ).copy()
+    available_at[5, 0] = np.datetime64("2026-01-01T08:00:00", "ns")
+    delayed = replace(
+        dataset,
+        available_at=available_at,
+        information_available=available_at <= dataset.timestamps[:, None],
+    )
+
+    training = build_causal_forecast_training_set(
+        delayed,
+        feature_indices=(0, 1),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    assert training.n_samples == 5
+    assert np.datetime64("2026-01-01T05:00:00", "ns") not in training.label_end_times
 
 
 def test_multi_symbol_rows_use_no_symbol_feature_and_equal_symbol_weight() -> None:

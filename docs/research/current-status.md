@@ -1610,10 +1610,39 @@ Current exchangeInfo application remains `current_snapshot_assumption` with
 `dataset_minimum_role=venue_constraint` and declared one-way mode, without historical
 filter, venue-permission or account-mode proof.
 
-Fresh native-source inventory contains only four monthly ZIPs plus four CHECKSUMs:
-BTC November2023 and ETH October2024, each at1h and4h. It contains no daily archive
-and does not establish full forming/native dependency coverage or complete G3.
+The initial native-source inventory contained four monthly ZIPs plus four CHECKSUMs:
+BTC November2023 and ETH October2024, each at1h and4h. It contained no daily archive
+and did not establish full forming/native dependency coverage or complete G3.
 Earlier omitted-profile studies and failure notes retain their recorded meanings.
 No new economics or complete G0-G3 approval is established; final same-head full CI
 and qualifying independent GitHub-principal review remain required before integration, with no new
 profitability, winner, unused/final or live-readiness claim.
+
+## Forming-week source preparation
+
+Independent G0/G1 cleared one frozen diagnostic protocol for non-economic source
+preparation only. Cash and unchanged adaptive remain controls; every arm uses the
+same intended common Dataset/profile, capital, hold24, costs and risk. The ordinary
+decision bound is exclusive at `stop-latency-1`, so the final ordinary decision is
+`stop-latency-2`; the registered stop remains the settlement endpoint. Twelve
+window/scenario clocks were independently checked before acquisition.
+
+The approved preparation acquired and verified210 official monthly ZIP/CHECKSUM
+pairs for BTC/ETH native1h/4h/1d, February2022 through December2024. A separate byte
+and member integrity check passed. The independent raw-source diagnostic then
+passed1,381,930 comparisons, covering21,889 decision/settlement endpoints and25,248
+hourly dependency rows per symbol. Native Tenkan9, daily24 and forming BB20/2
+values, availability, raw/normalized age and missing reasons matched. An initial
+oracle compared base volume with declared quote notional; seven RED-to-GREEN
+unit/parser tests repaired the oracle to use actual CSV quote volume. Both the
+invalid diagnostic and its corrected successor remain preserved. No Dataset,
+production source, strategy threshold or economic outcome was rewritten.
+
+Full G3 remains failed: candidate construction rejects the existing custom consumed
+subset's unsupported build-config ancestry before common Dataset/profile publication.
+The raw formula match does not repair that input contract. A separately registered
+canonical source-built successor is required before replay; its funding and
+accounting source scope needs independent clearance. Current archive delivery and
+current-snapshot venue constraints still do not prove historical availability or
+actual account eligibility. No new economic replay has occurred; profit, transfer,
+unused/final and live eligibility remain unestablished.

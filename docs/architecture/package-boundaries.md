@@ -241,18 +241,6 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 `MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。`data/features/numerics.py` はcanonical Dataset identityへ入るfeature計算のportable scalar/reduction semanticsを所有し、`core.py`、`cross_asset.py`、`builder.py` が共有する。モデル学習、simulation P&L、汎用evaluationの数値計算まではこのauthorityへ含めない。現行 `MarketBuildConfig` は `market_build_v3` / `portable_feature_numerics_v1` をbuild identityへbindし、historical `market_build_v2` artifactのreader互換はartifact contractとして維持する。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy economic behaviorを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
 
-`data/features/weekly_context.py` owns content-bound completed-week aggregation,
-calendar/warmup/availability and normalized BB/Ichimoku values; it fetches no venue
-data and decides no orders. `strategies/rules/weekly_confirmation.py` owns the
-voluntary direction/exhaustion filter and delegates protective state to its
-wrapped strategy. `evaluation/bot.py` binds all seven context names and derives
-them for the opt-in `weekly_bb_ichimoku` strategy. `weekly_bb_pullback` additionally
-binds native `4h__ichimoku_tenkan_distance_9bar`: completed-week band contact and
-opposite lower-timeframe Tenkan distance replace weekly direction/exhaustion
-permission as a separate package. It retains seven-field weekly availability and
-protective delegation. Existing bot families and the
-canonical candidate roster retain their meanings.
-
 ### `integrations`
 
 外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。`BinancePublicTransport`の既定値はnetwork-enabledの既存互換を維持し、bootstrapだけがsource freeze後に`allow_network=False`を明示してcache-only化する。
@@ -286,6 +274,14 @@ floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 ### `strategies`
 
+The PPO environment owns rebasing its cached quantity proposal after a processed
+split; `evaluation/replay.py` owns the same transition for its single-symbol and
+shared-cash callers. `simulation/targets/execution.py` supplies book mark prices
+to `orders/reconciliation.py` for weight sizing while keeping trading close as
+the order reference. With no held quantities, it resolves current dataset marks
+before entry sizing so default initial book marks are harmless. The accounting
+and execution owners remain unchanged.
+
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
@@ -318,6 +314,20 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 `trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
+
+## Completed-week bot context ownership
+
+`data/features/weekly_context.py` owns content-bound completed-week aggregation,
+calendar/warmup/availability and normalized BB/Ichimoku values; it fetches no venue
+data and decides no orders. `strategies/rules/weekly_confirmation.py` owns the
+voluntary direction/exhaustion filter and delegates protective state to its
+wrapped strategy. `evaluation/bot.py` binds all seven context names and derives
+them for the opt-in `weekly_bb_ichimoku` strategy. `weekly_bb_pullback` additionally
+binds native `4h__ichimoku_tenkan_distance_9bar`: completed-week band contact and
+opposite lower-timeframe Tenkan distance replace weekly direction/exhaustion
+permission as a separate package. It retains seven-field weekly availability and
+protective delegation. Existing bot families and the
+canonical candidate roster retain their meanings.
 
 ## Private development study boundary
 

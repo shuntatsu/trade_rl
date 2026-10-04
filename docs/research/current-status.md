@@ -223,6 +223,20 @@ CI or distinct GitHub-principal approval. That verification was on a stacked wor
 no main merge,
 unused/final access, profitability, generalization or live readiness is established.
 
+## Quantity-preserving hold repair (2026-10-05)
+
+Synthetic counterexamples exposed two quantity-hold mismatches in PPO training
+and canonical replay. A split changed the filled book but left the desired
+quantity in old units; a distinct mark price was used for weights but trading
+close for inverse quantity sizing. Unchanged intents consequently created extra
+fills, fees, and unintended exposure. Repair rebases cached proposals, including
+unfilled entries, by processed split factors and separates mark-based sizing from
+trading-reference order prices. Signed quantity, cash, fee, and order-bound
+oracles cover training, single-symbol replay, and shared-cash replay. Cash-book
+entry also resolves current market marks when initial prices were omitted. Historical
+artifacts are unchanged. This is a software repair; it supplies no new PPO
+profitability or winner evidence and does not authorize a sealed-run retry.
+
 ## Trading-bot validation repair (2026-10-03)
 
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。

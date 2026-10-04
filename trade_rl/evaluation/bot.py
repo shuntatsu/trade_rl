@@ -112,7 +112,7 @@ class BotReport:
     is_profitable: bool
     terminal_settled: bool | None = None
     terminal_position_quantities: tuple[float, ...] = ()
-    active_order_remainders: tuple[tuple[str, float], ...] = ()
+    active_order_remainders: tuple[tuple[str, float], ...] | None = None
     termination_reason: str | None = None
     # Amounts use account currency; turnover is summed fill notional / interval equity.
     total_execution_cost: float | None = None
@@ -360,10 +360,13 @@ def calculate_bot_report(
     termination_reason = replay_result.book.termination_reason
     terminal_quantities = tuple(float(value) for value in replay_result.book.quantities)
     terminal_settled = (
-        ledger is not None
-        and not ledger.active_order_remainders
-        and all(value == 0 for value in replay_result.book.exact_quantities)
-        and replay_result.book.termination_reason is None
+        None
+        if ledger is None
+        else (
+            not ledger.active_order_remainders
+            and all(value == 0 for value in replay_result.book.exact_quantities)
+            and replay_result.book.termination_reason is None
+        )
     )
     return BotReport(
         strategy_name=strategy_name,
@@ -379,9 +382,9 @@ def calculate_bot_report(
         is_profitable=net_pnl > 0,
         terminal_settled=terminal_settled,
         terminal_position_quantities=terminal_quantities,
-        active_order_remainders=()
-        if ledger is None
-        else ledger.active_order_remainders,
+        active_order_remainders=(
+            None if ledger is None else ledger.active_order_remainders
+        ),
         termination_reason=(
             termination_reason.value
             if isinstance(termination_reason, EconomicTerminationReason)
@@ -655,8 +658,11 @@ def _print_execution_diagnostics(baseline: BotReport, candidate: BotReport) -> N
         return "[" + ", ".join(f"{value:.6g}" for value in values) + "]"
 
     def format_remainders(
-        values: tuple[tuple[str, float], ...], terminal_settled: bool | None
+        values: tuple[tuple[str, float], ...] | None,
+        terminal_settled: bool | None,
     ) -> str:
+        if values is None:
+            return "none" if terminal_settled is True else "unavailable"
         if not values:
             return "none" if terminal_settled is not None else "unavailable"
         return ", ".join(f"{order_id}={quantity:.6g}" for order_id, quantity in values)

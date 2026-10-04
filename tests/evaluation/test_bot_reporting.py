@@ -47,6 +47,22 @@ def test_bot_report_without_ledger_evidence_does_not_claim_terminal_settlement(
     assert "unknown" in capsys.readouterr().out
 
 
+def test_calculated_bot_report_without_ledger_evidence_keeps_settlement_unknown(
+    cash_replay: SharedCashReplayResult,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    replay_without_ledger = replace(cash_replay, ledger_evidence=None)
+
+    report = calculate_bot_report(replay_without_ledger, "cash")
+    print_report_table([report])
+    payload = json.loads(json.dumps(asdict(report)))
+
+    assert report.terminal_settled is None
+    assert report.active_order_remainders is None
+    assert payload["active_order_remainders"] is None
+    assert "unknown" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("reason", "wire_value"),
     [

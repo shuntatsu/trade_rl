@@ -150,8 +150,7 @@ workspace-only packet is at
 `report/ppo-shared-cash-canonical-v6-20261003/`; its Study directory contains
 only the immutable plan when baseline execution was started. On 2026-10-04
 00:40 JST, a baseline-only `run_baseline` process started from the local
-`codex/ppo-holding-duration` checkout at source SHA
-`370a97e6fc0f09e29a40f1b7b4c49b3ed09f593a`. It was still active at inspection
+`codex/ppo-holding-duration` checkout at source SHA `370a97e`. It was still active at inspection
 and was stopped because fresh G0-G2 review of the current PR head is incomplete.
 Its outputs and artifacts have not been inspected. No result from that invocation
 is verified against the current PR head; no candidate comparison or verified

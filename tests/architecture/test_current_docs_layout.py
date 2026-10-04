@@ -650,9 +650,11 @@ def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> N
     assert "c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d" in (
         current_status
     )
-    assert "no baseline or experiments were published" in " ".join(
-        current_status.split()
-    )
+    current_status_flat = " ".join(current_status.split()).lower()
+    assert "baseline-only `run_baseline` invocation started" in current_status_flat
+    assert "stopped because fresh g0-g2 review is incomplete" in current_status_flat
+    assert "outputs remain uninspected" in current_status_flat
+    assert "no candidate run has been performed" in current_status_flat
     assert "median absolute candidate " in study_contract
     assert (
         "portfolio return is positive, and median paired total-return improvement"

@@ -330,6 +330,9 @@ def test_ppo_reward_charges_dataset_funding_like_canonical_replay() -> None:
         low=np.full_like(base.low, 100.0),
         close=np.full_like(base.close, 100.0),
         funding_rate=np.full_like(base.close, 0.001),
+        funding_price_rate=(
+            np.full_like(base.close, 0.001) * base.resolved_array("mark_price")
+        ),
     )
     intents = (
         PositionIntent.LONG,
@@ -456,6 +459,9 @@ def test_ppo_step_info_exposes_realized_risk_execution_and_carry_state() -> None
     dataset = replace(
         base,
         funding_rate=np.full_like(base.close, 0.001),
+        funding_price_rate=(
+            np.full_like(base.close, 0.001) * base.resolved_array("mark_price")
+        ),
         borrow_rate=np.full_like(base.close, 0.1),
     )
     env = PPOTradingEnv(
@@ -603,6 +609,9 @@ def test_fixed_symbol_env_matches_replay_inside_multi_symbol_dataset(
     actions: tuple[int, ...],
 ) -> None:
     base = pooled_market()
+    funding_rate = np.asarray(
+        [[0.001, -0.001], [0.001, -0.001], [0.001, -0.001], [0.001, -0.001]]
+    )
     dataset = replace(
         base,
         fee_rate=np.asarray(
@@ -611,9 +620,8 @@ def test_fixed_symbol_env_matches_replay_inside_multi_symbol_dataset(
         spread_rate=np.asarray(
             [[0.002, 0.003], [0.002, 0.003], [0.002, 0.003], [0.002, 0.003]]
         ),
-        funding_rate=np.asarray(
-            [[0.001, -0.001], [0.001, -0.001], [0.001, -0.001], [0.001, -0.001]]
-        ),
+        funding_rate=funding_rate,
+        funding_price_rate=funding_rate * base.resolved_array("mark_price"),
         borrow_rate=np.asarray(
             [[0.0, 0.365], [0.0, 0.365], [0.0, 0.365], [0.0, 0.365]]
         ),

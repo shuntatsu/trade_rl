@@ -116,6 +116,8 @@ class MarketDataset:
     feature_config_digest: str = _ZERO_DIGEST
     normalization_digest: str = _ZERO_DIGEST
     identity_payload_json: str | None = None
+    # Per-contract funding mark notional rate, summed across events in each bar.
+    funding_price_rate: np.ndarray | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
@@ -467,6 +469,17 @@ class MarketDataset:
             if self.index_price is not None
             else close
         )
+        funding_price_rate = (
+            funding * mark_price
+            if self.funding_price_rate is None
+            else _optional_array(
+                self.funding_price_rate,
+                shape=price_shape,
+                dtype=np.dtype(np.float64),
+                default=0.0,
+                field_name="funding_price_rate",
+            )
+        )
         dividend = _optional_array(
             self.dividend,
             shape=price_shape,
@@ -553,6 +566,8 @@ class MarketDataset:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if any(np.any(price <= 0.0) for price in (mark_price, index_price)):
             raise ValueError("mark_price and index_price must be strictly positive")
+        if not np.isfinite(funding_price_rate).all():
+            raise ValueError("funding_price_rate must be finite")
         if not np.isfinite(dividend).all():
             raise ValueError("dividend must be finite")
         if not np.isfinite(split_factor).all() or np.any(split_factor <= 0.0):
@@ -609,6 +624,11 @@ class MarketDataset:
         object.__setattr__(self, "close", close)
         object.__setattr__(self, "volume", volume)
         object.__setattr__(self, "funding_rate", funding)
+        object.__setattr__(
+            self,
+            "funding_price_rate",
+            _readonly_array(funding_price_rate, dtype=np.dtype(np.float64)),
+        )
         object.__setattr__(self, "funding_event_count", funding_event_count)
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "feature_available", feature_available)
@@ -728,6 +748,7 @@ class MarketDataset:
             "close": self.close,
             "volume": self.volume,
             "funding_rate": self.funding_rate,
+            "funding_price_rate": self.resolved_array("funding_price_rate"),
             "funding_event_count": self.resolved_array("funding_event_count"),
             "tradable": self.tradable,
             "symbol_active": self.resolved_array("symbol_active"),
@@ -758,7 +779,7 @@ class MarketDataset:
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
-        payload["schema"] = "market_dataset_identity_v6"
+        payload["schema"] = "market_dataset_identity_v7"
         payload["dataset_contract"] = self.identity_contract_payload()
         dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
         return replace(

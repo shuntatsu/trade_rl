@@ -90,6 +90,7 @@ def test_stateful_result_preserves_funding_boundary_inputs_and_equity() -> None:
     assert evidence.mark_prices == pytest.approx((120.0,))
     assert evidence.contract_multipliers == pytest.approx((1.0,))
     assert evidence.funding_rates == pytest.approx((0.001,))
+    assert evidence.funding_price_rates == pytest.approx((0.12,))
     assert evidence.funding_amount == pytest.approx(-1.2)
     assert evidence.equity_before_funding == pytest.approx(1_200.0)
     assert evidence.equity_after_funding == pytest.approx(1_198.8)

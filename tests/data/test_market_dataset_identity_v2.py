@@ -60,6 +60,7 @@ def _dataset():
         ("lot_size", 0.01),
         ("tick_size", 0.1),
         ("borrow_rate", 0.08),
+        ("funding_price_rate", 1.25),
         ("mark_price", 123.0),
         ("index_price", 122.0),
         ("dividend", 0.5),
@@ -100,5 +101,6 @@ def test_dataset_exposes_recomputed_identity() -> None:
         "mark_price",
         "cash_rate",
         "contract_multipliers",
+        "funding_price_rate",
         "feature_staleness_hours",
     }

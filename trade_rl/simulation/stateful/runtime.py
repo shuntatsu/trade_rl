@@ -154,6 +154,10 @@ class StatefulExecutionRuntime:
             dataset.funding_rate[processing_index],
             dtype=np.float64,
         )
+        funding_price_rates = np.asarray(
+            dataset.resolved_array("funding_price_rate")[processing_index],
+            dtype=np.float64,
+        )
         equity_after_funding = float(self.book.portfolio_value)
         self.funding_evidence.append(
             FundingBoundaryEvidence(
@@ -166,6 +170,9 @@ class StatefulExecutionRuntime:
                     float(value) for value in contract_multipliers
                 ),
                 funding_rates=tuple(float(value) for value in funding_rates),
+                funding_price_rates=tuple(
+                    float(value) for value in funding_price_rates
+                ),
                 funding_amount=float(funding_amount),
                 equity_before_funding=equity_after_funding - float(funding_amount),
                 equity_after_funding=equity_after_funding,

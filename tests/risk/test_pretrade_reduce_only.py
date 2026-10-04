@@ -63,6 +63,20 @@ def test_reduce_only_sign_flip_fails_closed() -> None:
 
 
 @pytest.mark.parametrize(
+    ("target", "current"),
+    ((-1e-8, 1e-6), (1e-8, -1e-6)),
+)
+def test_reduce_only_tiny_sign_flip_fails_closed(target: float, current: float) -> None:
+    with pytest.raises(ValueError, match="reduce-only.*sign"):
+        _risk().constrain(
+            np.array([target]),
+            current=np.array([current]),
+            drawdown=0.0,
+            reduce_only_mask=np.array([True]),
+        )
+
+
+@pytest.mark.parametrize(
     "mask",
     (
         np.array([1], dtype=np.int64),

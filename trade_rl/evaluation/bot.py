@@ -51,7 +51,6 @@ class BotConfig:
     initial_capital: float = 100_000.0
     gross_budget: float = 0.2
     minimum_hold_bars: int = 4
-    signal_index: int = 0
     entry_threshold: float = 0.01
     exit_threshold: float = 0.002
     max_gross: float = 1.0
@@ -62,6 +61,7 @@ class BotConfig:
     volatility_regime_threshold: float = 0.010
     max_holding_bars: int = 0
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
+    signal_index: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.execution_cost, ExecutionCostConfig):

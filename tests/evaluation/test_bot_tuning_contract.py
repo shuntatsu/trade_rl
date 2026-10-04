@@ -359,43 +359,35 @@ def test_cash_is_selected_when_every_trading_configuration_is_ineligible(monkeyp
     assert cash_tuning[0].execution_cost == result.execution_cost
 
 
-@pytest.mark.parametrize("cash_pnl", [50.0, -50.0])
-def test_cash_control_keeps_actual_economic_return(monkeypatch, cash_pnl):
+@pytest.mark.parametrize(
+    ("cash_pnl", "candidate_pnl", "expected_strategy", "expected_score"),
+    [
+        (50.0, 10.0, "cash", 50.0),
+        (-50.0, 10.0, "trend", 10.0),
+        (-50.0, -10.0, "trend", -10.0),
+    ],
+)
+def test_cash_control_keeps_actual_economic_return(
+    monkeypatch,
+    cash_pnl,
+    candidate_pnl,
+    expected_strategy,
+    expected_score,
+):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
         return None, _report(
-            config, cash_pnl if config.strategy_name == "cash" else 10.0
+            config, cash_pnl if config.strategy_name == "cash" else candidate_pnl
         )
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     result = bot.tune_for_maximum_profit(
         dataset, strategy_name="trend", max_combinations=1
     )
-    if cash_pnl > 0.0:
-        assert result.optimized_config.strategy_name == "cash"
-        assert result.selection_score == cash_pnl
-        assert result.optimized_report.net_pnl == cash_pnl
-    else:
-        assert result.optimized_config.strategy_name == "trend"
-        assert result.selection_score == 10.0
-
-
-def test_cash_control_losing_more_than_candidate_does_not_win(monkeypatch):
-    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
-
-    def fake_run(dataset, config, **kwargs):
-        pnl = -50.0 if config.strategy_name == "cash" else -10.0
-        return None, _report(config, pnl)
-
-    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
-    result = bot.tune_for_maximum_profit(
-        dataset, strategy_name="trend", max_combinations=1
-    )
-
-    assert result.optimized_config.strategy_name == "trend"
-    assert result.selection_score == -10.0
-    assert result.optimized_report.net_pnl == -10.0
+    assert result.optimized_config.strategy_name == expected_strategy
+    assert result.selection_score == expected_score
+    assert result.optimized_report.net_pnl == expected_score
 
 
 @pytest.mark.parametrize("settlement", [False, None])

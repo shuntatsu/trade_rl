@@ -25,7 +25,14 @@ from trade_rl.evaluation.experiments.contracts.study import (
     StudyPlan,
     StudyProtocol,
 )
-from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.evaluation.experiments.delta import (
+    ControlledVerification,
+    ControlledVerificationStatus,
+)
+from trade_rl.evaluation.experiments.errors import (
+    ArtifactIntegrityError,
+    ContractViolationError,
+)
 from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
 
@@ -79,6 +86,85 @@ def test_resolved_run_config_is_frozen_and_digest_stable() -> None:
     assert config.to_payload()["feature_names"] == ["signal", "volatility"]
     with pytest.raises(FrozenInstanceError):
         config.ppo_seed = 99  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("make_contract", "error_type"),
+    (
+        (
+            lambda: ExperimentDefinition(
+                study_digest="a" * 64,
+                sequence=1,
+                hypothesis="test unknown schema rejection",
+                baseline_evidence_digest="b" * 64,
+                factor=ControlledFactor.FEATURE_SET,
+                candidate_requested_config_digest="c" * 64,
+                candidate_config=resolved_config(),
+                schema_version="controlled_experiment_definition_v999",
+            ),
+            ContractViolationError,
+        ),
+        (
+            lambda: ExperimentFailure(
+                study_digest="a" * 64,
+                experiment_digest="b" * 64,
+                reason="test unknown schema rejection",
+                recorded_by="test",
+                recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+                schema_version="controlled_experiment_failure_v999",
+            ),
+            ContractViolationError,
+        ),
+        (
+            lambda: ExperimentDecision(
+                study_digest="a" * 64,
+                experiment_digest="b" * 64,
+                verification_digest="c" * 64,
+                comparison_digest="d" * 64,
+                decision=ExperimentDecisionKind.INCONCLUSIVE,
+                rationale="test unknown schema rejection",
+                decided_by="test",
+                decided_at=datetime(2026, 1, 1, tzinfo=UTC),
+                schema_version="controlled_experiment_decision_v999",
+            ),
+            ContractViolationError,
+        ),
+        (
+            lambda: StudyFreeze(
+                study_digest="a" * 64,
+                experiment_decision_digests=("b" * 64,),
+                outcome=StudyOutcome.NO_WINNER,
+                selected_evidence_digest=None,
+                selected_strategy=None,
+                rationale="test unknown schema rejection",
+                frozen_by="test",
+                frozen_at=datetime(2026, 1, 1, tzinfo=UTC),
+                schema_version="controlled_study_freeze_v999",
+            ),
+            ContractViolationError,
+        ),
+        (
+            lambda: ControlledVerification(
+                study_digest="a" * 64,
+                experiment_digest="b" * 64,
+                baseline_evidence_digest="c" * 64,
+                candidate_evidence_digest="d" * 64,
+                factor=ControlledFactor.FEATURE_SET,
+                status=ControlledVerificationStatus.INVALID,
+                changed_paths=(),
+                violations=("test unknown schema rejection",),
+                schema_version="controlled_verification_v999",
+            ),
+            ArtifactIntegrityError,
+        ),
+    ),
+)
+def test_versioned_research_contracts_reject_unknown_schema_versions(
+    make_contract,
+    error_type: type[Exception],
+) -> None:
+    with pytest.raises(error_type, match="schema"):
+        make_contract()
 
 
 @pytest.mark.parametrize(

@@ -976,6 +976,17 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         raise ValueError("candidate shared-cash metrics are incomplete")
     if metrics["return_kind"] != "base_bar":
         raise ValueError("candidate shared-cash returns must use base bars")
+    for field in ("n_trades", "rebalance_events", "n_periods"):
+        value = metrics[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("candidate shared-cash metric is malformed")
+    periods_per_year = metrics["periods_per_year"]
+    if (
+        isinstance(periods_per_year, bool)
+        or not isinstance(periods_per_year, int)
+        or periods_per_year <= 0
+    ):
+        raise ValueError("candidate shared-cash metric is malformed")
     if metrics["n_periods"] != expected_periods:
         raise ValueError("candidate shared-cash return period count is inconsistent")
     for field in (
@@ -1007,6 +1018,10 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         not isinstance(reason, str) or not reason for reason in reasons
     ):
         raise ValueError("candidate shared-cash termination reasons are malformed")
+    for field in ("n_trades", "rebalance_events"):
+        value = diagnostics[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("candidate shared-cash metric is malformed")
     quantities = portfolio["final_quantities"]
     remainders = portfolio["active_order_remainders"]
     terminal_reasons = portfolio["terminal_order_reasons"]

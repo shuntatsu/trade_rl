@@ -39,6 +39,7 @@ CONTROL_STRATEGY_NAMES = (
     "constant_long",
     "constant_short",
 )
+_STUDY_FREEZE_SCHEMA = "controlled_study_freeze_v1"
 
 
 def _canonical_ns_timestamp(value: object, *, field: str) -> str:
@@ -470,7 +471,7 @@ class StudyFreeze:
     rationale: str
     frozen_by: str
     frozen_at: datetime
-    schema_version: str = "controlled_study_freeze_v1"
+    schema_version: str = _STUDY_FREEZE_SCHEMA
 
     def __post_init__(self) -> None:
         study_digest = contract_sha256(self.study_digest, field="study_digest")
@@ -484,6 +485,8 @@ class StudyFreeze:
         frozen_by = contract_text(self.frozen_by, field="frozen_by")
         frozen_at = contract_aware_datetime(self.frozen_at, field="frozen_at")
         schema_version = contract_text(self.schema_version, field="schema_version")
+        if schema_version != _STUDY_FREEZE_SCHEMA:
+            raise ContractViolationError("unsupported StudyFreeze schema_version")
 
         selected_evidence_digest = self.selected_evidence_digest
         selected_strategy = self.selected_strategy

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,6 +58,25 @@ def test_store_rejects_absolute_and_parent_traversal_paths(tmp_path: Path) -> No
     assert not (tmp_path / "escape.json").exists()
 
 
+@pytest.mark.parametrize(
+    "relative",
+    (
+        r"D:escape.json",
+        r"D:\escape.json",
+        r"\\server\share\escape.json",
+        r"\rooted.json",
+    ),
+)
+def test_store_rejects_windows_drive_or_rooted_paths(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    store = StudyStore(tmp_path / "study")
+
+    with pytest.raises(ValueError, match="relative"):
+        store.read_json(relative)
+
+
 def test_store_rejects_symlinked_parent_beneath_study_root(tmp_path: Path) -> None:
     root = tmp_path / "study"
     root.mkdir()
@@ -72,6 +93,36 @@ def test_store_rejects_symlinked_parent_beneath_study_root(tmp_path: Path) -> No
         store.publish_json_once("linked/escape.json", {"x": 1})
 
     assert not (outside / "escape.json").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows directory junction")
+def test_store_rejects_junction_parent_for_reads_and_publication(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "study"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.json").write_text('{"secret":true}', encoding="utf-8")
+    link = root / "linked"
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip("directory junctions are unavailable")
+
+    try:
+        assert link.is_junction()
+        store = StudyStore(root)
+        with pytest.raises(ArtifactIntegrityError, match="junction"):
+            store.read_json(r"linked\secret.json")
+        with pytest.raises(ArtifactIntegrityError, match="junction"):
+            store.publish_json_once(r"linked\published.json", {"x": 1})
+        assert not (outside / "published.json").exists()
+    finally:
+        link.rmdir()
 
 
 def test_read_json_rejects_non_object_payload(tmp_path: Path) -> None:

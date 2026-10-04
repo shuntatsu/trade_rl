@@ -424,3 +424,91 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     assert portfolio["ledger_evidence"]["interval_count"] == 3
     assert len(portfolio["ledger_evidence"]["digest"]) == 64
     assert np.array_equal(loaded.returns["shared_cash_ppo"], np.zeros(3))
+
+
+def _shared_cash_evidence_summary() -> dict[str, object]:
+    return {
+        "symbols": ["BTCUSDT"],
+        "evaluation": {
+            "expected_periods": 1,
+            "ppo_settle_terminal_position": True,
+        },
+        "shared_cash_ppo": {
+            "name": "ppo",
+            "return_key": "shared_cash_ppo",
+            "metrics": {
+                "total_return": 0.0,
+                "sharpe": 0.0,
+                "sortino": 0.0,
+                "max_drawdown": 0.0,
+                "turnover_total": 0.0,
+                "total_cost": 0.0,
+                "funding_pnl": 0.0,
+                "borrow_cost": 0.0,
+                "n_trades": 0,
+                "rebalance_events": 0,
+                "termination_count": 0,
+                "n_periods": 1,
+                "return_kind": "base_bar",
+                "periods_per_year": 8760,
+            },
+            "diagnostics": {
+                "turnover_total": 0.0,
+                "total_cost": 0.0,
+                "funding_pnl": 0.0,
+                "borrow_cost": 0.0,
+                "n_trades": 0,
+                "rebalance_events": 0,
+                "termination_reasons": [],
+            },
+            "final_portfolio_value": 1000.0,
+            "final_cash": 1000.0,
+            "fill_count": 0,
+            "final_quantities": [0.0],
+            "active_order_remainders": [],
+            "terminal_order_reasons": [],
+            "terminal_settlement_complete": True,
+            "ledger_evidence": {
+                "schema_version": "shared_cash_replay_ledger_v1",
+                "digest": "f" * 64,
+                "interval_count": 1,
+                "decision_count": 1,
+                "terminal_exact_quantities": ["0"],
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    (
+        ("metrics", "n_trades", True),
+        ("metrics", "n_trades", 1.5),
+        ("metrics", "rebalance_events", -1),
+        ("metrics", "rebalance_events", 1.5),
+        ("metrics", "n_periods", True),
+        ("metrics", "periods_per_year", 0),
+        ("diagnostics", "n_trades", True),
+        ("diagnostics", "rebalance_events", -1),
+    ),
+)
+def test_shared_cash_evidence_rejects_malformed_metric_counts(
+    monkeypatch,
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    monkeypatch.setattr(
+        candidate_artifact,
+        "_validate_v6_replay_evidence",
+        lambda _summary: None,
+    )
+    summary = _shared_cash_evidence_summary()
+    portfolio = summary["shared_cash_ppo"]
+    assert isinstance(portfolio, dict)
+    metrics = portfolio[section]
+    assert isinstance(metrics, dict)
+    metrics[field] = value
+
+    with pytest.raises(ValueError, match="shared-cash metric"):
+        candidate_artifact._validate_v7_replay_evidence(summary)

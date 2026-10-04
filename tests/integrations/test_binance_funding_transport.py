@@ -98,6 +98,35 @@ def test_rest_event_api_fails_closed_when_settlement_mark_is_missing(
         )
 
 
+@pytest.mark.parametrize("mark_price", ("0", "-95", "nan", "inf", "-inf"))
+def test_rest_funding_events_reject_invalid_settlement_marks(
+    monkeypatch: pytest.MonkeyPatch,
+    mark_price: str,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    settlement_time = _ms(datetime(2026, 6, 1, tzinfo=UTC))
+    monkeypatch.setattr(
+        transport,
+        "_request_json",
+        lambda _url: [
+            {
+                "fundingTime": settlement_time,
+                "fundingRate": "0.01",
+                "markPrice": mark_price,
+            }
+        ],
+    )
+
+    with pytest.raises(BinanceTransportError):
+        transport.load_funding_events(
+            market=BinanceMarket.USDS_M,
+            symbol="BTCUSDT",
+            start_ms=settlement_time,
+            end_ms=settlement_time + 1,
+            mode=BinanceTransportMode.REST,
+        )
+
+
 @pytest.mark.parametrize("mark_header", ("markPrice", "mark_price"))
 def test_vision_funding_csv_parser_preserves_settlement_mark(
     monkeypatch: pytest.MonkeyPatch,

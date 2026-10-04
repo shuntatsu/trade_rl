@@ -442,7 +442,7 @@ def _forming_week_native_index(dataset: MarketDataset) -> int:
         )
     if np.any(available & (age > 0) & (stale == 0)):
         raise ValueError("native feature positive source age cannot become fresh zero")
-    times = dataset.timestamps.astype(np.int64)
+    times = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     if np.any(times % 3_600_000_000_000):
         raise ValueError("native feature requires UTC hourly decision endpoints")
     for symbol in range(dataset.n_symbols):

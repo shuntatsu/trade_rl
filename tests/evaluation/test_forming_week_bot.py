@@ -110,6 +110,24 @@ def test_auto_and_named_permuted_context_replay_have_identical_evidence():
     assert ordinary.ledger_evidence.decisions == automatic.ledger_evidence.decisions
 
 
+@pytest.mark.parametrize("unit", ["s", "ms", "us"])
+def test_datetime_storage_unit_preserves_native_validation_and_replay(unit):
+    source = _source()
+    changed = _rebind(
+        source, timestamps=source.timestamps.astype(f"datetime64[{unit}]")
+    )
+    start, stop = 19 * 168, 19 * 168 + 40
+    original, report = run_trading_bot(
+        source, _config(), start_index=start, stop_index=stop
+    )
+    converted, converted_report = run_trading_bot(
+        changed, _config(), start_index=start, stop_index=stop
+    )
+    np.testing.assert_array_equal(original.returns.values, converted.returns.values)
+    assert converted_report == report
+    assert original.ledger_evidence.decisions == converted.ledger_evidence.decisions
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

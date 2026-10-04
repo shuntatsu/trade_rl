@@ -780,9 +780,13 @@ def print_tuning_comparison(res: TuningResult) -> None:
     print(
         f"{'Terminal settled':<24} | {_terminal_settlement_label(b.terminal_settled):>18} | {_terminal_settlement_label(o.terminal_settled):>18}"
     )
-    if not b.terminal_settled or not o.terminal_settled:
+    if b.terminal_settled is False or o.terminal_settled is False:
         print(
-            "  Incomplete settlement: equity includes residual marked inventory; inspect JSON quantities/orders."
+            "  Incomplete settlement: inspect terminal quantities and active order remainders before interpreting equity."
+        )
+    elif b.terminal_settled is None or o.terminal_settled is None:
+        print(
+            "  Settlement status is unknown: inspect terminal quantities and active order remainders before interpreting equity."
         )
     print(
         f"{'Total Return (%)':<24} | {b.total_return_pct:>17.2f}% | {o.total_return_pct:>17.2f}%"
@@ -1111,6 +1115,9 @@ def walk_forward_tune(
     resolved_cost = ExecutionCostConfig() if execution_cost is None else execution_cost
     if not isinstance(resolved_cost, ExecutionCostConfig):
         raise ValueError("execution_cost must be an ExecutionCostConfig")
+
+    if strategy_name.lower() == "channel_breakout":
+        dataset = _with_channel_breakout_features(dataset)
 
     usable_bars = dataset.n_bars - 1  # last bar reserved for terminal settlement
     minimum_window_span = resolved_cost.order_latency_bars + 3

@@ -53,6 +53,8 @@ GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `-
 
 明示Datasetにprice-channel featuresがない場合、botの`channel_breakout`実行と全戦略のcompare / optimizeは、直前480本・240本のcandleから因果的なchannelを導出する。導出後はsource Dataset IDとwindow定義を含む新しいcontent identityへbindする。4列の一部だけがあるDatasetは拒否し、導出時は最低481 barsを要求する。
 
+walk-forward結果もchannel派生後のDataset identityへbindする。terminal settlement状態がunknownの場合は残ポジションがあると断定せず、明示的な未決済と区別して表示する。この報告精度の修正ではreal-market trainingやeconomic tuning runを行わない。
+
 Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 
 ## Active PPO medium-term holding-duration design

@@ -13,6 +13,7 @@ from trade_rl.evaluation.bot import (
     generate_demo_dataset,
     run_trading_bot,
     tune_for_maximum_profit,
+    walk_forward_tune,
 )
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -137,6 +138,25 @@ def test_channel_tuning_binds_results_to_the_derived_dataset_identity() -> None:
     )
 
     assert result.dataset_id == with_price_channels(source).dataset_id
+
+
+def test_channel_walk_forward_binds_results_to_the_derived_dataset_identity() -> None:
+    source = _dataset_without_price_channels(
+        generate_demo_dataset(n_bars=500, n_symbols=1, seed=13)
+    )
+
+    result = walk_forward_tune(
+        source,
+        strategy_name="channel_breakout",
+        max_combinations=1,
+        n_windows=2,
+    )
+
+    derived_dataset_id = with_price_channels(source).dataset_id
+    assert result.dataset_id == derived_dataset_id
+    assert all(
+        window.dataset_id == derived_dataset_id for window in result.window_results
+    )
 
 
 def test_demo_channels_use_prior_candles_and_separate_entry_exit_windows() -> None:

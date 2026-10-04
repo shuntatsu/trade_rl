@@ -406,6 +406,36 @@ def test_tuning_text_names_the_selected_cash_control(monkeypatch, capsys):
     assert "Selected strategy: cash" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("holdout_settlement", "warning"),
+    [(False, "Incomplete settlement"), (None, "Settlement status is unknown")],
+)
+def test_tuning_text_reports_unsettled_or_unknown_status_accurately(
+    monkeypatch, capsys, holdout_settlement, warning
+):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(_dataset, config, *, start_index=0, **_kwargs):
+        report = replace(
+            _report(config, 0.0),
+            terminal_settled=(True if start_index == 0 else holdout_settlement),
+        )
+        return None, report
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=1
+    )
+
+    bot.print_tuning_comparison(result)
+    output = capsys.readouterr().out
+    assert "Terminal settled" in output
+    assert warning in output
+    assert (
+        "Incomplete settlement: equity includes residual marked inventory" not in output
+    )
+
+
 def test_optimize_all_text_includes_execution_ledger_diagnostics(monkeypatch, capsys):
     dataset = bot.generate_demo_dataset(n_bars=12, n_symbols=1)
     families = (

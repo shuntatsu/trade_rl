@@ -90,7 +90,9 @@ valuation changes equity, not the intended position. Tests cover LONG and SHORT
 across PPO training and both replay paths, compare cash and fees with a direct
 unit/cash oracle, and retain a partial entry through a split. Separate order tests
 keep limit/stop bounds on trading reference prices. These are software conformance
-checks, not evidence of a profitable policy or real corporate-action feeds.
+checks, not evidence of a profitable policy or real corporate-action feeds. A
+separate cash-book oracle covers entry sizing without explicit initial prices,
+including differing dataset mark and trading close, without mutating the input.
 
 This is an active result-blind design for a new development Study. It has not
 generated or inspected economic results, and it does not reuse the historical

@@ -24,7 +24,8 @@ close for inverse quantity sizing. Unchanged intents consequently created extra
 fills, fees, and unintended exposure. Repair rebases cached proposals, including
 unfilled entries, by processed split factors and separates mark-based sizing from
 trading-reference order prices. Signed quantity, cash, fee, and order-bound
-oracles cover training, single-symbol replay, and shared-cash replay. Historical
+oracles cover training, single-symbol replay, and shared-cash replay. Cash-book
+entry also resolves current market marks when initial prices were omitted. Historical
 artifacts are unchanged. This is a software repair; it supplies no new PPO
 profitability or winner evidence and does not authorize a sealed-run retry.
 

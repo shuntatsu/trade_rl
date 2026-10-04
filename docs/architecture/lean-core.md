@@ -271,7 +271,10 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
-basis as its equity and weights. Trading close remains the submission reference
+basis as its equity and weights. An entirely cash book uses the current dataset
+mark for its first entry sizing, including `BookState.zero` callers that omitted
+initial prices; placeholder book marks must not determine entry units. This does
+not mutate the caller's book. Trading close remains the submission reference
 for order identity, limit/stop offsets, and order-completion diagnostics. Distinct
 mark and trading prices must not generate a rebalance for an unchanged quantity
 proposal. Direct low-level reconciliation callers that omit valuation prices

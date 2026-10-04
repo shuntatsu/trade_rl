@@ -51,6 +51,9 @@ def execute_target_statefully(
         raise ValueError("stateful execution requires positive starting equity")
 
     target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+    valuation_prices = book.mark_prices
+    if not any(book.exact_quantities):
+        valuation_prices = executor.dataset.resolved_array("mark_price")[start_index]
     submit_tick_sizes, _, _ = executor._effective_rule_array_views(index=start_index)
     reconciliation = reconcile_target(
         dataset_id=executor.dataset.dataset_id,
@@ -60,7 +63,7 @@ def execute_target_statefully(
         book=book,
         order_book=order_book,
         reference_prices=executor.dataset.close[start_index],
-        valuation_prices=book.mark_prices,
+        valuation_prices=valuation_prices,
         decision_equity=max(book.portfolio_value, _EQUITY_TOLERANCE),
         submit_index=start_index,
         latency_bars=executor.cost.order_latency_bars,

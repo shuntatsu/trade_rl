@@ -278,7 +278,9 @@ The PPO environment owns rebasing its cached quantity proposal after a processed
 split; `evaluation/replay.py` owns the same transition for its single-symbol and
 shared-cash callers. `simulation/targets/execution.py` supplies book mark prices
 to `orders/reconciliation.py` for weight sizing while keeping trading close as
-the order reference. The accounting and execution owners remain unchanged.
+the order reference. With no held quantities, it resolves current dataset marks
+before entry sizing so default initial book marks are harmless. The accounting
+and execution owners remain unchanged.
 
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 

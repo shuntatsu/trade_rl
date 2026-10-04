@@ -21,7 +21,7 @@ Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes. 
 
 - M1 lean core: **complete**
 - M2 universal comparison + Controlled Experiment Loop infrastructure: **complete**
-- M2 real-data development comparison: **not run yet**
+- M2 canonical real-data baseline and Portable Controlled Experiment 0001: **verified; KEEP_BASELINE**
 - M3 unused-future authorization boundary: **implemented; no final data is opened by it**
 - M3 frozen final evaluation / stress / deletion: **not started**
 - Profitability claim: **none**

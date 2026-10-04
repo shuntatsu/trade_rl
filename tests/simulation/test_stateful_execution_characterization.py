@@ -194,6 +194,11 @@ def _result_payload(result: Any) -> dict[str, Any]:
 def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
     result = _baseline_result()
     normalized = _normalize(_result_payload(result))
+    # The opt-in clock adds metadata to the dataclass, not to the legacy
+    # account's economic path. Assert its default before projecting only those
+    # additions out; retain both original hashes for every pre-existing field.
+    assert normalized["book"].pop("as_of_index") is None
+    assert normalized["book"].pop("as_of_dataset_id") is None
     corrected_gross_return = normalized["interval_gross_return"]
     corrected_fill_ratio = normalized["fill_ratio"]
     corrected_unfilled_turnover = normalized["unfilled_turnover"]

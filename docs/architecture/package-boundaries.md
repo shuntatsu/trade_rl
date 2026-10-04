@@ -67,9 +67,10 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
+│   ├── allocation.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py,stream.py,prequential.py,_ridge_math.py,simple_return.py,simple_stream.py,simple_prequential.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -78,6 +79,9 @@ trade_rl/
     ├── evidence.py
     ├── series.py
     ├── directional.py
+    ├── allocation.py
+    ├── forecast_allocation.py
+    ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
     ├── carry.py
     ├── directional_candidates.py
     ├── directional_selection.py
@@ -315,6 +319,25 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。`evaluation/final_test` は逆向きのread-only consumerとして `evaluation/experiments` のinspection/contractsだけへ依存し、data/integrations/strategies/replay/runs/robustnessをimportしない。
 
+## Frozen forecast ownership
+
+`strategies.forecasts.supervised` remains the sole supervised-row selector.
+`training_trace` freezes its actual pooled symbol, feature row, label endpoint,
+prices and publication clocks. Ridge fitting consumes that same selected-row
+object through one solver; it does not select rows a second time.
+
+`strategies.forecasts.stream` owns the simulated availability block, Ridge
+vintage, packet and immutable stream JSON contracts. `prequential` fits each
+declared prefix and produces only its following prediction block. Its packet
+strategy uses the existing cost-aware controller and a per-vintage/symbol index;
+it owns no cash book, execution, portfolio risk or RL environment.
+
+The family facade directly exports `ForecastBlock` and `FrozenForecastStream`
+from `stream`, and `fit_prequential_ridge` and `PacketForecastStrategy` from
+`prequential`. The Tier 1 `strategies` facade is unchanged. The forbidden
+`strategies.rl -> strategies.forecasts` import remains forbidden; a future
+downstream adapter needs a separately reviewed ownership contract.
+
 ## Private development study boundary
 
 `evaluation/ppo_feature_study.py` owns a write-once, development-only paired PPO
@@ -533,3 +556,63 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Optional allocation family ownership
+
+`strategies/allocation.py` is a Tier-2 family entry point for `AllocationInputs`,
+`AllocationContext`, `AllocationProposal` and `AfterCostTargetAllocator`. It
+owns declared horizon/unit contracts and deterministic scalar optimization.
+It imports no forecast/RL family, risk, simulation or evaluation owner; it reads
+no dataset/account and fits no model. Generic artifact hashing may bind its
+immutable input/proposal content.
+
+`evaluation/allocation.py` is a Tier-2 composition entry point for
+`propose_nonrl_target`, `execute_nonrl_proposal` and `NonRLExecutionResult`.
+It builds account provenance from existing BookState/order owners, applies
+canonical risk once and invokes simulation-owned target execution. It must
+not use `execute_interval`'s compatibility cache or own cash/P&L updates.
+`simulation/targets/execution.py` owns the opt-in quantity-HOLD cancellation
+and one-bar execution path, without a dependency on strategy/evaluation.
+
+The existing `trade_rl.strategies` and `trade_rl.evaluation` Tier-1 facades,
+three-intent callers, forecast packet meanings and PPO observation/training
+remain unchanged. `tests/architecture/test_allocation_boundary.py` guards
+ownership, lower-layer direction and absence of a second ledger; mechanism
+oracles live in strategy/evaluation tests. The current-close expected-return
+contract is not supplied by a mean-log forecast packet. Wiring a separately
+versioned expected-simple estimator or an RL consumer requires its own causal,
+clock, economic and assurance verification. The separate direct-simple producer
+and nonRL consumer below provide this bounded software connection; the remaining
+RL and economic research contracts are still required.
+
+## Net-profit declaration ownership
+
+`evaluation/objectives/{contract.py,clock.py,binding.py}` はIssue #810の新規研究向けの事業目的、資本分母、終端純利益算術、regular金融時計と評価期間の一致bindingを所有する。Tier-2 facade `trade_rl.evaluation.objectives` は `CapitalContract`、`ObjectiveContract`、`FinancialClockContract`、`BoundObjectiveClock`、`net_equity_increment` をwrapperなしで公開する。Tier-1 `trade_rl.evaluation` の公開面は拡張しない。
+
+このcapabilityはstandard library、`_validation`、canonical artifact hashingだけへ依存する。strategy、execution、Run/Study lifecycle、外部認証・ネットワークを呼ばず、第二の台帳や研究実行経路を持たない。下位strategyからevaluationへの逆依存を作らない。将来adapterは検証済みの値を下位constructorへ明示的に渡し、現在のPPO training objectiveやhistorical artifactを置換しない。
+
+## Direct-simple producer and consumer ownership
+
+`forecasts/simple_return.py` owns immutable direct labels, the distinct simple
+model and marginal fit variance. `_ridge_math.py` owns only numeric weighted
+Ridge operations shared with `ridge.py`; it owns no units, selection, schema or
+execution. `simple_stream.py` owns separate versioned records/reader;
+`simple_prequential.py` selects and fits each prefix once. The forecast facade
+directly exports the six simple APIs from their owners. Tier-1 exports and old
+log records retain their meanings.
+
+`evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
+`propose_forecast_target` and `execute_forecast_proposal`. It validates exact
+current snapshot/horizon/valuation, then invokes the existing allocation
+composition. It owns no fit, ledger, risk formula or order transition. Forecast
+owners do not import evaluation, simulation, risk or RL. Architecture tests guard
+these directions and reject fit/accounting in admission; synthetic mechanism
+tests cover direct labels, serialization, causality and canonical cash/quantity.
+
+`simulation/accounting.BookState` owns the optional paired Dataset/index
+processing clock and clone preservation. `simulation/stateful/execution.py`
+checks and advances a declared clock after completed bars. The forecast consumer
+requires a known matching clock without editing it or duplicating accounting.
+Bootstrap values are caller declarations; legacy unmarked accounts and artifact
+schemas retain their meanings. Continuation uses the returned book, order book
+and next index together.

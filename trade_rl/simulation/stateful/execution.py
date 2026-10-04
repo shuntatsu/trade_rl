@@ -117,6 +117,7 @@ def execute_stateful_orders(
         raise ValueError("execution interval is outside the dataset")
     if book.quantities.shape != (dataset.n_symbols,):
         raise ValueError("book quantities do not match market symbols")
+    book.validate_processing_clock(dataset_id=dataset.dataset_id, index=start_index)
 
     runtime = StatefulExecutionRuntime.create(executor, book, order_book)
     cancellation_ids: set[str] = set()
@@ -170,6 +171,8 @@ def execute_stateful_orders(
             attempted_order_ids=attempted,
         )
         lifecycle.finish_bar(runtime, context)
+        if runtime.book.as_of_index is not None:
+            runtime.book.as_of_index = processing_index
 
     return StatefulExecutionResult(
         **runtime.result_payload(start_index=start_index, bars=bars)

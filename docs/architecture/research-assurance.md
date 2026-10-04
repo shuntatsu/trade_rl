@@ -785,6 +785,88 @@ Economic execution remains blocked until a fresh independent result-blind G0–G
 review is bound to the exact protocol, implementation, and data scope. A later
 G3 evidence review remains separate from the G4 result decision.
 
+## Research-specific contract: prequential Ridge stream
+
+### G0 — bounded question and limitations
+
+Issue #810 requires a forecast produced before the downstream decision, rather
+than a full-period fitted model's in-sample predictions. This stage asks whether
+the existing Ridge can be fitted on each available prefix, frozen, and used
+only in the following block with its timing and input identity preserved. The
+operational target is a causal input to a later common decision context, not
+selection of a profitable policy.
+
+The tentative economic premise is that measured, past price/volume features
+may retain conditional predictive information over a declared horizon. No
+specific persistence, market participant mechanism or after-cost edge is
+established here. Fitting more frequently does not create independent market
+experience. Ridge conditional mean log return is not expected simple return;
+exponentiating it does not remove that distinction. Its uncalibrated vintage
+cannot provide predictive coverage or an uncertainty bound.
+
+For this software stage, the primary check is temporal non-interference and
+the independently calculated synthetic Ridge forecast. Counterfactuals change
+only unused future suffixes, source publication boundaries, selected rows or
+forecast availability. A changed earlier prediction under an unchanged causal
+scope, use of a not-ready packet, or an inconsistent identity falsifies the
+capability. No economic trial, winner selection or new-data consumption is part
+of this stage. An exact economic question, Dataset/window, capital/risk/cost,
+trial budget, controls, source/runtime bundle and Study must be preregistered
+and independently reviewed before G4. G0/G1 for that Study remain NOT ESTABLISHED.
+The 20% observed-drawdown research guardrail is unchanged.
+
+### G1 — frozen availability and forecast semantics
+
+Each fit cutoff, declared completion, prediction block and inference delay is
+fixed before generation. Both price-label endpoints and their actual recorded
+publication clocks must be strictly before the cutoff. Completion is at or
+after cutoff, and the next block starts strictly after cutoff and at or after
+completion. Blocks are non-overlapping; a later vintage can use labels that
+have newly matured but cannot overwrite an earlier vintage.
+
+The sole existing row selector also supplies the actual ordered row/endpoint
+trace; the same immutable training object supplies the Ridge solve. The stream
+stores selected feature names/indices/values, weights, endpoint symbols/prices,
+source clocks, fit-only scaler and solved model parameters. Symbol IDs are
+lineage only, not fitted features. The producer accepts only source and selected
+features available on their Dataset row, conservatively rejecting late sources.
+It does not claim delayed-data reconstruction or independently validate the
+Dataset's upstream feature causality and historical source availability.
+
+Packet `as_of` denotes the feature snapshot time. A manually assembled snapshot
+can refer to a source published earlier; the source must be available by that
+snapshot. The current producer uses the Dataset bar close and admits only
+on-time inputs. Forecast readiness equals the maximum of snapshot, source and
+declared completion, plus the block's declared inference delay. All timing is
+`declared_simulation_v1`: no actual fit completion or latency receipt is claimed.
+
+Only the newest ready packet for the requested symbol in the active block,
+strictly before its horizon end, can reach the existing cost-aware controller.
+No-ready, missing input, wrong symbol, previous-block fallback and expired
+forecast are errors. There is no account, reward, portfolio allocator, ledger,
+fill, RL training or execution-clock change. The current switching-cost proxy
+is retained as a surrogate, not optimal after-cost portfolio allocation.
+
+### G2 — invariants and independent oracles
+
+| Invariant | Minimal counterexample | Oracle |
+|---|---|---|
+| Fit consumes only mature rows | endpoint or publication equals cutoff | Hand-listed actual start/end/symbol rows and strict timestamp comparisons |
+| Model depends only on its fit scope | mutate unused suffix prices/features/availability and whole-Dataset ID | Identical earlier model, packet and causal-scope digests |
+| Recorded prediction is the actual Ridge on selected inputs | constant or linear/quadratic synthetic signal | Hand-calculated intercept and regularized slope, then LONG/SHORT/cost-veto decisions |
+| Ready/expiry clock controls use | inference delay spans the newest snapshot, block gap, exact horizon end | Newest ready packet only; explicit error at uncovered decisions |
+| Frozen inputs cannot drift | mutate caller lists or reset NumPy write flags | Copied tuple/byte-backed arrays retain identical identities and forecasts |
+| Serialization retains the frozen contract | change training/model/timing with old or recomputed outer hash | Externally pinned content digest, nested identity/schema and model-input consistency checks |
+| Sparse selected inputs do not allocate a dense universe | valid one-column model with an enormous feature index | Allocation interception while constructor/readback retain the same prediction |
+
+Digest checking proves content integrity against an independently retained digest,
+not authenticity of the caller's Dataset or fitting receipt. The reader neither
+refits nor proves that model parameters were genuinely produced by the recorded
+training process. A caller can fabricate an internally consistent artifact and
+its new digest; external source/runtime and execution evidence remain required.
+Synthetic tests and a fresh result-blind source review do not establish G3-G5,
+profitability, full P2 delivery, downstream RL validity or live eligibility.
+
 ## G3: Evidence Validity
 
 G3は既存のcausal data、common accounting、immutable artifact、provenance、controlled factor、lineage、result-blind preregistrationをまとめて「その結果を研究判断へ使ってよいか」を問う。
@@ -850,3 +932,114 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Result-blind scalar allocation foundation
+
+The optional after-cost family asks a bounded software question: can declared
+single-horizon expected-simple/cost/risk inputs produce a deterministic scalar
+allocation and reach the existing actual-account execution path without a
+second ledger? The economic hypothesis is only that excluding incremental
+trades whose expected benefit does not cover their costs can reduce avoidable
+turnover. This foundation supplies no empirical market edge or causal demand
+mechanism and cannot establish profit, forecast quality or future eligibility.
+
+Capital, observation and action are one independent-symbol account; multiple
+training symbols are not shared capital. The current decision sees only
+canonical actual holdings/cash/marks/risk and pending-order facts plus declared
+available estimates. One horizon covers mean simple return, its unannualized
+variance, all initial-notional costs and cash/carry estimates. Provenance and
+availability are caller declarations, not historical point-in-time proofs.
+The same-close scalar utility is the formula in the optional allocation section
+of lean-core. It is neither RL reward nor realized account P&L. First eligible
+MARKET fills remain on the next processing bar, with zero extra latency in v1.
+Execution uses the canonical signed self-financing cash model and ledger; this
+is not an assertion about exchange futures collateral economics.
+
+Hard risk uses latched maximum drawdown and takes priority over HOLD. Pending
+MARKET reduce-only remainders are explicitly included in HOLD cancellation;
+nonmarket/protective orders are unsupported and rejected. One bar advances
+through canonical fills/carry/corporate actions. A fixed terminal horizon,
+forced close, walk-forward state, cost calibration and a finite economic trial
+budget are not defined by this software and remain required before research.
+
+G0/G1 counterfactuals are fee-only cash, useful-signal entry, asymmetrical entry
+and reversal costs, held-short funding/borrow, signed cash return, risk interior
+solutions, exact ties and over-cap/empty feasible intervals. G2 uses independent
+piecewise SciPy/reference arithmetic and hand cash/quantity reconstruction from
+canonical synthetic fills; production utility and accounting functions are not
+reused as numerical oracles. Adversarial cases include mean-log unit and delayed
+return-interval mismatch, future availability, stale equal-equity holdings,
+pending-only change, terminal-order archive mutation, altered estimate horizon,
+recipe or target, changed account/dataset/policy/risk config, nonunit multipliers,
+mark drift, splits, partial fills and risk-forced de-risking. Additional
+counterexamples cover rounded flat-segment scores/turnover ties, nanosecond date
+overflow, zero-width drawdown boundaries, caller tolerance hiding drawdown,
+initial canonical margin failure, expired/late pending orders and future terminal
+transitions. A snapshot digest
+is consistency evidence, not an access-control or estimator-authenticity proof.
+
+Primary software acceptance is agreement with these bounded decision/execution
+oracles and fail-closed rejection before order admission. A submitted target
+must never be labelled filled without canonical evidence. There is no G4 score,
+winner or data selection here. Synthetic tests neither consume nor return
+unused market data. Real fitting/replay additionally requires fixed objective,
+capital/clocks, estimator/cost availability, Study scope/trial budget, fresh
+source-bound G0-G2 review and independent economic authorization. Formal GitHub
+research approval is separate from read-only AI source review.
+
+## Net-profit redesign: initial P0 declarations
+
+Issue #810のP0は、期待終端純利益と訓練surrogateの混同、口座数による資本分母の混同、金融時間を無視したdiscount設定を結果前に反証する。これは新しい研究の宣言capabilityであり、現行Studyの問いや失敗判定を変更しない。
+
+- G0: 同じ資本・risk・情報・執行条件で新規運用方式を比較する。目的は期待終端純利益だが、単一の実現endpointを期待値や将来利益の保証と呼ばない。有効なsignalを消してcashだけ選ぶことも完了証拠にはしない。
+- G1: canonical after-cost equity、固定初期資本、符号付き純入出金、有限UTC期間、決済/継続評価、参照profile/運用recipeを宣言する。複数独立口座の資本総額と共有口座1つの資本を区別する。equity増分とlog reward、business objectiveとdiscount/GAEは別の意味である。
+- G2: `tests/evaluation/objectives/` は独立した終端金額から資本分母・入出金・残債を検算する。等確率の1.20/0.90と確定1.045は期待利益と期待logの順位が逆転する反例。入出金込みの固定分母equity増分が終端値へtelescopingすること、1h/4h decisionの同じ実時間discount、NaN/inf/bool・未知mode・不整合clock・aware境界・identity変更の反例を検査する。`BoundObjectiveClock` は期間とhorizonの不一致、float換算で隠れる小数秒、DST境界を検査し、両宣言のidentityを同時にbindする。
+
+Known limitations: profile digest参照の内容検証、runtime clock/terminal bootstrap、共有口座joint learning、prequential forecasts、account parity、採用selector、正式事前登録・G4 authorizationはこのcapabilityにない。`terminal_profit_aligned` は宣言の代数的整合だけであり、現行PPOや未接続のadapterがそのrewardを実現している証拠ではない。P0全体の通過、新規経済実験の許可、G4/G5は別途source-bound machine evidenceとfresh result-blind reviewを必要とする。
+
+## Result-blind direct-simple connection
+
+G0 asks whether a prefix-only price-return estimate can reach actual-account
+allocation without changing units, using future labels or creating a second
+ledger. This is the nonRL baseline connection for the later nonRL/residual/direct
+RL comparison. Direct labels avoid the expectation/log transformation error;
+there is no new market-demand causal story or established edge. Primary software
+acceptance is independent arithmetic and quantity/cash/fee agreement plus
+fail-closed rejection. No economic score selects a model or parameter here.
+
+G1 fixes independent-symbol capital, existing selected features and balanced
+weights, one mature fit per block, frozen uncalibrated linear projection and
+pooled marginal label variance. Availability is a declared simulation assumption.
+Allocation requires the exact decision packet/horizon and matching same-close
+account valuation. Costs/carry have separate causal declarations. Hard risk and
+next-processing-bar execution preserve existing priority. Raw price labels omit
+corporate-action wealth and carry; future corporate actions never filter current
+admission. Later actions and next-open gaps remain canonical outcomes and expose
+this surrogate's limits. No terminal wealth/RL reward or walk-forward model
+exchange is implemented by this connection.
+
+G2 uses +1 and -.5 direct labels: mean .25, marginal variance .5625, whereas
+`expm1(mean_log)` is zero. Independent nonconstant Ridge arithmetic verifies
+direct-label projection and absolute weight effects. Future suffix price,
+feature, publication, split and dividend changes cannot alter earlier vintages
+or packets. Maturity boundaries, stale/delayed packets, rehashed nested
+unit/label/variance/model/recipe mismatches, unavailable selected features and
+mark/close mismatch are rejected. Producer-to-executor tests independently
+reconstruct fills, quantities, fees and cash, including next-open gaps and
+split-aware HOLD. Changed forecast/cost/account inputs fail before admission.
+Legacy numeric/payload oracles preserve old log behavior.
+
+Equivalent valid hour/second/millisecond timestamp storage must produce the same
+normalized stream. A returned account cannot replay a paid dividend at an old
+decision with unchanged marks: a declared Dataset/index processing clock is
+checked before admission and advanced by canonical execution. Correct
+continuation carries book, order book and next index, charging that dividend
+once. Legacy unmarked books remain unchanged. The clock authenticates neither a
+caller-supplied bootstrap account nor historical source availability.
+
+These inputs are synthetic. The reader checks recorded consistency against an
+external digest, not an independent fitting receipt or historical authenticity.
+Real-data fitting/replay, unused-data consumption, selection and G4/G5 remain
+unauthorized by this software. Fresh source-bound AI G0-G2 review, final-head
+full CI, formal independent research approval and preregistered empirical
+contracts remain separate requirements.

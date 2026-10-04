@@ -158,12 +158,14 @@ def test_walk_forward_does_not_count_unsettled_positive_mark_as_profitable(monke
     assert result.profitable_windows == 0
 
 
-def test_unsettled_tuning_candidate_is_ineligible(monkeypatch):
+@pytest.mark.parametrize("candidate_settlement", [False, None])
+def test_unsettled_tuning_candidate_is_ineligible(monkeypatch, candidate_settlement):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
         report = _report(config, 1.0 if config.gross_budget == 0.2 else 1000.0)
-        return None, replace(report, terminal_settled=config.gross_budget == 0.2)
+        settlement = True if config.gross_budget == 0.2 else candidate_settlement
+        return None, replace(report, terminal_settled=settlement)
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     result = bot.tune_for_maximum_profit(
@@ -379,13 +381,31 @@ def test_cash_control_keeps_actual_economic_return(monkeypatch, cash_pnl):
         assert result.selection_score == 10.0
 
 
+def test_cash_control_losing_more_than_candidate_does_not_win(monkeypatch):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+
+    def fake_run(dataset, config, **kwargs):
+        pnl = -50.0 if config.strategy_name == "cash" else -10.0
+        return None, _report(config, pnl)
+
+    monkeypatch.setattr(bot, "run_trading_bot", fake_run)
+    result = bot.tune_for_maximum_profit(
+        dataset, strategy_name="trend", max_combinations=1
+    )
+
+    assert result.optimized_config.strategy_name == "trend"
+    assert result.selection_score == -10.0
+    assert result.optimized_report.net_pnl == -10.0
+
+
+@pytest.mark.parametrize("settlement", [False, None])
 def test_cash_control_does_not_fabricate_success_when_its_replay_is_invalid(
-    monkeypatch,
+    monkeypatch, settlement
 ):
     dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
 
     def fake_run(dataset, config, **kwargs):
-        return None, replace(_report(config, 0.0), terminal_settled=False)
+        return None, replace(_report(config, 0.0), terminal_settled=settlement)
 
     monkeypatch.setattr(bot, "run_trading_bot", fake_run)
     with pytest.raises(ValueError, match="no configuration"):

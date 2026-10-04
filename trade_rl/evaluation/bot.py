@@ -1035,9 +1035,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             else:
                 print(f"⚠️ Bot execution resulted in net change: ${report.net_pnl:,.2f}")
-            if not report.terminal_settled:
+            if report.terminal_settled is False:
                 print(
                     "Terminal settlement incomplete; equity includes residual marked positions."
+                )
+            elif report.terminal_settled is None:
+                print(
+                    "Terminal settlement status unknown; ledger evidence is unavailable."
                 )
 
     return 0

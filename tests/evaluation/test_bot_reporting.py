@@ -11,6 +11,7 @@ from trade_rl.evaluation.bot import (
     BotReport,
     calculate_bot_report,
     generate_demo_dataset,
+    main,
     print_report_table,
     run_trading_bot,
 )
@@ -61,6 +62,28 @@ def test_calculated_bot_report_without_ledger_evidence_keeps_settlement_unknown(
     assert report.active_order_remainders is None
     assert payload["active_order_remainders"] is None
     assert "unknown" in capsys.readouterr().out
+
+
+def test_main_reports_unknown_settlement_without_claiming_incomplete_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    cash_replay: SharedCashReplayResult,
+) -> None:
+    dataset = generate_demo_dataset(n_bars=4, n_symbols=1)
+    report = calculate_bot_report(replace(cash_replay, ledger_evidence=None), "cash")
+    monkeypatch.setattr(
+        "trade_rl.evaluation.bot.generate_demo_dataset", lambda: dataset
+    )
+    monkeypatch.setattr(
+        "trade_rl.evaluation.bot.run_trading_bot",
+        lambda *_args, **_kwargs: (None, report),
+    )
+
+    assert main(["--demo"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Terminal settlement status unknown" in output
+    assert "Terminal settlement incomplete" not in output
 
 
 @pytest.mark.parametrize(

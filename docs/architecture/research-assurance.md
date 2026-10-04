@@ -80,6 +80,12 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: fixed-trend bot development factor
+
+This consumed-development factor changes only adaptive bot `volatility_regime_threshold` from 0.01 to zero. G0 tests whether changed exit/retention/re-entry dynamics retain weak same-sign continuation and flatten adverse-sign positions after costs. Baseline reversion entry 0.012 is outside its low-magnitude regime `abs(signal)<0.01`; contrarian entries/direct flips are unreachable there and cannot be the claimed treatment. A LONG with signal +0.008 requests baseline FLAT/candidate LONG, while -0.008 requests baseline LONG/candidate FLAT; SHORT is symmetric. Persistent demand/attention is a plausible causal premise, with neither the 24-hour horizon nor executable edge established. G1 preserves shared capital, causal named signal, thresholds, exact-quantity holding, global risk, economics and settlement. Budget0.2 is per active symbol, not a combined portfolio cap. Prefix selection precedes evaluation. Stress freezes strategy parameters but latency changes the terminal reserve; actual close can precede stop and must leave the account flat by stop.
+
+G2 requires a source-independent paired intent truth table for all prior intents, both signs, unavailable and nonfinite inputs, one-field configuration delta, all-arm coverage/settlement and source-derived cash-carry oracles. Cash selection, nonpositive candidate return or paired difference, excess drawdown, incomplete replay or unsettled terminal falsifies the fixed screen. Fresh result-blind read-only AI review must clear G0-G2 before execution. Normal Python, import origins, worktree, exact HEAD, source/runtime/script/Dataset identities and every arm's raw return/ledger are bound or write-once. Optimized Python is explicitly rejected before preparation/execution. No result rescues a mechanism defect; no consumed-development result establishes unused-future performance, winner or live readiness.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 This is an active result-blind design for a new development Study. It has not

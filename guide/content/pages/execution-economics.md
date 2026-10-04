@@ -55,6 +55,10 @@ partial fillなら、要求数量ではなくrealized fill quantityだけをposi
 
 注文の消化率と実売買金額も分けます。`fill_ratio` と `unfilled_turnover` はsubmission時のreference priceで要求量と約定量を同じ基準へ揃え、価格変動だけで「全量約定」に見えないようにします。一方、`filled_turnover` はactual fill priceで実際に売買したnotionalを使います。
 
+目標比率を数量へ換算するときは、口座残高と比率を評価したマーク価格を使います。取引価格との差だけで保有継続中に買い増しや売却を起こしません。指値・逆指値と注文の基準価格には、引き続き取引価格を使います。
+
+まだ保有数量がない口座のエントリーでは、現在バーの市場データから評価価格を取得します。初期価格を省略して口座を作った場合も、仮の価格1で注文数量を求めません。入力の口座状態は変更せずに処理します。
+
 LIMITのcost分類も注文名だけでは決めません。そのbarで初めてeligibleになったLIMITがprocessing openですでにmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使います。openではmarketableでなくbar内touchまでrestしたLIMITはmaker扱いです。また、前バーから残っていたLIMITは次バーopenでcrossしても既にrestingしていた注文なのでmaker扱いを維持します。この区別はfee/spreadの分類だけで、fill価格・fill数量・capacityを変更しません。
 
 区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。

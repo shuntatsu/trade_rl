@@ -55,7 +55,9 @@ UTC-hour close endpoints: Monday00:00 exclusive to next Monday00:00 inclusive,
 exactly168 rows. Partial boundary weeks are excluded; an inactive, unavailable or
 late-at-own-close constituent invalidates its week without retrospective backfill.
 BB20 uses population standard deviation and `(price-SMA)/(2σ)` positions, not
-percent-B; zero variance gives zero positions. Ichimoku9/26/52 uses the currently
+percent-B. At exactly zero width, close position is0 and high/low positions are
+±1 inclusive raw-band-touch sentinels rather than ratios; positive widths have
+no absolute price-scale cutoff. Ichimoku9/26/52 uses the currently
 plotted cloud, computed26 weeks earlier, requiring78 usable complete weeks.
 Existing unshifted Ichimoku feature meanings remain unchanged. Values update at
 the completed Monday endpoint, carry for at most167 hours with age `/168`, and

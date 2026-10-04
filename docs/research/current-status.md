@@ -101,6 +101,16 @@ symbols/time, final performance and the user's full profit goal remain unestabli
 
 ## Trading-bot validation repair (2026-10-03)
 
+The first weekly packet at source `6dd93d99` / protocol
+`3a6debf6276e945bfe60596e429dd79420d58492ee9d172b0365b9c55e7357e0`
+was blocked before economics: zero/tiny BB width erased a reachable rejection
+wick and an absolute cutoff broke positive price-scale invariance. The unexecuted
+packet is retained. An independent synthetic counterexample produced four RED
+cases. The revised transform uses ratios at every positive width and explicit
+inclusive high/low touch sentinels at exactly zero width, with21 synthetic tests
+passing. A separately bound v2 packet requires fresh G0-G2 clearance; old approval
+or CI is not reused for the changed source.
+
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
 
 追加のfirst-holdout-open shockで、終端決済のfillがreplay `stop_index`行のopenを参照し、evaluation開始と同じstopを渡すとfirst evaluation barがtuning scoreとdrawdown eligibilityへ漏れることを再現した。selection replayを最後のtuning bar内で終端決済し、walk-forwardも同じhelperで境界を分離する。修正前source `a526cc18` のQ1 development smokeは探索的な診断として保持し、first evaluation barから独立したholdout証拠とは扱わない。この修正ではreal-market replayを実行せず、新たなprofitability evidenceも作らない。

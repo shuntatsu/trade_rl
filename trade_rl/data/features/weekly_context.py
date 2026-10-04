@@ -87,8 +87,12 @@ def with_weekly_context(dataset: MarketDataset) -> MarketDataset:
                     (float(price) - mean) / width
                     for price in (close, highs[week, symbol], lows[week, symbol])
                 )
-                if width > 1e-12
-                else (0.0, 0.0, 0.0)
+                if width > 0.0
+                else (
+                    0.0,
+                    1.0 if highs[week, symbol] >= mean else -1.0,
+                    -1.0 if lows[week, symbol] <= mean else 1.0,
+                )
             )
             shifted = week - 26
             span_a = (midpoint(shifted, 9) + midpoint(shifted, 26)) / 2
@@ -125,7 +129,12 @@ def with_weekly_context(dataset: MarketDataset) -> MarketDataset:
         "plotted_cloud_lag_weeks": 26,
         "required_complete_weeks": 78,
         "feature_names": list(WEEKLY_NAMES),
-        "zero_variance_band_positions": 0,
+        "zero_variance_band_positions": {
+            "close": 0,
+            "high": "1_if_high_ge_mean_else_minus1",
+            "low": "minus1_if_low_le_mean_else1",
+            "meaning": "inclusive_raw_band_touch_sentinel_not_ratio",
+        },
         "staleness_denominator_hours": 168,
     }
     augmented = replace(

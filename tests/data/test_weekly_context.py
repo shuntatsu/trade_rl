@@ -5,6 +5,9 @@ import pytest
 
 from tests.evaluation.test_shared_cash_replay import _market
 from trade_rl.data.features.weekly_context import WEEKLY_NAMES, with_weekly_context
+from trade_rl.evaluation.bot import BotConfig, create_strategy_instances
+from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent
 
 
 def _weekly_market(weeks: int = 80):
@@ -133,7 +136,7 @@ def test_zero_sigma_scale_invariance_and_partial_first_week():
         replace(source, open=constant, high=constant, low=constant, close=constant)
     )
     assert flat.feature_available[-1, 0, -7:].all()
-    np.testing.assert_array_equal(flat.features[-1, 0, -7:], np.zeros(7))
+    np.testing.assert_array_equal(flat.features[-1, 0, -7:], [0, 1, -1, 0, 0, 0, 0])
     scaled = with_weekly_context(
         replace(
             source,
@@ -165,3 +168,56 @@ def test_new_invalid_week_expires_prior_permission_at_exact_endpoint():
     assert data.feature_available[row - 1, 0, -7:].all()
     assert not data.feature_available[row, 0, -7:].any()
     assert not data.feature_available[row + 1, 0, -7:].any()
+
+
+@pytest.mark.parametrize("scale", [1.0, 7.0, 1e-13])
+@pytest.mark.parametrize("zero_sigma", [False, True])
+def test_reachable_rejection_wick_with_zero_or_tiny_sigma(scale, zero_sigma):
+    # Independent raw-price oracle: cloud90, Tenkan115, Kijun105, C110/H125.
+    # BB upper is110 at zero sigma, or111.897366... otherwise, both below high125.
+    closes = np.r_[
+        np.full(52, 90.0),
+        np.full(6, 100.0),
+        np.full(20, 110.0) if zero_sigma else [109.0, 111.0] * 9 + [110.0, 110.0],
+    ]
+    source = _market(np.repeat(closes, 168).reshape(-1, 1))
+    timestamps = np.datetime64("2020-01-06T01", "ns") + np.arange(
+        source.n_bars
+    ) * np.timedelta64(1, "h")
+    highs = np.repeat(np.r_[np.full(52, 90.0), np.full(25, 115.0), 125.0], 168).reshape(
+        -1, 1
+    )
+    lows = np.repeat(
+        np.r_[np.full(52, 90.0), np.full(17, 85.0), np.full(9, 105.0)], 168
+    ).reshape(-1, 1)
+    data = with_weekly_context(
+        replace(
+            source,
+            timestamps=timestamps,
+            available_at=timestamps[:, None],
+            open=source.open * scale,
+            close=source.close * scale,
+            high=highs * scale,
+            low=lows * scale,
+            features=np.full_like(source.features, 0.03),
+        )
+    )
+    row = data.n_bars - 1
+    assert data.feature_available[row, 0, -7:].all()
+    assert data.features[row, 0, -6] >= 1.0  # Reaching inclusive raw upperBB.
+    observation = StrategyObservation(
+        index=row,
+        timestamp=data.timestamps[row],
+        symbol="ANY",
+        features=data.features[row, 0],
+        feature_available=data.feature_available[row, 0],
+        global_features=np.zeros(1),
+        global_feature_available=np.ones(1, dtype=bool),
+        current_intent=PositionIntent.FLAT,
+        current_weight=0.0,
+    )
+    strategy = create_strategy_instances(
+        data,
+        BotConfig(strategy_name="weekly_bb_ichimoku", volatility_regime_threshold=0),
+    )[0]
+    assert strategy.decide(observation) is PositionIntent.FLAT

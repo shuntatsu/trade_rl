@@ -283,7 +283,7 @@ def create_strategy_instances(
             instances.append(
                 EnsembleIntentStrategy([t_strat, m_strat], min_agreement=1)
             )
-        elif name in {"adaptive", "weekly_bb_ichimoku"}:
+        elif name in {"adaptive", "weekly_bb_ichimoku", "weekly_bb_pullback"}:
             a_cfg = AdaptiveProfitConfig(
                 signal_index=config.signal_index,
                 # Use the configured signal's magnitude for the momentum regime.
@@ -299,7 +299,7 @@ def create_strategy_instances(
                 max_holding_bars=config.max_holding_bars,
             )
             adaptive = RegimeAdaptiveStrategy(a_cfg)
-            if name == "weekly_bb_ichimoku":
+            if name in {"weekly_bb_ichimoku", "weekly_bb_pullback"}:
                 missing = tuple(
                     feature
                     for feature in WEEKLY_NAMES
@@ -310,6 +310,14 @@ def create_strategy_instances(
                         "weekly_bb_ichimoku requires complete named weekly context: "
                         + ", ".join(missing)
                     )
+                short_term_index = None
+                if name == "weekly_bb_pullback":
+                    short_term_name = "4h__ichimoku_tenkan_distance_9bar"
+                    if short_term_name not in dataset.feature_names:
+                        raise ValueError(
+                            "weekly_bb_pullback requires named " + short_term_name
+                        )
+                    short_term_index = dataset.feature_names.index(short_term_name)
                 instances.append(
                     WeeklyConfirmationStrategy(
                         adaptive,
@@ -317,6 +325,7 @@ def create_strategy_instances(
                             dataset.feature_names.index(feature)
                             for feature in WEEKLY_NAMES
                         ),
+                        short_term_index=short_term_index,
                     )
                 )
             else:
@@ -444,9 +453,10 @@ def run_trading_bot(
 
     if config.strategy_name.lower() == "channel_breakout":
         dataset = _with_channel_breakout_features(dataset)
-    if config.strategy_name.lower() == "weekly_bb_ichimoku" and not any(
-        name in dataset.feature_names for name in WEEKLY_NAMES
-    ):
+    if config.strategy_name.lower() in {
+        "weekly_bb_ichimoku",
+        "weekly_bb_pullback",
+    } and not any(name in dataset.feature_names for name in WEEKLY_NAMES):
         dataset = with_weekly_context(dataset)
 
     strategies = create_strategy_instances(dataset, config)

@@ -99,8 +99,6 @@ Exact source/script/runtime/Dataset, independent machine oracles and fresh
 target-blind G0-G2 approval must be frozen before economics. Transfer to unused
 symbols/time, final performance and the user's full profit goal remain unestablished.
 
-## Trading-bot validation repair (2026-10-03)
-
 The first weekly packet at source `6dd93d99` / protocol
 `3a6debf6276e945bfe60596e429dd79420d58492ee9d172b0365b9c55e7357e0`
 was blocked before economics: zero/tiny BB width erased a reachable rejection
@@ -110,6 +108,60 @@ cases. The revised transform uses ratios at every positive width and explicit
 inclusive high/low touch sentinels at exactly zero width, with21 synthetic tests
 passing. A separately bound v2 packet requires fresh G0-G2 clearance; old approval
 or CI is not reused for the changed source.
+
+The separately reviewed v2 at source `af47ee2b` / protocol
+`434d40b29934de1ccf894e8f5c484a89387914e2495fde4c328283f69335f9f6`
+used Dataset `6f64cc79a4ce717767c4a54bc59d9507e1eeeed4c96b650c065e1877ee3fc7c2`.
+Fresh target-blind G0-G2 and independent Dataset G3 clearance preceded its single
+24-replay execution. Software PASS / economic NOT_ESTABLISHED: both prefixes chose
+cash, so selected reset-normalized products are0% in all three scenarios. Candidate
+2023 returns were−2.853088% base,−3.362858% cost2,−3.263138% latency2;2024 returns
+were+2.204629%,+0.934096%,+2.593043%. All six paired differences were positive, but
+negative2023 returns and two unsettled2024 cells independently fail the fixed screen.
+Receipt SHA-256:
+`6b3d705cdc653e0bf38537321d7962d2a61956bb310ca04b11055adfde94c543`.
+
+The2024 base and latency2 candidates both retain exact ETH quantity`1/200`
+(0.005); base has no active order and latency2 has an active−0.005 closing remainder.
+Their closing orders explicitly request reduce-only but retain the Dataset's ordinary
+20USDT minimum notional because this bot path omits the verified MARKET profile.
+The0.001ETH lot makes the residue five lots; it is not an unrepresentable sub-lot.
+No write-off, minimum-notional override, fabricated profile or post-result rerun
+rescues these cells. Independent post-artifact reconstruction found no discrepancies
+across74 artifact references,189 source files,42 arrays,197,202 intervals,5,814 fills,
+24,639 funding events and394,332 symbol decisions. Maximum execution DD was18.947318%.
+Weekly permission blocked65,721 of99,484 directional evaluation observations;
+exhaustion added zero blocks. One of262 valid symbol-week contexts met LONG exhaustion
+(BTC,2024-01-15), but each scenario had144 daily SHORT and24 daily FLAT observations
+there, never matching LONG. These repeated hourly observations are not independent
+samples. Neither the loss reduction nor this inactive directional veto proves the
+user's proposed short-term weekly-top mechanism.
+Loss reduction and positive marked portions establish no profitability or general edge.
+
+### Active hypothesis: weekly band contact with four-hour Tenkan weakness
+
+The next fixed package, `weekly_bb_pullback`, combines a completed week's upper/lower
+BB touch with opposite-side native four-hour Tenkan9 distance. It retains the same
+daily24 momentum rule but replaces both weekly direction permission and weekly
+Tenkan exhaustion. This is a joint package comparison, not an isolated ablation;
+the abandoned design-only permission ablation generated no economic results.
+The preceding observed exhaustion was reachable but never matched the daily direction;
+it supplies no evidence of a useful top/bottom veto. Earlier results motivated this
+new hypothesis and remain fully consumed development, with no unused-data claim.
+
+LONG suppression requires weekly high-band position>=1 and four-hour Tenkan distance<0;
+SHORT uses low-band position<=−1 and distance>0. Band contact alone never reverses.
+The same seven weekly inputs and78-week warmup remain required, even though cloud
+permission is absent, to preserve this comparison's weekly availability scope.
+Missing/nonfinite four-hour confirmation also requests ordinary FLAT. Thresholds,
+hold24, risk, Dataset economics, terminal minima and source-bound cost/latency stress
+remain unchanged. Cash, original combined weekly baseline and new package use the
+same chronological windows, all-arm validity and registered positive-return screen.
+No new economics may run before fresh independent G0-G3 and software verification.
+Loss of valid trends, frequent exits/re-entry, lower-source availability changes and
+funding concentration remain falsifiers/limitations; no maximum-profit claim is made.
+
+## Trading-bot validation repair (2026-10-03)
 
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
 

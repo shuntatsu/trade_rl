@@ -123,6 +123,32 @@ column permutation and protective delegation. Frozen cash priority/all-arm gates
 source/runtime/script/Dataset bindings and fresh read-only target-blind AI review
 precede G4. Repeated development cannot establish unused transfer, winner or live edge.
 
+## Research-specific contract: weekly band contact and four-hour Tenkan pullback
+
+G0 prospectively tests a separate fixed package after the consumed-development
+combined weekly result. A recent completed-week band contact can identify extension;
+opposite completed-four-hour Tenkan distance can identify shorter-term weakness
+before weekly Tenkan rejection. Band walking, early exit, re-entry churn and added
+cost/funding are counterexamples. This jointly replaces weekly permission and
+weekly exhaustion; it cannot isolate either component or establish timely tops.
+Cash and the original combined weekly package remain controls. Thresholds, daily
+signal, hold24, risk, capital, costs, terminal legality and the all-arm/two-prefix/
+all-six positive screen are unchanged. Earlier evidence is never rescued.
+
+G1 uses all seven completed-week fields with the same78-week availability/warmup,
+plus native named `4h__ichimoku_tenkan_distance_9bar`. LONG is voluntarily suppressed
+only when weekly high-band position>=1 and four-hour Tenkan distance<0; SHORT uses
+low-band position<=−1 and distance>0. Touch alone, or zero Tenkan distance, does not
+suppress. There is no weekly cloud/Tenkan-Kijun permission in this package. Missing
+or nonfinite required inputs fail closed; protective latch, hold, risk and terminal
+retain priority. No forming four-hour bar or symbol-specific threshold is used.
+
+G2 requires independent symmetric truth tables, equality/missing/nonfinite/index
+boundaries, actual quantity hold/unlock, protective delegation, named-column
+permutation, automatic weekly derivation and original-package compatibility. Native
+four-hour Tenkan source/window/availability conformance and fresh source-bound
+result-blind G0-G3 clearance must precede write-once economic execution.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 This is an active result-blind design for a new development Study. It has not

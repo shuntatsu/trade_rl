@@ -241,15 +241,19 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 `MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。`data/features/numerics.py` はcanonical Dataset identityへ入るfeature計算のportable scalar/reduction semanticsを所有し、`core.py`、`cross_asset.py`、`builder.py` が共有する。モデル学習、simulation P&L、汎用evaluationの数値計算まではこのauthorityへ含めない。現行 `MarketBuildConfig` は `market_build_v3` / `portable_feature_numerics_v1` をbuild identityへbindし、historical `market_build_v2` artifactのreader互換はartifact contractとして維持する。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy economic behaviorを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
 
-### `integrations`
-
 `data/features/weekly_context.py` owns content-bound completed-week aggregation,
 calendar/warmup/availability and normalized BB/Ichimoku values; it fetches no venue
 data and decides no orders. `strategies/rules/weekly_confirmation.py` owns the
 voluntary direction/exhaustion filter and delegates protective state to its
 wrapped strategy. `evaluation/bot.py` binds all seven context names and derives
-them for the opt-in `weekly_bb_ichimoku` strategy. Existing bot families and the
+them for the opt-in `weekly_bb_ichimoku` strategy. `weekly_bb_pullback` additionally
+binds native `4h__ichimoku_tenkan_distance_9bar`: completed-week band contact and
+opposite lower-timeframe Tenkan distance replace weekly direction/exhaustion
+permission as a separate package. It retains seven-field weekly availability and
+protective delegation. Existing bot families and the
 canonical candidate roster retain their meanings.
+
+### `integrations`
 
 外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。`BinancePublicTransport`の既定値はnetwork-enabledの既存互換を維持し、bootstrapだけがsource freeze後に`allow_network=False`を明示してcache-only化する。
 

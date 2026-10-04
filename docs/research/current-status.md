@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-03 (JST)
+更新基準: 2026-10-05 (JST)
 
 ## 結論
 
@@ -14,6 +14,27 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Reduce-only leverage recovery correction (2026-10-05)
+
+Execution safety work corrects a leverage-admission deadlock: an explicit
+reduce-only close can be rejected when another filled leg keeps total gross
+exposure above the cap. The per-processing-pass actual leverage snapshot and
+exact reserved inventory now define the recovery boundary. Only a close opposing
+and bounded by both actual and projected inventory may bypass that leverage
+rejection; unfilled closes never authorize new exposure, and invalid equity,
+insolvency, venue limits and actual fill-time guards retain their authority.
+Without an explicit profile roster, legacy reconciliation also emits reduce-only
+for a nonzero same-side MARKET shrink when actual decision-reference exposure
+already breaches the executor cap. Ordinary under-cap reductions and explicit
+profile selections keep their classification. A later price gap can still make
+an ordinary pending shrink inadmissible; this repair does not promise settlement.
+
+This is a software safety correction, not a new profitability result. Existing
+frozen datasets, protocols, rejected or failed comparisons and replay artifacts
+remain bound to their original source. A later development comparison must bind
+the repaired implementation and receive fresh result-blind G0-G3 verification;
+previous Green checks or economic results do not establish that comparison.
 
 ## Trading-bot validation repair (2026-10-03)
 

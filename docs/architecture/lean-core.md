@@ -360,6 +360,56 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。
 
+## Reduce-only admission during an actual leverage breach
+
+At each stateful `prepare_orders` pass, admission fixes the actual filled book's
+processing-open leverage state before reserving any pending order. A solvent
+book whose actual gross exposure exceeds the ordinary leverage limit remains
+in this recovery state throughout that pass. Pending closes cannot make new
+exposure eligible by projecting the book below the cap before those closes fill.
+Only an explicit MARKET reduce-only order can use the recovery exception.
+
+Legacy target reconciliation without a source profile also tags a nonzero
+same-side MARKET shrink as reduce-only when the actual book is already over the
+executor's leverage cap at decision reference prices. This classification uses
+actual quantities, cash, reference prices and contract multipliers, not target
+weights, pending fills or a cached mark. The desired exact quantity must retain
+the side and be smaller; its exact delta projects conservatively. This is the
+narrow exception to ordinary same-side reductions described above: below or at
+the cap, nonzero legacy reductions remain ordinary. A zero target retains the
+existing exact-inventory close. An explicitly provided profile still owns its
+reduce-only symbol roster, including an empty roster or a false exit flag;
+legacy recovery does not override that selection. Reversals, increases, unchanged
+targets and non-MARKET orders gain no recovery flag.
+
+Let `A` be the symbol's initial actual exact quantity, `Q` its current exact
+admission projection after earlier accepted reservations, and `D` the proposed
+accepted signed quantity. Recovery requires `A * D < 0`, `abs(D) <= abs(A)`,
+`Q * D < 0`, and `abs(D) <= abs(Q)`. No tolerance permits a quantity overdraw or
+sign flip. Thus two positions of -4 units at price 100 with equity 300 may each
+close by +4 even though the first close leaves gross exposure 400 above the cap
+300. Conversely, with actual +10 and projected +4 after an accepted -6 close,
+a second -6 is rejected: projected gross would fall, but the position would
+cross through zero. A second -4 can reserve the remaining exact quantity.
+
+The private projection reserves the same exact accepted quantity as admission,
+including integer-lot evidence. Without a lot grid, a projected full close is
+normalized to the exact projected quantity before checking the actual bound.
+For example, exact 0.4 minus a 0.1 reservation leaves exact 0.3; a request of
+-0.30000000000000004 cannot consume that reservation. Each new processing pass
+rebuilds this projection from the actual filled book rather than previous
+hypothetical fills.
+
+The exception does not admit an insolvent or invalid-equity book, waive identity,
+latency, expiry, activity, side, quantity, notional or venue checks, or change
+fill-time inventory and capacity enforcement. Fees apply only to accepted fills.
+Below the actual leverage cap, competing reduce-only orders retain their existing
+fill-time clipping and expiry semantics. This is an execution safety contract;
+it guarantees neither full settlement nor economic improvement. Classification
+happens at the decision reference price. A new breach caused only by a later
+processing-open gap cannot retroactively turn an ordinary pending shrink into a
+reduce-only order; it can still be rejected by the processing-open guard.
+
 ## Independent per-symbol evaluation
 
 同じfrozen model/policyを共有しつつ、strategy/controller wrapperは各銘柄ごとにfresh instanceを生成して独立Replayする。前の銘柄で更新されたwrapper内部状態を次の銘柄へ持ち越さない。

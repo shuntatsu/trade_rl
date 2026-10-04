@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -26,6 +27,9 @@ class _AdmissionBookProjection:
     mark_prices: np.ndarray
     contract_multipliers: np.ndarray
     insolvent: bool
+    exact_quantities: list[Fraction]
+    actual_equity: float
+    actual_gross_notional: float
 
     @classmethod
     def from_book(
@@ -37,6 +41,7 @@ class _AdmissionBookProjection:
         multipliers = book.contract_multipliers
         if multipliers is None:
             raise ValueError("projected order book requires contract multipliers")
+        exact_quantities = list(book.exact_quantities)
         quantities = book.quantities.copy()
         resolved_prices = np.asarray(mark_prices, dtype=np.float64).reshape(-1).copy()
         resolved_multipliers = (
@@ -58,6 +63,11 @@ class _AdmissionBookProjection:
             mark_prices=resolved_prices,
             contract_multipliers=resolved_multipliers,
             insolvent=book.insolvent or equity <= 0.0,
+            exact_quantities=exact_quantities,
+            actual_equity=equity,
+            actual_gross_notional=float(
+                np.abs(quantities * resolved_prices * resolved_multipliers).sum()
+            ),
         )
 
     @property
@@ -72,8 +82,10 @@ class _AdmissionBookProjection:
         *,
         symbol_index: int,
         quantity: float,
+        admitted_exact_quantity: Fraction,
         price: float,
     ) -> None:
+        self.exact_quantities[symbol_index] += admitted_exact_quantity
         self.quantities[symbol_index] += quantity
         self.cash -= quantity * price * float(self.contract_multipliers[symbol_index])
         equity = self.portfolio_value
@@ -226,9 +238,11 @@ class StatefulOrderTransitionProcessor:
                 )
             accepted.append(current)
             admitted = decision.admitted_quantity
+            assert decision.admitted_exact_quantity is not None
             projected_book.apply_admitted_order(
                 symbol_index=symbol,
                 quantity=admitted,
+                admitted_exact_quantity=decision.admitted_exact_quantity,
                 price=float(context.open_prices[symbol]),
             )
         return accepted

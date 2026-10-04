@@ -231,6 +231,29 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 これらprovider evidenceをbar-level participation、spread、impact、slippageやstrategy featureへ変換する規則は別の研究変更である。導入する場合は結果を見る前にpreregisterし、必要なavailability/join semanticsとexecution-economics identityを固定した新しいDataset / Studyを構築する。既存canonical Studyやfrozen Experiment evidenceを書き換えない。
 
+## Over-cap admission ownership
+
+`simulation/orders/reconciliation.py` owns legacy recovery order production.
+With no explicit profile roster, it compares actual gross exposure and actual
+equity at decision reference prices against the executor's leverage cap and tags
+only an already-over-cap, same-side smaller MARKET target as reduce-only. It
+uses the exact inventory delta, preserves ordinary under-cap nonzero reductions,
+and leaves explicit profile rosters authoritative. It does not forecast a later
+processing-open breach or admit an order.
+`simulation/stateful/order_transitions.py` owns the private per-pass admission
+projection: a processing-open snapshot of actual leverage and exact per-symbol
+reservations rebuilt from `BookState` for every processing pass. Its hypothetical
+cash and quantities are admission inputs, not filled accounting state.
+`simulation/orders/admission.py` owns the bounded exception for explicit MARKET
+reduce-only requests during an actual leverage breach. It checks both initial
+actual inventory and remaining projected inventory, and returns the exact
+accepted quantity evidence consumed by the projection. Pending closes never
+authorize new exposure while the actual snapshot is over the cap.
+`simulation/quantities.py` remains the authority for decimal rationals and
+accepted lots; allocation and `stateful/symbol_fills.py` retain actual fill-time
+inventory, capacity and expiry ownership. Admission reservations are transient
+and add no fields to persisted book or order schemas.
+
 ## Ownership
 
 ### `artifacts`

@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-04 (JST)
+更新基準: 2026-10-05 (JST)
 
 ## 結論
 
@@ -202,7 +202,8 @@ increased; less-negative funding partly offset the losses. This is recorded-path
 attribution, including marked baseline dust, not isolated component causality.
 
 The frozen source uses hourly-close bar marks for funding, not independently recovered
-venue settlement marks; separate PR#803 does not retroactively change these records.
+venue settlement marks; a separate settlement-mark repair does not retroactively
+change these records.
 The inherited simultaneous extreme-SHORT gap can reject sequential reduce-only closes
 because intermediate leverage remains over cap. A legal risk-reducing close is not
 guaranteed. That repair requires exact projected reservations and actual-over-cap
@@ -218,7 +219,8 @@ Source `795065e4` passed2755 full tests/26 optional skips,44 dedicated weekly te
 source/sdist/direct-wheel/rebuilt-wheel closure, clean outside-checkout package/source/
 resource identity and CLI smokes. Human Guide check/build and19 E2E tests passed with
 three optional skips. These local bindings do not replace final exact-head main-target
-CI or distinct GitHub-principal approval. PR#797 remains stacked on#795; no main merge,
+CI or distinct GitHub-principal approval. That verification was on a stacked work branch;
+no main merge,
 unused/final access, profitability, generalization or live readiness is established.
 
 ## Trading-bot validation repair (2026-10-03)
@@ -1487,3 +1489,74 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Active implementation: forming-week contact then native exhaustion (2026-10-05)
+
+The next opt-in package is `forming_week_bb_ichimoku`, around unchanged
+`AdaptiveConfig` and named native daily24 signal. It is a fixed, symmetric,
+symbol-independent hypothesis: the current hour reaches a forming-week BB20/2
+band, then the first later fresh native UTC4h event crosses Tenkan9 distance
+against the side. LONG requires adjacent previous>=0/current<0 after high>=1;
+SHORT requires previous<=0/current>0 after low<=-1. Each arm has only that first
+opportunity; old arms are consumed before same-hour new contact. Band contact
+alone never forces reversal. This changes the band time basis and event ordering
+together and cannot prove either indicator's isolated value or timely peaks.
+
+The separate forming transform uses exactly19 preceding consecutive fully valid
+UTC weeks plus current as-of close. Full weeks are Monday01:00 through next
+Monday00:00 inclusive; the current-week prefix must also be fully valid and
+available at each constituent's own close. Missing/late/invalid weeks are not
+skipped/backfilled. Portable population BB reductions first subtract the first
+positive sample close, then scale those deviations by maximum sample price.
+Current-hour high/low subtract the same reference before scaling and subtracting
+the mean deviation; this retains the mathematical raw BB20/2 formula. They
+retain valid neutral0 at exactly zero width and
+use every positive width without epsilon. The two saved `float32` ratios use
+inclusive contact thresholds. The existing completed-week seven-field context
+and plotted Ichimoku contracts retain their meanings.
+
+Both forming ratios must be available, finite and fresh with observation
+staleness0. A carried forming ratio is invalid and requests ordinary FLAT while
+clearing all state.
+
+Normal carried native values trigger neither crossing nor recovery. Missing
+required values/staleness or stale native four-hour boundaries request ordinary
+FLAT and clear arms, blocks and previous-native state. Monday01:00 week change
+and forward hour/index gaps also clear all state. Fresh native>=0 recovers LONG,
+<=0 recovers SHORT; duplicate/backward, NaT and cross-symbol rows are rejected
+before base/state advancement. Accepted rows still call base and retain
+protective delegation, hold24, hard risk and terminal priority. Replay of the
+same authoritative prefix through a fresh base/wrapper can reconstruct strategy
+state; saved checkpoints and full-ledger restart are not implemented contracts.
+Bot `start_index` remains an explicit cold start with no hidden priming.
+
+The native channel must bind source-build four-hour
+`ICHIMOKU_TENKAN_DISTANCE` window9, `Normalization.NONE`, UTC and configured
+maximum staleness (existing preset8 hours). Runtime inferred-event/age/carry
+validation does not prove original explicit metadata or historical native-source
+availability. Independent bound native-source G3 reconstruction remains required.
+Bot native freshness requires raw age0 and stored normalized staleness0 together.
+Available positive raw age with normalized0 is rejected, including normalization
+underflow. Expected normalized age is computed with `float64` division by the
+configured bound and only then stored as `float32`.
+
+The G0 screen is a proposal only: cash and unchanged adaptive controls,
+shared100,000 USDT, nominal budget0.2 per symbol, gross cap1.0, hold24 and fixed
+existing economics/risk. It requires every arm valid/exactly settled, observed
+drawdown strictly below20%, both prefixes selecting candidate and positive
+absolute/paired candidate return in every registered stress evaluation. Earlier
+2021-2024/Q1 evidence remains consumed development, with no unused-data claim.
+Fresh result-blind G0-G2, native-source G3, complete software/full-CI verification
+and a frozen exact-source protocol are not complete for this package. No new
+economic run or result has been produced for it; profitability, transfer,
+winner/final/live readiness and the user's full profit goal remain unestablished.
+
+Fresh independent G2 found a tiny-relative-variance counterexample: dividing
+prices before subtracting can erase a band contact. It was caught before any new
+economics. The center-before-scale repair passed local writer verification:
+32 forming-context and14 existing tests,46 total. A further independent review
+found positive raw age could normalize to zero under a very large staleness bound,
+and rounding before division could falsely reject a valid non-binary-exact bound.
+Three local RED regressions preceded the normalization/freshness repair. These
+numerical defects are locally repaired through TDD; fresh final independent G2
+review and full repository gates remain pending. No new economics were run.

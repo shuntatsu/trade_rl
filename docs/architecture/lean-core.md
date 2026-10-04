@@ -623,3 +623,86 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Forming-week BB contact and ordered four-hour exhaustion
+
+`data/features/forming_week_context.py` derives a separate causal forming-week
+context. `FORMING_WEEK_NAMES` contains exactly
+`forming_week_bb_hour_high_position` and `forming_week_bb_hour_low_position`,
+in that order. This transform does not alter the seven completed-week fields or
+their plotted-cloud meaning.
+
+At each hourly decision endpoint, BB20/2 uses exactly the 19 immediately preceding
+consecutive, fully valid calendar weeks' closes and the current as-of row close.
+Each full week contains all 168 consecutive UTC-hour endpoints from Monday01:00
+through the next Monday00:00 inclusive. The current week starts at Monday01:00;
+its entire hourly prefix through the decision row must also be valid. Every
+dependency must be active, available and finite, with information and source
+availability no later than its own close. An invalid week is not skipped or
+replaced by an older valid week, and later availability does not repair an earlier
+invalid constituent.
+
+The first positive sample close is the reference and the maximum sample price
+is the scale. Each centered deviation is `(close-reference)/scale`: subtraction
+occurs before division. Portable mean and population standard deviation operate
+on those 20 deviations. The current-hour high/low numerator is
+`(wick-reference)/scale - mean_deviation`, divided by twice that standard
+deviation. This retains the mathematical raw-price BB20/2 formula while avoiding
+divide-before-subtract cancellation at tiny relative variance. The numerator
+uses neither the current week's cumulative wick nor an
+earlier hour's high/low. Exactly zero standard deviation yields two valid neutral
+zeros. Every positive width uses the ratio without an absolute epsilon cutoff.
+Stored outputs are `float32`; contact decisions use those stored values with
+inclusive high>=1 and low<=-1. Missing, invalid or late dependencies yield zero
+values, availability false, raw age168 hours, normalized staleness1 and reason1.
+The transform creates a new content identity that binds source provenance while
+preserving the existing market, economics and feature fields.
+
+`FormingWeekExhaustionStrategy` wraps a base strategy with the two forming-context
+indices and a native short-term index. Both forming ratios must be available,
+finite and fresh with observation staleness0; carried context is invalid.
+High contact arms LONG exhaustion and low
+contact arms SHORT exhaustion. Each arm has exactly one opportunity: the first
+strictly later fresh UTC four-hour event. A fresh event requires an available,
+finite native value, explicitly supplied observation staleness equal to zero and
+an exact UTC four-hour boundary. It suppresses LONG only on adjacent native values
+previous>=0 then current<0, and SHORT only on previous<=0 then current>0. Reaching
+the band alone never suppresses or reverses. The arm is consumed at that first
+opportunity even if no qualifying crossing occurs. Old arms are consumed before
+new contact from the same hour is processed, so a same-hour contact cannot use
+that hour's crossing.
+
+A blocked LONG recovers only on a fresh native value>=0; a blocked SHORT only on
+a fresh value<=0, or by a full reset. Normal carried native values trigger no
+crossing or recovery. Missing/nonfinite required forming or native values, missing
+staleness metadata, stale forming context, or stale native data at a four-hour boundary request ordinary
+FLAT and clear all arms, blocks and previous-native state. Monday01:00 week change
+clears the same complete state; Monday04:00 is the new week's first native seed.
+A forward hourly or observation-index gap also resets state. Duplicate/backward
+time or index, NaT and cross-symbol observations are rejected before the base
+strategy or wrapper state is advanced.
+
+Every accepted observation still calls the base strategy's `decide`; protective
+pending state is delegated. Voluntary suppression remains ordinary FLAT, subject
+to exact-quantity hold24. Protective exits, hard risk and terminal settlement
+retain their existing priority. Reproducible state reconstruction requires a
+fresh base strategy and wrapper followed by the same authoritative observation
+prefix. This is not a persisted checkpoint or full-ledger restart contract. A bot
+started at `start_index` is a cold start with no hidden earlier-observation priming.
+
+The opt-in `forming_week_bb_ichimoku` binding retains unchanged `AdaptiveConfig`
+and named native daily24 signal. Its short-term feature identity must come from
+the source build specification: native four-hour
+`ICHIMOKU_TENKAN_DISTANCE`, window9, `Normalization.NONE`, UTC clock and the
+specification's maximum staleness (the existing preset uses8 hours). Runtime
+validation checks the inferred source-event clock, normalized-age bounds and
+carry consistency. Bot native freshness requires both raw age0 hours and stored
+normalized staleness0. An available positive raw age cannot be accepted as fresh
+because normalization underflows to zero. Expected normalized staleness is
+computed by `float64` age/bound division followed by `float32` storage, preserving
+the source specification's bound rather than rounding it before division.
+`MarketDataset` resolves omitted metadata, so these checks
+cannot attest that the original caller explicitly supplied it. Exact native raw
+source conformance still requires an independent G3 oracle. Existing bot families
+and canonical candidate rosters keep their meanings; implementation and software
+Green alone establish no profitable mechanism, peak prediction or unused transfer.

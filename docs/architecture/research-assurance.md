@@ -907,3 +907,89 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Research-specific contract: forming-week contact then native exhaustion
+
+G0 proposes a fixed, symbol-independent package around unchanged native-daily24
+adaptive intent: extension beyond a forming-week BB20/2 band followed by a later
+native four-hour sign crossing may distinguish exhausted continuation from an
+ordinary band walk. Persistent positioning and subsequent shorter-term weakness
+are a causal premise to test, not established price-top information. This package
+changes both the band time basis and the ordered confirmation mechanism, so it
+cannot isolate either indicator or prove an optimal threshold. Band walking,
+premature exit, lost valid trends, re-entry churn, funding concentration, locked
+exposure and added execution cost are explicit counterexamples.
+
+The proposed consumed-development diagnostic fixes cash and unchanged adaptive
+as controls, shared initial capital100,000 USDT, per-symbol nominal budget0.2,
+portfolio gross cap1.0, exact-quantity hold24, all other adaptive settings, risk,
+execution economics and terminal legality. The proposed success screen requires
+every prefix/evaluation arm complete and exactly settled, observed execution
+drawdown strictly below20%, both prefixes selecting candidate, and positive
+candidate after-cost absolute return plus strictly positive candidate-minus-
+adaptive return in every registered base/cost/latency evaluation. Cash remains
+first on a signed-score tie. Source-bound stress definitions and exact protocol
+must be frozen before execution; this prose is a screen proposal, not completed
+G0 approval or authorization for a new economic run. A failed/invalid control
+cannot be silently discarded to rescue the screen. Shared-cash diagnostics do
+not establish the intended independent single-symbol operational generalization.
+The already consumed2021-2024 and Q1 development scopes stay consumed; a passing
+screen would establish only that fixed diagnostic, not unused/final/live edge.
+
+G1 binds 19 immediately preceding consecutive full UTC weeks plus current as-of
+close, every full week Monday01:00 through next Monday00:00 inclusive, and a fully
+valid current-week prefix. Inactive, missing, nonfinite or late-at-own-close
+dependencies invalidate context without skipping/backfill. BB20 uses portable
+population reductions after centering each sample close on the first positive
+sample close and then dividing by maximum sample price. Current-hour wick
+numerators likewise subtract the reference before scaling and then subtract the
+mean centered deviation. This is the same mathematical raw BB20/2 formula;
+divide-before-subtract cancellation at tiny relative variance is unacceptable.
+Current-hour high/low positions are saved as `float32`. Exact zero width is valid neutral0, while every
+positive width uses the ratio without epsilon. Decisions use inclusive>=1/<=-1
+only when both forming ratios are available, finite and fresh with observation
+staleness0; carried forming context requests ordinary FLAT and clears all state.
+The native confirmation is source-specified four-hour
+`ICHIMOKU_TENKAN_DISTANCE` window9 with `Normalization.NONE`; UTC source-event
+alignment, the specification's normalized age bounds and carry consistency are
+checked without claiming original explicit metadata or historical source release.
+Bot native freshness requires both raw age0 and stored normalized staleness0;
+available positive raw age with normalized0 is rejected even when division would
+underflow. Expected normalized age uses `float64` division by the configured
+bound followed by `float32` storage, without first rounding that bound.
+
+Each side arms on contact and consumes the arm on the first later fresh UTC4h
+event. Fresh means available/finite with explicit observation staleness0 at a
+four-hour boundary. Adjacent previous>=0/current<0 blocks LONG; previous<=0/
+current>0 blocks SHORT. Old arms are consumed before same-hour new contact.
+Carried values trigger neither crossing nor recovery. Fresh>=0 recovers LONG,
+fresh<=0 recovers SHORT. Missing required context or metadata, stale four-hour
+boundary, week change at Monday01:00, or forward hour/index gap clears all state,
+including blocks and previous native value; the next valid fresh event seeds
+native state. Invalid required context returns ordinary FLAT. Duplicate/backward
+time/index, NaT and cross-symbol inputs are rejected before calling base or
+mutating state. Accepted rows always call the unchanged base, retaining
+protective delegation, quantity hold24, hard-risk and terminal priority.
+
+G2 requires independent calendar/sample, portable numerics and current-hour wick
+oracles; exact zero/tiny positive-width, tiny relative-variance cancellation and
+inclusive `float32` boundary cases; raw/normalized freshness agreement,
+normalization underflow and non-binary-exact staleness-bound conformance;
+missing/late/invalid full weeks without replacement; current-prefix and future
+non-interference; positive price scaling and named-column permutation; both-side
+ordered crossings, first-opportunity consumption, same-hour re-arm, normal carry,
+block recovery, week/gap reset and pre-base invalid-input rejection. Fresh-base/
+fresh-wrapper reconstruction from the same authoritative prefix is the state
+oracle; no persisted checkpoint or full-ledger restart claim is made, and bot
+`start_index` has cold-start semantics. Source-build feature-kind/window/
+normalization checks and runtime inferred source-event/carry checks are distinct
+from G3 native-archive reconstruction. `MarketDataset` metadata resolution means
+runtime validation alone cannot prove original explicit-metadata presence.
+
+Fresh independent result-blind G0-G2 review, exact-source software verification
+and independent Dataset/native-source G3 clearance remain required before G4.
+The G3 oracle must rederive native four-hour events and forming dependency windows
+from the bound source; an hourly proxy alone is not native-source proof. Source,
+runtime, Dataset, protocol and every arm's evidence must remain immutable and
+reconstructible. New software implementation is not the user's profitability
+goal, and no new economic result or complete G0-G3 assurance is established here.

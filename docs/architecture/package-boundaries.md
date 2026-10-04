@@ -537,3 +537,37 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Forming-week exhaustion ownership
+
+The current feature and rule layout additionally requires
+`data/features/forming_week_context.py` and `strategies/rules/weekly_exhaustion.py`.
+The data module owns `FORMING_WEEK_NAMES`, the content-bound 19-full-week plus
+current-close BB transform, calendar continuity, dependency availability,
+portable reductions on center-first, maximum-price-scaled deviations and the
+two current-hour high/low ratios. The first positive sample close is the reference:
+both closes and wicks subtract it before scaling; portable mean/population sigma
+use the close deviations. It fetches
+no venue data, makes no trading decision and depends on no strategy or evaluation
+module. `tests/architecture/test_lean_data_layout.py` requires its path.
+
+The rule module owns `FormingWeekExhaustionStrategy`: per-side contact arms,
+first-later-fresh-native-event consumption, adjacent sign crossings, block
+recovery and fail-closed temporal/symbol resets. It receives feature indices and
+observations, owns no Dataset build or source acquisition, and delegates base
+protective state. `tests/architecture/test_lean_strategy_layout.py` requires its
+path, while the existing rule-family dependency gate still forbids evaluation
+imports. The public strategy facade roster is unchanged.
+
+`evaluation/bot.py` owns the opt-in `forming_week_bb_ichimoku` composition and
+named-channel validation. The native daily24 adaptive signal and all existing
+adaptive controls remain unchanged. Native four-hour source identity is validated
+against the source build specification; runtime checks can validate event age and
+carry consistency. Bot native freshness requires raw age0 and normalized age0;
+positive raw age with normalized0 is rejected. Normalized-age conformance uses
+`float64` division by the configured bound followed by `float32` storage.
+These checks do not establish original explicit-metadata presence or historical archive
+availability. Those evidence claims remain G3 responsibilities. Completed-week
+context/confirmation, other bot families and the canonical candidate roster are
+separate contracts. No compatibility forwarder, saved wrapper checkpoint, hidden
+`start_index` priming or economic-result authority is introduced by these modules.

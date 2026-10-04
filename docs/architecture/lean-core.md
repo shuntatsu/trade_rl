@@ -67,6 +67,13 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+Split changes the units of both the filled book and the cached strategy proposal.
+PPO training, single-symbol replay, and shared-cash replay rebase the proposal by
+the processed split factor, including any unfilled entry remainder. A same-side
+hold therefore keeps split-adjusted exposure rather than trading back to an old
+unit count. This unit conversion does not replace a pending proposal with the
+actual partial fill or bypass hard risk.
+
 ### PPO Observation v2
 
 初回canonical real-data M2で使うteacher-free PPOのpolicy observationは、fit-scope leakageを避けるため最小のcausal contractへ固定する。tensor順序は次である。
@@ -112,7 +119,7 @@ execution overlay, capital, and evaluation window for its H=0 baseline and all
 candidates. Historical duration/risk evidence used `resolved_run_config_v5` and
 `lean_candidate_result_v6`; current Run Core keeps those schemas readable while
 new objective-bound writes use `resolved_run_config_v6` and
-`lean_candidate_result_v8`. H alone is the `PPO_MINIMUM_HOLD` factor. The
+`lean_candidate_result_v12`. H alone is the `PPO_MINIMUM_HOLD` factor. The
 explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
 or terminal move cannot exceed 20% realized drawdown.
@@ -152,9 +159,9 @@ these triggers do not guarantee a profit or cap a loss.
 
 Historical Observation-v3 Candidate Runs that include the shared-cash PPO replay
 use `lean_candidate_result_v7`; current objective-bound writes use
-`lean_candidate_result_v9`. Both bind the combined return series, terminal cash /
+`lean_candidate_result_v13`. Both bind the combined return series, terminal cash /
 quantities, active-order and settlement state, and versioned shared-cash ledger
-digest, while v9 additionally binds the PPO training objective and exact
+digest, while v13 additionally binds the PPO training objective and exact
 `ppo_gamma`. Loading recomputes return and maximum drawdown from the return
 series. This provides the v2 Study's single-account comparison input while
 preserving v1 per-symbol selection semantics.
@@ -183,6 +190,12 @@ deserialization, verifies policy bytes and SB3 spaces, and restores inference on
 CPU. Historical `ppo_normalized_model_v1` bundles remain readable through
 `load_normalized_ppo`; historical standalone research `model.zip` evidence is
 not silently promoted to an inference-safe bundle.
+
+Inference-bundle publication uses the shared atomic directory primitive. A
+transient Windows permission failure is retried a bounded number of times only
+while staging remains a regular directory and the target is absent. Exhaustion
+or changed source/target state fails closed, and the publisher removes its own
+staging directory; it does not publish a partial copy.
 
 The no-refit replication verifier validates the stored slot-result schema
 separately from the replay payload. Slot publication replaces the directional
@@ -214,7 +227,7 @@ settlement各intervalの実現log wealth changeを最後のterminal transition�
 `gae_lambda=0.95`、advantage normalization有効をtraining objectiveの意味として
 記録する。新規Runは `resolved_run_config_v6` でこのreward schema、`ppo_gamma`、
 固定GAE lambdaをsemantic identityへbindし、Candidate Run artifactは通常経路を
-`lean_candidate_result_v8`、shared-cash経路を `lean_candidate_result_v9`
+`lean_candidate_result_v12`、shared-cash経路を `lean_candidate_result_v13`
 として同じ `ppo_training_objective_v1` を保存する。`ppo_gamma` は有限な `(0, 1]` のみを許し、
 `PPO_DISCOUNT` Controlled Factorではこの値だけを変更できる。reward schemaと
 GAE lambdaを同じExperimentで変更してはならない。これはtemporal credit
@@ -235,7 +248,7 @@ Age-aware Observation v3の保有期間比較は、generic PPO既定値をその
 
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
-Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。historical duration/risk Runの`lean_candidate_result_v6`は保有期間、Observation schema、terminal settlement、全評価期間のカバレッジ、training suppression count、明示pre-trade risk configを記録・検証し、current `lean_candidate_result_v8`はそれに `ppo_training_objective_v1` と `ppo_gamma` の一致検証を加える。shared-cash版はhistorical v7 / current v9で同じobjective bindingを適用する。従来schemaは互換読込するが、新objective fieldを遡及的に補完しない。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
+Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。historical duration/risk Runの`lean_candidate_result_v6`は保有期間、Observation schema、terminal settlement、全評価期間のカバレッジ、training suppression count、明示pre-trade risk configを記録・検証し、current `lean_candidate_result_v12`はそれに `ppo_training_objective_v1` と `ppo_gamma` の一致検証を加える。shared-cash版はhistorical v7 / current v13で同じobjective bindingを適用する。従来schemaは互換読込するが、新objective fieldを遡及的に補完しない。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
 
 `A2CIntentStrategy` と `fit_a2c_strategy` は、PPOと同じprivate 3-action intent adapter、`PPOTradingEnv`、Observation v2、fit-scope専用 `PPOFeatureNormalizer` を再利用する。A2Cはsequential layoutだけを許し、各fit symbolに最低1 nominal full-window episode分のstep budgetを割り当てられるか、rollout `n_steps=5` 単位へ切り上げたeffective step数でfit前に検証する。このcoverageはbudget上の容量であり、risk termination等が起きる実行中に各symbolのtransitionを観測した証拠ではない。
 
@@ -277,6 +290,16 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 ## Execution / accounting authority
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
+
+Weight-to-quantity sizing uses the current book's mark prices, the same valuation
+basis as its equity and weights. An entirely cash book uses the current dataset
+mark for its first entry sizing, including `BookState.zero` callers that omitted
+initial prices; placeholder book marks must not determine entry units. This does
+not mutate the caller's book. Trading close remains the submission reference
+for order identity, limit/stop offsets, and order-completion diagnostics. Distinct
+mark and trading prices must not generate a rebalance for an unchanged quantity
+proposal. Direct low-level reconciliation callers that omit valuation prices
+retain their explicit reference-price sizing contract.
 
 不変条件:
 
@@ -392,6 +415,8 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。
 
+Bot CLIの`--signal-feature`はDatasetの一意なfeature名を実行前に解決し、対応する`signal_index`をbaseline、cash、全candidate、全walk-forward foldへ固定する。未指定時は従来の0列目を維持する。公開tuning/comparison APIも同じindexを明示でき、boolean・負値・非整数・source Dataset範囲外のindexはchannel追加やreplay前に拒否する。configのindexとDataset identityがfeature semanticsをbindする。channel戦略とconstant/cash controlは従来どおり各自の入力・intent契約を使い、この指定でchannel定義やcontrolを変更しない。
+
 上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
 
 CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちらかを要求する。省略時や明示されたpathが存在しない・directoryでない場合は入力errorとして終了し、optimize/compareをsynthetic demo dataへ暗黙にフォールバックしない。
@@ -399,6 +424,18 @@ CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちら
 単一strategyのtuning resultは、parameter selection後の後続window reportを返す。一方、`tune_all_strategies` は五つのfamilyそれぞれの後続window reportを表示するため、familyを選ぶ目的で比較した時点でそのwindowはdevelopment evidenceになる。出力の `report_scope=development_family_comparison` はこの意味を示す。family選択後にfinal out-of-sample claimを行うには、さらに後の未閲覧windowで再評価する。
 
 Candidateの選定適格性はtuning-window shared ledger maximum drawdownが20%以下であることを要求する。20%はselection vetoであり、pre-trade stopやholdoutのrealized drawdownを20%以内に保証しない。価格gap、約定損、terminal settlementで観測drawdownが20%を超える場合があるため、holdout drawdownはそのまま報告する。
+
+`balanced` は符号付きのtotal return / max(drawdown, 0.1%)へinterval profit-factor bonusを掛ける。損失の符号を反転せず、損失candidateをcashや正returnより高く評価しない。この比率は年率換算Calmarではない。tuning candidateは終端のexact quantityが全て0、active order remainderなし、economic terminationなしであることも必要とする。Bot reportはmarked equity/P&Lと`terminal_settled`、残余quantity、active order、termination reasonを同時に保持する。決済不能の後続reportはそのまま表示し、利益や決済完了へ書き換えない。ledger evidenceを伴わず手動作成されたreportの`terminal_settled`は`None`とし、未確認の決済を真として扱わない。
+
+各tuning prefixでは既存baselineとparameter gridに加え、同じcapital・cost・windowのcash replayを必ず比較する。cashはgrid budgetを消費しない独立controlであり、同点ならcashを優先する。cashの実損益を使い、cash interestが存在するDatasetをzero returnへ書き換えない。zero-P&L cashのSharpe objective scoreは0とする。後続windowの損益は選定に使わず、正のprefixから選んだ取引candidateが後続で損失になっても、その結果をcashへ差し替えない。requested familyは`TuningResult.strategy_name`、実際に選んだfamilyは`optimized_config.strategy_name` / `optimized_report.strategy_name`で区別する。取引候補が全て不適格でも、cashの実replayが適格ならcashを返す。cashを含む全候補が不適格なら成功を捏造せずerrorにする。
+
+Bot reportはbookの`total_execution_cost`、符号付き`funding_pnl`、`borrow_cost`、`turnover_total`、`fill_count`、`rebalance_events`も保持する。cost/funding/borrowはaccount currency、turnoverは各fill notional / interval開始equityの和であり、ドル額やclosed-trade countとは呼ばない。診断値はP&Lへ再加算・再課金せず、execution/accounting ownerの実測値を報告する。手動で作る従来の`BotReport`では未提供の診断値を`None`とし、未計測を0へ偽装しない。
+
+`walk_forward_tune` / `--mode walk-forward` は同じ探索・score・eligibilityを使い、直前foldで選定して次foldをfresh capital / strategy stateでreplayする。各windowの`report_scope`も`development_walk_forward`とする。`profitable_windows`にはmarked P&Lが正で、かつ終端決済が確認されたreportだけを数える。最後のfoldには割り切れない残余barを含め、隣接するevaluation intervalは重複しない。最後のmarkは次windowの開始markにもなる。後のtuningで既に評価したfoldを再利用するため、全体は`development_walk_forward`であり、独立標本やsealed final evidenceではない。各windowは同じinitial capitalへresetし、`cumulative_return_pct`は正規化returnの仮想積である。capacityやorder sizingを再投資capitalでreplayしたcontinuous wealth pathを表さない。
+
+Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`をfeature名で解決し、不足時はreplay前にrejectする。閾値ではなく正規channelの符号を使う。synthetic demoはEMA signalと既存のprior-candle channel builderを使い、現在足をchannel extremaへ含めない。adaptive botのregime判定は設定signalの絶対値を使うmomentum判定であり、独立したrealized volatilityの推定ではない。
+
+`AdaptiveProfitConfig`はfinite・nonnegativeなthresholdと、nonnegative integerのfeature index / max holdingを要求し、booleanも拒否する。entryはpositiveで対応exitより大きいことを要求する。zero regime thresholdによるtrend固定と、zero protective thresholdによるexit無効化は明示的な有効設定として維持する。NaNでprotective comparisonを黙って無効にする設定はreplay前に拒否する。
 
 ## Artifact and evidence rules
 

@@ -11,6 +11,7 @@ from trade_rl.evaluation.bot import (
     BotConfig,
     BotReport,
     TuningResult,
+    WalkForwardResult,
     calculate_bot_report,
     compare_all_strategies,
     generate_demo_dataset,
@@ -19,6 +20,7 @@ from trade_rl.evaluation.bot import (
     run_trading_bot,
     tune_all_strategies,
     tune_for_maximum_profit,
+    walk_forward_tune,
 )
 from trade_rl.simulation import ExecutionCostConfig
 
@@ -39,7 +41,14 @@ def test_generate_demo_dataset_is_valid() -> None:
     assert dataset.n_bars == 100
     assert dataset.n_symbols == 2
     assert len(dataset.symbols) == 2
-    assert dataset.features.shape == (100, 2, 4)
+    assert dataset.features.shape == (100, 2, 5)
+
+
+def test_bot_config_preserves_existing_positional_field_order() -> None:
+    config = BotConfig("trend", 100_000.0, 0.2, 4, 0.017)
+
+    assert config.entry_threshold == 0.017
+    assert config.signal_index == 0
 
 
 def test_run_trading_bot_executes_successfully() -> None:
@@ -158,6 +167,18 @@ def test_bot_report_sharpe_uses_return_series_periods_per_year() -> None:
 
 def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
     dataset = generate_demo_dataset(n_bars=60, n_symbols=1, seed=29)
+    prices = (100.0 * np.exp(0.01 * np.arange(dataset.n_bars)))[:, np.newaxis]
+    features = dataset.features.copy()
+    features[:, :, 0] = 0.1
+    dataset = replace(
+        dataset,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        features=features,
+        identity_payload_json=None,
+    )
     tuning = tune_for_maximum_profit(
         dataset,
         strategy_name="trend",
@@ -178,6 +199,7 @@ def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
     assert tuning.optimized_config == shocked_tuning.optimized_config
     assert tuning.selection_score == shocked_tuning.selection_score
     assert tuning.selection_drawdown_pct == shocked_tuning.selection_drawdown_pct
+    assert tuning.optimized_config.strategy_name == "trend"
     assert tuning.optimized_report != shocked_tuning.optimized_report
 
     _, direct_holdout_report = run_trading_bot(
@@ -194,6 +216,47 @@ def test_tuning_selection_ignores_the_later_holdout_but_reports_it() -> None:
         stop_index=tuning.holdout_stop_index,
     )
     assert tuning.optimized_report == direct_candidate_report
+
+
+def test_tuning_selection_ignores_the_first_holdout_open() -> None:
+    dataset = generate_demo_dataset(n_bars=60, n_symbols=1, seed=29)
+    prices = (100.0 * np.exp(0.01 * np.arange(dataset.n_bars)))[:, np.newaxis]
+    features = dataset.features.copy()
+    features[:, :, 0] = 0.1
+    dataset = replace(
+        dataset,
+        open=prices,
+        high=prices,
+        low=prices,
+        close=prices,
+        features=features,
+        identity_payload_json=None,
+    )
+    tuning = tune_for_maximum_profit(
+        dataset,
+        strategy_name="trend",
+        max_combinations=8,
+        holdout_fraction=0.2,
+    )
+
+    shocked_open = dataset.open.copy()
+    shocked_open[tuning.holdout_start_index, 0] *= 0.5
+    shocked = replace(
+        dataset,
+        open=shocked_open,
+        high=np.maximum(dataset.high, shocked_open),
+        low=np.minimum(dataset.low, shocked_open),
+    )
+    shocked_tuning = tune_for_maximum_profit(
+        shocked,
+        strategy_name="trend",
+        max_combinations=8,
+        holdout_fraction=0.2,
+    )
+
+    assert tuning.optimized_config == shocked_tuning.optimized_config
+    assert tuning.selection_score == shocked_tuning.selection_score
+    assert tuning.selection_drawdown_pct == shocked_tuning.selection_drawdown_pct
 
 
 def test_tuning_rejects_invalid_objective_and_windows() -> None:
@@ -251,6 +314,7 @@ def test_drawdown_ineligible_candidate_cannot_win(monkeypatch) -> None:
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=pnl > 0.0,
+            terminal_settled=True,
         )
 
     def fake_run(
@@ -274,7 +338,7 @@ def test_drawdown_ineligible_candidate_cannot_win(monkeypatch) -> None:
     assert result.optimized_report.net_pnl == 42.0
     assert result.baseline_report.net_pnl == 11.0
     assert all(
-        stop == result.tuning_stop_index
+        stop == result.tuning_stop_index - 1
         for _, start, stop in calls
         if start == result.tuning_start_index
     )
@@ -355,7 +419,7 @@ def test_tune_all_strategies_executes_and_ranks() -> None:
         assert ranked[i].selection_score >= ranked[i + 1].selection_score
 
 
-@pytest.mark.parametrize("objective", ["sharpe", "balanced"])
+@pytest.mark.parametrize("objective", ["profit", "sharpe", "balanced"])
 def test_tune_all_strategies_ranks_by_the_selected_objective(
     monkeypatch,
     objective: str,
@@ -393,6 +457,7 @@ def test_tune_all_strategies_ranks_by_the_selected_objective(
             interval_profit_factor=2.0,
             sharpe_ratio=objective_scores[strategy_name],
             is_profitable=True,
+            terminal_settled=True,
         )
         return TuningResult(
             strategy_name=strategy_name,
@@ -461,6 +526,7 @@ def test_bounded_tuning_grid_samples_every_parameter_axis(monkeypatch) -> None:
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=True,
+            terminal_settled=True,
         )
         return None, report
 
@@ -529,6 +595,7 @@ def test_near_zero_holdout_baseline_has_undefined_relative_improvement(
             interval_profit_factor=1.0,
             sharpe_ratio=1.0,
             is_profitable=pnl > 0.0,
+            terminal_settled=True,
         )
         return None, report
 
@@ -648,3 +715,49 @@ def test_cli_help_does_not_print_runtime_adaptive_exit_notes(capsys) -> None:
     output = capsys.readouterr().out
     assert "--demo" in output
     assert "Adaptive exits use bar-close" not in output
+
+
+def test_walk_forward_tune_returns_n_minus_one_windows() -> None:
+    dataset = generate_demo_dataset(n_bars=200, n_symbols=1, seed=71)
+    result = walk_forward_tune(
+        dataset,
+        strategy_name="trend",
+        n_windows=3,
+        max_combinations=4,
+    )
+    assert isinstance(result, WalkForwardResult)
+    assert result.n_windows == 3
+    assert len(result.window_results) == 2  # n_windows - 1 evaluation windows
+    assert result.strategy_name == "trend"
+    assert result.dataset_id == dataset.dataset_id
+
+
+def test_walk_forward_tune_rejects_invalid_n_windows() -> None:
+    dataset = generate_demo_dataset(n_bars=200, n_symbols=1, seed=73)
+    with pytest.raises(ValueError, match="n_windows"):
+        walk_forward_tune(dataset, n_windows=1)
+    with pytest.raises(ValueError, match="n_windows"):
+        walk_forward_tune(dataset, n_windows=True)
+
+
+def test_walk_forward_tune_cumulative_return_matches_window_product() -> None:
+    dataset = generate_demo_dataset(n_bars=200, n_symbols=1, seed=77)
+    result = walk_forward_tune(
+        dataset,
+        strategy_name="trend",
+        n_windows=3,
+        max_combinations=4,
+    )
+    import math
+
+    expected_cumulative = (
+        math.prod(
+            1.0 + wr.optimized_report.total_return_pct / 100.0
+            for wr in result.window_results
+        )
+        - 1.0
+    ) * 100.0
+    assert result.cumulative_return_pct == pytest.approx(expected_cumulative, abs=1e-6)
+    assert result.profitable_windows == sum(
+        1 for wr in result.window_results if wr.optimized_report.is_profitable
+    )

@@ -103,6 +103,8 @@ actionが直接rewardになるわけではありません。必ずriskとexecuti
 
 保存したPPOは、標準化の有無にかかわらずモデルbytesだけでは再利用しません。fit済みstrategy自身がtraining Datasetから得た選択feature名を保持し、inference bundleへObservation schema、選択featureのindex/name、model bytes、必要なら標準化係数を一つのdigestで固定します。保存時はcallerが渡したfeedの選択feature名をstrategy自身のbindingと照合し、読み込み時もmanifestからそのbindingを復元して現在のfeature順序と照合します。featureの意味がずれた、model bytesが置き換わった、必要な係数が一致しない、といった場合はpolicyを読み込む前にfail closedにします。過去のnormalized-only bundleは読み取り互換を維持しますが、単独のhistorical `model.zip`を自動的に安全なdeployment artifactへ昇格させません。利益が改善するかは、別の実データ比較で判定します。
 
+保存は一時領域で完成させてからまとめて公開します。Windowsの短いファイルロックには有限回の再試行を行い、保存先が現れた場合や再試行が尽きた場合は失敗として扱います。途中までコピーしたモデルを成功として公開することはありません。
+
 このcontractを固定することで、学習時にだけ便利な情報を後から追加してバックテストを有利にする余地を減らします。
 
 ## 2. policyがactionを選ぶ
@@ -114,6 +116,8 @@ PPO policyは選択されたObservation schemaから離散actionを返します�
 離散actionを`SHORT` / `FLAT` / `LONG`へ写像し、現在のportfolio状態からproposal weightを作ります。
 
 同じintentを維持する場合、価格driftだけを理由に毎decisionで機械的に元weightへ戻すのが標準ではありません。標準はquantity-preserving holdです。
+
+分割では実保有と未約定分を含む目標数量を同じ比率で換算します。また、評価用のマーク価格と取引価格が異なっても、保有継続だけで数量は増減しません。数量換算には口座の評価価格を使い、注文の価格基準は取引価格のまま維持します。
 
 ## 4. hard riskを通す
 

@@ -44,8 +44,8 @@ _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
-_RESULT_SCHEMA_V8 = "lean_candidate_result_v8"
-_RESULT_SCHEMA_V9 = "lean_candidate_result_v9"
+_RESULT_SCHEMA_V12 = "lean_candidate_result_v12"
+_RESULT_SCHEMA_V13 = "lean_candidate_result_v13"
 _LEGACY_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -60,8 +60,8 @@ _LEGACY_RESULT_SCHEMAS = frozenset(
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         *_LEGACY_RESULT_SCHEMAS,
-        _RESULT_SCHEMA_V8,
-        _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V12,
+        _RESULT_SCHEMA_V13,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -117,8 +117,8 @@ class LoadedCandidateRun:
         if schema not in {
             _RESULT_SCHEMA_V6,
             _RESULT_SCHEMA_V7,
-            _RESULT_SCHEMA_V8,
-            _RESULT_SCHEMA_V9,
+            _RESULT_SCHEMA_V12,
+            _RESULT_SCHEMA_V13,
         }:
             return False
         evaluation = self.summary.get("evaluation")
@@ -161,7 +161,7 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9}:
+        if schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V13}:
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -317,9 +317,9 @@ def _result_payload(
     )
     summary: dict[str, object] = {
         "schema_version": (
-            _RESULT_SCHEMA_V9
+            _RESULT_SCHEMA_V13
             if result.comparison.shared_cash_ppo is not None
-            else _RESULT_SCHEMA_V8
+            else _RESULT_SCHEMA_V12
         ),
         "ppo_training_objective": training_objective,
         "ppo_observation": ppo_observation_contract_payload(
@@ -628,8 +628,8 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
-        _RESULT_SCHEMA_V8,
-        _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V12,
+        _RESULT_SCHEMA_V13,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -677,8 +677,8 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
-        _RESULT_SCHEMA_V8,
-        _RESULT_SCHEMA_V9,
+        _RESULT_SCHEMA_V12,
+        _RESULT_SCHEMA_V13,
     }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
@@ -1344,11 +1344,11 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v7_replay_evidence(summary)
-    if result_schema == _RESULT_SCHEMA_V8:
+    if result_schema == _RESULT_SCHEMA_V12:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_ppo_training_objective(summary)
         _validate_v6_replay_evidence(summary)
-    if result_schema == _RESULT_SCHEMA_V9:
+    if result_schema == _RESULT_SCHEMA_V13:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_ppo_training_objective(summary)
         _validate_v7_replay_evidence(summary)
@@ -1365,9 +1365,9 @@ def _load_with_evidence(
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_v7_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V8:
+    if result_schema == _RESULT_SCHEMA_V12:
         _validate_v6_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V9:
+    if result_schema == _RESULT_SCHEMA_V13:
         _validate_v7_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,

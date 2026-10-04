@@ -261,7 +261,7 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v8"
+    assert summary["schema_version"] == "lean_candidate_result_v12"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     loaded = load_candidate_run_artifact(artifact.root)
     candidate_config = loaded.summary["candidate_config"]
@@ -306,7 +306,7 @@ def test_candidate_v8_binds_age_observation_and_holding_duration_and_risk(
     )
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v8"
+    assert summary["schema_version"] == "lean_candidate_result_v12"
     assert summary["ppo_observation"] == ppo_observation_contract_payload(
         PPO_OBSERVATION_SCHEMA_V3
     )
@@ -336,7 +336,7 @@ def test_candidate_v8_binds_age_observation_and_holding_duration_and_risk(
     assert ppo_summary["active_order_remainders"] == []
 
     loaded = load_candidate_run_artifact(artifact.root)
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v8"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v12"
 
 
 @pytest.mark.parametrize(

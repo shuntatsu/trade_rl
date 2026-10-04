@@ -37,7 +37,7 @@ def test_new_candidate_artifact_binds_ppo_training_objective(tmp_path: Path) -> 
     )
 
     summary = json.loads(published.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v8"
+    assert summary["schema_version"] == "lean_candidate_result_v12"
     assert summary["candidate_config"]["ppo_gamma"] == pytest.approx(0.9975)
     assert summary["ppo_training_objective"] == (
         ppo_training_objective_contract_payload(gamma=0.9975)

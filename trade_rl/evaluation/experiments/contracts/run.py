@@ -72,9 +72,6 @@ class ResolvedRunConfig:
     gross_budget: float
     initial_capital: float
     execution_overlay: str
-    ppo_gamma: float = PPO_DEFAULT_GAMMA
-    ppo_reward_schema: str = PPO_REWARD_SCHEMA
-    ppo_gae_lambda: float = PPO_DEFAULT_GAE_LAMBDA
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
@@ -83,6 +80,9 @@ class ResolvedRunConfig:
     ppo_minimum_hold_bars: int = 0
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
+    ppo_reward_schema: str = PPO_REWARD_SCHEMA
+    ppo_gae_lambda: float = PPO_DEFAULT_GAE_LAMBDA
 
     def __post_init__(self) -> None:
         signal_name = contract_text(self.signal_name, field="signal_name")

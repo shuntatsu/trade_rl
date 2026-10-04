@@ -65,12 +65,12 @@ class LeanCandidateConfig:
     forecast_exit_threshold: float
     ppo_total_timesteps: int
     ppo_seed: int = 0
-    ppo_gamma: float = PPO_DEFAULT_GAMMA
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
     ppo_minimum_hold_bars: int = 0
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
 
     def __post_init__(self) -> None:
         if (

@@ -12,6 +12,7 @@ from typing import Any
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.verified_file import (
     file_digest,
     open_regular_binary,
@@ -111,7 +112,7 @@ def save_normalized_ppo(root: Path, strategy: PPOIntentStrategy) -> str:
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(encoded)
-        staging.rename(root)
+        atomic_rename_directory(staging, root)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -272,7 +273,7 @@ def save_ppo_inference_bundle(
         encoded = canonical_json_bytes(manifest)
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(encoded)
-        staging.rename(root)
+        atomic_rename_directory(staging, root)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

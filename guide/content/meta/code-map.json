@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "89d74a1664b565b13690e50a7d3a6766b5f0d73b0fb193d25ef337469a65c677"
+      "sha256": "cd42182cd5dbf9105f2f26d0e1dfb52e9b09207c86b2cfce7e9110b9256a5c77"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -106,7 +106,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "49b031e85f08364caa081b3eb6175f9ca83623aac41d952f84606ffc4e100a1d",
+      "source_sha256": "f80c5240c77670efc29e5f0f74f327408221f2f8993edc1a92016c690bbdcc67",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],

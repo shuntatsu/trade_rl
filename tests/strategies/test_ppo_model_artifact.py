@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
-from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts import atomic_write, canonical_json_bytes, content_digest
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_artifact import (
@@ -75,6 +75,44 @@ def test_saved_model_roundtrip_requires_matching_transform_and_feed_schema(
     assert not Policy.loaded
     with pytest.raises(FileExistsError):
         save_normalized_ppo(root, strategy)
+
+
+def test_normalized_model_save_retries_transient_windows_publication_lock(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_normalizer=_fit()
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    original_rename = type(root).rename
+    attempts = 0
+    delays = []
+
+    def locked_once(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporary Windows publication lock")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
+
+    digest = save_normalized_ppo(root, strategy)
+
+    assert attempts == 2
+    assert len(delays) == 1
+    assert (root / "policy.zip").read_bytes() == b"policy bytes"
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    assert digest == content_digest(manifest)
+    assert list(tmp_path.glob(".policy.staging-*")) == []
 
 
 @pytest.mark.parametrize(
@@ -421,6 +459,94 @@ def test_failed_inference_bundle_save_leaves_no_partial_destination(tmp_path) ->
         )
 
     assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_inference_bundle_retries_transient_windows_publication_lock(
+    tmp_path, monkeypatch, normalized
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        feature_normalizer=_fit() if normalized else None,
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    original_rename = type(root).rename
+    attempts = 0
+    delays = []
+
+    def locked_once(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporary Windows publication lock")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
+    digest = save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == 2
+    assert len(delays) == 1
+    assert (root / "policy.zip").read_bytes() == b"policy bytes"
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    assert digest == content_digest(manifest)
+    assert (manifest["normalizer"] is not None) is normalized
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
+def test_inference_bundle_cleans_staging_after_exhausted_publication_lock(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_names=("signal",)
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    attempts = 0
+
+    def always_locked(source, target):
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError("persistent Windows publication lock")
+
+    monkeypatch.setattr(type(root), "rename", always_locked)
+    monkeypatch.setattr(atomic_write.time, "sleep", lambda delay: None)
+    with pytest.raises(PermissionError, match="persistent Windows"):
+        save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == len(atomic_write._DIRECTORY_RENAME_RETRY_DELAYS) + 1
+    assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
+def test_inference_bundle_does_not_overwrite_a_competing_publication(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_names=("signal",)
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    attempts = 0
+
+    def competing_publication(source, target):
+        nonlocal attempts
+        attempts += 1
+        Path(target).mkdir()
+        (Path(target) / "policy.zip").write_bytes(b"competing policy")
+        raise PermissionError("destination was published concurrently")
+
+    monkeypatch.setattr(type(root), "rename", competing_publication)
+    with pytest.raises(PermissionError, match="concurrently"):
+        save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == 1
+    assert (root / "policy.zip").read_bytes() == b"competing policy"
+    assert not (root / "manifest.json").exists()
     assert list(tmp_path.glob(".policy.staging-*")) == []
 
 

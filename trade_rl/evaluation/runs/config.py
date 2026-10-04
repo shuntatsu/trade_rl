@@ -68,13 +68,13 @@ class CandidateRunConfig:
         "ppo_seed",
         "gross_budget",
         "initial_capital",
-        "ppo_gamma",
         "ppo_training_layout",
         "ppo_rollout_steps_per_env",
         "ppo_minimum_hold_bars",
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "ppo_gamma",
     )
 
     signal_name: str
@@ -91,13 +91,13 @@ class CandidateRunConfig:
     ppo_seed: int
     gross_budget: float
     initial_capital: float
-    ppo_gamma: float = PPO_DEFAULT_GAMMA
     ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
     ppo_rollout_steps_per_env: int | None = None
     ppo_minimum_hold_bars: int = 0
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")

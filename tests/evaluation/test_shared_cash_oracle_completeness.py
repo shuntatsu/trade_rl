@@ -93,6 +93,152 @@ def test_shared_cash_funding_debit_matches_hand_calculation() -> None:
     np.testing.assert_allclose(result.book.quantities, np.zeros(2))
 
 
+def test_shared_cash_split_preserves_hand_calculated_inventory_value() -> None:
+    base = _market()
+    price_fields = {
+        field: getattr(base, field).copy()
+        for field in ("open", "high", "low", "close", "mark_price")
+    }
+    for prices in price_fields.values():
+        prices[2:, 0] /= 2.0
+    split_factor = base.resolved_array("split_factor").copy()
+    split_factor[2, 0] = 2.0
+    dataset = replace(base, **price_fields, split_factor=split_factor)
+
+    result = run_shared_cash_replay(
+        dataset,
+        _strategies(),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=_risk(),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    transition = next(
+        transition
+        for interval in ledger.intervals
+        for transition in interval.accounting_transitions
+        if transition.transition_type == "split"
+    )
+    assert transition.state_before.exact_quantities == ("5/2", "0")
+    assert transition.state_after.exact_quantities == ("5", "0")
+    assert transition.state_before.mark_prices == pytest.approx((100.0, 200.0))
+    assert transition.state_after.mark_prices == pytest.approx((50.0, 200.0))
+    assert transition.state_before.cash == pytest.approx(750.0)
+    assert transition.state_after.cash == pytest.approx(750.0)
+    assert 2.5 * 100.0 == pytest.approx(5.0 * 50.0)
+    assert ledger.final_portfolio_value == pytest.approx(1_000.0)
+
+
+def test_shared_cash_delisting_recovery_matches_hand_calculation() -> None:
+    base = _market()
+    asset_active = base.resolved_array("asset_active").copy()
+    asset_active[2:, 0] = False
+    tradable = base.tradable.copy()
+    tradable[2:, 0] = False
+    feature_available = base.feature_available.copy()
+    feature_available[2:, 0] = False
+    feature_staleness = base.resolved_array("feature_staleness").copy()
+    feature_staleness[2:, 0] = 1.0
+    information_available = base.resolved_array("information_available").copy()
+    information_available[2:, 0] = False
+    recovery = base.resolved_array("delisting_recovery").copy()
+    recovery[2, 0] = 0.5
+    dataset = replace(
+        base,
+        asset_active=asset_active,
+        symbol_active=asset_active,
+        tradable=tradable,
+        feature_available=feature_available,
+        feature_staleness=feature_staleness,
+        information_available=information_available,
+        delisting_recovery=recovery,
+    )
+
+    result = run_shared_cash_replay(
+        dataset,
+        _strategies(),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=_risk(),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    transition = next(
+        transition
+        for interval in ledger.intervals
+        for transition in interval.accounting_transitions
+        if transition.transition_type == "delisting_settlement"
+    )
+    assert transition.state_before.exact_quantities == ("5/2", "0")
+    assert transition.state_after.exact_quantities == ("0", "0")
+    expected_recovery = 2.5 * 100.0 * 0.5
+    assert transition.state_after.cash - transition.state_before.cash == pytest.approx(
+        expected_recovery
+    )
+    assert transition.state_before.cash + 2.5 * 100.0 == pytest.approx(1_000.0)
+    assert transition.state_after.cash == pytest.approx(875.0)
+    assert ledger.final_portfolio_value == pytest.approx(875.0)
+
+
+def test_shared_cash_short_borrow_matches_hand_calculation() -> None:
+    base = _market()
+    borrow_rate = np.zeros((base.n_bars, base.n_symbols), dtype=np.float64)
+    borrow_rate[2, 0] = 0.1
+    dataset = replace(base, borrow_rate=borrow_rate)
+
+    result = run_shared_cash_replay(
+        dataset,
+        (
+            _ConstantIntent(PositionIntent.SHORT),
+            _ConstantIntent(PositionIntent.FLAT),
+        ),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.25,
+        initial_capital=1_000.0,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            borrow_rate_multiplier=1.0,
+        ),
+        risk=_risk(),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+    )
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    expected_borrow = 250.0 * 0.1 / 8_760.0
+    borrow_transitions = [
+        transition
+        for interval in ledger.intervals
+        for transition in interval.accounting_transitions
+        if transition.transition_type == "borrow_charge"
+    ]
+    actual_borrow = sum(
+        float(transition.evidence["borrow_amount"]) for transition in borrow_transitions
+    )
+    assert actual_borrow == pytest.approx(expected_borrow)
+    assert ledger.final_borrow_cost == pytest.approx(expected_borrow)
+    assert ledger.final_cash == pytest.approx(1_000.0 - expected_borrow)
+    assert ledger.terminal_exact_quantities == ("0", "0")
+
+
 def test_shared_cash_partial_fill_residual_is_settled_at_terminal() -> None:
     base = _market()
     volume = base.volume.copy()

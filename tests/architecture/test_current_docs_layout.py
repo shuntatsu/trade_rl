@@ -481,6 +481,12 @@ def test_v11_shared_cash_accounting_contract_is_documented() -> None:
     assert "v10 fill証跡も読み込み可能" in controlled_loop
     assert "dataset digest" in lean_core and "source rows" in lean_core
     assert "ordered accounting transition" in package_boundaries
+    assert "lean_candidate_result_v11" in package_boundaries
+    assert "shared_cash_replay_ledger_v4" in package_boundaries
+    assert (
+        "Historical `lean_candidate_result_v10` / `shared_cash_replay_ledger_v3`"
+        in package_boundaries
+    )
     assert "termination-flatten" in controlled_loop
     assert "lean_candidate_result_v11" in research_assurance
     assert "shared_cash_replay_ledger_v4" in research_assurance

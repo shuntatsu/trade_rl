@@ -37,7 +37,7 @@ fresh read-only AIがexact source `7cf2512e` / protocol digest `128fc69f915227b4
 
 target経済結果を見ていないread-only AIがexact source `bf5400c1` / protocol digest `a8a2659bca6f84f7bddac42a9dafa6218067dfe45f94ded68df118d21986d36d`のG0-G2を承認した。別監査の旧結果参照を開示したsupplemental findingsは正式blinded承認に使っていない。承認後に一度実行した24 replayはsoftware PASS / economic NOT_ESTABLISHEDで、両prefixはcashを選定した。hold24 candidateのbase returnは−1.288878% / −7.182146%、cost2は−3.396492% / −11.017287%、latency2は−0.994727% / −11.699303%だった。selected reset-normalized仮想積は全scenarioで0%。receipt SHA-256は`1bc77db98a766b29dec63ac847077fa46a02138f761c38ca6cc83755b3f69fa0`。独立post-Artifact検算は74 artifact hashes、17,460 intervals、3,388 fills、2,178 funding events、34,848 symbol decisions、9,011 held decisions、317 candidate age24 unlocksとglobal risk/terminal優先を不一致なく再構成した。保有変更は未約定entry残の取消とunlock時のquantity再構築も変え、unavailable signalの通常FLATもhold中は抑える。全6 paired evaluationでturnover/costは低下したが、window2 baseのfill countは326から542へ増え、candidateのheld quantity変更1,039件は全てglobal risk下だった。これはpure exit effectでも一律fill削減でもなく、利益やwinnerを成立させていない。
 
-### Active next factor: completed native daily signal
+### Completed factor replay: completed native daily signal
 
 次の唯一のcandidateは同じregime0・hold24参照から`signal_index`だけを、名前で固定した`1h__log_return_24bar`から既存`1d__log_return_24bar`へ変える。native日足24barのlog returnをhourly decision clockへcausal availabilityでalignした値を使い、未完成の日足やhourly24行への置換を使わない。遅い需要・positioningのcontinuationが短い反転noiseより持続し、costに耐える情報になる仮説である。ただしnamed channel変更はhorizon・amplitude・更新cadence・availabilityを同時に変えるtreatmentであり、pure horizon効果や最適値とは呼ばない。entry/exitのraw log-return閾値を固定するため、相対的なsignal scaleも変わる。24日lagが反転を捉えられず損失やfunding負担を増やす反例を明示する。既存momentum研究はこのcandidateのedgeの証明ではない。
 
@@ -52,6 +52,52 @@ prefixで選定したconfigを凍結し、同じevaluation windowにbase、`Exec
 初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
 
 fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+
+### Native daily result and independent verification
+
+After result-blind G0-G2 approval, source `2f0f1ffd` / protocol digest
+`393e5522f54469523630b614de491103f5fd33ef969deb70b896852c41e04c8c`
+produced24 replays once: software PASS / economic NOT_ESTABLISHED. All six candidate
+evaluation returns and paired differences are positive, but prefix1 selected cash
+and prefix2 candidate; the frozen two-prefix candidate condition fails. Candidate
+base returns were+12.284752% / +0.388870%, cost2+11.950367% / +0.104862%, latency2
++11.870055% / +1.463239%. Prefix-selected reset-normalized products were respectively
++0.388870%, +0.104862%, +1.463239%, with no continuous-wealth claim. Receipt SHA-256:
+`054511d010dd90b2fd6f4891cfbd085e81956c3ba75609a5fa148323d2e2d502`.
+Independent post-Artifact reconstruction found no discrepancies across74 references,
+187 source files,42 arrays,17,460 intervals,1,822 fills,2,178 funding events and34,848
+symbol decisions. Maximum execution drawdown was13.981514%. Local completed midnight
+closes matched1,585 rows /3,170 daily values; the first599 rows require upstream
+closes outside the subset, whose raw native archive/release times are not independently
+proved by this subset. Positive portions establish no winner, general edge or live readiness.
+
+### Active hypothesis: completed weekly BB and plotted Ichimoku confirmation
+
+The user's weekly BB/Ichimoku hypothesis motivates one fixed, symbol-independent
+confirmation package around the same native-daily adaptive bot. Weekly cloud and
+Tenkan/Kijun provide directional permission; a BB-reaching wick plus a close past
+Tenkan against that direction suppresses the intent, symmetrically for both sides.
+Band contact alone never forces reversal. This jointly changes trend permission
+and exhaustion, not either indicator's isolated effect or peak prediction.
+
+The transform aggregates168 completed hourly candles at UTC Monday boundaries.
+Currently plotted cloud spans are computed26 weeks earlier; both arms share78-week
+warmup. Partial weeks and missing/late/inactive constituents are invalidated without
+interpolation/backfill. Economics, existing features, shared capital, nominal
+allocation, hold24, hard risk, terminal and fixed cost/latency stress remain bound.
+Weekly FLAT is voluntary and can be suppressed during hold. Lag, band walking,
+premature exit and excessive suppression in ranges are explicit counterexamples.
+
+Prepared BTC/ETH2021–2024 Dataset ID
+`643b86d8b25e111118354d71f79071cdffcdbe1cbf53a32b0265f096c380447f`
+is entirely consumed development. Fixed chronological windows are prefix
+2022-07-04 to2022 end/evaluation2023, then prefix2023/evaluation2024. Cash,
+native-daily baseline and the combined weekly candidate use the same all-arm
+validity, cash-priority signed selection and two-prefix/all-six positive
+absolute/paired screen. No parameter grid or post-result selection is allowed.
+Exact source/script/runtime/Dataset, independent machine oracles and fresh
+target-blind G0-G2 approval must be frozen before economics. Transfer to unused
+symbols/time, final performance and the user's full profit goal remain unestablished.
 
 ## Trading-bot validation repair (2026-10-03)
 

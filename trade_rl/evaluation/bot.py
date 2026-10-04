@@ -16,6 +16,7 @@ import numpy as np
 
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.features.price_channels import CHANNEL_NAMES, with_price_channels
+from trade_rl.data.features.weekly_context import WEEKLY_NAMES, with_weekly_context
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import (
     SharedCashReplayResult,
@@ -37,6 +38,7 @@ from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentStrategy,
 )
 from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
+from trade_rl.strategies.rules.weekly_confirmation import WeeklyConfirmationStrategy
 
 _ALLOWED_OBJECTIVES = frozenset({"profit", "sharpe", "balanced"})
 _SELECTION_DRAWDOWN_LIMIT_PCT = 20.0
@@ -281,7 +283,7 @@ def create_strategy_instances(
             instances.append(
                 EnsembleIntentStrategy([t_strat, m_strat], min_agreement=1)
             )
-        elif name == "adaptive":
+        elif name in {"adaptive", "weekly_bb_ichimoku"}:
             a_cfg = AdaptiveProfitConfig(
                 signal_index=config.signal_index,
                 # Use the configured signal's magnitude for the momentum regime.
@@ -296,7 +298,29 @@ def create_strategy_instances(
                 trailing_stop_threshold=config.trailing_stop_threshold,
                 max_holding_bars=config.max_holding_bars,
             )
-            instances.append(RegimeAdaptiveStrategy(a_cfg))
+            adaptive = RegimeAdaptiveStrategy(a_cfg)
+            if name == "weekly_bb_ichimoku":
+                missing = tuple(
+                    feature
+                    for feature in WEEKLY_NAMES
+                    if feature not in dataset.feature_names
+                )
+                if missing:
+                    raise ValueError(
+                        "weekly_bb_ichimoku requires complete named weekly context: "
+                        + ", ".join(missing)
+                    )
+                instances.append(
+                    WeeklyConfirmationStrategy(
+                        adaptive,
+                        tuple(
+                            dataset.feature_names.index(feature)
+                            for feature in WEEKLY_NAMES
+                        ),
+                    )
+                )
+            else:
+                instances.append(adaptive)
         elif name == "constant_long":
             instances.append(ConstantIntentStrategy(PositionIntent.LONG))
         elif name == "constant_short":
@@ -420,6 +444,10 @@ def run_trading_bot(
 
     if config.strategy_name.lower() == "channel_breakout":
         dataset = _with_channel_breakout_features(dataset)
+    if config.strategy_name.lower() == "weekly_bb_ichimoku" and not any(
+        name in dataset.feature_names for name in WEEKLY_NAMES
+    ):
+        dataset = with_weekly_context(dataset)
 
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(

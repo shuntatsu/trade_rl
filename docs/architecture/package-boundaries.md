@@ -243,6 +243,14 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `integrations`
 
+`data/features/weekly_context.py` owns content-bound completed-week aggregation,
+calendar/warmup/availability and normalized BB/Ichimoku values; it fetches no venue
+data and decides no orders. `strategies/rules/weekly_confirmation.py` owns the
+voluntary direction/exhaustion filter and delegates protective state to its
+wrapped strategy. `evaluation/bot.py` binds all seven context names and derives
+them for the opt-in `weekly_bb_ichimoku` strategy. Existing bot families and the
+canonical candidate roster retain their meanings.
+
 外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。`BinancePublicTransport`の既定値はnetwork-enabledの既存互換を維持し、bootstrapだけがsource freeze後に`allow_network=False`を明示してcache-only化する。
 
 ### `risk`

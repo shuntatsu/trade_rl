@@ -49,6 +49,27 @@ Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.n
 
 ## Strategy contract
 
+The opt-in `weekly_bb_ichimoku` bot filters adaptive intent through completed
+calendar-week context. `with_weekly_context` derives weeks from complete continuous
+UTC-hour close endpoints: Monday00:00 exclusive to next Monday00:00 inclusive,
+exactly168 rows. Partial boundary weeks are excluded; an inactive, unavailable or
+late-at-own-close constituent invalidates its week without retrospective backfill.
+BB20 uses population standard deviation and `(price-SMA)/(2σ)` positions, not
+percent-B; zero variance gives zero positions. Ichimoku9/26/52 uses the currently
+plotted cloud, computed26 weeks earlier, requiring78 usable complete weeks.
+Existing unshifted Ichimoku feature meanings remain unchanged. Values update at
+the completed Monday endpoint, carry for at most167 hours with age `/168`, and
+never consume forming-week prices. A new content identity embeds source provenance
+and preserves existing prices, economics and features.
+
+Long permission requires close above cloud upper and Tenkan>Kijun; short is
+symmetric. A high reaching BB upper plus close below Tenkan suppresses LONG;
+a low reaching BB lower plus close above Tenkan suppresses SHORT. Band contact
+alone cannot reverse. Missing/nonfinite context yields voluntary FLAT. The wrapped
+strategy retains actual filled-position state and its protective-exit latch.
+Quantity hold may delay weekly exits; protective exits, hard risk and terminal
+settlement retain priority. No peak-prediction or net-profit guarantee follows.
+
 Strategyが返すlogical intentは小さく保つ。
 
 ```text

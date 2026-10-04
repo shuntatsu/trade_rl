@@ -98,6 +98,31 @@ The fixed baseline uses hourly24bar log return with adaptive regime0 and quantit
 
 G1 consumes completed native daily events causally aligned to the hourly clock, never an unfinished bar or hourly substitute. G2 independently checks the native24bar formula, warmup/source range, delayed availability, staleness, missing-row rejection, future-mutation invariance, channel binding/permutation and unchanged hold/risk/terminal behavior. Source/runtime/script/Dataset identities, full arm raw evidence, write-once outputs and fresh result-blind review precede economics. Repeated Q1 use remains adaptive consumed development; a passed screen alone cannot establish general profitability, winner, unused/final eligibility or live readiness.
 
+## Research-specific contract: completed weekly BB/Ichimoku bot confirmation
+
+G0 tests fixed, symbol-independent completed-week direction/rejection confirmation
+around native-daily adaptive after costs on consumed multi-year development.
+Slower positioning continuation is a premise; band walking, lagged reversals,
+premature exits and reduced opportunities are counterexamples. The combined
+package changes trend permission and exhaustion together and cannot identify either
+indicator or establish peak prediction. Cash and unchanged adaptive are controls.
+Both prefixes must select candidate, with positive absolute/paired returns in all
+six stress evaluations and every arm valid; no post-result rescue is allowed.
+
+G1 binds BB20/2 population sigma, Ichimoku9/26/52 and26-week plotted-cloud shift
+to complete UTC Monday weeks from hourly source, shared78-week warmup, no partial
+weeks and missing/late/inactive constituent rejection without backfill. Normalized
+values use no symbol ID; original economics remain unchanged. Cloud and Tenkan/Kijun
+must agree with direction; band-reaching wick and close beyond Tenkan against that
+direction suppress it. Missing context gives ordinary FLAT, subject to hold24.
+Protective latch, global risk and terminal priority remain unchanged.
+
+G2 independently checks calendar endpoints, full dependency window, cloud indexing,
+BB numerics, zero variance, missing/delayed data, future/prefix invariance, named
+column permutation and protective delegation. Frozen cash priority/all-arm gates,
+source/runtime/script/Dataset bindings and fresh read-only target-blind AI review
+precede G4. Repeated development cannot establish unused transfer, winner or live edge.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 This is an active result-blind design for a new development Study. It has not

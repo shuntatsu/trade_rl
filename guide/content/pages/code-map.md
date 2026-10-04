@@ -16,6 +16,8 @@
 
 ## Dependency direction
 
+週足BB・一目の補助判断では、data層が確定週の集計と指標の時点整合性を担当します。strategies層はその値で売買意図を抑え、evaluation層が名前で入力を結びます。保有制約や約定・会計は共通の経路を使います。
+
 ```text
 integrations
     ↓

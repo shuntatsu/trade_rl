@@ -18,6 +18,7 @@ def test_data_lifecycle_packages_exist() -> None:
         "features/economic.py",
         "features/multitimeframe.py",
         "features/price_channels.py",
+        "features/weekly_context.py",
         "view.py",
         "market_order_rules.py",
     ):

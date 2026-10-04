@@ -47,25 +47,35 @@ Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.n
 
 このportable contractは、同一code・config・sealed sourceから構築した完全Datasetについて、現行のUbuntu x86_64 hosted runner上の複数AMD EPYC系と複数Intel Xeon系で `features`、`global_features`、normalization digest、Dataset IDのbit-exact一致を実証済みである。一方、任意のARM、任意libm、任意platformまでの普遍的なbit-identical保証は主張しない。historical `market_build_v2` artifactは書き換えず、current readerでそのidentityのまま読み取れる互換を維持する。
 
-## Forecast training-row evidence
+## Frozen prequential Ridge stream
 
-The existing supervised row selector records the actual pooled symbols,
-feature rows, exact label endpoints, prices and source publication clocks.
-The immutable training object binds selected features, names and weights.
-Both endpoints and their publication precede fit cutoff strictly; unused
-Dataset suffixes are excluded from its scope identity. The Ridge solver
-can consume that same object without a second row selection. A trace is
-content evidence, not proof of historical source availability or a
-runtime fit receipt. No account, reward, RL or execution change is made.
+The optional forecast producer fits the existing symbol-balanced Ridge on each
+declared prefix exactly once and stores predictions only in its following,
+non-overlapping block. Both label endpoints and their recorded source publication
+must precede the cutoff. The training trace records symbols, endpoint prices and
+publication clocks; the training object and vintage bind selected features,
+sample weights and fit-only scaling/model parameters. Unused Dataset suffixes
+are excluded from causal identities.
 
-## Frozen forecast records
+`ForecastBlock` declares historical model-completion and inference-delay
+assumptions. The stream identifies these as `declared_simulation_v1`, never as
+observed runtime receipts. Each packet binds a symbol, decision snapshot, selected
+inputs, source and forecast availability, exact horizon, conditional mean **log**
+return and model vintage. Only the newest ready, unexpired packet from the active
+block may reach the existing cost-aware intent controller. A gap, unavailable
+selected input, missing symbol or stale packet is an error, not a zero forecast.
 
-The stream module binds declared simulation blocks, actual training
-scope, frozen Ridge/scaler parameters and selected-input packets. Its
-JSON reader requires an externally pinned digest and checks nested
-identity, model-input agreement and availability/horizon consistency.
-It neither refits nor authenticates a fitting receipt or the Dataset.
-Generation and a decision consumer are separate responsibilities.
+Whole-Dataset ID is stored as lineage; the separate causal scope identity covers
+only consumed fit and prediction inputs. The JSON reader requires an externally
+pinned expected content digest, checks nested identities and recipe consistency,
+and recalculates each prediction from the frozen selected input and model. It
+does not refit or authenticate the original fitting process, inspect the source
+Dataset, prove historical point-in-time availability or attest runtime latency.
+
+The existing controller's switching-cost gate is a declared log-return proxy.
+It does not estimate expected simple return, uncertainty or optimal portfolio
+allocation. There is no new ledger, candidate Run/Study integration, joint RL
+training, live execution or profitability evidence in this capability.
 
 ## Strategy contract
 

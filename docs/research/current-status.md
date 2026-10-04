@@ -15,29 +15,33 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
-## Forecast training-row evidence
+## Net-profit redesign: prequential forecast capability (2026-10-05)
 
-The existing supervised row selector records the actual pooled symbols,
-feature rows, exact label endpoints, prices and source publication clocks.
-The immutable training object binds selected features, names and weights.
-Both endpoints and their publication precede fit cutoff strictly; unused
-Dataset suffixes are excluded from its scope identity. The Ridge solver
-can consume that same object without a second row selection. A trace is
-content evidence, not proof of historical source availability or a
-runtime fit receipt. No account, reward, RL or execution change is made.
+Issue #810 P2 now has a software path from the existing causal row selector and
+Ridge solver to frozen future-block packets and the existing cost-aware intent
+controller. The selector records its actual pooled symbol/price/publication
+endpoints. Each fit uses only strictly matured prefix labels; later blocks can
+consume newly matured labels but cannot rewrite earlier vintages or packets.
+Stored model/scaler and selected prediction inputs survive a digest-checked JSON
+round trip. Future-only Dataset suffix mutation must leave causal identities
+unchanged, while the whole-Dataset lineage ID may change.
 
-## Frozen forecast records
+This is a partial P2 implementation. The default horizon remains 24h; no 72h
+economic comparison, parameter selection or real-data fit/replay has been
+performed for this capability. Forecast completion/latency are declared
+simulation assumptions, not measured receipts. The source only admits inputs
+available on their Dataset row; it does not recover delayed feature histories.
+Log-return forecasts and the current cost proxy do not establish expected simple
+return or an optimal shared-cash allocator.
 
-The stream module binds declared simulation blocks, actual training
-scope, frozen Ridge/scaler parameters and selected-input packets. Its
-JSON reader requires an externally pinned digest and checks nested
-identity, model-input agreement and availability/horizon consistency.
-It neither refits nor authenticates a fitting receipt or the Dataset.
-Generation and a decision consumer are separate responsibilities.
-
-These are partial Issue #810 P2 software capabilities. G0/G1 for an
-exact economic Study and G3-G5 remain NOT ESTABLISHED. No real-data fit/replay,
-profitability evidence, final-data opening or live authorization is added.
+The non-RL portfolio allocator, downstream RL packet observation, common
+DecisionContext, continuous-account walk-forward recipe, complete source/runtime
+bundle and economic diagnostics remain separate unfinished work. G0/G1 for an
+exact economic Study and G3-G5 are NOT ESTABLISHED. Synthetic timing, algebra,
+tamper and causality tests are software evidence only. The research drawdown
+guardrail remains 20%; there is no new winner, final-data opening or live-order
+authorization. See the result-blind mechanism contract in
+`architecture/research-assurance.md`.
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 

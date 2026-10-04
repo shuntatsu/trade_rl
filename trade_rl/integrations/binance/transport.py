@@ -486,7 +486,7 @@ class BinancePublicTransport:
                     market=market,
                     symbol=symbol,
                     start_ms=start_ms,
-                    end_ms=vision_end_ms,
+                    end_ms=vision_end_ms - 1,
                 )
             )
             sources.append("vision")

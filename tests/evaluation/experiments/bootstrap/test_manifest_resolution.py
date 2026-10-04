@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -42,7 +43,7 @@ def _write_manifest(root: Path, payload: dict[str, object]) -> None:
     )
 
 
-def test_new_bootstrap_manifest_v2_binds_vision_resolution_digest(
+def test_new_bootstrap_manifest_v3_binds_source_digests(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -52,8 +53,13 @@ def test_new_bootstrap_manifest_v2_binds_vision_resolution_digest(
         (root / "source" / "vision-resolution.json").read_text(encoding="utf-8")
     )
 
-    assert manifest["schema_version"] == "canonical_m2_bootstrap_manifest_v2"
+    funding_path = root / "source" / "funding-events.json"
+    assert manifest["schema_version"] == "canonical_m2_bootstrap_manifest_v3"
     assert manifest["vision_resolution_digest"] == content_digest(resolution)
+    assert (
+        manifest["funding_events_digest"]
+        == hashlib.sha256(funding_path.read_bytes()).hexdigest()
+    )
 
 
 def test_legacy_v1_bootstrap_without_resolution_remains_inspectable(
@@ -64,8 +70,10 @@ def test_legacy_v1_bootstrap_without_resolution_remains_inspectable(
     manifest = _read_manifest(root)
     manifest["schema_version"] = "canonical_m2_bootstrap_manifest_v1"
     manifest.pop("vision_resolution_digest", None)
+    manifest.pop("funding_events_digest", None)
     _write_manifest(root, manifest)
     (root / "source" / "vision-resolution.json").unlink()
+    (root / "source" / "funding-events.json").unlink()
 
     result = inspect_canonical_m2_bootstrap(root)
 
@@ -80,6 +88,7 @@ def test_v1_manifest_rejects_resolution_file_schema_confusion(
     manifest = _read_manifest(root)
     manifest["schema_version"] = "canonical_m2_bootstrap_manifest_v1"
     manifest.pop("vision_resolution_digest", None)
+    manifest.pop("funding_events_digest", None)
     _write_manifest(root, manifest)
 
     with pytest.raises(ValueError, match="legacy|v1|resolution"):
@@ -93,8 +102,21 @@ def test_v2_manifest_rejects_resolution_digest_mismatch(
     root = _publish(tmp_path, monkeypatch)
     manifest = _read_manifest(root)
     manifest["schema_version"] = "canonical_m2_bootstrap_manifest_v2"
+    manifest.pop("funding_events_digest", None)
     manifest["vision_resolution_digest"] = "0" * 64
     _write_manifest(root, manifest)
 
     with pytest.raises(ValueError, match="resolution digest"):
+        inspect_canonical_m2_bootstrap(root)
+
+
+def test_v3_manifest_rejects_funding_snapshot_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _publish(tmp_path, monkeypatch)
+    funding_path = root / "source" / "funding-events.json"
+    funding_path.write_bytes(funding_path.read_bytes() + b" ")
+
+    with pytest.raises(ValueError, match="funding event snapshot digest"):
         inspect_canonical_m2_bootstrap(root)

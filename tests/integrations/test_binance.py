@@ -538,7 +538,46 @@ def test_vision_funding_uses_rest_for_partial_trailing_month(
     assert observed == [(_ms(start), 0.0001), (_ms(july), 0.0002)]
     assert source == "vision+rest"
     assert calls == [
-        ("vision", _ms(start), _ms(july)),
+        ("vision", _ms(start), _ms(july) - 1),
+        ("rest", _ms(july), _ms(end)),
+    ]
+
+
+def test_vision_rest_funding_ranges_do_not_duplicate_month_boundary_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    july = datetime(2026, 7, 1, tzinfo=UTC)
+    end = datetime(2026, 7, 15, tzinfo=UTC)
+    calls: list[tuple[str, int, int]] = []
+    boundary_event = (_ms(july), 0.0002, 200.0)
+
+    def vision(**kwargs: object) -> list[tuple[int, float, float | None]]:
+        start_ms = int(kwargs["start_ms"])
+        end_ms = int(kwargs["end_ms"])
+        calls.append(("vision", start_ms, end_ms))
+        return [boundary_event] if start_ms <= boundary_event[0] <= end_ms else []
+
+    def rest(**kwargs: object) -> list[tuple[int, float, float | None]]:
+        calls.append(("rest", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
+        return [boundary_event]
+
+    monkeypatch.setattr(transport, "_load_vision_funding", vision)
+    monkeypatch.setattr(transport, "_load_rest_funding", rest)
+
+    events, source = transport.load_funding_events(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=_ms(start),
+        end_ms=_ms(end),
+        mode=BinanceTransportMode.VISION,
+    )
+
+    assert events == [boundary_event]
+    assert source == "vision+rest"
+    assert calls == [
+        ("vision", _ms(start), _ms(july) - 1),
         ("rest", _ms(july), _ms(end)),
     ]
 
@@ -576,7 +615,7 @@ def test_vision_funding_events_supplement_missing_settlement_marks(
     assert observed == [(_ms(start), 0.0001, 100.0), (_ms(july), 0.0002, 200.0)]
     assert source == "vision+rest+rest-marks"
     assert calls == [
-        ("vision", _ms(start), _ms(july)),
+        ("vision", _ms(start), _ms(july) - 1),
         ("rest", _ms(july), _ms(end)),
         ("rest", _ms(start), _ms(end)),
     ]

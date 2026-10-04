@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-03 (JST)
+更新基準: 2026-10-04 (JST)
 
 ## 結論
 
@@ -15,9 +15,23 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
+
+利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
+
+結果前の追加診断は既存verified Dataset `6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518`からBTCUSDT/ETHUSDTと2024Q1のhourly closeを抽出し、source ID、元のrow/symbol indices、content identity、availability/economicsを固定する。local `1h__log_return_24bar`だけをdecision signalにし、adaptive/balanced/8 grid候補/3fold/100,000 USDT、既存portfolio-global riskとquantity holdを固定する。各foldはcapital/stateをresetし、tuningの最後のbarでsettleして次foldへ情報を戻さない。cash carryは実Datasetのまま比較する。全windowのafter-cost returnが正、ledger最大drawdown20%以下、exact flat、active orderなし、economic terminationなしをdevelopment eligibilityの必要条件とし、一つでも欠ければNOT_ESTABLISHEDとする。主評価は各windowのafter-cost returnとreset-window仮想積であり、continuous wealth、independent sample、sealed final、live edgeを証明しない。adaptive regime仮説自体は未確立であり、この診断はimplementation/robustness確認に限定する。
+
+prefixで選定したconfigを凍結し、同じevaluation windowにbase、`ExecutionCostConfig.multiplier=2`、`order_latency_bars=2`を適用する。multiplier stressは既存executorのfee/spread/impact chargeを2倍し、funding/borrow経済やstrategy/risk parameterは変えない。latencyはbase0から絶対値2への変更であり、最初のprocessing waitとterminal予約区間も変わる。選択し直さず全stressを同じ必要条件で検査し、cash/no-tradeまたは任意cell失敗からprofitable trading candidateを作らない。Q1は既にconsumed developmentであり、unusedへ戻さない。protocol、source hashes、raw returns、ledger、config、receiptはignored `output/bot-completion-20261004/`へ保存する。fresh result-blind AI G0-G2確認とmachine verificationを実行前に要求する。
+
+初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
+
+fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+
 ## Trading-bot validation repair (2026-10-03)
 
 継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
+
+追加のfirst-holdout-open shockで、終端決済のfillがreplay `stop_index`行のopenを参照し、evaluation開始と同じstopを渡すとfirst evaluation barがtuning scoreとdrawdown eligibilityへ漏れることを再現した。selection replayを最後のtuning bar内で終端決済し、walk-forwardも同じhelperで境界を分離する。修正前source `a526cc18` のQ1 development smokeは探索的な診断として保持し、first evaluation barから独立したholdout証拠とは扱わない。この修正ではreal-market replayを実行せず、新たなprofitability evidenceも作らない。
 
 adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
 
@@ -37,6 +51,8 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 
 未統合のwalk-forward実装は既存tunerと異なる探索を重複して持ち、少数candidateで探索axisを落とし、最後の残余barを捨てていた。同じ探索実装へ統一し、CLIでdevelopment diagnosticとして実行できる契約を追加する。windowごとのcapital/state resetと仮想return積を明示し、continuous wealthやsealed final profitabilityとは扱わない。scopeはソフトウェア修復と開発実行の確認であり、live注文接続や新しいPPO実験の認可ではない。
 
+追加の契約テストでは、未決済reportのpositive marked P&Lが`profitable_windows`へ入る集計漏れと、walk-forward内のwindow reportが`holdout` scopeのまま出力される不整合を確認した。集計をpositive P&Lかつterminal settlement確認済みの場合だけ数えるよう修復し、手動reportで未提供の決済状態はunknown (`None`) としてfail-closedに扱う。各nested windowにも`development_walk_forward` scopeを付ける。これは評価報告の正確性を直すものであり、以前の開発結果を書き換えず、profitability evidenceも追加しない。
+
 実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
 
 このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
@@ -46,6 +62,10 @@ Botの`balanced` scoreは損失の符号を反転していた。channel戦略は
 GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。
 
 `codex/profit-engine-hardening` の修正では、optimize / compareに明示的なDatasetまたは明示的な `--demo` を要求し、canonical non-zero `ExecutionCostConfig()` を既定のreplay costにした。単一strategyのparameter選択はchronological tuning prefixだけで行い、baseline / candidate reportは後続holdoutのfresh replayから計算する。tuning-windowの最大drawdownが20%を超えるcandidateは選択対象外だが、これはeligibility vetoであり、gapやexecution timingを越えたdrawdown上限の保証ではない。`compare` はfull-rangeのin-sample診断である。`tune_all_strategies` の複数family報告windowはfamily間で比較した時点でdevelopment evidenceとして扱い、最終評価にはさらに後の未閲覧windowを使う。
+
+明示Datasetにprice-channel featuresがない場合、botの`channel_breakout`実行と全戦略のcompare / optimizeは、直前480本・240本のcandleから因果的なchannelを導出する。導出後はsource Dataset IDとwindow定義を含む新しいcontent identityへbindする。4列の一部だけがあるDatasetは拒否し、導出時は最低481 barsを要求する。
+
+walk-forward結果もchannel派生後のDataset identityへbindする。terminal settlement状態がunknownの場合は残ポジションがあると断定せず、明示的な未決済と区別して表示する。この報告精度の修正ではreal-market trainingやeconomic tuning runを行わない。
 
 Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
 

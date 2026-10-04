@@ -727,6 +727,24 @@ def test_prepare_execute_and_verify_uses_saved_bundle_without_refit(
     assert "0.001" not in str(error.value)
     assert "0.002" not in str(error.value)
 
+    replay.pop("returns")
+    with pytest.raises(
+        ValueError,
+        match="fresh bundle replay differs from published result; fields=returns",
+    ) as missing_field_error:
+        verify_replication_slot(tmp_path / "source", root, slot)
+    assert "0.001" not in str(missing_field_error.value)
+
+    replay["returns"] = [0.001]
+    replay["unpublished"] = "sensitive-unpublished-value"
+    with pytest.raises(
+        ValueError,
+        match="fresh bundle replay differs from published result; fields=unpublished",
+    ) as extra_field_error:
+        verify_replication_slot(tmp_path / "source", root, slot)
+    assert "sensitive-unpublished-value" not in str(extra_field_error.value)
+    replay.pop("unpublished")
+
     result_path = root / "slots" / slot / "result.json"
     semantic_result = json.loads(result_path.read_bytes())
     result_path.write_text(

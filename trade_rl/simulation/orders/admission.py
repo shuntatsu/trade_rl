@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Protocol
+from typing import Protocol, Sequence
 
 import numpy as np
 
@@ -14,6 +14,7 @@ from trade_rl.simulation.orders.model import OrderIntent, OrderType
 from trade_rl.simulation.quantities import (
     accepted_fill_quantity,
     exact_quantity,
+    project_quantity,
     quantize_quantity,
 )
 
@@ -23,6 +24,11 @@ _TOLERANCE = 1e-12
 class _AdmissionBookView(Protocol):
     quantities: np.ndarray
     insolvent: bool
+    actual_equity: float
+    actual_gross_notional: float
+
+    @property
+    def exact_quantities(self) -> Sequence[Fraction]: ...
 
     @property
     def contract_multipliers(self) -> np.ndarray | None: ...
@@ -109,6 +115,7 @@ class AdmissionDecision:
     reason: str | None
     admitted_quantity: float
     admitted_notional: float
+    admitted_exact_quantity: Fraction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,16 +304,44 @@ class OrderAdmissionPolicy:
         if admitted_notional + _TOLERANCE < minimum_notional:
             return self._reject("below_minimum_notional")
 
+        if isinstance(book, BookState):
+            actual_equity = float(book.cash + (quantities * prices * multipliers).sum())
+            actual_gross = float(np.abs(quantities * prices * multipliers).sum())
+        else:
+            actual_equity = book.actual_equity
+            actual_gross = book.actual_gross_notional
+        actual_over_cap = actual_gross > actual_equity * self.max_leverage + _TOLERANCE
+
         projected = quantities.copy()
         projected[symbol] += admitted_quantity
         gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))
         equity = book.portfolio_value
         if (
             book.insolvent
+            or not math.isfinite(actual_equity)
+            or actual_equity <= _TOLERANCE
             or not math.isfinite(equity)
             or equity <= _TOLERANCE
-            or gross_notional > equity * self.max_leverage + _TOLERANCE
         ):
+            return self._reject("pretrade_leverage_exceeded")
+
+        if actual_over_cap:
+            if not intent.reduce_only:
+                return self._reject("pretrade_leverage_exceeded")
+            projected_position = book.exact_quantities[symbol]
+            # Match accounting's exact no-lot full close before checking both
+            # inventory bounds. Float cancellation cannot reserve inventory.
+            if count is None and admitted_quantity == -project_quantity(
+                projected_position
+            ):
+                admitted_exact = -projected_position
+            if abs(admitted_exact) > abs(position):
+                return self._reject("reduce_only_exceeds_position")
+            if projected_position * admitted_exact >= 0 or abs(admitted_exact) > abs(
+                projected_position
+            ):
+                return self._reject("reduce_only_exceeds_projected_position")
+        elif gross_notional > equity * self.max_leverage + _TOLERANCE:
             return self._reject("pretrade_leverage_exceeded")
 
         return AdmissionDecision(
@@ -314,4 +349,5 @@ class OrderAdmissionPolicy:
             reason=None,
             admitted_quantity=admitted_quantity,
             admitted_notional=admitted_notional,
+            admitted_exact_quantity=admitted_exact,
         )

@@ -720,6 +720,41 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Known limitations:** rule enforcementはrisk threshold自体の妥当性や未知のtail riskを証明しない。
 
+### RISK-002 — over-cap recovery uses actual and reserved inventory
+
+**Statement:** During one stateful admission pass, an actual processing-open
+leverage breach permits only explicit MARKET reduce-only quantities opposing and
+bounded by both initial actual inventory and current exact reserved inventory.
+Hypothetical pending closes cannot authorize opening exposure or a sign flip.
+Invalid equity or insolvency does not receive this exception. Legacy MARKET
+target reconciliation may produce such an order for a nonzero same-side shrink
+only when the actual decision-reference book is already over the cap and no
+explicit profile roster is supplied. Profile authority and ordinary under-cap
+classification remain unchanged.
+
+**Counterexample:** Closing one of two -4 positions at price 100 and equity 300
+is rejected because the other leg alone is still above the cap. Conversely, with
+actual +10 and an earlier accepted -6 reservation, a second -6 is admitted because
+projected absolute exposure falls from 4 to 2 despite crossing zero.
+
+**Oracle:** Independently computed rational bounds cover both signs, multiple
+symbols and competing reservations; an exact 0.4 minus 0.1 case rejects a
+-0.30000000000000004 overdraw. Stateful cases check partial fills, unfilled-close
+opening attempts, round-tripped pending state and a new processing pass rebound
+to actual fills. Retained checks cover invalid equity, side permissions, lot and
+notional rules, capacity and fees. Expected inventory is not derived from the
+production admission helper. Producer checks independently calculate actual
+reference-price gross and equity, vary the cached mark and sizing equity, and
+cover under/at/over-cap quantities, exact deltas, profile rosters, reversals,
+non-MARKET targets and compatible residual reuse.
+
+**Known limitations:** Admission does not guarantee fill availability, full
+settlement, the adequacy of leverage limits, profitability or live venue parity.
+A gap that creates a breach only after decision-time classification can leave an
+ordinary pending shrink ineligible; the producer does not use that future price.
+Historical replay evidence remains bound to its original implementation; economic
+replay on the repaired source requires a fresh result-blind protocol and review.
+
 ### EVIDENCE-001 — immutable reconstructible evidence
 
 **Statement:** 有効な研究evidenceはexact source/runtime/config/data identityへbindされ、publication後の書換え、都合の良いpartial selection、別implementationへのすり替えを許さない。

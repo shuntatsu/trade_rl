@@ -14,6 +14,8 @@ from trade_rl.evaluation.experiments.contracts._common import (
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 
+_EXPERIMENT_DECISION_SCHEMA = "controlled_experiment_decision_v1"
+
 
 class ExperimentDecisionKind(StrEnum):
     ACCEPT_CANDIDATE = "ACCEPT_CANDIDATE"
@@ -33,7 +35,7 @@ class ExperimentDecision:
     rationale: str
     decided_by: str
     decided_at: datetime
-    schema_version: str = "controlled_experiment_decision_v1"
+    schema_version: str = _EXPERIMENT_DECISION_SCHEMA
 
     def __post_init__(self) -> None:
         study_digest = contract_sha256(self.study_digest, field="study_digest")
@@ -55,6 +57,10 @@ class ExperimentDecision:
         decided_by = contract_text(self.decided_by, field="decided_by")
         decided_at = contract_aware_datetime(self.decided_at, field="decided_at")
         schema_version = contract_text(self.schema_version, field="schema_version")
+        if schema_version != _EXPERIMENT_DECISION_SCHEMA:
+            raise ContractViolationError(
+                "unsupported ExperimentDecision schema_version"
+            )
 
         object.__setattr__(self, "study_digest", study_digest)
         object.__setattr__(self, "experiment_digest", experiment_digest)

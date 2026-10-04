@@ -165,6 +165,9 @@ class ControlledVerificationStatus(StrEnum):
     INVALID = "INVALID"
 
 
+_CONTROLLED_VERIFICATION_SCHEMA = "controlled_verification_v1"
+
+
 @dataclass(frozen=True, slots=True)
 class ControlledVerification:
     """Immutable result of verifying one declared semantic factor."""
@@ -177,7 +180,7 @@ class ControlledVerification:
     status: ControlledVerificationStatus
     changed_paths: tuple[tuple[str, ...], ...]
     violations: tuple[str, ...]
-    schema_version: str = "controlled_verification_v1"
+    schema_version: str = _CONTROLLED_VERIFICATION_SCHEMA
 
     def __post_init__(self) -> None:
         for value, field in (
@@ -194,6 +197,8 @@ class ControlledVerification:
             raise ArtifactIntegrityError("verification factor is unsupported")
         if not isinstance(self.status, ControlledVerificationStatus):
             raise ArtifactIntegrityError("verification status is unsupported")
+        if self.schema_version != _CONTROLLED_VERIFICATION_SCHEMA:
+            raise ArtifactIntegrityError("unsupported ControlledVerification schema")
         normalized_paths = tuple(sorted(set(self.changed_paths)))
         if normalized_paths != self.changed_paths or any(
             not path or any(not part for part in path) for path in self.changed_paths

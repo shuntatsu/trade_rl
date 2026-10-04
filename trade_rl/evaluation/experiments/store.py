@@ -8,7 +8,7 @@ import shutil
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import BinaryIO, cast
 
 from trade_rl.artifacts.atomic_write import (
@@ -22,6 +22,10 @@ from trade_rl.evaluation.experiments.errors import (
 )
 
 _LOCK_NAME = ".mutation.lock"
+
+
+def _is_symlink_or_junction(path: Path) -> bool:
+    return path.is_symlink() or path.is_junction()
 
 
 def _lock_file(handle: BinaryIO) -> None:
@@ -67,21 +71,26 @@ class StudyStore:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
-        if self.root.exists() and (self.root.is_symlink() or not self.root.is_dir()):
+        if self.root.exists() and (
+            _is_symlink_or_junction(self.root) or not self.root.is_dir()
+        ):
             raise ArtifactIntegrityError("Study root must be a regular directory")
         self.root.mkdir(parents=True, exist_ok=True)
-        if self.root.is_symlink():
-            raise ArtifactIntegrityError("Study root must not be a symlink")
+        if _is_symlink_or_junction(self.root):
+            raise ArtifactIntegrityError("Study root must not be a symlink or junction")
         self._thread_lock = threading.RLock()
         self._lock_depth = 0
 
     def _relative_path(self, relative: str | Path) -> Path:
         value = Path(relative)
+        windows_value = PureWindowsPath(relative)
         if value.is_absolute():
+            raise ValueError("Study path must be relative")
+        if windows_value.drive or windows_value.root:
             raise ValueError("Study path must be relative")
         if not value.parts or value == Path("."):
             raise ValueError("Study path must be a non-empty relative path")
-        if ".." in value.parts:
+        if ".." in value.parts or ".." in windows_value.parts:
             raise ValueError("Study path must not contain parent traversal")
         if value.parts[0] == _LOCK_NAME:
             raise ValueError("Study path is reserved for the mutation lock")
@@ -92,8 +101,10 @@ class StudyStore:
         current = self.root
         for part in value.parts[:-1]:
             current = current / part
-            if current.is_symlink():
-                raise ArtifactIntegrityError("Study path parent must not be a symlink")
+            if _is_symlink_or_junction(current):
+                raise ArtifactIntegrityError(
+                    "Study path parent must not be a symlink or junction"
+                )
             if current.exists() and not current.is_dir():
                 raise ArtifactIntegrityError(
                     "Study path parent must be a regular directory"
@@ -107,8 +118,10 @@ class StudyStore:
             if part == ".":
                 continue
             current = current / part
-            if current.is_symlink():
-                raise ArtifactIntegrityError("Study path parent must not be a symlink")
+            if _is_symlink_or_junction(current):
+                raise ArtifactIntegrityError(
+                    "Study path parent must not be a symlink or junction"
+                )
             if current.exists():
                 if not current.is_dir():
                     raise ArtifactIntegrityError(
@@ -130,12 +143,12 @@ class StudyStore:
                     self._lock_depth -= 1
                 return
 
-            if self.root.is_symlink() or not self.root.is_dir():
+            if _is_symlink_or_junction(self.root) or not self.root.is_dir():
                 raise ArtifactIntegrityError("Study root must be a regular directory")
             lock_path = self.root / _LOCK_NAME
-            if lock_path.is_symlink():
+            if _is_symlink_or_junction(lock_path):
                 raise ArtifactIntegrityError(
-                    "Study mutation lock must not be a symlink"
+                    "Study mutation lock must not be a symlink or junction"
                 )
             with lock_path.open("a+b") as handle:
                 _lock_file(handle)

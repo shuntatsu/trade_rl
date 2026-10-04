@@ -159,6 +159,8 @@ factorごとに影響しないstrategyのraw returnsを完全一致で検証す�
 
 Study mutationは`StudyStore.mutation_lock()`でprocess間serializeし、各mutation前にdisk artifactからstateを再構築する。別DBやin-memory pointerをstateの正本にしない。 read-only `inspect_study` も同じmutation lock内でdisk graphを再構築するため、inspectionとmutationが別moduleでもstate authorityはfilesystemのままである。
 
+StudyStoreのartifact pathはStudy root内の相対pathに限り、POSIX形式のabsolute / `..` に加えてWindowsのdrive-relative、drive-rooted、UNC pathも拒否する。Study rootとその配下の親directoryはsymlinkとWindows junctionを拒否する。各versioned evidence contractは宣言済みschemaだけを受理し、未知のschema tagを現行形式として読み替えない。
+
 ```text
 create_study
   → run_baseline

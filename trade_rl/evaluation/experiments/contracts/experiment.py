@@ -16,6 +16,9 @@ from trade_rl.evaluation.experiments.contracts._common import (
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 
+_EXPERIMENT_DEFINITION_SCHEMA = "controlled_experiment_definition_v1"
+_EXPERIMENT_FAILURE_SCHEMA = "controlled_experiment_failure_v1"
+
 
 class ControlledFactor(StrEnum):
     FEATURE_SET = "FEATURE_SET"
@@ -40,7 +43,7 @@ class ExperimentDefinition:
     factor: ControlledFactor
     candidate_requested_config_digest: str
     candidate_config: ResolvedRunConfig
-    schema_version: str = "controlled_experiment_definition_v1"
+    schema_version: str = _EXPERIMENT_DEFINITION_SCHEMA
 
     def __post_init__(self) -> None:
         study_digest = contract_sha256(self.study_digest, field="study_digest")
@@ -60,9 +63,13 @@ class ExperimentDefinition:
             self.candidate_requested_config_digest,
             field="candidate_requested_config_digest",
         )
+        schema_version = contract_text(self.schema_version, field="schema_version")
+        if schema_version != _EXPERIMENT_DEFINITION_SCHEMA:
+            raise ContractViolationError(
+                "unsupported ExperimentDefinition schema_version"
+            )
         if not isinstance(self.candidate_config, ResolvedRunConfig):
             raise ContractViolationError("candidate_config must be a ResolvedRunConfig")
-        schema_version = contract_text(self.schema_version, field="schema_version")
 
         object.__setattr__(self, "study_digest", study_digest)
         object.__setattr__(self, "sequence", sequence)
@@ -105,7 +112,7 @@ class ExperimentFailure:
     reason: str
     recorded_by: str
     recorded_at: datetime
-    schema_version: str = "controlled_experiment_failure_v1"
+    schema_version: str = _EXPERIMENT_FAILURE_SCHEMA
 
     def __post_init__(self) -> None:
         study_digest = contract_sha256(self.study_digest, field="study_digest")
@@ -120,6 +127,8 @@ class ExperimentFailure:
             field="recorded_at",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        if schema_version != _EXPERIMENT_FAILURE_SCHEMA:
+            raise ContractViolationError("unsupported ExperimentFailure schema_version")
 
         object.__setattr__(self, "study_digest", study_digest)
         object.__setattr__(self, "experiment_digest", experiment_digest)

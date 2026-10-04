@@ -1493,6 +1493,100 @@ def test_later_symbol_does_not_fill_after_margin_termination() -> None:
     assert not result.order_book.active_orders
 
 
+def test_inactive_asset_settlement_closes_sub_tolerance_residual() -> None:
+    active = np.zeros((6, 1), dtype=np.bool_)
+    dataset = _market(
+        asset_active=active,
+        symbol_active=active,
+        tradable=active,
+        information_available=active,
+        delisting_recovery=np.full((6, 1), 0.5),
+    )
+    executor = _executor(dataset)
+    residual_quantity = 1e-13
+    book = BookState(
+        quantities=np.array([residual_quantity]),
+        cash=1_000.0 - residual_quantity * dataset.close[0, 0],
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(1))
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+
+
+def test_reduce_only_order_can_fill_after_margin_termination() -> None:
+    dataset = _market()
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.array([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        max_gross=1.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    runtime = StatefulExecutionRuntime.create(
+        executor,
+        book,
+        OrderBookState.empty(),
+    )
+    runtime.book.terminate(EconomicTerminationReason.MARGIN_CALL)
+    intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="post-termination-reduction",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=-2.5,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        reduce_only=True,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    runtime.submit_intents((intent,))
+    pending = runtime.order_book.active_orders[0].mark_eligible(processing_index=1)
+    runtime.order_book = runtime.order_book.replace(pending)
+    tick, lot, minimum = executor._effective_rule_array_views(index=1)
+    attempted = StatefulSymbolFillProcessor(executor).process_symbols(
+        runtime,
+        StatefulBarContext(
+            previous_index=0,
+            processing_index=1,
+            period_start_value=1_000.0,
+            open_prices=dataset.open[1],
+            tick_size=tick,
+            lot_size=lot,
+            minimum_notional=minimum,
+            processing_year_fraction=dataset.elapsed_year_fraction(0, 1),
+            gap_cash_carry_delta=0.0,
+        ),
+        [pending],
+    )
+
+    assert intent.order_id in attempted
+    fill = next(
+        event
+        for event in runtime.events
+        if event.order_id == intent.order_id and event.event_type == "filled"
+    )
+    assert fill.filled_quantity == pytest.approx(-2.5)
+    assert runtime.book.quantities[0] == 0.0
+
+
 def test_interval_gross_return_removes_signed_funding_from_same_fill_path() -> None:
     shape = (6, 1)
     funding_rate = np.zeros(shape)

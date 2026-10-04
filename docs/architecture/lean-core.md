@@ -132,6 +132,12 @@ This replay capability does not make the existing per-symbol PPO training
 environment a joint portfolio learner, and does not change the independent-account
 meaning of the currently frozen v1 Study.
 
+Economic termination cancels later ordinary fills in the same execution pass;
+an already admitted `reduce_only` order still passes the termination gate and
+is capped at the exact inventory remaining. Inactive-asset settlement closes
+every nonzero exact quantity, including residuals below the numerical order
+tolerance, before replay reconciles the fill tracker.
+
 Adaptive rule exits use the optional `StrategyObservation.gross_position_return`
 provided by canonical replay. Replay derives it from the actual average entry
 fill price and the current bar-close mark, signed by the filled position. It is

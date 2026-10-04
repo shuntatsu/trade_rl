@@ -99,6 +99,13 @@ class RidgeForecastModel:
         if max(self.feature_indices) >= vector.size:
             raise ValueError("model feature index is outside observation features")
         selected = vector[list(self.feature_indices)]
+        return self.predict_selected(selected)
+
+    def predict_selected(self, selected_features: np.ndarray) -> float:
+        """Predict from already selected columns in the declared feature order."""
+        selected = np.asarray(selected_features, dtype=np.float64)
+        if selected.shape != self.feature_mean.shape:
+            raise ValueError("selected features must match the model layout")
         if not np.isfinite(selected).all():
             raise ValueError("forecast features must be finite")
         standardized = (selected - self.feature_mean) / self.feature_scale

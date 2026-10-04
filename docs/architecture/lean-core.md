@@ -58,6 +58,15 @@ can consume that same object without a second row selection. A trace is
 content evidence, not proof of historical source availability or a
 runtime fit receipt. No account, reward, RL or execution change is made.
 
+## Frozen forecast records
+
+The stream module binds declared simulation blocks, actual training
+scope, frozen Ridge/scaler parameters and selected-input packets. Its
+JSON reader requires an externally pinned digest and checks nested
+identity, model-input agreement and availability/horizon consistency.
+It neither refits nor authenticates a fitting receipt or the Dataset.
+Generation and a decision consumer are separate responsibilities.
+
 ## Strategy contract
 
 Strategyが返すlogical intentは小さく保つ。

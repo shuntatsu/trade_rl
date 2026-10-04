@@ -1604,7 +1604,8 @@ Thirteen synthetic bot tests pass locally for matched policy/fill behavior,
 exact residual visibility, ordinary minima, runtime floor, sub-lot, latency,
 partial capacity and final forming-Dataset binding. This is software proof only;
 source bounds, runtime floors, capacity, latency, margin and over-cap rejection can
-still prevent closure. The separate PR #808 execution change is not included.
+still prevent closure. Bounded reduce-only over-cap recovery remains separate
+active execution work and is not included in this connector.
 Current exchangeInfo application remains `current_snapshot_assumption` with
 `dataset_minimum_role=venue_constraint` and declared one-way mode, without historical
 filter, venue-permission or account-mode proof.

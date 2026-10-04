@@ -49,6 +49,40 @@ Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.n
 
 ## Strategy contract
 
+The opt-in `weekly_bb_ichimoku` bot filters adaptive intent through completed
+calendar-week context. `with_weekly_context` derives weeks from complete continuous
+UTC-hour close endpoints: Monday00:00 exclusive to next Monday00:00 inclusive,
+exactly168 rows. Partial boundary weeks are excluded; an inactive, unavailable or
+late-at-own-close constituent invalidates its week without retrospective backfill.
+BB20 uses population standard deviation and `(price-SMA)/(2σ)` positions, not
+percent-B. At exactly zero width, close position is0 and high/low positions are
+±1 inclusive raw-band-touch sentinels rather than ratios; positive widths have
+no absolute price-scale cutoff. Ichimoku9/26/52 uses the currently
+plotted cloud, computed26 weeks earlier, requiring78 usable complete weeks.
+Existing unshifted Ichimoku feature meanings remain unchanged. Values update at
+the completed Monday endpoint, carry for at most167 hours with age `/168`, and
+never consume forming-week prices. A new content identity embeds source provenance
+and preserves existing prices, economics and features.
+
+Long permission requires close above cloud upper and Tenkan>Kijun; short is
+symmetric. A high reaching BB upper plus close below Tenkan suppresses LONG;
+a low reaching BB lower plus close above Tenkan suppresses SHORT. Band contact
+alone cannot reverse. Missing/nonfinite context yields voluntary FLAT. The wrapped
+strategy retains actual filled-position state and its protective-exit latch.
+Quantity hold may delay weekly exits; protective exits, hard risk and terminal
+settlement retain priority. No peak-prediction or net-profit guarantee follows.
+
+The separate opt-in `weekly_bb_pullback` package retains the same seven weekly
+inputs and availability scope, but replaces weekly permission/exhaustion with
+completed-week BB contact and native four-hour Tenkan9 distance. LONG is
+suppressed when weekly high-band position>=1 and four-hour distance<0; SHORT
+uses low-band position<=−1 and distance>0. Equality at Tenkan never suppresses.
+This is a decision-time conjunction, not an ordered touch-then-rejection event.
+The named native feature must be available and finite. Actual quantity holding,
+protective state, shared risk and terminal settlement still retain priority.
+Its completed consumed-development diagnostic lost in all six evaluation cells;
+the opt-in capability is not a qualified profit strategy.
+
 Strategyが返すlogical intentは小さく保つ。
 
 ```text
@@ -606,3 +640,110 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Forming-week BB contact and ordered four-hour exhaustion
+
+`data/features/forming_week_context.py` derives a separate causal forming-week
+context. `FORMING_WEEK_NAMES` contains exactly
+`forming_week_bb_hour_high_position` and `forming_week_bb_hour_low_position`,
+in that order. This transform does not alter the seven completed-week fields or
+their plotted-cloud meaning.
+
+At each hourly decision endpoint, BB20/2 uses exactly the 19 immediately preceding
+consecutive, fully valid calendar weeks' closes and the current as-of row close.
+Each full week contains all 168 consecutive UTC-hour endpoints from Monday01:00
+through the next Monday00:00 inclusive. The current week starts at Monday01:00;
+its entire hourly prefix through the decision row must also be valid. Every
+dependency must be active, available and finite, with information and source
+availability no later than its own close. An invalid week is not skipped or
+replaced by an older valid week, and later availability does not repair an earlier
+invalid constituent.
+
+The first positive sample close is the reference and the maximum sample price
+is the scale. Each centered deviation is `(close-reference)/scale`: subtraction
+occurs before division. Portable mean and population standard deviation operate
+on those 20 deviations. The current-hour high/low numerator is
+`(wick-reference)/scale - mean_deviation`, divided by twice that standard
+deviation. This retains the mathematical raw-price BB20/2 formula while avoiding
+divide-before-subtract cancellation at tiny relative variance. The numerator
+uses neither the current week's cumulative wick nor an
+earlier hour's high/low. Exactly zero standard deviation yields two valid neutral
+zeros. Every positive width uses the ratio without an absolute epsilon cutoff.
+Stored outputs are `float32`; contact decisions use those stored values with
+inclusive high>=1 and low<=-1. Missing, invalid or late dependencies yield zero
+values, availability false, raw age168 hours, normalized staleness1 and reason1.
+The transform creates a new content identity that binds source provenance while
+preserving the existing market, economics and feature fields.
+
+`FormingWeekExhaustionStrategy` wraps a base strategy with the two forming-context
+indices and a native short-term index. Both forming ratios must be available,
+finite and fresh with observation staleness0; carried context is invalid.
+High contact arms LONG exhaustion and low
+contact arms SHORT exhaustion. Each arm has exactly one opportunity: the first
+strictly later fresh UTC four-hour event. A fresh event requires an available,
+finite native value, explicitly supplied observation staleness equal to zero and
+an exact UTC four-hour boundary. It suppresses LONG only on adjacent native values
+previous>=0 then current<0, and SHORT only on previous<=0 then current>0. Reaching
+the band alone never suppresses or reverses. The arm is consumed at that first
+opportunity even if no qualifying crossing occurs. Old arms are consumed before
+new contact from the same hour is processed, so a same-hour contact cannot use
+that hour's crossing.
+
+A blocked LONG recovers only on a fresh native value>=0; a blocked SHORT only on
+a fresh value<=0, or by a full reset. Normal carried native values trigger no
+crossing or recovery. Missing/nonfinite required forming or native values, missing
+staleness metadata, stale forming context, or stale native data at a four-hour boundary request ordinary
+FLAT and clear all arms, blocks and previous-native state. Monday01:00 week change
+clears the same complete state; Monday04:00 is the new week's first native seed.
+A forward hourly or observation-index gap also resets state. Duplicate/backward
+time or index, NaT and cross-symbol observations are rejected before the base
+strategy or wrapper state is advanced.
+
+Every accepted observation still calls the base strategy's `decide`; protective
+pending state is delegated. Voluntary suppression remains ordinary FLAT, subject
+to exact-quantity hold24. Protective exits, hard risk and terminal settlement
+retain their existing priority. Reproducible state reconstruction requires a
+fresh base strategy and wrapper followed by the same authoritative observation
+prefix. This is not a persisted checkpoint or full-ledger restart contract. A bot
+started at `start_index` is a cold start with no hidden earlier-observation priming.
+
+The opt-in `forming_week_bb_ichimoku` binding retains unchanged `AdaptiveConfig`
+and named native daily24 signal. Its short-term feature identity must come from
+the source build specification: native four-hour
+`ICHIMOKU_TENKAN_DISTANCE`, window9, `Normalization.NONE`, UTC clock and the
+specification's maximum staleness (the existing preset uses8 hours). Runtime
+validation checks the inferred source-event clock, normalized-age bounds and
+carry consistency. Bot native freshness requires both raw age0 hours and stored
+normalized staleness0. An available positive raw age cannot be accepted as fresh
+because normalization underflows to zero. Expected normalized staleness is
+computed by `float64` age/bound division followed by `float32` storage, preserving
+the source specification's bound rather than rounding it before division.
+`MarketDataset` resolves omitted metadata, so these checks
+cannot attest that the original caller explicitly supplied it. Exact native raw
+source conformance still requires an independent G3 oracle. Existing bot families
+and canonical candidate rosters keep their meanings; implementation and software
+Green alone establish no profitable mechanism, peak prediction or unused transfer.
+
+## Bot MARKET profile binding
+
+`run_trading_bot(..., market_order_profile=None)` accepts an optional factory-built
+`MarketOrderProfile` and forwards that exact value to canonical shared-cash replay
+after bot feature augmentation. Its verified Dataset identity and full ordered
+symbol roster must match the final augmented Dataset. An original-source profile
+is rejected when augmentation changes identity; the bot never rebuilds or rebinds
+it. A forming-package comparison prepares one common feature-complete Dataset and
+freezes the same profile, reduce-only flag, source and runtime across every
+candidate/control arm. Matched false/true profiles are a separate synthetic
+execution-factor oracle here, not different execution policies for those arms.
+
+Omission and explicit `None` preserve execution, returns, report and ledger schemas;
+this opt-in adds no `BotConfig`, CLI or default strategy/candidate roster change.
+The ledger records the actual profile-bound execution-policy digest, while G3 must
+separately freeze the full profile, raw source bytes and external profile digest.
+The profile uses `historical_application=current_snapshot_assumption` and
+`dataset_minimum_role=venue_constraint`; declared one-way mode and a current
+exchangeInfo snapshot do not verify historical filters or actual account mode.
+Source quantity bounds, explicit runtime floors, true sub-lot inventory, capacity,
+latency, risk/margin and rejected over-cap requests can still leave exact residuals.
+Synthetic bot tests establish software behavior; they establish no venue permission,
+economic qualification or new research gate approval.

@@ -15,8 +15,14 @@ from typing import Literal
 import numpy as np
 
 from trade_rl.data import load_market_dataset_artifact
+from trade_rl.data.features.forming_week_context import (
+    FORMING_WEEK_NAMES,
+    with_forming_week_context,
+)
 from trade_rl.data.features.price_channels import CHANNEL_NAMES, with_price_channels
+from trade_rl.data.features.weekly_context import WEEKLY_NAMES, with_weekly_context
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.replay import (
     SharedCashReplayResult,
     run_shared_cash_replay,
@@ -37,6 +43,8 @@ from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentStrategy,
 )
 from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
+from trade_rl.strategies.rules.weekly_confirmation import WeeklyConfirmationStrategy
+from trade_rl.strategies.rules.weekly_exhaustion import FormingWeekExhaustionStrategy
 
 _ALLOWED_OBJECTIVES = frozenset({"profit", "sharpe", "balanced"})
 _SELECTION_DRAWDOWN_LIMIT_PCT = 20.0
@@ -227,6 +235,11 @@ def create_strategy_instances(
 ) -> list[SingleSymbolStrategy]:
     """Instantiate one independent strategy per symbol in dataset."""
     name = config.strategy_name.lower()
+    native_index = (
+        _forming_week_native_index(dataset)
+        if name == "forming_week_bb_ichimoku"
+        else None
+    )
     instances: list[SingleSymbolStrategy] = []
 
     for _ in range(dataset.n_symbols):
@@ -281,7 +294,12 @@ def create_strategy_instances(
             instances.append(
                 EnsembleIntentStrategy([t_strat, m_strat], min_agreement=1)
             )
-        elif name == "adaptive":
+        elif name in {
+            "adaptive",
+            "weekly_bb_ichimoku",
+            "weekly_bb_pullback",
+            "forming_week_bb_ichimoku",
+        }:
             a_cfg = AdaptiveProfitConfig(
                 signal_index=config.signal_index,
                 # Use the configured signal's magnitude for the momentum regime.
@@ -296,7 +314,53 @@ def create_strategy_instances(
                 trailing_stop_threshold=config.trailing_stop_threshold,
                 max_holding_bars=config.max_holding_bars,
             )
-            instances.append(RegimeAdaptiveStrategy(a_cfg))
+            adaptive = RegimeAdaptiveStrategy(a_cfg)
+            if name == "forming_week_bb_ichimoku":
+                if not all(
+                    feature in dataset.feature_names for feature in FORMING_WEEK_NAMES
+                ):
+                    raise ValueError("forming context requires both named BB fields")
+                high, low = (
+                    dataset.feature_names.index(feature)
+                    for feature in FORMING_WEEK_NAMES
+                )
+                assert native_index is not None
+                instances.append(
+                    FormingWeekExhaustionStrategy(
+                        adaptive, (high, low), short_term_index=native_index
+                    )
+                )
+            elif name in {"weekly_bb_ichimoku", "weekly_bb_pullback"}:
+                missing = tuple(
+                    feature
+                    for feature in WEEKLY_NAMES
+                    if feature not in dataset.feature_names
+                )
+                if missing:
+                    raise ValueError(
+                        "weekly_bb_ichimoku requires complete named weekly context: "
+                        + ", ".join(missing)
+                    )
+                short_term_index = None
+                if name == "weekly_bb_pullback":
+                    short_term_name = "4h__ichimoku_tenkan_distance_9bar"
+                    if short_term_name not in dataset.feature_names:
+                        raise ValueError(
+                            "weekly_bb_pullback requires named " + short_term_name
+                        )
+                    short_term_index = dataset.feature_names.index(short_term_name)
+                instances.append(
+                    WeeklyConfirmationStrategy(
+                        adaptive,
+                        tuple(
+                            dataset.feature_names.index(feature)
+                            for feature in WEEKLY_NAMES
+                        ),
+                        short_term_index=short_term_index,
+                    )
+                )
+            else:
+                instances.append(adaptive)
         elif name == "constant_long":
             instances.append(ConstantIntentStrategy(PositionIntent.LONG))
         elif name == "constant_short":
@@ -307,6 +371,95 @@ def create_strategy_instances(
             raise ValueError(f"Unknown strategy: {config.strategy_name}")
 
     return instances
+
+
+def _forming_week_native_index(dataset: MarketDataset) -> int:
+    """Validate declared raw-native semantics and aligned clocks, not attestation.
+
+    Content identity cannot prove the source formula. An independent raw-source
+    oracle remains required before economic research. Resolved defaults also do
+    not retain whether freshness metadata was explicitly supplied at construction.
+    """
+    name = "4h__ichimoku_tenkan_distance_9bar"
+    if name not in dataset.feature_names or dataset.identity_payload_json is None:
+        raise ValueError("forming filter requires identity-bound native " + name)
+    payload = json.loads(dataset.identity_payload_json)
+    while isinstance(payload, dict) and "config" not in payload:
+        if payload.get("transform") not in {
+            "forming_week_context_v1",
+            "completed_weekly_context_v1",
+        }:
+            raise ValueError("native feature requires recoverable build configuration")
+        source = payload.get("source_dataset")
+        payload = source.get("identity_payload") if isinstance(source, dict) else None
+    build = payload.get("config") if isinstance(payload, dict) else None
+    specs = build.get("features") if isinstance(build, dict) else None
+    matches = (
+        [spec for spec in specs if isinstance(spec, dict) and spec.get("name") == name]
+        if isinstance(specs, list)
+        else []
+    )
+    if len(matches) != 1:
+        raise ValueError("native feature requires one identity-bound named FeatureSpec")
+    spec = matches[0]
+    if (
+        not isinstance(build, dict)
+        or build.get("base_timeframe") != "1h"
+        or spec.get("kind") != "ichimoku_tenkan_distance"
+        or type(spec.get("lookback")) is not int
+        or spec.get("lookback") != 9
+        or spec.get("timeframe") != "4h"
+        or spec.get("normalization") != "none"
+        or spec.get("alignment") != "unshifted_decision_time"
+    ):
+        raise ValueError("native feature requires unshifted raw four-hour Tenkan9")
+    maximum_age = spec.get("max_staleness_hours")
+    if (
+        isinstance(maximum_age, bool)
+        or not isinstance(maximum_age, (int, float))
+        or not math.isfinite(maximum_age)
+        or maximum_age <= 0
+    ):
+        raise ValueError("native feature requires a finite positive staleness bound")
+    index = dataset.feature_names.index(name)
+    age = dataset.resolved_array("feature_staleness_hours")[:, :, index]
+    available = dataset.feature_available[:, :, index]
+    stale = dataset.resolved_array("feature_staleness")[:, :, index]
+    if np.any(
+        available
+        & (
+            (age > maximum_age)
+            | (age != np.floor(age))
+            | (age > np.iinfo(np.int64).max // 3_600_000_000_000)
+        )
+    ):
+        raise ValueError("native feature age must identify a valid hourly source event")
+    expected_stale = np.minimum(age.astype(np.float64) / maximum_age, 1).astype(
+        np.float32
+    )
+    if np.any(available & (stale != expected_stale)):
+        raise ValueError(
+            "native feature normalized age disagrees with bound source age"
+        )
+    if np.any(available & (age > 0) & (stale == 0)):
+        raise ValueError("native feature positive source age cannot become fresh zero")
+    times = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+    if np.any(times % 3_600_000_000_000):
+        raise ValueError("native feature requires UTC hourly decision endpoints")
+    for symbol in range(dataset.n_symbols):
+        rows = np.flatnonzero(available[:, symbol])
+        events = times[rows] // 3_600_000_000_000 - age[rows, symbol].astype(np.int64)
+        values = dataset.features[rows, symbol, index]
+        if (
+            np.any(events % 4)
+            or np.any(np.diff(events) < 0)
+            or not np.isfinite(values).all()
+            or np.any((np.diff(events) == 0) & (np.diff(values) != 0))
+        ):
+            raise ValueError(
+                "native feature event phase or carried value is inconsistent"
+            )
+    return index
 
 
 def calculate_bot_report(
@@ -405,8 +558,12 @@ def run_trading_bot(
     *,
     start_index: int = 0,
     stop_index: int | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
 ) -> tuple[SharedCashReplayResult, BotReport]:
-    """Execute trading bot simulation on dataset with configured strategy and risk."""
+    """Execute trading bot simulation with configured strategy and risk.
+
+    An optional MARKET profile must bind the final feature-augmented Dataset.
+    """
     _validate_signal_index(dataset, config.signal_index)
     resolved_stop_index = dataset.n_bars - 1 if stop_index is None else stop_index
     if (
@@ -420,6 +577,15 @@ def run_trading_bot(
 
     if config.strategy_name.lower() == "channel_breakout":
         dataset = _with_channel_breakout_features(dataset)
+    if config.strategy_name.lower() == "forming_week_bb_ichimoku":
+        _forming_week_native_index(dataset)
+        if not any(name in dataset.feature_names for name in FORMING_WEEK_NAMES):
+            dataset = with_forming_week_context(dataset)
+    if config.strategy_name.lower() in {
+        "weekly_bb_ichimoku",
+        "weekly_bb_pullback",
+    } and not any(name in dataset.feature_names for name in WEEKLY_NAMES):
+        dataset = with_weekly_context(dataset)
 
     strategies = create_strategy_instances(dataset, config)
     risk_config = PreTradeRiskConfig(
@@ -438,6 +604,7 @@ def run_trading_bot(
         risk=risk,
         minimum_hold_bars=config.minimum_hold_bars,
         execution_cost=config.execution_cost,
+        market_order_profile=market_order_profile,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
     )
@@ -864,7 +1031,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--strategy",
         default="adaptive",
-        help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash, or 'all' for optimize)",
+        help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, weekly_bb_ichimoku, weekly_bb_pullback, forming_week_bb_ichimoku, constant_long, constant_short, cash, or 'all' for optimize)",
     )
     parser.add_argument(
         "--signal-feature",

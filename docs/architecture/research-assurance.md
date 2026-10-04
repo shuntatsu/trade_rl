@@ -80,6 +80,75 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: fixed-trend bot development factor
+
+This consumed-development factor changes only adaptive bot `volatility_regime_threshold` from 0.01 to zero. G0 tests whether changed exit/retention/re-entry dynamics retain weak same-sign continuation and flatten adverse-sign positions after costs. Baseline reversion entry 0.012 is outside its low-magnitude regime `abs(signal)<0.01`; contrarian entries/direct flips are unreachable there and cannot be the claimed treatment. A LONG with signal +0.008 requests baseline FLAT/candidate LONG, while -0.008 requests baseline LONG/candidate FLAT; SHORT is symmetric. Persistent demand/attention is a plausible causal premise, with neither the 24-hour horizon nor executable edge established. G1 preserves shared capital, causal named signal, thresholds, exact-quantity holding, global risk, economics and settlement. Budget0.2 is per active symbol, not a combined portfolio cap. Prefix selection precedes evaluation. Stress freezes strategy parameters but latency changes the terminal reserve; actual close can precede stop and must leave the account flat by stop.
+
+G2 requires a source-independent paired intent truth table for all prior intents, both signs, unavailable and nonfinite inputs, one-field configuration delta, all-arm coverage/settlement and source-derived cash-carry oracles. Cash selection, nonpositive candidate return or paired difference, excess drawdown, incomplete replay or unsettled terminal falsifies the fixed screen. Fresh result-blind read-only AI review must clear G0-G2 before execution. Normal Python, import origins, worktree, exact HEAD, source/runtime/script/Dataset identities and every arm's raw return/ledger are bound or write-once. Optimized Python is explicitly rejected before preparation/execution. No result rescues a mechanism defect; no consumed-development result establishes unused-future performance, winner or live readiness.
+
+## Research-specific contract: deterministic bot minimum-hold factor
+
+The fixed consumed-development baseline is adaptive with regime threshold0 and hold4. The single candidate changes only `minimum_hold_bars` to24, matching the named24bar signal horizon. G0 tests whether fewer voluntary changes and longer continuation improve net performance; reducing costs alone does not establish an edge. Reversals and funding during locked exposure are economic counterexamples. Shared capital, per-symbol nominal budget, all strategy/risk/cost fields, chronology, cash-priority signed selection and all-arm validity are frozen. Every stress cell must have positive candidate return and a strictly positive baseline difference, with both prefixes choosing candidate.
+
+G1 holds actual filled quantity while nonflat age is below24; flat entry remains available. First fill/sign change gives age1, same-sign exposure advances age, flat gives0, and age24 unlocks. A protective FLAT, global risk and terminal phase take precedence. No guarantee follows that turnover decreases or loss stays below20%. G2 independently checks hold ages, both quantity signs, all requested intents, protective bypass, partial-fill cancellation, unlock/re-entry, global risk and terminal settlement. Fresh result-blind AI review and source/runtime/script/Dataset binding precede economics. All arm raw returns/ledgers and reset-normalized products are retained; result-dependent rescue and unused/final/live claims remain forbidden.
+
+## Research-specific contract: deterministic bot native daily signal factor
+
+The fixed baseline uses hourly24bar log return with adaptive regime0 and quantity hold24. The single candidate changes only `signal_index` to the existing named native daily24bar log-return channel. This treatment jointly changes horizon, amplitude, update cadence and availability; it does not isolate horizon alone. Slower positioning/attention continuation is a falsifiable premise, while lagged reversal exposure and funding are counterexamples. Raw entry/exit thresholds, capital, holding, risk, economics, selection and the all-arm positive absolute/paired screen remain frozen.
+
+G1 consumes completed native daily events causally aligned to the hourly clock, never an unfinished bar or hourly substitute. G2 independently checks the native24bar formula, warmup/source range, delayed availability, staleness, missing-row rejection, future-mutation invariance, channel binding/permutation and unchanged hold/risk/terminal behavior. Source/runtime/script/Dataset identities, full arm raw evidence, write-once outputs and fresh result-blind review precede economics. Repeated Q1 use remains adaptive consumed development; a passed screen alone cannot establish general profitability, winner, unused/final eligibility or live readiness.
+
+## Research-specific contract: completed weekly BB/Ichimoku bot confirmation
+
+G0 tests fixed, symbol-independent completed-week direction/rejection confirmation
+around native-daily adaptive after costs on consumed multi-year development.
+Slower positioning continuation is a premise; band walking, lagged reversals,
+premature exits and reduced opportunities are counterexamples. The combined
+package changes trend permission and exhaustion together and cannot identify either
+indicator or establish peak prediction. Cash and unchanged adaptive are controls.
+Both prefixes must select candidate, with positive absolute/paired returns in all
+six stress evaluations and every arm valid; no post-result rescue is allowed.
+
+G1 binds BB20/2 population sigma, Ichimoku9/26/52 and26-week plotted-cloud shift
+to complete UTC Monday weeks from hourly source, shared78-week warmup, no partial
+weeks and missing/late/inactive constituent rejection without backfill. Normalized
+values use no symbol ID; original economics remain unchanged. Cloud and Tenkan/Kijun
+must agree with direction; band-reaching wick and close beyond Tenkan against that
+direction suppress it. Missing context gives ordinary FLAT, subject to hold24.
+Protective latch, global risk and terminal priority remain unchanged.
+
+G2 independently checks calendar endpoints, full dependency window, cloud indexing,
+BB numerics, zero variance, missing/delayed data, future/prefix invariance, named
+column permutation and protective delegation. Frozen cash priority/all-arm gates,
+source/runtime/script/Dataset bindings and fresh read-only target-blind AI review
+precede G4. Repeated development cannot establish unused transfer, winner or live edge.
+
+## Research-specific contract: weekly band contact and four-hour Tenkan pullback
+
+G0 prospectively tests a separate fixed package after the consumed-development
+combined weekly result. A recent completed-week band contact can identify extension;
+opposite completed-four-hour Tenkan distance can identify shorter-term weakness
+before weekly Tenkan rejection. Band walking, early exit, re-entry churn and added
+cost/funding are counterexamples. This jointly replaces weekly permission and
+weekly exhaustion; it cannot isolate either component or establish timely tops.
+Cash and the original combined weekly package remain controls. Thresholds, daily
+signal, hold24, risk, capital, costs, terminal legality and the all-arm/two-prefix/
+all-six positive screen are unchanged. Earlier evidence is never rescued.
+
+G1 uses all seven completed-week fields with the same78-week availability/warmup,
+plus native named `4h__ichimoku_tenkan_distance_9bar`. LONG is voluntarily suppressed
+only when weekly high-band position>=1 and four-hour Tenkan distance<0; SHORT uses
+low-band position<=−1 and distance>0. Touch alone, or zero Tenkan distance, does not
+suppress. There is no weekly cloud/Tenkan-Kijun permission in this package. Missing
+or nonfinite required inputs fail closed; protective latch, hold, risk and terminal
+retain priority. No forming four-hour bar or symbol-specific threshold is used.
+
+G2 requires independent symmetric truth tables, equality/missing/nonfinite/index
+boundaries, actual quantity hold/unlock, protective delegation, named-column
+permutation, automatic weekly derivation and original-package compatibility. Native
+four-hour Tenkan source/window/availability conformance and fresh source-bound
+result-blind G0-G3 clearance must precede write-once economic execution.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 Quantity-preserving hold has two independent G2 counterexamples. With a constant
@@ -850,3 +919,114 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Research-specific contract: forming-week contact then native exhaustion
+
+G0 proposes a fixed, symbol-independent package around unchanged native-daily24
+adaptive intent: extension beyond a forming-week BB20/2 band followed by a later
+native four-hour sign crossing may distinguish exhausted continuation from an
+ordinary band walk. Persistent positioning and subsequent shorter-term weakness
+are a causal premise to test, not established price-top information. This package
+changes both the band time basis and the ordered confirmation mechanism, so it
+cannot isolate either indicator or prove an optimal threshold. Band walking,
+premature exit, lost valid trends, re-entry churn, funding concentration, locked
+exposure and added execution cost are explicit counterexamples.
+
+The proposed consumed-development diagnostic fixes cash and unchanged adaptive
+as controls, shared initial capital100,000 USDT, per-symbol nominal budget0.2,
+portfolio gross cap1.0, exact-quantity hold24, all other adaptive settings, risk,
+execution economics and terminal legality. The proposed success screen requires
+every prefix/evaluation arm complete and exactly settled, observed execution
+drawdown strictly below20%, both prefixes selecting candidate, and positive
+candidate after-cost absolute return plus strictly positive candidate-minus-
+adaptive return in every registered base/cost/latency evaluation. Cash remains
+first on a signed-score tie. Source-bound stress definitions and exact protocol
+must be frozen before execution; this prose is a screen proposal, not completed
+G0 approval or authorization for a new economic run. A failed/invalid control
+cannot be silently discarded to rescue the screen. Shared-cash diagnostics do
+not establish the intended independent single-symbol operational generalization.
+The already consumed2021-2024 and Q1 development scopes stay consumed; a passing
+screen would establish only that fixed diagnostic, not unused/final/live edge.
+
+G1 binds 19 immediately preceding consecutive full UTC weeks plus current as-of
+close, every full week Monday01:00 through next Monday00:00 inclusive, and a fully
+valid current-week prefix. Inactive, missing, nonfinite or late-at-own-close
+dependencies invalidate context without skipping/backfill. BB20 uses portable
+population reductions after centering each sample close on the first positive
+sample close and then dividing by maximum sample price. Current-hour wick
+numerators likewise subtract the reference before scaling and then subtract the
+mean centered deviation. This is the same mathematical raw BB20/2 formula;
+divide-before-subtract cancellation at tiny relative variance is unacceptable.
+Current-hour high/low positions are saved as `float32`. Exact zero width is valid neutral0, while every
+positive width uses the ratio without epsilon. Decisions use inclusive>=1/<=-1
+only when both forming ratios are available, finite and fresh with observation
+staleness0; carried forming context requests ordinary FLAT and clears all state.
+The native confirmation is source-specified four-hour
+`ICHIMOKU_TENKAN_DISTANCE` window9 with `Normalization.NONE`; UTC source-event
+alignment, the specification's normalized age bounds and carry consistency are
+checked without claiming original explicit metadata or historical source release.
+Bot native freshness requires both raw age0 and stored normalized staleness0;
+available positive raw age with normalized0 is rejected even when division would
+underflow. Expected normalized age uses `float64` division by the configured
+bound followed by `float32` storage, without first rounding that bound.
+
+Each side arms on contact and consumes the arm on the first later fresh UTC4h
+event. Fresh means available/finite with explicit observation staleness0 at a
+four-hour boundary. Adjacent previous>=0/current<0 blocks LONG; previous<=0/
+current>0 blocks SHORT. Old arms are consumed before same-hour new contact.
+Carried values trigger neither crossing nor recovery. Fresh>=0 recovers LONG,
+fresh<=0 recovers SHORT. Missing required context or metadata, stale four-hour
+boundary, week change at Monday01:00, or forward hour/index gap clears all state,
+including blocks and previous native value; the next valid fresh event seeds
+native state. Invalid required context returns ordinary FLAT. Duplicate/backward
+time/index, NaT and cross-symbol inputs are rejected before calling base or
+mutating state. Accepted rows always call the unchanged base, retaining
+protective delegation, quantity hold24, hard-risk and terminal priority.
+
+G2 requires independent calendar/sample, portable numerics and current-hour wick
+oracles; exact zero/tiny positive-width, tiny relative-variance cancellation and
+inclusive `float32` boundary cases; raw/normalized freshness agreement,
+normalization underflow and non-binary-exact staleness-bound conformance;
+missing/late/invalid full weeks without replacement; current-prefix and future
+non-interference; positive price scaling and named-column permutation; both-side
+ordered crossings, first-opportunity consumption, same-hour re-arm, normal carry,
+block recovery, week/gap reset and pre-base invalid-input rejection. Fresh-base/
+fresh-wrapper reconstruction from the same authoritative prefix is the state
+oracle; no persisted checkpoint or full-ledger restart claim is made, and bot
+`start_index` has cold-start semantics. Source-build feature-kind/window/
+normalization checks and runtime inferred source-event/carry checks are distinct
+from G3 native-archive reconstruction. `MarketDataset` metadata resolution means
+runtime validation alone cannot prove original explicit-metadata presence.
+
+Fresh independent result-blind G0-G2 review, exact-source software verification
+and independent Dataset/native-source G3 clearance remain required before G4.
+The G3 oracle must rederive native four-hour events and forming dependency windows
+from the bound source; an hourly proxy alone is not native-source proof. Source,
+runtime, Dataset, protocol and every arm's evidence must remain immutable and
+reconstructible. New software implementation is not the user's profitability
+goal, and no new economic result or complete G0-G3 assurance is established here.
+
+## Bot MARKET profile binding
+
+The bot's optional factory-built MARKET profile is a software integration factor:
+it reaches canonical replay unchanged after feature preparation and must bind the
+final verified Dataset identity and ordered symbols. Result-blind G2 checks cover
+omission/`None` equality, matched same-raw false/true policy identities and exact
+costed fills/residuals, ordinary opening/reversal minima, runtime floor, true
+sub-lot, capacity, latency and final forming-Dataset binding. The H24 fixture also
+retains costed lot-grid reductions at unlock and exact terminal closure. These
+synthetic oracles prove software behavior only.
+
+Forming candidate/control arms must share the same prepared Dataset, profile,
+reduce-only flag, source and runtime. Matched false/true synthetic checks isolate
+the execution factor and do not authorize changing only a candidate arm's profile.
+For G3, freeze the common prepared Dataset, full profile/canonical payload, external
+profile digest, saved raw exchangeInfo bytes/hash/retrieval, declared account mode,
+reduce-only flag, runtime/stress and actual execution-policy identity before any
+economics. A ledger policy digest alone cannot reconstruct the complete profile.
+`current_snapshot_assumption` and `venue_constraint` are explicit application
+assumptions, not historical-filter or verified-account evidence. Existing source
+quantity bounds, runtime floors, sub-lot/capacity/latency/risk/margin constraints and
+over-cap rejection still apply. Native-source coverage, G0/G1 protocol approval,
+independent G3 validity and same-head software/review gates remain separate; this
+connector grants no economic-run authorization, winner or unused/live eligibility.

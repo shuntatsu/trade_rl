@@ -59,6 +59,8 @@ def test_strategy_family_packages_exist() -> None:
         "rules/trend.py",
         "rules/mean_reversion.py",
         "rules/channel_breakout.py",
+        "rules/weekly_confirmation.py",
+        "rules/weekly_exhaustion.py",
         "forecasts/__init__.py",
         "forecasts/controller.py",
         "forecasts/supervised.py",

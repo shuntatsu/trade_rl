@@ -69,7 +69,7 @@ trade_rl/
 │   ├── controls.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
+│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py

@@ -14,6 +14,7 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentController,
 )
 from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
     _immutable_array,
     build_causal_forecast_training_set,
 )
@@ -162,6 +163,15 @@ def fit_ridge_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return _fit_ridge_training_set(training, alpha=alpha)
+
+
+def _fit_ridge_training_set(
+    training: CausalForecastTrainingSet, *, alpha: float
+) -> RidgeForecastModel:
+    """Use the same solver on the same validated rows, without a second selector."""
+    if not math.isfinite(alpha) or alpha <= 0.0:
+        raise ValueError("alpha must be finite and positive")
     x = training.features
     y = training.labels
     weights = training.sample_weights
@@ -195,7 +205,7 @@ def fit_ridge_forecast(
         feature_scale=feature_scale,
         coefficients=coefficients,
         intercept=intercept,
-        horizon_hours=horizon_hours,
+        horizon_hours=training.horizon_hours,
         alpha=alpha,
         n_samples=training.n_samples,
         fit_cutoff=training.fit_cutoff,

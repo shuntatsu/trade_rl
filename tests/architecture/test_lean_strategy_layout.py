@@ -62,6 +62,7 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/__init__.py",
         "forecasts/controller.py",
         "forecasts/supervised.py",
+        "forecasts/training_trace.py",
         "forecasts/ridge.py",
         "forecasts/lightgbm.py",
         "rl/__init__.py",

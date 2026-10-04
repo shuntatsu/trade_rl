@@ -47,6 +47,17 @@ Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.n
 
 このportable contractは、同一code・config・sealed sourceから構築した完全Datasetについて、現行のUbuntu x86_64 hosted runner上の複数AMD EPYC系と複数Intel Xeon系で `features`、`global_features`、normalization digest、Dataset IDのbit-exact一致を実証済みである。一方、任意のARM、任意libm、任意platformまでの普遍的なbit-identical保証は主張しない。historical `market_build_v2` artifactは書き換えず、current readerでそのidentityのまま読み取れる互換を維持する。
 
+## Forecast training-row evidence
+
+The existing supervised row selector records the actual pooled symbols,
+feature rows, exact label endpoints, prices and source publication clocks.
+The immutable training object binds selected features, names and weights.
+Both endpoints and their publication precede fit cutoff strictly; unused
+Dataset suffixes are excluded from its scope identity. The Ridge solver
+can consume that same object without a second row selection. A trace is
+content evidence, not proof of historical source availability or a
+runtime fit receipt. No account, reward, RL or execution change is made.
+
 ## Strategy contract
 
 Strategyが返すlogical intentは小さく保つ。

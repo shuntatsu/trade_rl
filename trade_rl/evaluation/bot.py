@@ -22,6 +22,7 @@ from trade_rl.data.features.forming_week_context import (
 from trade_rl.data.features.price_channels import CHANNEL_NAMES, with_price_channels
 from trade_rl.data.features.weekly_context import WEEKLY_NAMES, with_weekly_context
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.replay import (
     SharedCashReplayResult,
     run_shared_cash_replay,
@@ -557,8 +558,12 @@ def run_trading_bot(
     *,
     start_index: int = 0,
     stop_index: int | None = None,
+    market_order_profile: MarketOrderProfile | None = None,
 ) -> tuple[SharedCashReplayResult, BotReport]:
-    """Execute trading bot simulation on dataset with configured strategy and risk."""
+    """Execute trading bot simulation with configured strategy and risk.
+
+    An optional MARKET profile must bind the final feature-augmented Dataset.
+    """
     _validate_signal_index(dataset, config.signal_index)
     resolved_stop_index = dataset.n_bars - 1 if stop_index is None else stop_index
     if (
@@ -599,6 +604,7 @@ def run_trading_bot(
         risk=risk,
         minimum_hold_bars=config.minimum_hold_bars,
         execution_cost=config.execution_cost,
+        market_order_profile=market_order_profile,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
     )

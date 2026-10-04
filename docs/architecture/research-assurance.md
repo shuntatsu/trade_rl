@@ -1005,3 +1005,28 @@ from the bound source; an hourly proxy alone is not native-source proof. Source,
 runtime, Dataset, protocol and every arm's evidence must remain immutable and
 reconstructible. New software implementation is not the user's profitability
 goal, and no new economic result or complete G0-G3 assurance is established here.
+
+## Bot MARKET profile binding
+
+The bot's optional factory-built MARKET profile is a software integration factor:
+it reaches canonical replay unchanged after feature preparation and must bind the
+final verified Dataset identity and ordered symbols. Result-blind G2 checks cover
+omission/`None` equality, matched same-raw false/true policy identities and exact
+costed fills/residuals, ordinary opening/reversal minima, runtime floor, true
+sub-lot, capacity, latency and final forming-Dataset binding. The H24 fixture also
+retains costed lot-grid reductions at unlock and exact terminal closure. These
+synthetic oracles prove software behavior only.
+
+Forming candidate/control arms must share the same prepared Dataset, profile,
+reduce-only flag, source and runtime. Matched false/true synthetic checks isolate
+the execution factor and do not authorize changing only a candidate arm's profile.
+For G3, freeze the common prepared Dataset, full profile/canonical payload, external
+profile digest, saved raw exchangeInfo bytes/hash/retrieval, declared account mode,
+reduce-only flag, runtime/stress and actual execution-policy identity before any
+economics. A ledger policy digest alone cannot reconstruct the complete profile.
+`current_snapshot_assumption` and `venue_constraint` are explicit application
+assumptions, not historical-filter or verified-account evidence. Existing source
+quantity bounds, runtime floors, sub-lot/capacity/latency/risk/margin constraints and
+over-cap rejection still apply. Native-source coverage, G0/G1 protocol approval,
+independent G3 validity and same-head software/review gates remain separate; this
+connector grants no economic-run authorization, winner or unused/live eligibility.

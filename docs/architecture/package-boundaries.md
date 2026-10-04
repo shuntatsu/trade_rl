@@ -581,3 +581,23 @@ availability. Those evidence claims remain G3 responsibilities. Completed-week
 context/confirmation, other bot families and the canonical candidate roster are
 separate contracts. No compatibility forwarder, saved wrapper checkpoint, hidden
 `start_index` priming or economic-result authority is introduced by these modules.
+
+## Bot MARKET profile binding
+
+`evaluation/bot.py` owns only the optional `market_order_profile` keyword and
+forwards the exact supplied value to `evaluation/replay.py` after its existing
+feature augmentation. `data/market_order_rules.py` owns profile-to-final-Dataset
+identity/full-symbol-order validation; `integrations/binance/market_order_profile.py`
+retains source-derived factory/publication/loading ownership. The bot has no
+profile factory, source acquisition, implicit identity rebind or profile artifact
+publisher. Forming comparisons prepare a common augmented Dataset and freeze the
+same profile, reduce-only flag, source and runtime across all candidate/control
+arms. Matched false/true profiles serve separate synthetic execution-factor checks.
+Stale source-bound profiles fail closed in canonical execution.
+
+`simulation/execution.py`'s `MarketExecutor` owns profile rules, policy identity and
+actual fills; the replay ledger records its execution-policy digest. Full profile,
+raw source and external digest remain separately frozen research evidence.
+`None` preserves `BotConfig`, CLI, report/ledger schemas and default rosters.
+The synthetic wiring tests live in `tests/evaluation/test_bot_market_profile.py`;
+they introduce no production package, Dataset schema or economics authority.

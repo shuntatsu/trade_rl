@@ -1586,3 +1586,33 @@ checkout installed-package/resource/three-CLI identity passed. The original
 Windows path-length failures and transient Guide timeout logs remain preserved.
 These are source-bound software checks; final main-target CI and qualifying
 independent GitHub-principal approval remain outstanding. No new economics were run.
+
+## Bot MARKET profile binding
+
+The bot now accepts optional `market_order_profile` and passes the exact
+factory-built value to canonical replay after feature augmentation. A profile must
+bind the final verified Dataset and its full ordered symbols. Forming comparisons
+precompute a common augmented Dataset and freeze the same profile, reduce-only flag,
+source and runtime across all candidate/control arms. Matched false/true profiles
+are used only for separate synthetic execution-factor checks here. An original-
+source profile is rejected if augmentation changes identity, with no silent rebind.
+Omission/`None`, `BotConfig`, CLI, report/ledger schemas and default rosters retain
+their contracts. The ledger binds actual execution-policy identity; full profile,
+raw source evidence and external digest require a separate pre-economic G3 freeze.
+
+Thirteen synthetic bot tests pass locally for matched policy/fill behavior,
+exact residual visibility, ordinary minima, runtime floor, sub-lot, latency,
+partial capacity and final forming-Dataset binding. This is software proof only;
+source bounds, runtime floors, capacity, latency, margin and over-cap rejection can
+still prevent closure. The separate PR #808 execution change is not included.
+Current exchangeInfo application remains `current_snapshot_assumption` with
+`dataset_minimum_role=venue_constraint` and declared one-way mode, without historical
+filter, venue-permission or account-mode proof.
+
+Fresh native-source inventory contains only four monthly ZIPs plus four CHECKSUMs:
+BTC November2023 and ETH October2024, each at1h and4h. It contains no daily archive
+and does not establish full forming/native dependency coverage or complete G3.
+Earlier omitted-profile studies and failure notes retain their recorded meanings.
+No new economics or complete G0-G3 approval is established; final same-head full CI
+and qualifying independent GitHub-principal review remain required before integration, with no new
+profitability, winner, unused/final or live-readiness claim.

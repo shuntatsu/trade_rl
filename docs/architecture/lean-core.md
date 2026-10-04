@@ -723,3 +723,27 @@ cannot attest that the original caller explicitly supplied it. Exact native raw
 source conformance still requires an independent G3 oracle. Existing bot families
 and canonical candidate rosters keep their meanings; implementation and software
 Green alone establish no profitable mechanism, peak prediction or unused transfer.
+
+## Bot MARKET profile binding
+
+`run_trading_bot(..., market_order_profile=None)` accepts an optional factory-built
+`MarketOrderProfile` and forwards that exact value to canonical shared-cash replay
+after bot feature augmentation. Its verified Dataset identity and full ordered
+symbol roster must match the final augmented Dataset. An original-source profile
+is rejected when augmentation changes identity; the bot never rebuilds or rebinds
+it. A forming-package comparison prepares one common feature-complete Dataset and
+freezes the same profile, reduce-only flag, source and runtime across every
+candidate/control arm. Matched false/true profiles are a separate synthetic
+execution-factor oracle here, not different execution policies for those arms.
+
+Omission and explicit `None` preserve execution, returns, report and ledger schemas;
+this opt-in adds no `BotConfig`, CLI or default strategy/candidate roster change.
+The ledger records the actual profile-bound execution-policy digest, while G3 must
+separately freeze the full profile, raw source bytes and external profile digest.
+The profile uses `historical_application=current_snapshot_assumption` and
+`dataset_minimum_role=venue_constraint`; declared one-way mode and a current
+exchangeInfo snapshot do not verify historical filters or actual account mode.
+Source quantity bounds, explicit runtime floors, true sub-lot inventory, capacity,
+latency, risk/margin and rejected over-cap requests can still leave exact residuals.
+Synthetic bot tests establish software behavior; they establish no venue permission,
+economic qualification or new research gate approval.

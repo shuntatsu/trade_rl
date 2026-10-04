@@ -20,6 +20,8 @@ def _funding_dataset() -> MarketDataset:
     mark_price[1, 0] = 120.0
     funding_rate = np.zeros(shape, dtype=np.float64)
     funding_rate[1, 0] = 0.001
+    funding_price_rate = np.zeros(shape, dtype=np.float64)
+    funding_price_rate[1, 0] = 0.095
     funding_due = np.zeros(shape, dtype=np.bool_)
     funding_due[1, 0] = True
     return MarketDataset(
@@ -35,6 +37,7 @@ def _funding_dataset() -> MarketDataset:
         close=close,
         volume=np.full(shape, 1_000.0, dtype=np.float64),
         funding_rate=funding_rate,
+        funding_price_rate=funding_price_rate,
         tradable=np.ones(shape, dtype=np.bool_),
         feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
         feature_names=("probe",),
@@ -46,7 +49,7 @@ def _funding_dataset() -> MarketDataset:
     )
 
 
-def test_usds_m_funding_uses_mark_price_position_notional() -> None:
+def test_usds_m_funding_uses_settlement_mark_not_bar_mark_price() -> None:
     dataset = _funding_dataset()
     executor = MarketExecutor(
         dataset,
@@ -71,7 +74,6 @@ def test_usds_m_funding_uses_mark_price_position_notional() -> None:
         bars=1,
     )
 
-    # Binance USDⓈ-M funding amount is position notional at mark price × rate.
-    # Quantity is 10 BTC; mark notional at the funding boundary is 10 × 120.
-    assert result.interval_funding == pytest.approx(-1.2)
-    assert result.book.funding_pnl == pytest.approx(-1.2)
+    # Settlement notional is 10 × 95, even though the bar mark is 120.
+    assert result.interval_funding == pytest.approx(-0.95)
+    assert result.book.funding_pnl == pytest.approx(-0.95)

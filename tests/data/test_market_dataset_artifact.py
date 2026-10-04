@@ -62,6 +62,7 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
         "close",
         "volume",
         "funding_rate",
+        "funding_price_rate",
         "tradable",
         "feature_available",
         "fee_rate",

@@ -94,6 +94,13 @@ class FakeTransport:
         }, "fixture:exchange-info"
 
 
+class MarkedFundingTransport(FakeTransport):
+    def load_funding_rates(
+        self, **_: object
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        return [(_ms(self.start + timedelta(hours=1)), 0.01, 95.0)], "fixture:funding"
+
+
 class _ExactBytesResponse:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
@@ -343,6 +350,137 @@ def test_build_uses_exchange_metadata_and_quote_notional_volume() -> None:
     )
 
 
+def test_build_preserves_funding_settlement_mark_separately_from_trade_close() -> None:
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    result = build_binance_market_dataset(
+        market="usds-m",
+        symbols=("BTCUSDT",),
+        interval="1h",
+        start_time=start,
+        end_time=start + timedelta(hours=3),
+        transport=MarkedFundingTransport(),
+    )
+
+    dataset = result.dataset
+    assert dataset.close[0, 0] == pytest.approx(100.0)
+    assert dataset.mark_price[0, 0] == pytest.approx(100.0)
+    assert dataset.funding_rate[0, 0] == pytest.approx(0.01)
+    assert dataset.funding_price_rate[0, 0] == pytest.approx(0.95)
+
+
+def test_rest_funding_parser_preserves_exchange_settlement_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    settlement_time = _ms(datetime(2026, 6, 1, tzinfo=UTC))
+    monkeypatch.setattr(
+        transport,
+        "_request_json",
+        lambda _url: [
+            {
+                "fundingTime": settlement_time,
+                "fundingRate": "0.01",
+                "markPrice": "95.0",
+            }
+        ],
+    )
+
+    rates, source = transport.load_funding_rates(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=settlement_time,
+        end_ms=settlement_time + 1,
+        mode=BinanceTransportMode.REST,
+    )
+
+    assert rates == [(settlement_time, 0.01)]
+    assert source == "rest"
+
+
+def test_rest_funding_event_parser_preserves_exchange_settlement_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    settlement_time = _ms(datetime(2026, 6, 1, tzinfo=UTC))
+    monkeypatch.setattr(
+        transport,
+        "_request_json",
+        lambda _url: [
+            {
+                "fundingTime": settlement_time,
+                "fundingRate": "0.01",
+                "markPrice": "95.0",
+            }
+        ],
+    )
+
+    events, source = transport.load_funding_events(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=settlement_time,
+        end_ms=settlement_time + 1,
+        mode=BinanceTransportMode.REST,
+    )
+
+    assert events == [(settlement_time, 0.01, 95.0)]
+    assert source == "rest"
+
+
+def test_rest_funding_requires_settlement_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    settlement_time = _ms(datetime(2026, 6, 1, tzinfo=UTC))
+    monkeypatch.setattr(
+        transport,
+        "_request_json",
+        lambda _url: [{"fundingTime": settlement_time, "fundingRate": "0.01"}],
+    )
+
+    rates, rate_source = transport.load_funding_rates(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=settlement_time,
+        end_ms=settlement_time + 1,
+        mode=BinanceTransportMode.REST,
+    )
+    assert rates == [(settlement_time, 0.01)]
+    assert rate_source == "rest"
+
+    with pytest.raises(BinanceTransportError, match="settlement mark price"):
+        transport.load_funding_events(
+            market=BinanceMarket.USDS_M,
+            symbol="BTCUSDT",
+            start_ms=settlement_time,
+            end_ms=settlement_time + 1,
+            mode=BinanceTransportMode.REST,
+        )
+
+
+def test_funding_alignment_sums_rate_times_each_settlement_mark() -> None:
+    from trade_rl.integrations.binance.dataset import _align_funding
+
+    timestamps = np.datetime64("2026-06-01T00:00:00", "ms") + np.arange(
+        3
+    ) * np.timedelta64(1, "D")
+    first_settlement = int(timestamps[0].astype(np.int64)) + 3_600_000
+    second_settlement = int(timestamps[0].astype(np.int64)) + 28_800_000
+
+    funding, available, event_count, funding_price_rate = _align_funding(
+        timestamps,
+        (
+            (second_settlement, 0.02, 100.0),
+            (first_settlement, 0.01, 90.0),
+        ),
+    )
+
+    np.testing.assert_allclose(funding, np.array([0.0, 0.03, 0.0]))
+    np.testing.assert_array_equal(available, np.array([False, True, False]))
+    np.testing.assert_array_equal(event_count, np.array([0, 2, 0]))
+    assert funding_price_rate is not None
+    np.testing.assert_allclose(funding_price_rate, np.array([0.0, 2.9, 0.0]))
+
+
 def test_build_binds_metadata_evidence_to_dataset_identity() -> None:
     start = datetime(2026, 6, 1, tzinfo=UTC)
     build_kwargs = {
@@ -436,13 +574,15 @@ def test_vision_funding_uses_rest_for_partial_trailing_month(
     end = datetime(2026, 7, 15, tzinfo=UTC)
     calls: list[tuple[str, int, int]] = []
 
-    def vision(**kwargs: object) -> list[tuple[int, float]]:
+    def vision(**kwargs: object) -> list[tuple[int, float, float | None]]:
         calls.append(("vision", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
-        return [(_ms(start), 0.0001)]
+        return [(_ms(start), 0.0001, None)]
 
-    def rest(**kwargs: object) -> list[tuple[int, float]]:
+    def rest(**kwargs: object) -> list[tuple[int, float, float | None]]:
         calls.append(("rest", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
-        return [(_ms(july), 0.0002)]
+        if int(kwargs["start_ms"]) == _ms(july):
+            return [(_ms(july), 0.0002, 200.0)]
+        return [(_ms(start), 0.0001, 100.0), (_ms(july), 0.0002, 200.0)]
 
     monkeypatch.setattr(transport, "_load_vision_funding", vision)
     monkeypatch.setattr(transport, "_load_rest_funding", rest)
@@ -460,4 +600,43 @@ def test_vision_funding_uses_rest_for_partial_trailing_month(
     assert calls == [
         ("vision", _ms(start), _ms(july)),
         ("rest", _ms(july), _ms(end)),
+    ]
+
+
+def test_vision_funding_events_supplement_missing_settlement_marks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    july = datetime(2026, 7, 1, tzinfo=UTC)
+    end = datetime(2026, 7, 15, tzinfo=UTC)
+    calls: list[tuple[str, int, int]] = []
+
+    def vision(**kwargs: object) -> list[tuple[int, float, float | None]]:
+        calls.append(("vision", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
+        return [(_ms(start), 0.0001, None)]
+
+    def rest(**kwargs: object) -> list[tuple[int, float, float | None]]:
+        calls.append(("rest", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
+        if int(kwargs["start_ms"]) == _ms(july):
+            return [(_ms(july), 0.0002, 200.0)]
+        return [(_ms(start), 0.0001, 100.0), (_ms(july), 0.0002, 200.0)]
+
+    monkeypatch.setattr(transport, "_load_vision_funding", vision)
+    monkeypatch.setattr(transport, "_load_rest_funding", rest)
+
+    observed, source = transport.load_funding_events(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=_ms(start),
+        end_ms=_ms(end),
+        mode=BinanceTransportMode.VISION,
+    )
+
+    assert observed == [(_ms(start), 0.0001, 100.0), (_ms(july), 0.0002, 200.0)]
+    assert source == "vision+rest+rest-marks"
+    assert calls == [
+        ("vision", _ms(start), _ms(july)),
+        ("rest", _ms(july), _ms(end)),
+        ("rest", _ms(start), _ms(end)),
     ]

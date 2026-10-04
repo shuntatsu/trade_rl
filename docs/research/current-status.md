@@ -1560,8 +1560,8 @@ existing economics/risk. It requires every arm valid/exactly settled, observed
 drawdown strictly below20%, both prefixes selecting candidate and positive
 absolute/paired candidate return in every registered stress evaluation. Earlier
 2021-2024/Q1 evidence remains consumed development, with no unused-data claim.
-Fresh result-blind G0-G2, native-source G3, complete software/full-CI verification
-and a frozen exact-source protocol are not complete for this package. No new
+Fresh target-result-blind G0/G1 protocol approval, native-source G3, same-head
+full CI and qualifying independent GitHub review remain required for this package. No new
 economic run or result has been produced for it; profitability, transfer,
 winner/final/live readiness and the user's full profit goal remain unestablished.
 
@@ -1572,5 +1572,17 @@ economics. The center-before-scale repair passed local writer verification:
 found positive raw age could normalize to zero under a very large staleness bound,
 and rounding before division could falsely reject a valid non-binary-exact bound.
 Three local RED regressions preceded the normalization/freshness repair. These
-numerical defects are locally repaired through TDD; fresh final independent G2
-review and full repository gates remain pending. No new economics were run.
+numerical defects are repaired through TDD. A further compatibility regression
+found equivalent second/millisecond/microsecond timestamp storage was rejected;
+three RED cases preceded normalization to nanoseconds before UTC clock arithmetic.
+Fresh independent G2 on source `f8eba994` passed179 focused tests, six equivalent
+UTC storage-unit replay comparisons and split/reverse-split forming-veto cases
+with changing marks and hold24. Current-main quantity/mark integration is included.
+Local full tests passed2,923 with26 optional skips; Ruff/format, all three Mypy
+scopes, Guide source/lint/type/build,48 Guide tests and browser19 tests passed
+(with3 optional browser skips). Direct build, identical-sdist rebuild at a short
+Windows output path, tracked-source/sdist/two-wheel closure and fresh outside-
+checkout installed-package/resource/three-CLI identity passed. The original
+Windows path-length failures and transient Guide timeout logs remain preserved.
+These are source-bound software checks; final main-target CI and qualifying
+independent GitHub-principal approval remain outstanding. No new economics were run.

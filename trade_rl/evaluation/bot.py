@@ -407,6 +407,7 @@ def run_trading_bot(
     stop_index: int | None = None,
 ) -> tuple[SharedCashReplayResult, BotReport]:
     """Execute trading bot simulation on dataset with configured strategy and risk."""
+    _validate_signal_index(dataset, config.signal_index)
     resolved_stop_index = dataset.n_bars - 1 if stop_index is None else stop_index
     if (
         isinstance(start_index, bool)
@@ -454,8 +455,10 @@ def compare_all_strategies(
     initial_capital: float = 100_000.0,
     gross_budget: float = 0.2,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> list[BotReport]:
     """Rank full-range strategy replays as in-sample diagnostics, not selection."""
+    _validate_signal_index(dataset, signal_index)
     dataset = _with_channel_breakout_features(dataset)
     strategies_to_test = [
         "adaptive",
@@ -473,6 +476,7 @@ def compare_all_strategies(
             strategy_name=strat_name,
             initial_capital=initial_capital,
             gross_budget=gross_budget,
+            signal_index=signal_index,
             execution_cost=(
                 ExecutionCostConfig() if execution_cost is None else execution_cost
             ),
@@ -493,6 +497,7 @@ def tune_for_maximum_profit(
     max_combinations: int = 150,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> TuningResult:
     """Select parameters on a chronological prefix and report on a later holdout.
 
@@ -500,6 +505,7 @@ def tune_for_maximum_profit(
     requires tuning-window ledger drawdown at or below 20%; gaps can exceed that
     limit in either window.
     """
+    _validate_signal_index(dataset, signal_index)
     if not isinstance(objective, str) or objective not in _ALLOWED_OBJECTIVES:
         raise ValueError(f"objective must be one of {sorted(_ALLOWED_OBJECTIVES)}")
     if (
@@ -548,6 +554,7 @@ def tune_for_maximum_profit(
         eval_start_index=tuning_stop_index,
         eval_stop_index=usable_stop_index,
         execution_cost=resolved_execution_cost,
+        signal_index=signal_index,
     )
 
 
@@ -558,12 +565,14 @@ def tune_all_strategies(
     max_combinations_per_strategy: int = 60,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> list[TuningResult]:
     """Compare strategy families on development data, ranked by tuning-window score.
 
     Because the later report window is exposed for every family, it is a
     development comparison and must not be treated as a final untouched holdout.
     """
+    _validate_signal_index(dataset, signal_index)
     dataset = _with_channel_breakout_features(dataset)
     candidate_strategies = [
         "adaptive",
@@ -582,6 +591,7 @@ def tune_all_strategies(
             max_combinations=max_combinations_per_strategy,
             holdout_fraction=holdout_fraction,
             execution_cost=execution_cost,
+            signal_index=signal_index,
         )
         results.append(res)
 
@@ -598,6 +608,7 @@ def optimize_bot_parameters(
     initial_capital: float = 100_000.0,
     holdout_fraction: float = _DEFAULT_HOLDOUT_FRACTION,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> tuple[BotConfig, BotReport]:
     """Grid search optimization to maximize net return and profit factor."""
     res = tune_for_maximum_profit(
@@ -607,6 +618,7 @@ def optimize_bot_parameters(
         objective="profit",
         holdout_fraction=holdout_fraction,
         execution_cost=execution_cost,
+        signal_index=signal_index,
     )
     return res.optimized_config, res.optimized_report
 
@@ -855,6 +867,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Strategy name (adaptive, ensemble, trend, mean_reversion, channel_breakout, constant_long, constant_short, cash, or 'all' for optimize)",
     )
     parser.add_argument(
+        "--signal-feature",
+        default=None,
+        help="Exact dataset feature name for signal-based strategies (default: first feature)",
+    )
+    parser.add_argument(
         "--objective",
         choices=["profit", "sharpe", "balanced"],
         default="profit",
@@ -928,6 +945,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     announce(f"Dataset: {dataset.n_symbols} symbols, {dataset.n_bars} bars.")
+    signal_index = 0
+    if args.signal_feature is not None:
+        if args.signal_feature not in dataset.feature_names:
+            parser.error(f"signal feature not found in dataset: {args.signal_feature}")
+        signal_index = dataset.feature_names.index(args.signal_feature)
+    announce(
+        f"Signal feature: {dataset.feature_names[signal_index]} (index {signal_index})."
+    )
 
     if args.mode == "compare":
         announce(
@@ -938,6 +963,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dataset,
             initial_capital=args.capital,
             gross_budget=args.gross_budget,
+            signal_index=signal_index,
         )
         if args.json:
             print(json.dumps([asdict(r) for r in reports], indent=2))
@@ -961,6 +987,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             initial_capital=args.capital,
             objective=args.objective,
             n_windows=args.windows,
+            signal_index=signal_index,
             max_combinations=60
             if args.max_combinations is None
             else args.max_combinations,
@@ -981,6 +1008,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dataset,
                 initial_capital=args.capital,
                 objective=args.objective,
+                signal_index=signal_index,
                 max_combinations_per_strategy=60
                 if args.max_combinations is None
                 else args.max_combinations,
@@ -1007,6 +1035,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 strategy_name=args.strategy,
                 initial_capital=args.capital,
                 objective=args.objective,
+                signal_index=signal_index,
                 max_combinations=150
                 if args.max_combinations is None
                 else args.max_combinations,
@@ -1022,6 +1051,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             initial_capital=args.capital,
             gross_budget=args.gross_budget,
             minimum_hold_bars=args.min_hold,
+            signal_index=signal_index,
         )
         announce(f"Executing trading bot with strategy '{cfg.strategy_name}'...")
         _, report = run_trading_bot(dataset, cfg)
@@ -1088,6 +1118,7 @@ def walk_forward_tune(
     n_windows: int = 3,
     max_combinations: int = 60,
     execution_cost: ExecutionCostConfig | None = None,
+    signal_index: int = 0,
 ) -> WalkForwardResult:
     """Walk-forward validation: tune on a window, evaluate on the next.
 
@@ -1106,10 +1137,12 @@ def walk_forward_tune(
             separately reset evaluation windows.
         max_combinations: Candidate combinations per tuning window.
         execution_cost: Execution cost configuration. Defaults to non-zero costs.
+        signal_index: Fixed dataset signal column shared by all candidates and folds.
 
     Returns:
         WalkForwardResult summarising performance across all evaluation windows.
     """
+    _validate_signal_index(dataset, signal_index)
     if isinstance(n_windows, bool) or not isinstance(n_windows, int) or n_windows < 2:
         raise ValueError("n_windows must be an integer >= 2")
     if not isinstance(objective, str) or objective not in _ALLOWED_OBJECTIVES:
@@ -1160,6 +1193,7 @@ def walk_forward_tune(
             eval_start_index=tune_stop,
             eval_stop_index=eval_stop,
             execution_cost=resolved_cost,
+            signal_index=signal_index,
         )
         window_results.append(
             replace(tuning_res, report_scope="development_walk_forward")
@@ -1200,6 +1234,15 @@ def walk_forward_tune(
     )
 
 
+def _validate_signal_index(dataset: MarketDataset, signal_index: int) -> None:
+    if (
+        isinstance(signal_index, bool)
+        or not isinstance(signal_index, int)
+        or not 0 <= signal_index < dataset.n_features
+    ):
+        raise ValueError("signal_index must be an integer within dataset features")
+
+
 def _tune_with_fixed_windows(
     dataset: MarketDataset,
     strategy_name: str,
@@ -1211,6 +1254,7 @@ def _tune_with_fixed_windows(
     eval_start_index: int,
     eval_stop_index: int,
     execution_cost: ExecutionCostConfig,
+    signal_index: int = 0,
 ) -> TuningResult:
     """Internal helper: grid search on [tune_start, tune_stop) and evaluate on [eval_start, eval_stop)."""
     # run_trading_bot terminal settlement fills on the open at stop_index.
@@ -1221,6 +1265,7 @@ def _tune_with_fixed_windows(
         strategy_name=strategy_name,
         initial_capital=initial_capital,
         execution_cost=execution_cost,
+        signal_index=signal_index,
     )
     _, baseline_tuning_report = run_trading_bot(
         dataset,
@@ -1389,6 +1434,7 @@ def _tune_with_fixed_windows(
             trailing_stop_threshold=ts,
             volatility_regime_threshold=vol_regime,
             execution_cost=execution_cost,
+            signal_index=signal_index,
         )
         _, tuning_report = run_trading_bot(
             dataset,

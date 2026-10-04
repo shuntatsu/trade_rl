@@ -52,6 +52,7 @@ checks on an existing Dataset artifact:
 ```bash
 uv run python -m trade_rl.evaluation.bot --mode walk-forward \
   --strategy adaptive --dataset <dataset-artifact-dir> \
+  --signal-feature 1h__log_return_24bar \
   --objective balanced --windows 3 --max-combinations 60 --json
 ```
 
@@ -60,6 +61,10 @@ and residual positions; their compounded return is a hypothetical summary.
 These are development diagnostics. Use `--demo` explicitly for a synthetic
 software smoke. Channel strategies require the four named prior-candle channel
 features from `with_price_channels`; arbitrary first columns are rejected.
+Choose `--signal-feature` from the artifact's exact feature names for signal-based
+strategies. The same feature is fixed for tuning and evaluation; omission keeps
+the first-feature default. This example requires a Dataset containing the named
+24-hour return feature.
 
 The candidate comparison below requires a canonical filesystem market dataset
 artifact and one JSON run config. Market-data artifacts are not committed to this

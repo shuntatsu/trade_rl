@@ -377,6 +377,8 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 
 `evaluation/bot.py` はshared-cash replayへ既存のnon-zero `ExecutionCostConfig()` を渡す。zero-cost replayは呼び出し側が明示的に指定した場合だけ使う。Hyperparameter selectionは時系列の先行windowだけを使い、baselineと選定candidateのperformance reportは後続holdout windowのfresh replayから作る。`tune_all_strategies` の順位もholdout returnではなく同じtuning window上のobjective scoreに従う。
 
+Bot CLIの`--signal-feature`はDatasetの一意なfeature名を実行前に解決し、対応する`signal_index`をbaseline、cash、全candidate、全walk-forward foldへ固定する。未指定時は従来の0列目を維持する。公開tuning/comparison APIも同じindexを明示でき、boolean・負値・非整数・source Dataset範囲外のindexはchannel追加やreplay前に拒否する。configのindexとDataset identityがfeature semanticsをbindする。channel戦略とconstant/cash controlは従来どおり各自の入力・intent契約を使い、この指定でchannel定義やcontrolを変更しない。
+
 上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
 
 CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちらかを要求する。省略時や明示されたpathが存在しない・directoryでない場合は入力errorとして終了し、optimize/compareをsynthetic demo dataへ暗黙にフォールバックしない。

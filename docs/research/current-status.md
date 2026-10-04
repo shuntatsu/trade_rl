@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-03 (JST)
+更新基準: 2026-10-04 (JST)
 
 ## 結論
 
@@ -14,6 +14,14 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
+
+利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
+
+結果前の追加診断は既存verified Dataset `6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518`からBTCUSDT/ETHUSDTと2024Q1のhourly closeを抽出し、source ID、元のrow/symbol indices、content identity、availability/economicsを固定する。local `1h__log_return_24bar`だけをdecision signalにし、adaptive/balanced/8 grid候補/3fold/100,000 USDT、既存portfolio-global riskとquantity holdを固定する。各foldはcapital/stateをresetし、tuningの最後のbarでsettleして次foldへ情報を戻さない。cash carryは実Datasetのまま比較する。全windowのafter-cost returnが正、ledger最大drawdown20%以下、exact flat、active orderなし、economic terminationなしをdevelopment eligibilityの必要条件とし、一つでも欠ければNOT_ESTABLISHEDとする。主評価は各windowのafter-cost returnとreset-window仮想積であり、continuous wealth、independent sample、sealed final、live edgeを証明しない。adaptive regime仮説自体は未確立であり、この診断はimplementation/robustness確認に限定する。
+
+prefixで選定したconfigを凍結し、同じevaluation windowにbase、`ExecutionCostConfig.multiplier=2`、`order_latency_bars=2`を適用する。multiplier stressは既存executorのfee/spread/impact chargeを2倍し、funding/borrow経済やstrategy/risk parameterは変えない。latencyはbase0から絶対値2への変更であり、最初のprocessing waitとterminal予約区間も変わる。選択し直さず全stressを同じ必要条件で検査し、cash/no-tradeまたは任意cell失敗からprofitable trading candidateを作らない。Q1は既にconsumed developmentであり、unusedへ戻さない。protocol、source hashes、raw returns、ledger、config、receiptはignored `output/bot-completion-20261004/`へ保存する。fresh result-blind AI G0-G2確認とmachine verificationを実行前に要求する。
 
 ## Trading-bot validation repair (2026-10-03)
 

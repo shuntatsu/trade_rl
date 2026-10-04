@@ -483,7 +483,9 @@ def _shared_cash_evidence_summary() -> dict[str, object]:
     ("section", "field", "value"),
     (
         ("metrics", "n_trades", True),
+        ("metrics", "n_trades", 1.5),
         ("metrics", "rebalance_events", -1),
+        ("metrics", "rebalance_events", 1.5),
         ("metrics", "n_periods", True),
         ("metrics", "periods_per_year", 0),
         ("diagnostics", "n_trades", True),

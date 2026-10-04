@@ -71,7 +71,7 @@ closes matched1,585 rows /3,170 daily values; the first599 rows require upstream
 closes outside the subset, whose raw native archive/release times are not independently
 proved by this subset. Positive portions establish no winner, general edge or live readiness.
 
-### Active hypothesis: completed weekly BB and plotted Ichimoku confirmation
+### Completed diagnostic: weekly BB and plotted Ichimoku confirmation
 
 The user's weekly BB/Ichimoku hypothesis motivates one fixed, symbol-independent
 confirmation package around the same native-daily adaptive bot. Weekly cloud and
@@ -138,9 +138,9 @@ samples. Neither the loss reduction nor this inactive directional veto proves th
 user's proposed short-term weekly-top mechanism.
 Loss reduction and positive marked portions establish no profitability or general edge.
 
-### Active hypothesis: weekly band contact with four-hour Tenkan weakness
+### Completed diagnostic: weekly band contact with four-hour Tenkan weakness
 
-The next fixed package, `weekly_bb_pullback`, combines a completed week's upper/lower
+The evaluated fixed package, `weekly_bb_pullback`, combines a completed week's upper/lower
 BB touch with opposite-side native four-hour Tenkan9 distance. It retains the same
 daily24 momentum rule but replaces both weekly direction permission and weekly
 Tenkan exhaustion. This is a joint package comparison, not an isolated ablation;
@@ -160,6 +160,66 @@ same chronological windows, all-arm validity and registered positive-return scre
 No new economics may run before fresh independent G0-G3 and software verification.
 Loss of valid trends, frequent exits/re-entry, lower-source availability changes and
 funding concentration remain falsifiers/limitations; no maximum-profit claim is made.
+
+The first packet at source `795065e4` / protocol
+`9032930eea58b0bbc61e7336cd3c5f3e4fc6e7ba492ebaf2837b77e0cd442c9f`
+was G3-blocked before economics: two native four-hour events differed from hourly
+reaggregation in eight carried cells. The packet remains unexecuted. A bounded
+official-source diagnostic saved four monthly1h/4h archives and their CHECKSUMs.
+Independent raw decoding matched the saved native features: BTC native close37118.4
+versus hourly37092.6; ETH native nine-bar low2516.54 versus a zero-volume hourly
+low2503.77. Arrays were preserved. A separate v2 protocol binds19 source files:
+`92cd005f9d77207d0dc9d3b2ef31f52bd31fa178dd9d4920c92875f2cdcaebe5`.
+Fresh result-blind G0-G2, independent G3 and exact-source software verification
+preceded its single24-replay execution. Current archives establish saved-source
+conformance; original acquisition/release truth remains unrecovered. Remaining
+17,514 native events have hourly-proxy conformance rather than native-archive proof.
+
+Software PASS / economic NOT_ESTABLISHED. Both prefixes selected cash; all selected
+reset-normalized products are0%, without continuous-wealth interpretation. New
+candidate2023 base/cost2/latency2 returns were−9.291704/−11.239729/−10.508831%;2024
+were−14.815337/−17.341273/−13.470013%. All six absolute and paired returns are negative.
+All eight candidate cells, including prefixes, ended exactly flat. The old combined
+weekly baseline reproduced its two2024 unsettled cells. Independent G0 supplement
+confirmed that these already-known control failures make the registered all-arm
+success screen structurally unavailable. The frozen diagnostic can validly fail,
+but cannot be represented as an available qualification path. Control invalidity
+alone cannot refute the mechanism; the candidate's own six negative returns remain
+separate economic evidence. No threshold, control qualification or old packet was
+rewritten to rescue the result. Receipt SHA-256:
+`fff4c73fdc00837dc4aad376c9c07a3637d699e142f8f149175c6772a5b058c7`.
+
+Independent post-artifact reconstruction found no discrepancies across74 references,
+189 production files, five tests,19 native-source files,42 arrays,197,202 intervals,
+8,484 fills/capacity records,24,639 funding records and394,332 symbol decisions.
+Maximum execution DD was19.187721%; this is observed, not a future loss guarantee.
+Candidate evaluation contained10,068 LONG and4,920 SHORT vetoes;3,230 preserved held
+positions and11,758 produced effective FLAT. Across all candidate cells,3,626 quantity
+changes during hold were justified by shared risk. Normal2023/2024 fills were887/1,132,
+execution costs3903.169753/5868.711096USDT and funding PnL−474.716353/−1160.686376USDT.
+Every paired gross-price component was worse and every paired execution-cost component
+increased; less-negative funding partly offset the losses. This is recorded-path
+attribution, including marked baseline dust, not isolated component causality.
+
+The frozen source uses hourly-close bar marks for funding, not independently recovered
+venue settlement marks; separate PR#803 does not retroactively change these records.
+The inherited simultaneous extreme-SHORT gap can reject sequential reduce-only closes
+because intermediate leverage remains over cap. A legal risk-reducing close is not
+guaranteed. That repair requires exact projected reservations and actual-over-cap
+admission semantics, with separate regressions and independent verification before
+new economics. The bot also omits the verified MARKET profile needed for its explicit
+reduce-only minimum-notional capability. No profile is fabricated or dust written off.
+The next work is to resolve these execution boundaries before another prospective
+weekly comparison, which requires its own frozen protocol and fresh independent
+result-blind clearance.
+
+Source `795065e4` passed2755 full tests/26 optional skips,44 dedicated weekly tests,
+262 architecture tests, Ruff/format, core/tooling/transport Mypy, build and tracked
+source/sdist/direct-wheel/rebuilt-wheel closure, clean outside-checkout package/source/
+resource identity and CLI smokes. Human Guide check/build and19 E2E tests passed with
+three optional skips. These local bindings do not replace final exact-head main-target
+CI or distinct GitHub-principal approval. PR#797 remains stacked on#795; no main merge,
+unused/final access, profitability, generalization or live readiness is established.
 
 ## Trading-bot validation repair (2026-10-03)
 

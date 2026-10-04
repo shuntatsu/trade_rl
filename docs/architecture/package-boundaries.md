@@ -29,7 +29,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py,weekly_context.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -68,7 +68,7 @@ trade_rl/
 │   ├── position_intent.py
 │   ├── controls.py
 │   ├── carry.py
-│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
+│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py,adaptive.py,weekly_confirmation.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,lightgbm.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/

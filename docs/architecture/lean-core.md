@@ -72,6 +72,17 @@ strategy retains actual filled-position state and its protective-exit latch.
 Quantity hold may delay weekly exits; protective exits, hard risk and terminal
 settlement retain priority. No peak-prediction or net-profit guarantee follows.
 
+The separate opt-in `weekly_bb_pullback` package retains the same seven weekly
+inputs and availability scope, but replaces weekly permission/exhaustion with
+completed-week BB contact and native four-hour Tenkan9 distance. LONG is
+suppressed when weekly high-band position>=1 and four-hour distance<0; SHORT
+uses low-band position<=−1 and distance>0. Equality at Tenkan never suppresses.
+This is a decision-time conjunction, not an ordered touch-then-rejection event.
+The named native feature must be available and finite. Actual quantity holding,
+protective state, shared risk and terminal settlement still retain priority.
+Its completed consumed-development diagnostic lost in all six evaluation cells;
+the opt-in capability is not a qualified profit strategy.
+
 Strategyが返すlogical intentは小さく保つ。
 
 ```text

@@ -620,9 +620,9 @@ def run_single_symbol_replay(
             raise RuntimeError("execution did not advance replay index")
         if latest_execution_observation is None:
             raise RuntimeError("execution observer did not emit interval fills")
-        executed_entry_prices.apply_split(
-            dataset.resolved_array("split_factor")[execution.next_index]
-        )
+        split_factors = dataset.resolved_array("split_factor")[execution.next_index]
+        desired_quantity *= float(split_factors[symbol_index])
+        executed_entry_prices.apply_split(split_factors)
         executed_entry_prices.ingest(
             latest_execution_observation.order_events,
             execution.book.quantities,
@@ -908,9 +908,9 @@ def run_shared_cash_replay(
         stateful_evidence = execution_observation
         if stateful_evidence.next_index != execution.next_index:
             raise RuntimeError("execution observer index differs from replay result")
-        executed_entry_prices.apply_split(
-            dataset.resolved_array("split_factor")[execution.next_index]
-        )
+        split_factors = dataset.resolved_array("split_factor")[execution.next_index]
+        desired_quantities[:] *= split_factors
+        executed_entry_prices.apply_split(split_factors)
         executed_entry_prices.ingest(
             stateful_evidence.order_events,
             execution.book.quantities,

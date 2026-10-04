@@ -607,6 +607,75 @@ def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evid
         )
 
 
+def test_shared_cash_source_binding_tracks_fill_mark_for_cost_exhaustion(
+    tmp_path: Path,
+) -> None:
+    from trade_rl.artifacts.hashing import content_digest
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
+    original = _dataset()
+    open_prices = original.open.copy()
+    open_prices[13, 0] = 112.03
+    dataset = replace(
+        original,
+        open=open_prices,
+        fee_rate=np.full_like(original.close, 3.0),
+        tick_size=np.full_like(original.close, 0.1),
+        identity_payload_json=None,
+    ).with_content_identity()
+    dataset_artifact = publish_market_dataset_artifact(tmp_path / "dataset", dataset)
+    replay = run_shared_cash_replay(
+        dataset,
+        (ConstantIntentStrategy(PositionIntent.LONG),),
+        start_index=12,
+        stop_index=13,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=True,
+    )
+    assert replay.ledger_evidence is not None
+    assert replay.diagnostics.termination_reasons == ("margin_call",)
+    ledger_payload = json.loads(json.dumps(replay.ledger_evidence.to_mapping()))
+    fill = next(
+        event
+        for interval in ledger_payload["intervals"]
+        for event in interval["order_events"]
+        if event["event_type"] in {"filled", "partial_fill"}
+    )
+    assert fill["execution_price"] == 112.0
+    terminations = [
+        transition
+        for interval in ledger_payload["intervals"]
+        for transition in interval["accounting_transitions"]
+        if transition["transition_type"] == "termination_flatten"
+    ]
+    assert len(terminations) >= 2
+    assert terminations[0]["evidence"]["liquidation_prices"] == [112.0]
+    assert terminations[1]["evidence"]["liquidation_prices"] == [112.03]
+    assert dataset.open[13, 0] == 112.03
+    ledger_evidence = {
+        "schema_version": replay.ledger_evidence.schema_version,
+        "digest": content_digest(ledger_payload),
+        "payload": ledger_payload,
+    }
+    summary = {
+        "dataset_id": dataset.dataset_id,
+        "dataset_artifact": {"artifact_digest": dataset_artifact.artifact_digest},
+        "evaluation": {"execution_overlay": LEGACY_DATASET_EXECUTION_OVERLAY},
+        "shared_cash_ppo": {"ledger_evidence": ledger_evidence},
+    }
+
+    evidence_module._validate_shared_cash_candidate_source_binding(
+        candidate_summary=summary,
+        dataset=dataset,
+        expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
+    )
+
+
 def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

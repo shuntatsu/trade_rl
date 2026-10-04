@@ -104,6 +104,35 @@ def test_reconciliation_does_not_double_submit_matching_active_residual() -> Non
     np.testing.assert_allclose(result.residual_quantities, [0.0])
 
 
+@pytest.mark.parametrize("order_type", tuple(OrderType))
+def test_distinct_valuation_price_does_not_change_order_reference_price(
+    order_type: OrderType,
+) -> None:
+    result = reconcile_target(
+        dataset_id="d" * 64,
+        target_identity="marked-target",
+        execution_policy_digest="e" * 64,
+        target_weights=np.array([0.5]),
+        book=BookState.zero(1, 1000.0, np.array([125.0])),
+        order_book=OrderBookState.empty(),
+        reference_prices=np.array([100.0]),
+        valuation_prices=np.array([125.0]),
+        decision_equity=1000.0,
+        submit_index=0,
+        latency_bars=1,
+        order_type=order_type,
+        time_in_force=TimeInForce.GTC,
+        expiry_index=None,
+        limit_offset_rate=0.01,
+    )
+    assert result.desired_quantities == pytest.approx([4.0])
+    intent = result.new_intents[0]
+    assert intent.requested_quantity == pytest.approx(4.0)
+    assert intent.submission_reference_price == 100.0
+    assert intent.limit_price == (99.0 if order_type is OrderType.LIMIT else None)
+    assert intent.stop_price == (101.0 if order_type is OrderType.STOP_MARKET else None)
+
+
 def test_matching_residual_with_old_policy_is_cancelled_and_replaced() -> None:
     active = _active(5.0)
     result = reconcile_target(

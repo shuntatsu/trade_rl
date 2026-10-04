@@ -278,6 +278,14 @@ floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 ### `strategies`
 
+The PPO environment owns rebasing its cached quantity proposal after a processed
+split; `evaluation/replay.py` owns the same transition for its single-symbol and
+shared-cash callers. `simulation/targets/execution.py` supplies book mark prices
+to `orders/reconciliation.py` for weight sizing while keeping trading close as
+the order reference. With no held quantities, it resolves current dataset marks
+before entry sizing so default initial book marks are harmless. The accounting
+and execution owners remain unchanged.
+
 small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 `StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。inactive assetのlifecycle settlementでbook quantityが0になった場合は、次のobservation前に派生fill-price trackerもresetする。active assetまたはnon-flat quantityのfill mismatchは引き続きerrorとする。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。

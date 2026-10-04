@@ -707,6 +707,7 @@ def _validate_candidate_source_transition(
     processing_year_fraction: float,
     gap_year_fraction: float,
     last_mark_source: tuple[np.ndarray, str] | None,
+    termination_flatten_count: int,
     execution_cost: ExecutionCostConfig | None,
     execution_policy_digest: str,
     source_fill_events: Mapping[int, Mapping[str, object]],
@@ -760,6 +761,27 @@ def _validate_candidate_source_transition(
             dataset=dataset,
             expected_index=expected_index,
         )
+        event = source_fill_events[event_sequence]
+        symbol = _candidate_source_index(
+            event.get("symbol_index"), field="fill symbol_index"
+        )
+        fill_price = event.get("execution_price")
+        if (
+            not 0 <= symbol < dataset.n_symbols
+            or isinstance(fill_price, bool)
+            or not isinstance(fill_price, (int, float))
+            or not np.isfinite(fill_price)
+        ):
+            raise ArtifactIntegrityError(
+                "candidate source fill has no verified mark price"
+            )
+        mark_values = (
+            dataset.open[expected_index].copy()
+            if last_mark_source is None
+            else last_mark_source[0].copy()
+        )
+        mark_values[symbol] = float(fill_price)
+        last_mark_source = (mark_values, "verified fill price")
     elif transition_type == "funding_mark":
         _validate_candidate_source_mark_transition(
             transition,
@@ -891,12 +913,26 @@ def _validate_candidate_source_transition(
                 "candidate source ledger termination has no source mark"
             )
         expected_prices, source_row = last_mark_source
-        _require_candidate_source_prices(
-            evidence.get("liquidation_prices"),
-            expected_prices,
-            source_row=source_row,
-            processing_index=expected_index,
-        )
+        try:
+            _require_candidate_source_prices(
+                evidence.get("liquidation_prices"),
+                expected_prices,
+                source_row=source_row,
+                processing_index=expected_index,
+            )
+        except ArtifactIntegrityError:
+            if termination_flatten_count != 1:
+                raise
+            # The bar lifecycle flattens again at open after a fill-time
+            # margin termination; that second transition uses the bar open.
+            open_prices = dataset.open[expected_index]
+            _require_candidate_source_prices(
+                evidence.get("liquidation_prices"),
+                open_prices,
+                source_row="open row",
+                processing_index=expected_index,
+            )
+            last_mark_source = (open_prices, "open row")
     else:
         raise ArtifactIntegrityError(
             "candidate source ledger accounting transition type is unsupported"
@@ -1017,6 +1053,7 @@ def _validate_candidate_source_interval(
                 processing_year_fraction=processing_year_fraction,
                 gap_year_fraction=gap_year_fraction,
                 last_mark_source=last_mark_source,
+                termination_flatten_count=counts.get("termination_flatten", 0),
                 execution_cost=execution_cost,
                 execution_policy_digest=execution_policy_digest,
                 source_fill_events=source_fill_events,

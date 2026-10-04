@@ -20,9 +20,11 @@ from trade_rl.evaluation.experiments.delta import (
 )
 from trade_rl.evaluation.experiments.evidence import EvidenceSet, LoadedEvidenceSet
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_FEATURE_NAMES,
-    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    expected_ppo_realized_timesteps,
 )
 
 STRATEGIES = (
@@ -115,6 +117,19 @@ EXPECTED_RULES = {
             }
         ),
     ),
+    ControlledFactor.PPO_TRAINING_LAYOUT: (
+        frozenset(
+            {
+                ("ppo_training_layout",),
+                ("ppo_rollout_steps_per_env",),
+            }
+        ),
+        frozenset(set(STRATEGIES) - {"ppo"}),
+    ),
+    ControlledFactor.PPO_MINIMUM_HOLD: (
+        frozenset({("ppo_minimum_hold_bars",)}),
+        frozenset(set(STRATEGIES) - {"ppo"}),
+    ),
     ControlledFactor.GROSS_BUDGET: (
         frozenset({("gross_budget",)}),
         frozenset({"cash"}),
@@ -135,17 +150,28 @@ def _resolved(**overrides: object) -> ResolvedRunConfig:
         "rule_exit_threshold": 0.02,
         "forecast_entry_threshold": 0.01,
         "forecast_exit_threshold": 0.002,
-        "ppo_total_timesteps": 256,
+        "ppo_total_timesteps": 266_240,
         "ppo_seed": 2,
-        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
         "ppo_global_feature_names": PPO_GLOBAL_FEATURE_NAMES,
-        "forecast_switch_cost": None,
+        "ppo_training_layout": "sequential",
+        "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_settle_terminal_position": True,
+        "pretrade_risk_config": PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.1,
+            max_turnover=None,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        ),
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 100_000.0,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
-        "schema_version": "resolved_run_config_v3",
+        "schema_version": "resolved_run_config_v7",
+        "forecast_switch_cost": None,
     }
     values.update(overrides)
     return ResolvedRunConfig(**values)  # type: ignore[arg-type]
@@ -160,7 +186,11 @@ def _plan(base: ResolvedRunConfig) -> StudyPlan:
         symbols=("BTCUSDT", "ETHUSDT"),
         baseline_config=base,
         ppo_seeds=(2, 5),
-        allowed_factors=tuple(ControlledFactor),
+        allowed_factors=tuple(
+            factor
+            for factor in ControlledFactor
+            if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+        ),
         max_experiments=8,
         n_bootstrap=100,
         bootstrap_seed=7,
@@ -178,12 +208,14 @@ def _semantic(config: ResolvedRunConfig) -> dict[str, object]:
 def _run(
     *,
     plan: StudyPlan,
+    config: ResolvedRunConfig,
     seed: int,
     strategy_drift: str | None = None,
     dataset_id: str | None = None,
     implementation_digest: str | None = None,
     runtime_digest: str | None = None,
     strategy_roster: tuple[str, ...] = STRATEGIES,
+    realized_timestep_delta: int = 0,
 ) -> LoadedCandidateRun:
     returns: dict[str, np.ndarray] = {}
     by_symbol: list[dict[str, object]] = []
@@ -209,6 +241,17 @@ def _run(
                 "strategies": strategies,
             }
         )
+    candidate_config = config.to_payload()
+    candidate_config["ppo_seed"] = seed
+    candidate_config["ppo_training_timesteps"] = (
+        expected_ppo_realized_timesteps(
+            config.ppo_total_timesteps,
+            training_layout=config.ppo_training_layout,
+            rollout_steps_per_env=config.ppo_rollout_steps_per_env,
+            n_envs=len(config.fit_symbol_indices),
+        )
+        + realized_timestep_delta
+    )
     return LoadedCandidateRun(
         root=Path(f"/synthetic/seed-{seed}"),
         summary={
@@ -219,6 +262,7 @@ def _run(
                 "artifact_digest": plan.dataset_artifact_digest,
             },
             "symbols": list(plan.symbols),
+            "candidate_config": candidate_config,
             "by_symbol": by_symbol,
         },
         returns=returns,
@@ -247,6 +291,7 @@ def _loaded_evidence(
     implementation_digest: str | None = None,
     runtime_digest: str | None = None,
     strategy_roster: tuple[str, ...] = STRATEGIES,
+    realized_timestep_delta: int = 0,
 ) -> LoadedEvidenceSet:
     semantic = _semantic(config)
     resolved_seeds = plan.ppo_seeds if seeds is None else seeds
@@ -278,12 +323,14 @@ def _loaded_evidence(
     runs = {
         seed: _run(
             plan=plan,
+            config=config,
             seed=seed,
             strategy_drift=strategy_drift,
             dataset_id=dataset_id,
             implementation_digest=implementation_digest,
             runtime_digest=runtime_digest,
             strategy_roster=strategy_roster,
+            realized_timestep_delta=realized_timestep_delta,
         )
         for seed in resolved_seeds
     }
@@ -316,6 +363,14 @@ def _candidate_for_factor(
         )
     if factor is ControlledFactor.PPO_TRAINING_BUDGET:
         return replace(base, ppo_total_timesteps=512)
+    if factor is ControlledFactor.PPO_TRAINING_LAYOUT:
+        return replace(
+            base,
+            ppo_training_layout="interleaved",
+            ppo_rollout_steps_per_env=512,
+        )
+    if factor is ControlledFactor.PPO_MINIMUM_HOLD:
+        return replace(base, ppo_minimum_hold_bars=168)
     if factor is ControlledFactor.GROSS_BUDGET:
         return replace(base, gross_budget=0.8)
     raise AssertionError(f"unsupported factor in test: {factor}")
@@ -347,7 +402,183 @@ def test_factor_registry_exactly_matches_approved_spec() -> None:
         assert rule.unaffected_strategies == unaffected
 
 
-@pytest.mark.parametrize("factor", tuple(ControlledFactor))
+def test_ppo_training_layout_rule_allows_only_layout_and_rollout_fields() -> None:
+    rule = FACTOR_RULES[ControlledFactor.PPO_TRAINING_LAYOUT]
+
+    assert rule.allowed_paths == frozenset(
+        {
+            ("ppo_training_layout",),
+            ("ppo_rollout_steps_per_env",),
+        }
+    )
+
+
+def test_ppo_training_layout_is_controlled_when_both_fields_change() -> None:
+    base = _resolved()
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate_config = _candidate_for_factor(
+        base,
+        ControlledFactor.PPO_TRAINING_LAYOUT,
+    )
+    candidate = _loaded_evidence(candidate_config, plan)
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.PPO_TRAINING_LAYOUT,
+        candidate=candidate_config,
+    )
+
+    verification = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=candidate,
+    )
+
+    assert verification.status is ControlledVerificationStatus.CONTROLLED
+    assert verification.changed_paths == (
+        ("ppo_rollout_steps_per_env",),
+        ("ppo_training_layout",),
+    )
+
+
+def test_ppo_training_layout_rejects_different_realized_step_counts() -> None:
+    base = replace(_resolved(), ppo_total_timesteps=262_145)
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate_config = _candidate_for_factor(
+        base,
+        ControlledFactor.PPO_TRAINING_LAYOUT,
+    )
+    candidate = _loaded_evidence(
+        candidate_config,
+        plan,
+    )
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.PPO_TRAINING_LAYOUT,
+        candidate=candidate_config,
+    )
+
+    verification = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=candidate,
+    )
+
+    assert verification.status is ControlledVerificationStatus.INVALID
+    assert any(
+        "realized training transitions differ" in item
+        for item in verification.violations
+    )
+
+
+def test_ppo_training_layout_rejects_a_third_ppo_training_change() -> None:
+    base = _resolved()
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate_config = replace(
+        _candidate_for_factor(base, ControlledFactor.PPO_TRAINING_LAYOUT),
+        ppo_total_timesteps=base.ppo_total_timesteps + 256,
+    )
+    candidate = _loaded_evidence(candidate_config, plan)
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.PPO_TRAINING_LAYOUT,
+        candidate=candidate_config,
+    )
+
+    verification = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=candidate,
+    )
+
+    assert verification.status is ControlledVerificationStatus.INVALID
+    assert ("ppo_total_timesteps",) in verification.changed_paths
+    assert any("uncontrolled" in item for item in verification.violations)
+
+
+def test_ppo_training_layout_identical_candidate_is_invalid_no_op() -> None:
+    base = _resolved()
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate = _loaded_evidence(base, plan)
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.PPO_TRAINING_LAYOUT,
+        candidate=base,
+    )
+
+    verification = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=candidate,
+    )
+
+    assert verification.status is ControlledVerificationStatus.INVALID
+    assert verification.changed_paths == ()
+    assert any("no-op" in item for item in verification.violations)
+
+
+def test_ppo_training_layout_unaffected_roster_is_every_non_ppo_strategy() -> None:
+    assert FACTOR_RULES[
+        ControlledFactor.PPO_TRAINING_LAYOUT
+    ].unaffected_strategies == frozenset(set(STRATEGIES) - {"ppo"})
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    tuple(strategy for strategy in STRATEGIES if strategy != "ppo"),
+)
+def test_ppo_training_layout_rejects_raw_return_drift_for_each_non_ppo_strategy(
+    strategy: str,
+) -> None:
+    base = _resolved()
+    plan = _plan(base)
+    baseline = _loaded_evidence(base, plan)
+    candidate_config = _candidate_for_factor(
+        base,
+        ControlledFactor.PPO_TRAINING_LAYOUT,
+    )
+    candidate = _loaded_evidence(
+        candidate_config,
+        plan,
+        strategy_drift=strategy,
+    )
+    definition = _definition(
+        plan=plan,
+        baseline=baseline,
+        factor=ControlledFactor.PPO_TRAINING_LAYOUT,
+        candidate=candidate_config,
+    )
+
+    verification = verify_controlled_delta(
+        plan=plan,
+        definition=definition,
+        baseline=baseline,
+        candidate=candidate,
+    )
+
+    assert verification.status is ControlledVerificationStatus.INVALID
+    assert any("unaffected strategy" in item for item in verification.violations)
+
+
+@pytest.mark.parametrize(
+    "factor",
+    tuple(
+        factor
+        for factor in ControlledFactor
+        if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+    ),
+)
 def test_each_declared_factor_accepts_only_its_registered_delta(
     factor: ControlledFactor,
 ) -> None:
@@ -536,7 +767,14 @@ def test_unaffected_strategy_raw_return_drift_is_invalid(
     assert any("unaffected strategy" in item for item in verification.violations)
 
 
-@pytest.mark.parametrize("factor", tuple(ControlledFactor))
+@pytest.mark.parametrize(
+    "factor",
+    tuple(
+        factor
+        for factor in ControlledFactor
+        if factor is not ControlledFactor.PPO_MINIMUM_HOLD
+    ),
+)
 def test_affected_strategy_drift_is_not_rejected_by_unaffected_oracle(
     factor: ControlledFactor,
 ) -> None:

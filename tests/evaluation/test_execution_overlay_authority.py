@@ -109,7 +109,10 @@ def test_execution_overlay_controls_runtime_capacity_mode(monkeypatch) -> None:
     def fake_suite(dataset, lean_config, **kwargs):
         del dataset, lean_config
         observed.append(kwargs["execution_cost"].processing_bar_volume_capacity)
-        return UniversalStrategyComparison(by_symbol=())
+        return UniversalStrategyComparison(
+            by_symbol=(),
+            ppo_training_timesteps=2048,
+        )
 
     monkeypatch.setattr(execute_module, "run_lean_candidate_suite", fake_suite)
 
@@ -129,6 +132,7 @@ def test_candidate_summary_records_actual_execution_overlay() -> None:
         spec=spec,
         symbols=("BTCUSDT",),
         comparison=UniversalStrategyComparison(by_symbol=()),
+        ppo_training_timesteps=2048,
     )
 
     summary, _ = _result_payload(result)
@@ -138,5 +142,8 @@ def test_candidate_summary_records_actual_execution_overlay() -> None:
         "stop_exclusive": str(spec.config.evaluation_stop_exclusive),
         "gross_budget": spec.config.gross_budget,
         "initial_capital": spec.config.initial_capital,
+        "ppo_settle_terminal_position": spec.config.ppo_settle_terminal_position,
+        "expected_periods": 3,
+        "pretrade_risk_config": None,
         "execution_overlay": CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
     }

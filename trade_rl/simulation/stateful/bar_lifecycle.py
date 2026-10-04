@@ -114,7 +114,9 @@ class StatefulBarLifecycle:
                 )
                 executor._flatten_after_termination(runtime.book, open_prices)
 
-        tick, lot, minimum = executor.effective_rule_arrays(index=processing_index)
+        tick, lot, minimum = executor._effective_rule_array_views(
+            index=processing_index
+        )
         return StatefulBarContext(
             previous_index=previous_index,
             processing_index=processing_index,

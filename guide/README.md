@@ -42,6 +42,8 @@ roleは`overview | detail | status | reference`です。`overview`と`status`は
 
 MarkdownへMDX、raw HTML renderer、custom UI directiveを持ち込みません。描画は`react-markdown` + `remark-gfm`、raw HTML無効で行います。wideなtext diagram/tableだけを局所scroll可能にし、page全体のhorizontal overflowは許可しません。
 
+Markdown rendererは別のJavaScript chunkとして遅延読み込みし、初期画面のshellからMarkdown parser一式を分離します。各JavaScript chunkは引き続き500,000 bytes以下をbundle contractで検査します。
+
 ## Traceability / code-linked contract
 
 GuideはPython sourceをimport/executeせず、`tools/code_symbols.py`がASTからcode-symbol indexを生成します。

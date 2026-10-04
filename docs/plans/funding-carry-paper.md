@@ -32,6 +32,19 @@ Status: Active
   - [x] Verify the expanded, versioned 100-level source profile and full cadence
     against real public inputs; preserve the rejected 20-level software probe.
 - [x] Freeze forward evaluation duration/gates before starting paper positions.
+- [x] Bind paper attempt lineage into each sealed protocol and require an explicit
+  lineage file at `seal`; preserve the failed first attempt as the predecessor.
+- [x] Restrict predecessor lineage to operational dispositions/reasons so prior
+  economic pass/reject labels cannot enter result-blind review.
+- [x] Align screen v2 and assessment: declare all four required instrument fills,
+  assign funding coverage by settlement time inside `[start, close)`, and reject
+  nonzero funding settled at or after close.
+- [x] Add red/green regression tests for repeat-attempt lineage, instrument-fill
+  and funding-window coverage, and post-close funding qualification.
+- [x] Complete fresh result-blind source review of the known predecessor and
+  four-fill / funding-window alignments. The predecessor chain is verified
+  within the inspected workspace; global attempt uniqueness and a full
+  source-to-ledger oracle remain unestablished.
 - [ ] Run prospective paper observation and report the complete declared gate.
 
 No successful probe, past development profit or partial paper record completes

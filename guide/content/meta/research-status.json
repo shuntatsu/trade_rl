@@ -24,8 +24,18 @@
     },
     {
       "path": "docs/research/current-status.md",
+      "heading": "Directional development study under a 20% drawdown budget",
+      "sha256": "f70883dfd8964d934d35519127a006da4a1aaeeb60073189f3d61141c8872b3f"
+    },
+    {
+      "path": "docs/research/current-status.md",
       "heading": "M2 — Canonical real-data baseline and Controlled Experiment 0001 verified",
-      "sha256": "e4b080ae113c7714ce09b78fc67b2ca00ab2a4dfca69e40a47372f64a9bce622"
+      "sha256": "cba08cc7a07277016f6dd3d01e94247eba2fd37a7d4ea55d101656e9266e9cca"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Active PPO medium-term holding-duration design",
+      "sha256": "8948da7817c8ce7038eb9e08f02ca42341e2e85d595517a0d1e7a69aef916513"
     }
   ],
   "code_references": []

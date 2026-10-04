@@ -38,6 +38,28 @@ def market(**overrides: object) -> MarketDataset:
     return MarketDataset(**values)
 
 
+@pytest.mark.parametrize("mark", [100.0, 125.0])
+@pytest.mark.parametrize("weight", [-0.5, 0.5])
+def test_initial_cash_book_without_prices_sizes_at_current_market_mark(
+    mark: float, weight: float
+) -> None:
+    dataset = market(mark_price=np.full((5, 1), mark))
+    book = BookState.zero(1, 1000.0)
+    result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
+        book, np.array([weight]), start_index=0, bars=1
+    )
+
+    # Omitted initial marks do not determine the price of the first entry.
+    # Value 500 at the decision mark, then fill those signed units at 100.
+    units = weight * 1000.0 / mark
+    assert result.book.quantities == pytest.approx([units])
+    assert result.book.cash == pytest.approx(1000.0 - units * 100.0)
+    assert result.book.portfolio_value == pytest.approx(1000.0 + units * (mark - 100.0))
+    assert result.book.fill_count == 1
+    assert book.quantities == pytest.approx([0.0])
+    assert book.mark_prices == pytest.approx([1.0])
+
+
 def test_next_open_execution_uses_processing_bar_volume() -> None:
     volume = np.array([[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
     dataset = market(volume=volume)

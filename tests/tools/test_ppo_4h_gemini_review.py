@@ -249,7 +249,10 @@ def test_result_blind_packet_rejects_missing_or_symlinked_source(
     _target(tmp_path)
     target = tmp_path / review.PACKET_FILES[0]
     target.unlink()
-    target.symlink_to(tmp_path / review.PACKET_FILES[1])
+    try:
+        target.symlink_to(tmp_path / review.PACKET_FILES[1])
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     with pytest.raises(ValueError, match="packet source"):
         review.build_result_blind_packet(
             tmp_path,
@@ -267,7 +270,10 @@ def test_result_blind_packet_rejects_symlinked_parent_directory(
     docs = tmp_path / "docs"
     outside = tmp_path / "outside-docs"
     docs.rename(outside)
-    docs.symlink_to(outside, target_is_directory=True)
+    try:
+        docs.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this platform")
 
     with pytest.raises(ValueError, match="packet source"):
         review.build_result_blind_packet(
@@ -325,7 +331,8 @@ def test_target_ci_must_match_trusted_default_branch_ci(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True)
         path.write_text("trusted-ci\n", encoding="utf-8")
 
-    expected = hashlib.sha256(b"trusted-ci\n").hexdigest()
+    trusted_workflow = trusted / ".github" / "workflows" / "ci.yml"
+    expected = hashlib.sha256(trusted_workflow.read_bytes()).hexdigest()
     assert review.require_trusted_ci_identity(trusted, target) == expected
 
     (target / ".github" / "workflows" / "ci.yml").write_text(

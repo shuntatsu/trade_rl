@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -86,9 +87,15 @@ def _assert_active_ephemeral_doc(relative: str, text: str) -> None:
 
 
 def _git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
-    header = f"blob {len(data)}\0".encode()
-    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
+    relative_path = path.relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "hash-object", f"--path={relative_path}", str(path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> (
@@ -341,7 +348,15 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
         "StudyResearchContext",
         "controlled_study_plan_v3",
+        "controlled_study_plan_v4",
+        "controlled_study_plan_v5",
+        "controlled_study_plan_v6",
+        "ppo_holding_duration_v1",
+        "ppo_shared_cash_holding_duration_v2",
         "canonical_m2_bootstrap_config_v4",
+        "canonical_m2_bootstrap_config_v5",
+        "canonical_m2_bootstrap_config_v6",
+        "controlled_evidence_comparison_v4",
     ):
         assert required in contract
 
@@ -365,7 +380,11 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         "canonical_m2_bootstrap_config_v3",
         "controlled_study_plan_v2",
         "canonical_m2_bootstrap_config_v4",
+        "canonical_m2_bootstrap_config_v5",
+        "canonical_m2_bootstrap_config_v6",
         "controlled_study_plan_v3",
+        "controlled_study_plan_v5",
+        "controlled_study_plan_v6",
         "StudyResearchContext",
         "authorization時のcallerはwindowを選択できない",
         "legacy Study",
@@ -384,16 +403,40 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "final-evaluation-authorization.md" in controlled_loop
     assert "one-shot" in controlled_loop
     assert "canonical_m2_bootstrap_config_v4" in controlled_loop
+    assert "canonical_m2_bootstrap_config_v5" in controlled_loop
+    assert "canonical_m2_bootstrap_config_v6" in controlled_loop
     assert "controlled_study_plan_v3" in controlled_loop
+    assert "controlled_study_plan_v4" in controlled_loop
+    assert "controlled_study_plan_v5" in controlled_loop
+    assert "controlled_study_plan_v6" in controlled_loop
+    assert "ppo_holding_duration_v1" in controlled_loop
+    assert "ppo_shared_cash_holding_duration_v2" in controlled_loop
+    assert "controlled_evidence_comparison_v4" in controlled_loop
     assert "historical bootstrap v3" in controlled_loop
 
     research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
     assert "trade_rl.evaluation.final_test" in research
     assert "final economic evaluation自体は未実行" in research
     assert "canonical_m2_bootstrap_config_v4" in research
+    assert "canonical_m2_bootstrap_config_v5" in research
+    assert "canonical_m2_bootstrap_config_v6" in research
     assert "controlled_study_plan_v3" in research
+    assert "controlled_study_plan_v4" in research
+    assert "controlled_study_plan_v5" in research
+    assert "controlled_study_plan_v6" in research
+    assert "ppo_holding_duration_v1" in research
+    assert "ppo_shared_cash_holding_duration_v2" in research
+    assert "one 100,000 USDT account shared" in research
     assert "StudyResearchContext" in research
     assert "既存artifactは当時の意味を維持" in research
+
+    guide_status = (
+        ROOT / "guide" / "content" / "pages" / "research-status.md"
+    ).read_text(encoding="utf-8")
+    assert "ppo_shared_cash_holding_duration_v2" in guide_status
+    assert "100,000 USDT" in guide_status
+    assert "個別銘柄リターンの平均ではなく" in guide_status
+    assert "G0-G2" in guide_status
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -460,7 +503,11 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "StudyResearchContext",
         "ConsumedEvidence",
         "controlled_study_plan_v3",
+        "controlled_study_plan_v5",
         "canonical_m2_bootstrap_config_v4",
+        "canonical_m2_bootstrap_config_v5",
+        "canonical_m2_bootstrap_config_v6",
+        "controlled_study_plan_v6",
     ):
         assert required in contract
 

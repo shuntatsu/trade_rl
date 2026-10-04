@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-27 (JST)
+更新基準: 2026-10-05 (JST)
 
 ## 結論
 
@@ -14,6 +14,191 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
+
+利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。
+
+結果前の追加診断は既存verified Dataset `6c0b040d317a1bb73a9273f4135879b31691634aa837f30f0eec005ac7531518`からBTCUSDT/ETHUSDTと2024Q1のhourly closeを抽出し、source ID、元のrow/symbol indices、content identity、availability/economicsを固定する。local `1h__log_return_24bar`だけをdecision signalにし、adaptive/balanced/8 grid候補/3fold/100,000 USDT、既存portfolio-global riskとquantity holdを固定する。各foldはcapital/stateをresetし、tuningの最後のbarでsettleして次foldへ情報を戻さない。cash carryは実Datasetのまま比較する。全windowのafter-cost returnが正、ledger最大drawdown20%以下、exact flat、active orderなし、economic terminationなしをdevelopment eligibilityの必要条件とし、一つでも欠ければNOT_ESTABLISHEDとする。主評価は各windowのafter-cost returnとreset-window仮想積であり、continuous wealth、independent sample、sealed final、live edgeを証明しない。adaptive regime仮説自体は未確立であり、この診断はimplementation/robustness確認に限定する。
+
+prefixで選定したconfigを凍結し、同じevaluation windowにbase、`ExecutionCostConfig.multiplier=2`、`order_latency_bars=2`を適用する。multiplier stressは既存executorのfee/spread/impact chargeを2倍し、funding/borrow経済やstrategy/risk parameterは変えない。latencyはbase0から絶対値2への変更であり、最初のprocessing waitとterminal予約区間も変わる。選択し直さず全stressを同じ必要条件で検査し、cash/no-tradeまたは任意cell失敗からprofitable trading candidateを作らない。Q1は既にconsumed developmentであり、unusedへ戻さない。protocol、source hashes、raw returns、ledger、config、receiptはignored `output/bot-completion-20261004/`へ保存する。fresh result-blind AI G0-G2確認とmachine verificationを実行前に要求する。
+
+初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
+
+fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+
+## Quantity-preserving hold repair (2026-10-05)
+
+Synthetic counterexamples exposed two quantity-hold mismatches in PPO training
+and canonical replay. A split changed the filled book but left the desired
+quantity in old units; a distinct mark price was used for weights but trading
+close for inverse quantity sizing. Unchanged intents consequently created extra
+fills, fees, and unintended exposure. Repair rebases cached proposals, including
+unfilled entries, by processed split factors and separates mark-based sizing from
+trading-reference order prices. Signed quantity, cash, fee, and order-bound
+oracles cover training, single-symbol replay, and shared-cash replay. Cash-book
+entry also resolves current market marks when initial prices were omitted. Historical
+artifacts are unchanged. This is a software repair; it supplies no new PPO
+profitability or winner evidence and does not authorize a sealed-run retry.
+
+## Trading-bot validation repair (2026-10-03)
+
+継続監査では、価格が一定でsignalだけがentryを要求するsynthetic marketにおいて、non-zero costで全候補が損失でもtunerが取引candidateを選ぶ反例を確認した。prefix-onlyのcash controlを常に比較する修復と、実accountのcost/funding/borrow/turnover/fill diagnosticsを追加する。後続windowを見てcashへ変更する処理は導入しない。過去Q1結果は既にconsumed development evidenceであり、修復後の再確認やcost/latency stressも未閲覧finalとして再分類しない。
+
+追加のfirst-holdout-open shockで、終端決済のfillがreplay `stop_index`行のopenを参照し、evaluation開始と同じstopを渡すとfirst evaluation barがtuning scoreとdrawdown eligibilityへ漏れることを再現した。selection replayを最後のtuning bar内で終端決済し、walk-forwardも同じhelperで境界を分離する。修正前source `a526cc18` のQ1 development smokeは探索的な診断として保持し、first evaluation barから独立したholdout証拠とは扱わない。この修正ではreal-market replayを実行せず、新たなprofitability evidenceも作らない。
+
+adaptive設定でNaN/Infinityや不正なholding期間が受理され、exit比較を無効にする入口もRED contract testから修復する。これは設定のfail-closed化であり、既存finite候補のstrategy economicsを変更しない。
+
+実SB3 integrationでPPO inference bundleの単発directory renameがWindows permission failureで停止したため、既存のbounded atomic-publication primitiveをこの経路にも使う。transient lockとretry exhaustionをfake policyの回帰テストで再現し、staging cleanupを確認する。training objectiveやhistorical model bytesの意味は変更しない。
+
+cash追加の開発診断契約は同じBTC/ETH 2024Q1、adaptive/ balanced/8 grid候補/3fold/capital100,000/costを固定し、cash追加後も正のprefixで選定した既存configと後続結果が変わらないことを確認する。実book・raw return・ledgerを保持し、base-prefixで選んだconfigを再選定せずexecution multiplier2とorder_latency_bars=1のstressへ適用する。software修復のPASSはprefix選択とcash/ledger契約の一致であり、経済screenは各base/stressでafter-cost returnが正、observed drawdown20%以下、終端flat/order remainderなしを要求する。一つでも満たさなければprofitabilityは未確立とし、winner/final/liveへ昇格しない。protocol・review・実行receiptは新しいignored `data/bot-cash-control-2024q1/`へ保存する。
+
+source `8ff87cbf` のcash追加診断は、fresh result-blind G0-G2レビューと170件のmachine testを経て一度だけ実行し、software PASS / economic NOT_ESTABLISHEDとなった。正のprefixで選ばれたconfigと元のcore結果は完全に保持された。selectedのafter-cost returnは−1.941582%と+0.579034%、実行costはaccount currencyで1,998.597217と1,509.094741、funding PnLは−78.761112と−36.671020だった。設定を選び直さずcost multiplierを2にした結果は−3.902920%と−0.934769%である。18 replayのraw return・ledger・cost/funding/fill計算と21 artifact hashを独立事後確認し、全cash対照はzero-return / zero-cost / zero-fill、全終端はflatだった。
+
+order eligibilityは`submit_index + order_latency_bars`だが、最初のprocessingは`submit_index + 1`である。したがって設定0と1は最初の約定可能足が同じであり、当初の0→1 armは追加のprocessing waitを検証していなかった。ただし`agent_stop = stop_index - order_latency_bars - 1`も変わるため、全replayの一般的なno-opとは扱わない。
+
+補足のignored `data/bot-effective-latency-2024q1/` は、同じsource・Dataset・既存selected configをfreezeし、latencyだけ2へ変更する。別のfresh result-blindレビューで189件のmachine testを通し、実行前にprotocol `be216073f8298654daabe4e1d34c52ca738f80ffbd39ec280e995805638ae2ba`を固定した。この設定は最初のprocessingを1本待つ一方、terminal予約区間も3本へ変えるexecution-setting treatmentであり、pure-delay effectや同一trade pathは主張しない。after-cost returnは+1.846582%と−2.026866%、agent期間の同一orderでwait→eligible→fillを確認した件数は76と58、双方のterminal settlementは完了した。software PASSだがeffective-latency screenはNOT_ESTABLISHEDであり、winner / final / liveへ昇格しない。
+
+これらは再利用Q1のdevelopment診断であり、候補・threshold・seedを結果後に再選択していない。最大利益や将来のrobustnessは未確立である。独立raw-return検算のclose-only drawdownとledgerのintrainterval最大drawdownは別の証拠であり、後者の全経路をraw returnsだけから再構築したとは主張しない。
+
+Botの`balanced` scoreは損失の符号を反転していた。channel戦略はchannelでない列を固定位置で読み、synthetic channelは現在足のextremaを含んでいた。これらを独立計算とmocked reportのRED testで再現し、符号付きscore、名前で解決する既存prior-candle channel、終端決済完了を要求する選択条件へ修復する。replay/accounting ownerやPPO研究の機構は変更しない。
+
+未統合のwalk-forward実装は既存tunerと異なる探索を重複して持ち、少数candidateで探索axisを落とし、最後の残余barを捨てていた。同じ探索実装へ統一し、CLIでdevelopment diagnosticとして実行できる契約を追加する。windowごとのcapital/state resetと仮想return積を明示し、continuous wealthやsealed final profitabilityとは扱わない。scopeはソフトウェア修復と開発実行の確認であり、live注文接続や新しいPPO実験の認可ではない。
+
+追加の契約テストでは、未決済reportのpositive marked P&Lが`profitable_windows`へ入る集計漏れと、walk-forward内のwindow reportが`holdout` scopeのまま出力される不整合を確認した。集計をpositive P&Lかつterminal settlement確認済みの場合だけ数えるよう修復し、手動reportで未提供の決済状態はunknown (`None`) としてfail-closedに扱う。各nested windowにも`development_walk_forward` scopeを付ける。これは評価報告の正確性を直すものであり、以前の開発結果を書き換えず、profitability evidenceも追加しない。
+
+実データの開発確認はBTCUSDT/ETHUSDT USD-M、1h、2024-01-01から2024-04-01 UTCへ結果前に固定する。公式Vision archiveのchecksumとraw hash、現行exchange-info snapshot、明示cost、Dataset identityを保持し、offline再build一致を確認する。adaptive family、3fold、8candidate/window、balanced、initial capital100,000、既存non-zero execution overlayを固定する。現在metadataのhistorical適用、close mark proxy、bar capacityは仮定であり、point-in-time venue rulesやlive fillを証明しない。生成Dataset、protocol、結果はignored `data/bot-development-2024q1/` に置く。これはdevelopment smokeであり、winnerや利益の証明にはしない。
+
+このsmokeはsource `a526cc18` のfresh read-only AIによるresult-blind G0-G2確認とmachine verificationの後に実行した。Dataset IDは`7cff150e0f4d18dcc457009232f53cc7ca3f350db4893c433db6494887979616`、protocol digestは`085fc5242aa05c77ae4cd99184cb9551dbd558e35256eb7a22ca46bad0809475`である。2184本のhourly close、12 archive checksum、offline Dataset再buildの一致を確認した。次foldのselected candidateのafter-cost returnは−1.941582%と+0.579034%、observed maximum drawdownは3.899723%と2.296434%だった。双方のterminal settlementは完了したが、reset-windowの仮想積は−1.373790%であり、全体のprofitabilityは成立しない。この結果を見てparameterを選び直しておらず、sealed final、future-data、live suitabilityは引き続き未確立である。実行receiptと元のJSONは同じignored directoryの`execution/`へ保存した。session内の独立AI確認はGitHubの別principalによる必須PR approvalの代わりではない。
+
+## Trading-bot tuning contract correction (2026-10-02)
+
+GitHub `main` の `a696d5c` では、明示的な `--dataset` がないまま `--mode optimize --strategy all` を実行すると、500-barのgenerated demo Datasetへ暗黙にfallbackし、shared-cash replayにはzero execution costを渡していた。したがってそのCLI経路は実market evidenceではなく、profitabilityの根拠にもならない。tuningは同一full Datasetで選択・報告しており、出力文言もmaximum profitを示唆していた。
+
+`codex/profit-engine-hardening` の修正では、optimize / compareに明示的なDatasetまたは明示的な `--demo` を要求し、canonical non-zero `ExecutionCostConfig()` を既定のreplay costにした。単一strategyのparameter選択はchronological tuning prefixだけで行い、baseline / candidate reportは後続holdoutのfresh replayから計算する。tuning-windowの最大drawdownが20%を超えるcandidateは選択対象外だが、これはeligibility vetoであり、gapやexecution timingを越えたdrawdown上限の保証ではない。`compare` はfull-rangeのin-sample診断である。`tune_all_strategies` の複数family報告windowはfamily間で比較した時点でdevelopment evidenceとして扱い、最終評価にはさらに後の未閲覧windowを使う。
+
+明示Datasetにprice-channel featuresがない場合、botの`channel_breakout`実行と全戦略のcompare / optimizeは、直前480本・240本のcandleから因果的なchannelを導出する。導出後はsource Dataset IDとwindow定義を含む新しいcontent identityへbindする。4列の一部だけがあるDatasetは拒否し、導出時は最低481 barsを要求する。
+
+walk-forward結果もchannel派生後のDataset identityへbindする。terminal settlement状態がunknownの場合は残ポジションがあると断定せず、明示的な未決済と区別して表示する。この報告精度の修正ではreal-market trainingやeconomic tuning runを行わない。
+
+Bot reportはbar-return intervalのcount / positive rate / profit factorとDataset period metadataに基づくSharpeを明示し、closed-trade metricsとは呼ばない。adaptive protective exitsはactual fillからbar-closeまでのgross price returnでthresholdを判定し、直近のeffective intentではなく実約定quantityが0になるまでflat intentをlatchedして最低保有期間をbypassする。missed / partial fill後に価格がtrigger未満へ回復してもexit requestを維持するが、entry後fee・funding・borrowを含まず、fillはtrigger後のeligible execution stepで行われる。gap、latency、liquidity、costによりthresholdを越える結果があり得るため、これもprofit protectionの保証ではない。このrepairではreal-market trainingやeconomic tuning runを行っておらず、新たなprofitability resultは確立していない。
+
+## Active PPO medium-term holding-duration design
+
+The user's direction is to keep PPO as the main learner and compare multi-day
+to multi-week holding treatments under a 20% maximum-drawdown guardrail. The
+current frozen `ppo_holding_duration_v1` design compares a freshly trained,
+Observation-v3 H=0 PPO with minimum-hold horizons of 72, 168, 336, and 504
+hourly bars (3, 7, 14, and 21 days). This estimates the effect of assigning a PPO system a minimum-dwell
+rule; separate PPO training means the trades and later actions may also change.
+
+All arms must bind the same Dataset/time scope, selected features and fit
+symbols, PPO seed roster and realized training budget, initial capital,
+execution costs/funding/borrow, execution overlay, risk config, and terminal
+settlement. The protocol fixes max gross 0.5, max absolute weight 0.1, no
+turnover cap, drawdown deleveraging at 10%, and hard stop at 20%, with other
+`PreTradeRiskConfig` fields at their defaults. This exact profile is enforced
+identically in PPO training and every strategy replay. In v1 each symbol remains
+an independent account; the 20% stop cannot guarantee the realized drawdown
+stays below 20% after a price gap. The new v2 protocol described below measures
+the same PPO horizon question on one 100,000 USDT account shared across the
+five symbols.
+
+The age-aware run resolver requires a continuous, exactly regular one-hour
+clock, and low-level PPO APIs reject positive minimum-hold durations with the
+age-blind Observation v2 schema. Candidate artifacts preserve the suppressed
+and unlocked replay events, actual age and quantities, post-risk target, risk
+reasons, final inventory, and active/terminal order state. A terminal-settlement
+flag does not by itself prove that the account finished flat.
+
+A separate result-blind shared-cash replay capability accepts age-aware
+minimum-hold decisions and reserved terminal settlement for multiple symbols in
+one account, with a versioned per-decision ledger. The immutable v5 StudyPlan
+above still means five independent 100,000 USDT accounts and retains that
+historical selection semantics. A new `ppo_shared_cash_holding_duration_v2`
+protocol now has a separate `canonical_m2_bootstrap_config_v6` /
+`controlled_study_plan_v6` identity. Its
+Candidate Run schema v7 persists the combined portfolio return series,
+terminal account state, and shared-ledger identity; comparison schema v4
+recomputes each seed's combined return / drawdown and selects on shared-cash
+results rather than averaging symbol accounts. Mocked bootstrap and full
+Study-lifecycle tests exercise this path. The local implementation is not yet
+cleared by the required fresh result-blind G0-G2 review, and no v2 fit or
+economic replay has been run. The previous sealed one-shot normalization run
+36356182462 completed execution but its independent verification failed, so it
+published no verified comparison. No verified PPO profitability result exists.
+
+The result-blind `ppo_holding_duration_v1` code path and focused contract tests
+are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, the new
+`canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` path completed a
+fresh Binance source freeze and published an immutable Dataset and StudyPlan.
+The bootstrap manifest, Dataset manifest, exact input config, and exact StudyPlan
+are preserved in a workspace-only result-blind v5 packet at
+`report/ppo-hold-duration-v5-20261001/`. It is not part of the versioned GitHub
+tree because it contains the exact source roster and Dataset metadata.
+Its config digest is
+`f31fd955c50dd69d68ae78db4b756a1bc43a4cb425ab7d0f4045327395a83044`, Dataset
+ID is `c489ed47a55f2013fcd4f8c1bf560997b8ba41c4ec6dff0d16d0dd95d516a72b`,
+Dataset artifact digest is
+`27aba635367cc79d2086fd28709c8565684e6ef2c00af2bfad8202ce479661ab`, StudyPlan
+digest is `f7e0098a658952e3d3359f6079aa07e97cf6792e3e6b447b95b1ebc75aed78a6`,
+and outer bootstrap digest is
+`af0ba9ab3f3a88a665a8e6be29072ed21ae3772e6eedcc3733315a9111bcd3bd`.
+
+The older `controlled_study_plan_v4` remains development-only. The frozen
+Dataset covers 2021-01 through 2026-08 for BTCUSDT, ETHUSDT,
+BNBUSDT, XRPUSDT, and ADAUSDT, with a 1h decision clock plus 4h and 1d feature
+streams. The baseline uses the existing 12-feature roster, fit cutoff
+2023-01-01, and development evaluation from 2023-01-01 through 2026-08-01.
+Every fit requests 262,144 PPO steps across the five fixed seeds. The common
+research assumption is 0.05% fee, 0.02% spread, 5% participation capacity,
+100,000 USDT initial capital per independent symbol account, and the fixed
+20% drawdown stop. The unused final window is preregistered as
+2026-11-01 through 2027-11-01 and has not been fetched or opened.
+
+The network-free independent inspection matched the recorded bootstrap, Dataset,
+and StudyPlan identities; confirmed `controlled_study_plan_v5`, Observation v3,
+H=0, the five seeds, all four horizons, and the sole `PPO_MINIMUM_HOLD` factor;
+and confirmed that no baseline or candidate run exists. The initially requested
+September 2026 monthly Vision archive returned 404, so the frozen range ends at
+the latest complete month available during this bootstrap rather than filling or
+substituting missing data.
+
+The protocol fixes H=0 with Observation v3, five ordered PPO seeds, only
+`PPO_MINIMUM_HOLD`, four experiments, and the shared risk config. It fixes the
+ordered candidates at 72 / 168 / 336 / 504 one-hour bars and refuses to run any
+arm until all four have been preregistered.
+
+The duration protocol stores its pre-registered selection rule in the immutable
+StudyPlan before outcomes. Eligibility requires every H=0 and candidate
+seed-symbol account to complete terminal settlement flat with no active order
+remainder, every account's realized maximum drawdown to stay at or below 20%,
+and positive median paired excess return versus H=0. Both the primary score and
+paired excess first take an equal-weight mean across symbols within each seed,
+then the median across the five seeds. The eligible arm with the highest
+primary score wins; exact ties go to the shorter hold. Absolute return is not
+an extra development-screen eligibility gate. If no arm qualifies, the Study
+freezes as NO_WINNER. `controlled_evidence_comparison_v3` stores the per-seed
+cells and aggregate needed for independent reconstruction; protocol inspection
+rejects a downgraded v1/v2 comparison. This remains a development screen, not a
+profitability claim; a frozen winner still needs separate one-shot sealed
+unused-future evaluation.
+
+G0 is now bound to the exact Dataset, development/final windows, and immutable
+StudyPlan before outcomes exist, but G0 has not passed fresh independent
+result-blind review. G1 is fixed in the same plan and also awaits that review.
+G2 remains NOT ESTABLISHED until the exact implementation receives fresh
+independent result-blind review and all required contract checks pass. Human
+review of the updated Guide description is a separate documentation gate
+required before its source fingerprints are refreshed; it is not a G2 oracle.
+No PPO training or economic replay has started for this duration study. G4
+remains blocked; existing M2 results are not evidence for this duration
+question. The next sequence is to close G0-G2 on this exact packet, then freshly
+train H=0 under Observation v3 before any candidate result is generated.
+The local Study workflow does not authenticate an external G0-G2 review; this
+remains an operator release prerequisite, and `run_baseline` / `run_experiment`
+must not be called until it is closed. Caller-written `assurance-review.json`
+is rejected as an unexpected Study artifact and cannot establish approval.
 
 ## 研究目的
 
@@ -118,9 +303,46 @@ No shutdown reason was recorded; operational status is not an economic replay.
 The observation gap now exceeds the frozen 180-second limit, so this protocol
 cannot qualify. Preserve its incomplete evidence without resuming or backfilling
 it; this operational journal does not establish whether an economic replay ran.
+
+The paper screen contract is now version 2. It declares one required fill in
+each of BTC spot, BTC perpetual, ETH spot and ETH perpetual, and assigns funding
+block coverage by the published settlement time inside the fixed ninety-day
+window. Receipt during terminal grace cannot make a post-close settlement count
+for block 3; any nonzero post-close settlement now rejects the screen even when
+the credited cash appears in final account equity. A new sealed run is attempt 2
+and must bind attempt 1's protocol
+SHA-256 `843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7`,
+final journal tip `1a84746aa875ee5a21b72944a5101c2ffb5b00860c9d085a1ccb1fe780d5836b`,
+and exact last observation time `2026-09-17T23:11:01.134389+00:00` with disposition
+`invalidated` and reason `observation_gap`. The protocol digest and event tip
+were re-read from the preserved root on 2026-09-28. The old chain itself has no
+terminal gap event; the invalidation follows from the frozen gap limit and the
+verified time since its final event. A new attempt must never resume or rewrite
+that root.
+
+Attempt-lineage v2 accepts only operational `invalidated` / `incomplete`
+dispositions and fixed operational reason codes; prior screen pass/reject labels
+and economic metrics are excluded. These lineage values are still assertions,
+not root authentication. A fresh result-blind reviewer must resolve attempt 1
+with its preserved v1 reader, verify the protocol/event chain and gap, and check
+for an earlier unreported attempt before any successor is sealed. The schema by
+itself cannot authenticate hashes or prevent a new root from claiming attempt 1.
 Any successor needs a separately sealed
 protocol with a new future start and current source/runtime identity. Prospective
 profitability remains unproven.
+
+Fresh result-blind review independently verified the known attempt-1 v1
+protocol digest, all 188 canonical journal events and parent links, final tip,
+and last observation `2026-09-17T23:11:01.134389+00:00`. At the minimum reviewed
+seal time `2026-09-27T16:37:40Z`, the observation gap was 840398.865611 seconds.
+The review found no earlier fixed carry-screen root among 18 protocol files in
+the inspected `C:\dev\trade_rl` workspace. G0 for this predecessor is verified
+within that scope; global attempt uniqueness outside the workspace is not
+established. G2 review confirms that the four-instrument fill roster is bound to
+the sealed plan and funding blocks use settlement time in `[start, close)`;
+their targeted synthetic tests pass. Overall G2 and an independent full
+source-to-ledger replay remain unestablished. No successor screen has been
+sealed.
 
 A subsequent real one-minute CLI software probe exposed partial ETH spot depth:
 the 20-level capture filled 0.3821 ETH against a 0.51 ETH perpetual short. The
@@ -276,12 +498,35 @@ The training mechanism still uses one-active-symbol episodes with
 `risk_config=None`, whereas evaluation uses the maintained shared-cash directional
 account and 10%/20% drawdown hard-risk semantics. That mismatch is common to both
 arms and therefore does not change the normalization-only factor, but it limits the
-absolute claim. The one-shot transport capability closes the previously missing
-repository-global uniqueness / partial-disclosure software boundary, but it has not
-been activated: the committed authority remains `activation_sha256=null`, no
-execution-request activation tag has been created, and no corrected-economics fit,
-replay, comparison result, unused future evaluation, production eligibility, or live
-authorization is established at this status.
+absolute claim.
+
+The one-shot authorization was consumed by GitHub Actions run `36356182462` on
+2026-09-27/28. It used request HEAD `ee8dde846286` and sealed execution source
+`72ec5a082a1e`. The run created the repository tag
+`activation/ppo-normalization-corrected-v1` (annotated tag object `b2120e442833`, activation digest
+`985d34eabba5629fb934203450697a8691bea8819dfc9ac3bc7fc43b7e0652a3`), completed
+all ten fit slots, and uploaded execution artifact `10946283192` with raw SHA-256
+`0c0d5335c389f13fe7b1ff22bd53d97025cc4b39253f280843baeba06024a81f`. The fresh
+no-refit verifier job `108745022839` failed with
+`fresh bundle replay differs from published result`; the finalizer was skipped.
+Static source tracing found that the verifier compared incompatible envelope fields:
+slot publication replaces the directional evaluator's top-level `schema` with the
+slot-result schema, while fresh replay retains the evaluator schema. The verifier
+then compared the fresh schema against a stored payload from which `schema` had
+already been excluded, so every otherwise-matching slot failed. This PR adds a
+regression test and changes the comparison to ignore only that unpersisted replay
+schema; all other replay fields remain strict. The original execution artifact and
+failed verification remain unverified: no no-refit verification has been rerun, and
+no economic result was inspected. Do not re-trigger this one-shot request or refit
+these slots.
+
+The source authority file still has `activation_sha256=null`; the separate
+repository activation tag records the consumed run. No verified comparison or
+economic disposition was finalized, and no unused-future evaluation was accessed.
+The activation metadata records `economic_result_inspected=false`,
+`final_test_accessed=false`, `production_eligible=false`, and
+`live_trading_authorized=false`. The run therefore establishes neither a profitable
+normalization candidate nor production/live eligibility.
 
 The user subsequently broadened the search to other RL algorithms, ensembles
 and additional data. These are permitted future candidates, subject to the same
@@ -291,6 +536,34 @@ Exact fill-quantity accounting now preserves accepted lot counts and genuine
 remainders across book/order updates and resume; capacity allocation searches
 integer lots against the actual monetary bound. This separate implementation
 does not alter any active frozen study or its historical results.
+
+### PPO/A2C update-family comparison: draft contract and synthetic oracle only
+
+The result-blind PPO/A2C code-contract draft and pure cell-decision oracle are
+implemented in `trade_rl.evaluation.rl_family_comparison`. The proposed study holds the existing
+12-feature task and execution contract fixed, fits the full five-symbol roster
+before 2023, and screens the already reused 2023–2024 development period under
+base, doubled-cost, and one-bar-latency scenarios. PPO and A2C each have five
+matched seeds and a 256,000-transition budget. Absolute qualification is
+independent for each family; paired A2C uplift can select between them only if
+both independently qualify.
+
+Each family needs at least four of five seeds with positive full-period and
+annual returns in every scenario on at least four symbols, plus positive
+five-seed medians. A paired symbol votes for A2C only with four of five
+positive same-seed deltas across all years and scenarios and positive median
+deltas; A2C can be selected by uplift only when both families qualify.
+
+Mocked PPO/A2C constructor tests bind the registered hyperparameters to the
+actual fitter arguments, and synthetic-cell tests exercise complete coverage,
+profit screens, paired decisions, the 20% per-symbol drawdown boundary, and
+execution-risk vetoes. No Dataset, model, or replay artifact was opened, and
+no new economic result was generated. No model fit or replay has been run, and this contract
+does not provide an execution workflow or independent G0–G3 reviews. The 20%
+per-symbol limit does not satisfy the requested portfolio-level drawdown target;
+a future candidate still needs a separate shared-capital screen. Profitability,
+future-data validity, paper eligibility, and live readiness remain
+`NOT ESTABLISHED`.
 
 ### PPO BTC-relative feature ablation: G4 completed, KEEP_BASELINE
 
@@ -744,7 +1017,7 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 現行datasetのglobal regimeは全dataset symbolから集計されるため、fit-symbol subset外の情報がtrainingへ混入しないよう初回M2のpolicy inputから除外した。Observation v2は空のglobal rosterをsemantic identityへ明示bindする。global contextは、fit-scope-safeなreference universeを事前固定できる場合にだけ別Controlled Factorとして検証する。
 
-PPO fitの既定layoutは既存互換の`sequential`である。複数fit symbolを宣言するsequential fitでは、SB3の2048-step rollout丸め後の実効budgetが全fit symbolへ最低1 full agent episodeずつ届くことをfit前に要求し、後半symbolが0 transitionになる設定をfail closedにする。これは最低coverage保証であり、完全なsample均等化や性能改善を意味しない。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。 `PPOTradingEnv`は実際にepisodeで売買するactive symbol scopeと、selected featureが参照してよいinformation symbol scopeを分離する。direct constructionではinformation scopeを省略するとactive scopeと同一として検証し、fitter経由ではsequential/interleavedとも全fit symbol rosterをinformation scopeとして明示する。したがってinterleavedの各slotが1銘柄activeでも、fit内reference-relative featureを誤ってrejectせず、fit外symbol依存は#707の共有validatorで拒否する。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、hard risk、network、entropy係数を変更しない。Directional PPOではfitとdevelopment replayが同じbase execution economicsを共有し、Dataset由来のborrowを両方で課す。さらにcurrent directional fitはfinite-horizon末尾を無料resetにせず、latencyを考慮して最後のagent decision後にcanonical FLAT settlement区間を予約する。settlementはagent actionではなくenvironment terminal transitionとしてrisk/executionを通し、内部settlement barへ追加discountを掛けず、その実現log wealth changeをterminal rewardへ加算する。capacity等で残余が残ればflatと偽装しない。これはper-symbol training endpointの補正であり、shared-cash evaluationとのcross-symbol accounting差は別途残る。旧interleaved prereg/evaluatorはこのborrow修正前のimplementation authorityへbindされているため、current economicsでの実行authorityとしてはobsoleteであり、結果を見ずにfresh protocolを作り直す必要がある。なおSB3はwhole rollout単位で学習するため、同じcaller `total_timesteps`でもlayoutごとのrealized `model.num_timesteps`はわずかに異なり得る。実比較では両方をevidenceへ保存する。また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
+PPO fitの既定layoutは既存互換の`sequential`である。複数fit symbolを宣言するsequential fitでは、SB3の2048-step rollout丸め後の実効budgetが全fit symbolへ最低1 full agent episodeずつ届くことをfit前に要求し、後半symbolが0 transitionになる設定をfail closedにする。これは最低coverage保証であり、完全なsample均等化や性能改善を意味しない。実装上はopt-inの`interleaved`も選べ、fit symbolごとのfixed-symbol `PPOTradingEnv`を`DummyVecEnv`へ束ね、明示した`rollout_steps_per_env`ごとに全envからrolloutを集める。 `PPOTradingEnv`は実際にepisodeで売買するactive symbol scopeと、selected featureが参照してよいinformation symbol scopeを分離する。direct constructionではinformation scopeを省略するとactive scopeと同一として検証し、fitter経由ではsequential/interleavedとも全fit symbol rosterをinformation scopeとして明示する。したがってinterleavedの各slotが1銘柄activeでも、fit内reference-relative featureを誤ってrejectせず、fit外symbol依存は#707の共有validatorで拒否する。これは学習sample schedulingだけを変えるunevaluated capabilityであり、Observation v2、reward、hard risk、network、entropy係数を変更しない。Directional PPOではfitとdevelopment replayが同じbase execution economicsを共有し、Dataset由来のborrowを両方で課す。さらにcurrent directional fitはfinite-horizon末尾を無料resetにせず、latencyを考慮して最後のagent decision後にcanonical FLAT settlement区間を予約する。settlementはagent actionではなくenvironment terminal transitionとしてrisk/executionを通し、内部settlement barへ追加discountを掛けず、その実現log wealth changeをterminal rewardへ加算する。capacity等で残余が残ればflatと偽装しない。これはper-symbol training endpointの補正であり、shared-cash evaluationとのcross-symbol accounting差は別途残る。旧interleaved prereg/evaluatorはこのborrow修正前のimplementation authorityへbindされているため、current economicsでの実行authorityとしてはobsoleteであり、結果を見ずにfresh protocolを作り直す必要がある。`expected_ppo_realized_timesteps`はlayoutごとのrollout丸めを定義し、fit後の`model.num_timesteps`とcandidate artifactのrequested/realized transition evidenceを照合する。Controlled Factor `PPO_TRAINING_LAYOUT`はlayoutとrollout長を同時に変更し、paired comparisonでは両条件のrealized transition数も同じにする。結果盲検のCPU synthetic fit（2銘柄、各513 bars、8 features、2,048 requested transitions、seed 11、warm-up後3回交互測定）では、sequential中央値2.9377秒（2,048 realized transitions）に対しinterleaved/512中央値2.5308秒（同2,048）で約13.9%短かった。layout間でpolicy hashも変わるため、これは速度と利益品質のどちらの実データ証拠でもない。新factorのeconomic comparisonは未実行である。また、vector envのreset seed差がexecution randomnessへ混入しないよう、interleavedは`slippage_std > 0`を拒否する。
 
 PPOのconstructor/policy constructionについて、current implementationが実際に依存する主要defaultはsourceへ明示bindする。対象はlearning rate、rollout長、batch、epoch、discount/GAE、clip、advantage normalization、entropy/value係数、gradient clip、gSDE/target-KL、およびMlpPolicyのTanh・orthogonal init・FlattenExtractor・shared extractor・Adam epsである。これは値を変更する探索ではなく、pinned runtimeで既に有効だった値をsource contractへ昇格する変更である。一方、SB3/PyTorch内部algorithm implementationまでrepositoryへ複製したわけではないため、library versionとruntime provenanceは引き続きtraining implementation identityの一部であり、dependency変更時のsemantic equivalenceを自動仮定しない。
 
@@ -797,8 +1070,8 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
 - fit-scope-safe PPO Observation v2（local values + availability/finite mask + normalized staleness + portfolio state、global policy rosterは空）
-- `lean_candidate_result_v3`によるObservation contract + `forecast_switch_cost` のRun evidence binding。historical v1/v2 reader互換を維持し、v2 artifactへswitch-cost fieldを後付けしない
-- `resolved_run_config_v3`によるStudy identity binding。historical v1/v2 read互換を維持し、旧Studyへv3 semantic fieldを暗黙migrationしない
+- `lean_candidate_result_v14`によるforecast switch-cost、現行PPO training/replay/risk、full evaluation-period coverageのRun evidence binding。historical result reader semanticsを維持し、旧artifactへswitch-cost fieldを後付けしない
+- `resolved_run_config_v7`によるObservation / PPO layout / holding duration / settlement / risk / forecast switch-costのStudy identity binding。historical v1-v5 read互換を維持し、旧Studyへ新semantic fieldを暗黙migrationしない
 - opt-in `CostAwareForecastIntentController` とControlled Factor `FORECAST_SWITCH_COST`。Ridge / LightGBMのfrozen 24h log-return forecastと既存thresholdを維持し、simple-return costと同値なlog-domain境界で、nominal intent changeの片道cost floorを上回らない変更だけを抑制する。次のfactor値は現canonical market-order assumptionの5bp fee + 2bp spreadから`0.0007`に結果前固定し、threshold探索しない。7bpはrealized fill costの予言ではなくone-way fee+spread proxyで、actual costはcanonical executor/accountingが決める。factor選択には既存G4 audit `report/ppo-btc-relative-feature-ablation-g4-20260922.json`（SHA-256 `cd01a193ca2a6fa34355873fdf21b62f5f425977b2d05a388259f69cf753f481`、development scope `2023-01-01T00:00:00.000000000` から `2025-01-01T00:00:00.000000000`）を使用したため、このmechanismを新Studyへ進める場合は同reportを`StudyResearchContext`の`DIAGNOSTIC_REPORT`として少なくとも`HYPOTHESIS_FORMATION` / `EVALUATION_DESIGN`へbindし、この期間をunusedへ戻さない。これは**未評価capability**であり、fresh/read-only独立AIのG0-G2 review未完了なのでeconomic runはまだ認可しない
 - 全symbol独立comparison
 - shared candidate config resolution
@@ -879,7 +1152,9 @@ Canonical M2 bootstrapはresearch runそのものではなく、real development
 - allowed controlled factors / experiment budget
 - bootstrap count / seed
 - bootstrap v2では明示的なexecution economics profile
-- final-eligibleな新規Studyを作るbootstrap v3では、さらにunused `final_evaluation_start` / `final_evaluation_stop_exclusive`
+- 一般のfinal-eligibleな新規Studyを作るbootstrap v4では、unused `final_evaluation_start` / `final_evaluation_stop_exclusive` と `StudyResearchContext` を固定する。PPO保有期間protocolのbootstrap v5は、これらに加えてprotocolとObservation / minimum-hold / terminal-settlement / riskを含むbaselineを固定する。
+
+PPO保有期間のbootstrap v5ではDatasetの最終timestampが`data_stop_exclusive`と一致するため、`final_evaluation_start`は`data_stop_exclusive`より厳密に後でなければならない。v5 config readerがsource取得前にこの境界を拒否する。bootstrap v1-v4 configの境界semanticsは維持する。
 
 baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
 

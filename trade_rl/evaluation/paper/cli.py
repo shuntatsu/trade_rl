@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         child.add_argument("--root", type=Path, required=True)
         if name == "seal":
             child.add_argument("--start-at", type=timestamp, required=True)
+            child.add_argument("--attempt-lineage-json", type=Path, required=True)
         else:
             child.add_argument("--protocol-sha256", required=True)
         if name == "evaluate":
@@ -45,7 +46,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "seal":
-            digest = seal_paper_study(args.root, start_at=args.start_at)
+            lineage_path = args.attempt_lineage_json
+            if lineage_path.is_symlink() or not lineage_path.is_file():
+                raise ValueError("attempt lineage must be a regular JSON file")
+            attempt_lineage = json.loads(lineage_path.read_bytes())
+            digest = seal_paper_study(
+                args.root,
+                start_at=args.start_at,
+                attempt_lineage=attempt_lineage,
+            )
             _print(
                 dict(
                     protocol_sha256=digest,

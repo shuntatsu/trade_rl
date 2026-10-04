@@ -20,6 +20,10 @@ from trade_rl.strategies.dataset_scope import (
     validated_training_scope,
 )
 from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.position_duration import (
+    constrain_intent_for_minimum_hold,
+    next_position_age_bars,
+)
 from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
@@ -27,6 +31,8 @@ from trade_rl.strategies.position_intent import (
 from trade_rl.strategies.rl.intent import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    PPO_OBSERVATION_SCHEMAS,
     _encode_observation_fields,
     _intent_from_action,
     _PredictPolicy,
@@ -37,12 +43,19 @@ from trade_rl.strategies.rl.ppo_normalization import (
     PPOFeatureNormalizer,
     fit_ppo_feature_normalizer,
 )
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_N_STEPS,
+    PPO_MINIBATCH_SIZE,
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    expected_ppo_realized_timesteps,
+    validated_interleaved_rollout_steps,
+    validated_training_layout,
+)
 
-PPO_TRAINING_LAYOUT_SEQUENTIAL = "sequential"
-PPO_TRAINING_LAYOUT_INTERLEAVED = "interleaved"
 _PPO_LEARNING_RATE = 3e-4
-_PPO_DEFAULT_N_STEPS = 2048
-_PPO_BATCH_SIZE = 64
+_PPO_DEFAULT_N_STEPS = PPO_DEFAULT_N_STEPS
+_PPO_BATCH_SIZE = PPO_MINIBATCH_SIZE
 _PPO_N_EPOCHS = 10
 _PPO_GAMMA = 0.99
 _PPO_GAE_LAMBDA = 0.95
@@ -61,17 +74,7 @@ def _validated_training_layout(
     training_layout: str,
     rollout_steps_per_env: int | None,
 ) -> str:
-    if training_layout not in {
-        PPO_TRAINING_LAYOUT_SEQUENTIAL,
-        PPO_TRAINING_LAYOUT_INTERLEAVED,
-    }:
-        raise ValueError("training_layout must be 'sequential' or 'interleaved'")
-    if (
-        training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL
-        and rollout_steps_per_env is not None
-    ):
-        raise ValueError("sequential training does not accept rollout_steps_per_env")
-    return training_layout
+    return validated_training_layout(training_layout, rollout_steps_per_env)
 
 
 def _validated_interleaved_rollout_steps(
@@ -79,19 +82,10 @@ def _validated_interleaved_rollout_steps(
     *,
     n_envs: int,
 ) -> int:
-    if (
-        isinstance(rollout_steps_per_env, bool)
-        or not isinstance(rollout_steps_per_env, int)
-        or rollout_steps_per_env <= 0
-    ):
-        raise ValueError(
-            "rollout_steps_per_env must be a positive integer for interleaved training"
-        )
-    if rollout_steps_per_env * n_envs % _PPO_BATCH_SIZE != 0:
-        raise ValueError(
-            "interleaved rollout batch must be divisible by PPO batch_size=64"
-        )
-    return rollout_steps_per_env
+    return validated_interleaved_rollout_steps(
+        rollout_steps_per_env,
+        n_envs=n_envs,
+    )
 
 
 def _validate_sequential_symbol_coverage(
@@ -191,12 +185,24 @@ class PPOTradingEnv(gym.Env):
         risk_config: PreTradeRiskConfig | None = None,
         feature_normalizer: PPOFeatureNormalizer | None = None,
         settle_terminal_position: bool = False,
+        minimum_hold_bars: int = 0,
+        observation_schema: str = PPO_OBSERVATION_SCHEMA,
     ) -> None:
         super().__init__()
         if risk_config is not None and not isinstance(risk_config, PreTradeRiskConfig):
             raise ValueError("risk_config must be a PreTradeRiskConfig or None")
         if not isinstance(settle_terminal_position, bool):
             raise ValueError("settle_terminal_position must be boolean")
+        if (
+            isinstance(minimum_hold_bars, bool)
+            or not isinstance(minimum_hold_bars, int)
+            or minimum_hold_bars < 0
+        ):
+            raise ValueError("minimum_hold_bars must be a non-negative integer")
+        if observation_schema not in PPO_OBSERVATION_SCHEMAS:
+            raise ValueError("unsupported PPO observation schema")
+        if minimum_hold_bars > 0 and observation_schema != PPO_OBSERVATION_SCHEMA_V3:
+            raise ValueError("PPO minimum hold requires the age-aware observation")
         if dataset.n_symbols <= 0:
             raise ValueError("PPOTradingEnv requires at least one symbol")
         if (
@@ -242,6 +248,8 @@ class PPOTradingEnv(gym.Env):
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
         self.risk_config = risk_config
         self.settle_terminal_position = settle_terminal_position
+        self.minimum_hold_bars = minimum_hold_bars
+        self.observation_schema = observation_schema
         self.agent_stop_index = _agent_stop_index(
             start_index=start_index,
             stop_index=stop_index,
@@ -265,7 +273,11 @@ class PPOTradingEnv(gym.Env):
                 "risk max_gross/max_abs_weight must not exceed execution max_leverage"
             )
 
-        observation_size = 3 * len(self.feature_indices) + 2
+        observation_size = (
+            3 * len(self.feature_indices)
+            + 2
+            + int(self.observation_schema == PPO_OBSERVATION_SCHEMA_V3)
+        )
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -292,6 +304,10 @@ class PPOTradingEnv(gym.Env):
         self._proposal_weights = np.zeros(dataset.n_symbols, dtype=np.float64)
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
+        self.position_age_bars = 0
+        self._minimum_hold_locked = False
+        self.minimum_hold_suppressed_count = 0
+        self.minimum_hold_decision_count = 0
         self.desired_quantity = 0.0
         self.index = self.start_index
         self._terminated = False
@@ -324,6 +340,7 @@ class PPOTradingEnv(gym.Env):
             )[self.index],
             current_intent=self.current_intent,
             current_weight=float(self.book.weights[symbol_index]),
+            position_age_bars=self.position_age_bars,
         )
 
     def _encoded_observation(self) -> np.ndarray:
@@ -341,6 +358,8 @@ class PPOTradingEnv(gym.Env):
             self.current_intent,
             float(self.book.weights[symbol_index]),
             self.feature_normalizer,
+            position_age_bars=self.position_age_bars,
+            observation_schema=self.observation_schema,
         ).copy()
 
     def reset(
@@ -378,6 +397,8 @@ class PPOTradingEnv(gym.Env):
         )
         self.book = self._initial_book()
         self.current_intent = PositionIntent.FLAT
+        self.position_age_bars = 0
+        self._minimum_hold_locked = False
         self.desired_quantity = 0.0
         self.index = self.start_index
         self._terminated = False
@@ -410,6 +431,7 @@ class PPOTradingEnv(gym.Env):
         self.current_intent = PositionIntent.FLAT
         self.desired_quantity = 0.0
         while self.index < self.stop_index and self.book.termination_reason is None:
+            quantity_before = float(self.book.quantities[symbol_index])
             proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
             constrained = self.risk.constrain(
                 proposal_weights,
@@ -429,6 +451,11 @@ class PPOTradingEnv(gym.Env):
                 )
             self.book = execution.book
             self.index = execution.next_index
+            self.position_age_bars = next_position_age_bars(
+                self.position_age_bars,
+                previous_quantity=quantity_before,
+                filled_quantity=float(self.book.quantities[symbol_index]),
+            )
             settlement_log_return += math.log1p(execution.interval_net_return)
             settlement_intervals += 1
             settlement_cost += execution.interval_cost
@@ -466,9 +493,23 @@ class PPOTradingEnv(gym.Env):
             raise RuntimeError("PPOTradingEnv must be reset before stepping")
 
         symbol_index = self.active_symbol_index
-        intent = _intent_from_action(action)
+        requested_intent = _intent_from_action(action)
+        was_minimum_hold_locked = self._minimum_hold_locked
+        hold_decision = constrain_intent_for_minimum_hold(
+            requested_intent,
+            current_quantity=float(self.book.quantities[symbol_index]),
+            position_age_bars=self.position_age_bars,
+            minimum_hold_bars=self.minimum_hold_bars,
+        )
+        minimum_hold_unlocked = was_minimum_hold_locked and not hold_decision.suppressed
+        self.minimum_hold_decision_count += 1
+        if hold_decision.suppressed:
+            self.minimum_hold_suppressed_count += 1
+        intent = hold_decision.effective_intent
         changed_intent = intent is not self.current_intent
-        if changed_intent:
+        if hold_decision.target_quantity_override is not None:
+            self.desired_quantity = hold_decision.target_quantity_override
+        elif changed_intent or minimum_hold_unlocked:
             proposal_weight = target_weight_for_intent(
                 intent,
                 gross_budget=self.gross_budget,
@@ -537,9 +578,24 @@ class PPOTradingEnv(gym.Env):
         execution.book.returns_history = return_history
         return_history.extend(interval_returns)
 
+        quantity_before = float(self.book.quantities[symbol_index])
+        self.desired_quantity *= float(
+            self.dataset.resolved_array("split_factor")[
+                execution.next_index, symbol_index
+            ]
+        )
         self.book = execution.book
         self.current_intent = intent
         self.index = execution.next_index
+        self.position_age_bars = next_position_age_bars(
+            self.position_age_bars,
+            previous_quantity=quantity_before,
+            filled_quantity=float(self.book.quantities[symbol_index]),
+        )
+        self._minimum_hold_locked = (
+            hold_decision.suppressed
+            and float(self.book.quantities[symbol_index]) != 0.0
+        )
         realized_weight = float(self.book.weights[symbol_index])
         reward = math.log1p(execution.interval_net_return)
         settlement_info: dict[str, object] = {}
@@ -557,7 +613,13 @@ class PPOTradingEnv(gym.Env):
         info: dict[str, object] = {
             "symbol_index": symbol_index,
             "symbol": self.dataset.symbols[symbol_index],
-            "intent": intent,
+            "intent": requested_intent,
+            "requested_intent": requested_intent,
+            "effective_intent": intent,
+            "minimum_hold_suppressed": hold_decision.suppressed,
+            "minimum_hold_unlocked": minimum_hold_unlocked,
+            "target_quantity_override": hold_decision.target_quantity_override,
+            "position_age_bars": self.position_age_bars,
             "target_weight": target_weight,
             "realized_weight": realized_weight,
             "was_constrained": was_constrained,
@@ -594,6 +656,8 @@ def fit_ppo_strategy(
     risk_config: PreTradeRiskConfig | None = None,
     normalize_features: bool = False,
     settle_terminal_position: bool = False,
+    minimum_hold_bars: int = 0,
+    observation_schema: str = PPO_OBSERVATION_SCHEMA,
 ) -> PPOIntentStrategy:
     """Fit one teacher-free policy with an explicit multi-symbol training layout."""
 
@@ -607,6 +671,16 @@ def fit_ppo_strategy(
         raise ValueError("seed must be a non-negative integer")
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
+    if (
+        isinstance(minimum_hold_bars, bool)
+        or not isinstance(minimum_hold_bars, int)
+        or minimum_hold_bars < 0
+    ):
+        raise ValueError("minimum_hold_bars must be a non-negative integer")
+    if observation_schema not in PPO_OBSERVATION_SCHEMAS:
+        raise ValueError("unsupported PPO observation schema")
+    if minimum_hold_bars > 0 and observation_schema != PPO_OBSERVATION_SCHEMA_V3:
+        raise ValueError("PPO minimum hold requires the age-aware observation")
     layout = _validated_training_layout(training_layout, rollout_steps_per_env)
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
     policy_stop_index = _agent_stop_index(
@@ -655,6 +729,8 @@ def fit_ppo_strategy(
             risk_config=risk_config,
             feature_normalizer=normalizer,
             settle_terminal_position=settle_terminal_position,
+            minimum_hold_bars=minimum_hold_bars,
+            observation_schema=observation_schema,
         )
     else:
         if execution_cost is not None and execution_cost.slippage_std > 0.0:
@@ -688,6 +764,8 @@ def fit_ppo_strategy(
                     risk_config=risk_config,
                     feature_normalizer=normalizer,
                     settle_terminal_position=settle_terminal_position,
+                    minimum_hold_bars=minimum_hold_bars,
+                    observation_schema=observation_schema,
                 )
                 for symbol_index in fit_symbols
             ]
@@ -741,21 +819,51 @@ def fit_ppo_strategy(
         verbose=0,
     )
     model.learn(total_timesteps=total_timesteps)
+    if isinstance(env, PPOTradingEnv):
+        training_minimum_hold_suppressed_count = env.minimum_hold_suppressed_count
+    else:
+        sub_environments = getattr(env, "envs", None)
+        if not isinstance(sub_environments, list) or any(
+            not isinstance(sub_environment, PPOTradingEnv)
+            for sub_environment in sub_environments
+        ):
+            raise RuntimeError(
+                "PPO vector environment cannot report minimum-hold suppressions"
+            )
+        training_minimum_hold_suppressed_count = sum(
+            sub_environment.minimum_hold_suppressed_count
+            for sub_environment in sub_environments
+        )
+    realized_timesteps = getattr(model, "num_timesteps", None)
+    expected_timesteps = expected_ppo_realized_timesteps(
+        total_timesteps,
+        training_layout=layout,
+        rollout_steps_per_env=rollout_steps_per_env,
+        n_envs=len(fit_symbols),
+    )
+    if realized_timesteps != expected_timesteps:
+        raise RuntimeError("Stable-Baselines3 PPO realized an unexpected step count")
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
         feature_names=tuple(dataset.feature_names[index] for index in indices),
         feature_normalizer=normalizer,
+        observation_schema=observation_schema,
+        minimum_hold_bars=minimum_hold_bars,
+        training_minimum_hold_suppressed_count=(training_minimum_hold_suppressed_count),
     )
 
 
 __all__ = [
     "PPO_GLOBAL_FEATURE_NAMES",
     "PPO_OBSERVATION_SCHEMA",
+    "PPO_OBSERVATION_SCHEMA_V3",
+    "PPO_OBSERVATION_SCHEMAS",
     "PPO_TRAINING_LAYOUT_INTERLEAVED",
     "PPO_TRAINING_LAYOUT_SEQUENTIAL",
     "PPOIntentStrategy",
     "PPOTradingEnv",
+    "expected_ppo_realized_timesteps",
     "fit_ppo_strategy",
     "ppo_observation_contract_payload",
 ]

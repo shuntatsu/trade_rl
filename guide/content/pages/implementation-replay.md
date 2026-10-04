@@ -10,6 +10,7 @@
 MarketDataset
     │
     │ 1. 現在時点の観測を組み立てる
+    │    PPO v3では実約定後の保有年齢も含む
     ▼
 Replay
     │
@@ -21,6 +22,8 @@ Strategy
     ▼
 Replay
     │
+    │ minimum-hold中は自発的な変更を抑制
+    │ hard riskはその後に適用され、常に優先
     │ desired_quantity → proposal_weight
     │
     │ 4. hard riskを適用
@@ -47,7 +50,7 @@ BookState
 
 ## 1. 観測を作る
 
-現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図と現在ウェイト**を加えて`StrategyObservation`を作ります。
+現在バーのfeature、availability、staleness、global feature情報に、**現在の売買意図と現在ウェイト**を加えて`StrategyObservation`を作ります。PPO Observation v3では、さらに実際の約定数量から数えた`position_age_bars`を渡します。最後のactionではなくfillが年齢の起点です。
 
 未来のバーを見てから観測を作ることはありません。判断に入る情報は現在時点までに利用可能なものに限定します。
 
@@ -57,9 +60,13 @@ BookState
 
 ここではまだfillも手数料も発生していません。**戦略の責務は経済判断であって、約定や会計ではありません。**
 
+PPOに最低保有期間を設定した場合、まだ期間内の実保有数量を維持するよう、FLAT・反対方向などの自発的なintent変更を抑えます。未約定の目標残量も取り消し、partial fillを実保有状態へ反映します。これは約定やriskを飛ばす仕組みではありません。
+
 ## 3. 希望数量とproposalへ変換する
 
 intentが変わった場合、gross budgetから目標ウェイトを計算し、現在価格と現在の資産額を使って希望保有数量へ変換します。
+
+希望数量と目標ウェイトの相互変換には、BookStateの評価用マーク価格を使います。注文の参照価格は取引価格のままです。評価価格だけが変わっても、同じintentの保有数量を買い増しません。株式分割を処理した区間では、保有数量と同じ倍率で希望数量も換算し、未約定の目標残量も新しい数量単位へ引き継ぎます。
 
 ```text
 PositionIntent
@@ -74,6 +81,8 @@ proposal_weight
 ## 4. hard riskを適用する
 
 `PreTradeRisk`はproposalへ、turnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-onlyなどの制約を適用します。
+
+minimum-holdによる抑制の後にもhard riskを適用するため、drawdown stopやemergency flattenは保有期間中でも縮小・全決済できます。保有期間は決められた日数まで必ず持つ保証ではありません。
 
 ```text
 proposal_weight
@@ -111,6 +120,8 @@ target_weight
 
 全区間を処理した後、raw interval returns、decisions、execution diagnosticsに加えて、最後のstateful executionが持つactive order remainderとterminal order reasonを`SingleSymbolReplayResult`へまとめます。
 
+保有期間比較のRun artifactはPPOの抑制・解除、年齢、fill前後quantity、risk理由を記録します。共通terminal settlementの後にもpositionや注文残があるseed-symbol accountは未決済として識別され、PPO期間選定のeligible armにはできません。
+
 このためposition数量が0でも未約定orderが残っている状態を「完全にflat」と誤認せず、research hard guard側でterminal execution stateを検査できます。order evidenceは同じ`MarketExecutor`のobserverから取得し、別のexecutionを再計算しません。
 
 比較に使うのはこの共通経路を通った結果です。
@@ -123,6 +134,8 @@ target_weight
 - fee / spread等をstrategy側で別途控除しない。
 - 次のバーは約定後の共通`BookState`から始める。
 - 比較対象strategyは同じexecution/accountingを使う。
+- 保有年齢はpolicy actionでなく実際の約定後数量から数える。
+- minimum-holdの抑制よりhard riskを優先する。
 
 ## 失敗すると何が壊れるか
 

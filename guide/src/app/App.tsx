@@ -1,13 +1,18 @@
 import { ArrowRight, Info } from "lucide-react";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 
 import { AppShell } from "../components/AppShell";
 import { ImplementationReferenceAppendix } from "../components/ImplementationReferenceAppendix";
-import { MarkdownArticle } from "../components/MarkdownArticle";
 import { TopicHeader } from "../components/TopicHeader";
 import { guideManifest, loadTopics } from "../content/loadTopics";
 import { type GuideRoute, useHashRoute } from "./useHashRoute";
 import { useTheme } from "./useTheme";
+
+const MarkdownArticle = lazy(() =>
+  import("../components/MarkdownArticle").then((module) => ({
+    default: module.MarkdownArticle,
+  })),
+);
 
 const TOPICS = loadTopics();
 const TOPIC_IDS = TOPICS.map((topic) => topic.id);
@@ -57,7 +62,15 @@ export function App() {
       </div>
 
       <TopicHeader topic={topic} />
-      <MarkdownArticle topic={topic} />
+      <Suspense
+        fallback={
+          <p className="markdown-article-loading" role="status">
+            記事を読み込み中…
+          </p>
+        }
+      >
+        <MarkdownArticle topic={topic} />
+      </Suspense>
       <ImplementationReferenceAppendix
         key={`${topic.id}:${route.symbol ?? ""}`}
         topic={topic}

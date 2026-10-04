@@ -23,6 +23,7 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
     StudyResearchContext,
 )
 from trade_rl.evaluation.experiments.delta import (
@@ -34,6 +35,7 @@ from trade_rl.evaluation.experiments.errors import (
     ContractViolationError,
 )
 from trade_rl.evaluation.runs import CandidateRunConfig
+from trade_rl.risk import PreTradeRiskConfig
 
 _ANALYSIS_BINDING_SCHEMA = "controlled_evidence_analysis_binding_v1"
 _WITHIN_ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
@@ -99,6 +101,59 @@ def _as_float(value: object, *, field: str) -> float:
     return resolved
 
 
+def _pretrade_risk_from_payload(
+    value: object,
+    *,
+    field: str,
+) -> PreTradeRiskConfig | None:
+    if value is None:
+        return None
+    raw = _as_dict(value, field=field)
+    _expect_keys(
+        raw,
+        {
+            "max_gross",
+            "max_abs_weight",
+            "max_turnover",
+            "drawdown_start",
+            "drawdown_stop",
+            "emergency_turnover_override",
+            "fail_closed_tolerance",
+        },
+        label=field,
+    )
+    override = raw["emergency_turnover_override"]
+    if not isinstance(override, bool):
+        raise ArtifactIntegrityError(
+            f"{field}.emergency_turnover_override must be boolean"
+        )
+    try:
+        return PreTradeRiskConfig(
+            max_gross=_as_float(raw["max_gross"], field=f"{field}.max_gross"),
+            max_abs_weight=_as_float(
+                raw["max_abs_weight"], field=f"{field}.max_abs_weight"
+            ),
+            max_turnover=(
+                None
+                if raw["max_turnover"] is None
+                else _as_float(raw["max_turnover"], field=f"{field}.max_turnover")
+            ),
+            drawdown_start=_as_float(
+                raw["drawdown_start"], field=f"{field}.drawdown_start"
+            ),
+            drawdown_stop=_as_float(
+                raw["drawdown_stop"], field=f"{field}.drawdown_stop"
+            ),
+            emergency_turnover_override=override,
+            fail_closed_tolerance=_as_float(
+                raw["fail_closed_tolerance"],
+                field=f"{field}.fail_closed_tolerance",
+            ),
+        )
+    except ValueError as error:
+        raise ArtifactIntegrityError(f"{field} is invalid") from error
+
+
 def _as_string_tuple(value: object, *, field: str) -> tuple[str, ...]:
     values = _as_list(value, field=field)
     return tuple(_as_string(item, field=field) for item in values)
@@ -146,19 +201,45 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
         "initial_capital",
         "execution_overlay",
     }
-    if schema_version == "resolved_run_config_v2":
+    if schema_version in {
+        "resolved_run_config_v2",
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
-    elif schema_version == "resolved_run_config_v3":
-        expected.update(
-            {
-                "ppo_observation_schema",
-                "ppo_global_feature_names",
-                "forecast_switch_cost",
-            }
-        )
-    elif schema_version != "resolved_run_config_v1":
+    if schema_version in {
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
+        expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
+    if schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
+        expected.update({"ppo_minimum_hold_bars", "ppo_settle_terminal_position"})
+    if schema_version in {"resolved_run_config_v5", "resolved_run_config_v7"}:
+        expected.add("pretrade_risk_config")
+    if schema_version == "resolved_run_config_v7":
+        expected.add("forecast_switch_cost")
+    elif schema_version not in {
+        "resolved_run_config_v1",
+        "resolved_run_config_v2",
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
         raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
+    terminal_settlement: object = raw.get("ppo_settle_terminal_position", False)
+    if not isinstance(terminal_settlement, bool):
+        raise ArtifactIntegrityError(
+            f"{field}.ppo_settle_terminal_position must be boolean"
+        )
     try:
         return ResolvedRunConfig(
             signal_name=_as_string(raw["signal_name"], field=f"{field}.signal_name"),
@@ -224,16 +305,71 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     field=f"{field}.ppo_global_feature_names",
                 )
             ),
+            schema_version=schema_version,
+            ppo_training_layout=(
+                _as_string(
+                    raw["ppo_training_layout"],
+                    field=f"{field}.ppo_training_layout",
+                )
+                if schema_version
+                in {
+                    "resolved_run_config_v3",
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                    "resolved_run_config_v7",
+                }
+                else "sequential"
+            ),
+            ppo_rollout_steps_per_env=(
+                None
+                if schema_version
+                not in {
+                    "resolved_run_config_v3",
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                    "resolved_run_config_v7",
+                }
+                or raw["ppo_rollout_steps_per_env"] is None
+                else _as_int(
+                    raw["ppo_rollout_steps_per_env"],
+                    field=f"{field}.ppo_rollout_steps_per_env",
+                )
+            ),
+            ppo_minimum_hold_bars=(
+                0
+                if schema_version
+                not in {
+                    "resolved_run_config_v4",
+                    "resolved_run_config_v5",
+                    "resolved_run_config_v7",
+                }
+                else _as_int(
+                    raw["ppo_minimum_hold_bars"],
+                    field=f"{field}.ppo_minimum_hold_bars",
+                )
+            ),
+            ppo_settle_terminal_position=terminal_settlement,
+            pretrade_risk_config=(
+                _pretrade_risk_from_payload(
+                    raw["pretrade_risk_config"],
+                    field=f"{field}.pretrade_risk_config",
+                )
+                if schema_version
+                in {
+                    "resolved_run_config_v5",
+                    "resolved_run_config_v7",
+                }
+                else None
+            ),
             forecast_switch_cost=(
                 None
-                if schema_version != "resolved_run_config_v3"
+                if schema_version != "resolved_run_config_v7"
                 or raw["forecast_switch_cost"] is None
                 else _as_float(
                     raw["forecast_switch_cost"],
                     field=f"{field}.forecast_switch_cost",
                 )
             ),
-            schema_version=schema_version,
         )
     except ContractViolationError as error:
         raise ArtifactIntegrityError(
@@ -283,6 +419,26 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                     "final_evaluation_stop_exclusive",
                 }
             )
+    elif schema_version == "controlled_study_plan_v4":
+        expected.add("protocol")
+    elif schema_version == "controlled_study_plan_v5":
+        expected.update(
+            {
+                "protocol",
+                "research_context",
+                "final_evaluation_start",
+                "final_evaluation_stop_exclusive",
+            }
+        )
+    elif schema_version == "controlled_study_plan_v6":
+        expected.update(
+            {
+                "protocol",
+                "research_context",
+                "final_evaluation_start",
+                "final_evaluation_stop_exclusive",
+            }
+        )
     elif schema_version != "controlled_study_plan_v1":
         raise ArtifactIntegrityError("unsupported StudyPlan schema_version")
     _expect_keys(payload, expected, label="plan.json")
@@ -305,7 +461,11 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
             ) from error
 
     research_context: StudyResearchContext | None = None
-    if schema_version == "controlled_study_plan_v3":
+    if schema_version in {
+        "controlled_study_plan_v3",
+        "controlled_study_plan_v5",
+        "controlled_study_plan_v6",
+    }:
         try:
             research_context = StudyResearchContext.from_payload(
                 _as_dict(payload["research_context"], field="research_context")
@@ -313,6 +473,19 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
         except ContractViolationError as error:
             raise ArtifactIntegrityError(
                 "plan.json research_context violates contract"
+            ) from error
+
+    protocol: StudyProtocol | None = None
+    if schema_version in {
+        "controlled_study_plan_v4",
+        "controlled_study_plan_v5",
+        "controlled_study_plan_v6",
+    }:
+        try:
+            protocol = StudyProtocol(_as_string(payload["protocol"], field="protocol"))
+        except ValueError as error:
+            raise ArtifactIntegrityError(
+                "Study contains unsupported protocol"
             ) from error
 
     try:
@@ -362,13 +535,18 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 else None
             ),
             research_context=research_context,
+            protocol=protocol,
             schema_version=schema_version,
         )
     except ContractViolationError as error:
         raise ArtifactIntegrityError("plan.json violates StudyPlan contract") from error
 
 
-def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
+def _candidate_config_payload(
+    config: CandidateRunConfig | ResolvedRunConfig,
+    *,
+    resolved_schema_version: str,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "signal_name": config.signal_name,
         "feature_names": list(config.feature_names),
@@ -387,8 +565,43 @@ def _candidate_config_payload(config: CandidateRunConfig) -> dict[str, object]:
         "gross_budget": config.gross_budget,
         "initial_capital": config.initial_capital,
     }
-    if config.forecast_switch_cost is not None:
+    if resolved_schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
+        payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
+        payload["ppo_observation_schema"] = config.ppo_observation_schema
+        payload["ppo_settle_terminal_position"] = config.ppo_settle_terminal_position
+    if resolved_schema_version in {
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
+        payload["pretrade_risk_config"] = (
+            None
+            if config.pretrade_risk_config is None
+            else {
+                "max_gross": config.pretrade_risk_config.max_gross,
+                "max_abs_weight": config.pretrade_risk_config.max_abs_weight,
+                "max_turnover": config.pretrade_risk_config.max_turnover,
+                "drawdown_start": config.pretrade_risk_config.drawdown_start,
+                "drawdown_stop": config.pretrade_risk_config.drawdown_stop,
+                "emergency_turnover_override": (
+                    config.pretrade_risk_config.emergency_turnover_override
+                ),
+                "fail_closed_tolerance": (
+                    config.pretrade_risk_config.fail_closed_tolerance
+                ),
+            }
+        )
+    if resolved_schema_version == "resolved_run_config_v7":
         payload["forecast_switch_cost"] = config.forecast_switch_cost
+    if (
+        config.ppo_training_layout != "sequential"
+        or config.ppo_rollout_steps_per_env is not None
+    ):
+        payload["ppo_training_layout"] = config.ppo_training_layout
+        payload["ppo_rollout_steps_per_env"] = config.ppo_rollout_steps_per_env
     return payload
 
 
@@ -411,6 +624,14 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ppo_seed=config.ppo_seed,
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
+            ppo_training_layout=config.ppo_training_layout,
+            ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
+            ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
+            ppo_observation_schema=(
+                config.ppo_observation_schema or "ppo_observation_v2"
+            ),
+            ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+            pretrade_risk_config=config.pretrade_risk_config,
             forecast_switch_cost=config.forecast_switch_cost,
         )
     except ValueError as error:
@@ -458,10 +679,12 @@ def _definition_from_payload(payload: dict[str, object]) -> ExperimentDefinition
         raise ArtifactIntegrityError(
             "definition.json violates ExperimentDefinition contract"
         ) from error
-    reconstructed = _candidate_config_from_resolved(definition.candidate_config)
-    if content_digest(_candidate_config_payload(reconstructed)) != (
-        definition.candidate_requested_config_digest
-    ):
+    if content_digest(
+        _candidate_config_payload(
+            definition.candidate_config,
+            resolved_schema_version=definition.candidate_config.schema_version,
+        )
+    ) != (definition.candidate_requested_config_digest):
         raise ArtifactIntegrityError(
             "definition requested-config digest does not match resolved configuration"
         )

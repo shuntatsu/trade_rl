@@ -118,7 +118,12 @@ def _plan(dataset, artifact) -> StudyPlan:
     )
 
 
-def _fake_execute(*, drift_trend: bool = False, fail_seed: int | None = None):
+def _fake_execute(
+    *,
+    drift_trend: bool = False,
+    drift_constant_long: bool = False,
+    fail_seed: int | None = None,
+):
     def execute(dataset, spec):
         seed = spec.config.ppo_seed
         if seed == fail_seed:
@@ -127,9 +132,12 @@ def _fake_execute(*, drift_trend: bool = False, fail_seed: int | None = None):
             PositionIntent.SHORT if drift_trend and seed == 5 else PositionIntent.LONG
         )
         ppo_intent = PositionIntent.LONG if seed % 2 == 0 else PositionIntent.SHORT
+        constant_long_intent = (
+            PositionIntent.SHORT if drift_constant_long else PositionIntent.LONG
+        )
         strategies = {
             "cash": ConstantIntentStrategy(PositionIntent.FLAT),
-            "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
+            "constant_long": ConstantIntentStrategy(constant_long_intent),
             "constant_short": ConstantIntentStrategy(PositionIntent.SHORT),
             "trend": ConstantIntentStrategy(trend_intent),
             "mean_reversion": ConstantIntentStrategy(PositionIntent.SHORT),
@@ -149,6 +157,7 @@ def _fake_execute(*, drift_trend: bool = False, fail_seed: int | None = None):
             spec=spec,
             symbols=tuple(dataset.symbols),
             comparison=comparison,
+            ppo_training_timesteps=2048,
         )
 
     return execute

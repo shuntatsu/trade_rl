@@ -53,6 +53,7 @@ def _imports(path: Path) -> set[str]:
 def test_strategy_family_packages_exist() -> None:
     for relative in (
         "dataset_scope.py",
+        "position_duration.py",
         "carry.py",
         "rules/__init__.py",
         "rules/trend.py",

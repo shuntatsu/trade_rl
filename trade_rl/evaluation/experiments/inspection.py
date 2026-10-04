@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
+from trade_rl.evaluation.experiments.analysis import (
+    PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+    compare_evidence_sets,
+)
 from trade_rl.evaluation.experiments.codec import (
     _analysis_binding_from_payload,
     _AnalysisBinding,
@@ -22,6 +26,7 @@ from trade_rl.evaluation.experiments.codec import (
     _verification_from_payload,
 )
 from trade_rl.evaluation.experiments.contracts import (
+    PPO_HOLDING_DURATION_HORIZONS,
     ExperimentComparison,
     ExperimentDecision,
     ExperimentDecisionKind,
@@ -44,6 +49,12 @@ from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
     LoadedEvidenceSet,
     load_evidence_set,
+)
+from trade_rl.evaluation.experiments.protocols import (
+    ppo_holding_definition_matches,
+    ppo_holding_expected_decision,
+    ppo_holding_winner_digest,
+    ppo_study_metrics,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 
@@ -246,6 +257,10 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         definition = _definition_from_payload(store.read_json(base / "definition.json"))
         if definition.study_digest != plan.digest or definition.sequence != sequence:
             raise ArtifactIntegrityError("ExperimentDefinition identity mismatch")
+        if not ppo_holding_definition_matches(plan, definition):
+            raise ArtifactIntegrityError(
+                "ExperimentDefinition violates PPO holding-duration roster"
+            )
         if definition.baseline_evidence_digest not in lineage:
             raise ArtifactIntegrityError(
                 "ExperimentDefinition baseline is not reachable accepted lineage"
@@ -334,6 +349,23 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 persisted_factor_effect.get("schema_version"),
                 field="factor-effect schema_version",
             )
+            expected_factor_effect_schema = (
+                PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+                if plan.is_ppo_shared_cash_holding_duration_study
+                else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
+                if plan.is_ppo_holding_duration_study
+                else factor_effect_schema
+            )
+            if factor_effect_schema != expected_factor_effect_schema:
+                required_schema = (
+                    "schema v4"
+                    if plan.is_ppo_shared_cash_holding_duration_study
+                    else "schema v3"
+                )
+                raise ArtifactIntegrityError(
+                    "PPO holding-duration protocol requires factor-effect "
+                    f"{required_schema}"
+                )
             factor_effect = compare_evidence_sets(
                 baseline_for_comparison.runs,
                 candidate.runs,
@@ -376,6 +408,13 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 raise ArtifactIntegrityError(
                     "decision digest references are inconsistent"
                 )
+            if plan.is_ppo_holding_duration_study:
+                assert comparison is not None
+                metrics = ppo_study_metrics(plan, comparison)
+                if decision.decision is not ppo_holding_expected_decision(metrics):
+                    raise ArtifactIntegrityError(
+                        "PPO holding-duration decision violates eligibility rule"
+                    )
 
         if failure is not None:
             if any(item is not None for item in (verification, comparison, decision)):
@@ -439,6 +478,44 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         all_sequences = tuple(item.sequence for item in experiment_states)
         if tuple(terminal) != all_sequences:
             raise ArtifactIntegrityError("frozen Study contains nonterminal Experiment")
+        if plan.is_ppo_holding_duration_study:
+            expected_sequences = tuple(range(1, len(PPO_HOLDING_DURATION_HORIZONS) + 1))
+            if all_sequences != expected_sequences:
+                raise ArtifactIntegrityError(
+                    "frozen PPO holding-duration Study lacks all four horizons"
+                )
+            eligible_candidates: list[tuple[int, float, str]] = []
+            for item in experiment_states:
+                if (
+                    item.failure is not None
+                    or item.candidate is None
+                    or item.comparison is None
+                    or item.decision is None
+                ):
+                    raise ArtifactIntegrityError(
+                        "frozen PPO holding-duration Study lacks complete arm evidence"
+                    )
+                metrics = ppo_study_metrics(plan, item.comparison)
+                if metrics.eligible:
+                    eligible_candidates.append(
+                        (
+                            item.definition.candidate_config.ppo_minimum_hold_bars,
+                            metrics.score,
+                            item.candidate.evidence.fingerprint,
+                        )
+                    )
+            expected_winner = ppo_holding_winner_digest(eligible_candidates)
+            if frozen.outcome is StudyOutcome.WINNER and (
+                frozen.selected_evidence_digest != expected_winner
+                or frozen.selected_strategy != "ppo"
+            ):
+                raise ArtifactIntegrityError(
+                    "frozen PPO winner is not the highest-scoring eligible horizon"
+                )
+            if frozen.outcome is StudyOutcome.NO_WINNER and expected_winner is not None:
+                raise ArtifactIntegrityError(
+                    "frozen PPO Study has an eligible holding-duration winner"
+                )
         if frozen.outcome is StudyOutcome.WINNER:
             accepted_candidates = {
                 item.candidate.evidence.fingerprint

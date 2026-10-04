@@ -1,3 +1,5 @@
+import pytest
+
 ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
@@ -138,7 +140,10 @@ def test_index_rejects_source_file_symlink_that_escapes_source_root(tmp_path) ->
     package.mkdir()
     outside = tmp_path / "outside.py"
     outside.write_text("def escaped() -> None:\n    pass\n", encoding="utf-8")
-    (package / "escape.py").symlink_to(outside)
+    try:
+        (package / "escape.py").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
 
     try:
         code_symbols.build_symbol_index(package, revision="f" * 40)

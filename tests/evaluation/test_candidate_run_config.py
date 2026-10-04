@@ -11,6 +11,8 @@ from trade_rl.evaluation.runs.config import (
     parse_candidate_run_config,
     resolve_candidate_run_spec,
 )
+from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 def raw_config() -> dict[str, object]:
@@ -32,7 +34,7 @@ def raw_config() -> dict[str, object]:
     }
 
 
-def market() -> MarketDataset:
+def market(*, bar_hours: int = 1) -> MarketDataset:
     n = 8
     close = np.full((n, 2), 100.0, dtype=np.float64)
     features = np.zeros((n, 2, 2), dtype=np.float32)
@@ -40,7 +42,7 @@ def market() -> MarketDataset:
         dataset_id="b" * 64,
         symbols=("BTCUSDT", "ETHUSDT"),
         timestamps=np.datetime64("2026-01-01", "ns")
-        + np.arange(n) * np.timedelta64(1, "h"),
+        + np.arange(n) * np.timedelta64(bar_hours, "h"),
         features=features,
         global_features=np.zeros((n, 1), dtype=np.float32),
         open=close.copy(),
@@ -53,7 +55,7 @@ def market() -> MarketDataset:
         feature_available=np.ones((n, 2, 2), dtype=np.bool_),
         feature_names=("signal", "f1"),
         global_feature_names=("regime",),
-        periods_per_year=8_760,
+        periods_per_year=8_760 // bar_hours,
     )
 
 
@@ -64,25 +66,83 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.feature_names == ("signal", "f1")
     assert config.fit_symbol_names == ("BTCUSDT", "ETHUSDT")
     assert config.ppo_seed == 7
-    assert config.forecast_switch_cost is None
-    assert "forecast_switch_cost" not in config.to_json_payload()
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+    assert "forecast_switch_cost" not in config.to_json_payload()
 
 
-def test_parse_candidate_run_config_accepts_null_switch_cost() -> None:
+def test_candidate_run_config_binds_optional_forecast_switch_cost() -> None:
     raw = raw_config()
     raw["forecast_switch_cost"] = None
+    disabled = parse_candidate_run_config(raw)
+    assert disabled.forecast_switch_cost is None
+    assert "forecast_switch_cost" not in disabled.to_json_payload()
 
-    config = parse_candidate_run_config(raw)
-
-    assert config.forecast_switch_cost is None
-    assert "forecast_switch_cost" not in config.to_json_payload()
-
-
-def test_parse_candidate_run_config_accepts_explicit_forecast_switch_cost() -> None:
-    raw = raw_config()
     raw["forecast_switch_cost"] = 0.0007
+    enabled = parse_candidate_run_config(raw)
+    spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=enabled,
+    )
 
+    assert enabled.forecast_switch_cost == pytest.approx(0.0007)
+    assert enabled.to_json_payload()["forecast_switch_cost"] == pytest.approx(0.0007)
+    assert spec.lean_config.forecast_switch_cost == pytest.approx(0.0007)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        True,
+        -0.001,
+        float("nan"),
+        float("inf"),
+        "0.0007",
+        pytest.param(10**1000, id="integer-overflow"),
+    ),
+)
+def test_candidate_run_config_rejects_invalid_forecast_switch_cost(
+    value: object,
+) -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = value
+
+    with pytest.raises(
+        ValueError, match="forecast_switch_cost must be finite and non-negative"
+    ):
+        parse_candidate_run_config(raw)
+
+
+def test_candidate_run_config_binds_horizon_observation_and_terminal_semantics() -> (
+    None
+):
+    required_fields = {
+        "ppo_minimum_hold_bars",
+        "ppo_observation_schema",
+        "ppo_settle_terminal_position",
+    }
+    assert required_fields.issubset(CandidateRunConfig.JSON_FIELDS), (
+        "Run identity must bind every PPO horizon and observation treatment"
+    )
+
+    raw = raw_config()
+    raw.update(
+        {
+            "ppo_minimum_hold_bars": 168,
+            "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
+            "ppo_settle_terminal_position": True,
+            "pretrade_risk_config": {
+                "max_gross": 0.5,
+                "max_abs_weight": 0.1,
+                "max_turnover": None,
+                "drawdown_start": 0.1,
+                "drawdown_stop": 0.2,
+                "emergency_turnover_override": True,
+                "fail_closed_tolerance": 1e-10,
+            },
+        }
+    )
     config = parse_candidate_run_config(raw)
     spec = resolve_candidate_run_spec(
         market(),
@@ -91,9 +151,117 @@ def test_parse_candidate_run_config_accepts_explicit_forecast_switch_cost() -> N
         config=config,
     )
 
-    assert config.forecast_switch_cost == pytest.approx(0.0007)
-    assert config.to_json_payload()["forecast_switch_cost"] == pytest.approx(0.0007)
-    assert spec.lean_config.forecast_switch_cost == pytest.approx(0.0007)
+    assert config.ppo_minimum_hold_bars == 168
+    assert config.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3
+    assert config.ppo_settle_terminal_position is True
+    assert config.to_json_payload()["ppo_minimum_hold_bars"] == 168
+    assert spec.lean_config.ppo_minimum_hold_bars == 168
+    assert spec.lean_config.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3
+    assert spec.lean_config.ppo_settle_terminal_position is True
+
+
+def test_age_aware_candidate_requires_one_hour_regular_market_clock() -> None:
+    raw = raw_config()
+    raw.update(
+        {
+            "ppo_minimum_hold_bars": 168,
+            "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
+            "ppo_settle_terminal_position": True,
+            "pretrade_risk_config": {
+                "max_gross": 0.5,
+                "max_abs_weight": 0.1,
+                "max_turnover": None,
+                "drawdown_start": 0.1,
+                "drawdown_stop": 0.2,
+                "emergency_turnover_override": True,
+                "fail_closed_tolerance": 1e-10,
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="exactly regular one-hour bars"):
+        resolve_candidate_run_spec(
+            market(bar_hours=4),
+            dataset_artifact_schema="market_dataset_artifact_v3",
+            dataset_artifact_digest="d" * 64,
+            config=parse_candidate_run_config(raw),
+        )
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    (
+        ("risk_missing", "explicit.*risk"),
+        ("settlement_disabled", "terminal settlement"),
+        ("drawdown_above_limit", "20%"),
+    ),
+)
+def test_age_aware_candidate_requires_twenty_percent_risk_and_terminal_settlement(
+    change: str,
+    message: str,
+) -> None:
+    raw = raw_config()
+    raw.update(
+        {
+            "ppo_minimum_hold_bars": 168,
+            "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
+            "ppo_settle_terminal_position": True,
+            "pretrade_risk_config": {
+                "max_gross": 0.5,
+                "max_abs_weight": 0.1,
+                "max_turnover": None,
+                "drawdown_start": 0.1,
+                "drawdown_stop": 0.2,
+                "emergency_turnover_override": True,
+                "fail_closed_tolerance": 1e-10,
+            },
+        }
+    )
+    if change == "risk_missing":
+        raw["pretrade_risk_config"] = None
+    elif change == "settlement_disabled":
+        raw["ppo_settle_terminal_position"] = False
+    else:
+        risk_config = raw["pretrade_risk_config"]
+        assert isinstance(risk_config, dict)
+        risk_config["drawdown_stop"] = 0.25
+
+    with pytest.raises(ValueError, match=message):
+        parse_candidate_run_config(raw)
+
+
+def test_candidate_run_config_requires_age_observation_for_minimum_hold() -> None:
+    raw = raw_config()
+    raw["ppo_minimum_hold_bars"] = 168
+
+    with pytest.raises(ValueError, match="age-aware observation"):
+        parse_candidate_run_config(raw)
+
+
+def test_candidate_run_config_binds_explicit_twenty_percent_drawdown_risk() -> None:
+    raw = raw_config()
+    raw["pretrade_risk_config"] = {
+        "max_gross": 0.5,
+        "max_abs_weight": 0.1,
+        "max_turnover": None,
+        "drawdown_start": 0.1,
+        "drawdown_stop": 0.2,
+        "emergency_turnover_override": True,
+        "fail_closed_tolerance": 1e-10,
+    }
+
+    config = parse_candidate_run_config(raw)
+
+    assert config.pretrade_risk_config == PreTradeRiskConfig(
+        max_gross=0.5,
+        max_abs_weight=0.1,
+        max_turnover=None,
+        drawdown_start=0.1,
+        drawdown_stop=0.2,
+    )
+    assert (
+        config.to_json_payload()["pretrade_risk_config"] == raw["pretrade_risk_config"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -127,14 +295,6 @@ def test_parse_candidate_run_config_accepts_explicit_forecast_switch_cost() -> N
         (
             lambda raw: raw.__setitem__("ppo_seed", -1),
             "ppo_seed must be a non-negative integer",
-        ),
-        (
-            lambda raw: raw.__setitem__("forecast_switch_cost", -0.0001),
-            "forecast_switch_cost must be finite and non-negative",
-        ),
-        (
-            lambda raw: raw.__setitem__("forecast_switch_cost", True),
-            "forecast_switch_cost must be finite and non-negative",
         ),
     ],
 )

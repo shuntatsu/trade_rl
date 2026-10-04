@@ -28,7 +28,7 @@ test("overview, replay, and PPO are readable without selecting visualization ste
   }
 
   await page.goto("/#implementation-ppo");
-  await expect(page.getByRole("heading", { name: "PPO Observation v2は5区分" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PPO Observation v2/v3" })).toBeVisible();
   const table = page.getByRole("table").first();
   for (const segment of [
     "local_values",

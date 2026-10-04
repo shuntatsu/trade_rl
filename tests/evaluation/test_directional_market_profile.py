@@ -108,3 +108,16 @@ def test_profile_gate_does_not_call_a_tiny_exact_residue_flat():
     assert 0 < residue < Fraction("1e-10")
     assert not result["terminal_flat"]
     assert not result["qualified"]
+
+
+def test_legacy_gate_does_not_call_a_tiny_exact_residue_flat():
+    splits = np.ones((6, 1))
+    splits[-1] = 1e-12
+    data = replace(
+        _data(), split_factor=splits, identity_payload_json=None
+    ).with_content_identity()
+    result = evaluate_directional_arm(data, _factory, start_index=0, stop_index=5)
+
+    assert 0 < abs(result["terminal_quantities"][0]) < 1e-10
+    assert not result["terminal_flat"]
+    assert not result["qualified"]

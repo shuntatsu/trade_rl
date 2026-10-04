@@ -17,6 +17,7 @@ from trade_rl.simulation.quantities import (
 )
 
 _TOLERANCE = 1e-12
+_MAX_CAPACITY_ROUNDING_STEPS = 8
 
 
 class LiquidityAllocationError(ValueError):
@@ -171,7 +172,16 @@ def _capacity_quantity(
         return quantity, count
     if count is None:
         raw = capacity / (request.execution_price * multiplier)
-        return math.copysign(min(raw, abs(quantity)), quantity), None
+        capacity_quantity = min(raw, abs(quantity))
+        for _ in range(_MAX_CAPACITY_ROUNDING_STEPS):
+            if capacity_quantity * request.execution_price * multiplier <= capacity:
+                break
+            capacity_quantity = math.nextafter(capacity_quantity, 0.0)
+        if capacity_quantity * request.execution_price * multiplier > capacity:
+            raise LiquidityAllocationError(
+                "capacity-derived quantity cannot be represented within symbol capacity"
+            )
+        return math.copysign(capacity_quantity, quantity), None
 
     # Capacity-derived division is not a quantity authority. Search integer
     # lots using the same monetary arithmetic as the final allocation, with

@@ -1,16 +1,31 @@
+from __future__ import annotations
+
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
-from trade_rl.evaluation.runs.artifact import load_candidate_run_artifact
+from trade_rl.evaluation.comparison.strategies import (
+    SharedCashStrategyComparisonEntry,
+    UniversalStrategyComparison,
+    compare_strategies_by_symbol,
+)
+from trade_rl.evaluation.metrics import evaluate_performance
+from trade_rl.evaluation.replay import run_shared_cash_replay
+from trade_rl.evaluation.runs import artifact as candidate_artifact
+from trade_rl.evaluation.runs.config import (
+    parse_candidate_run_config,
+    resolve_candidate_run_spec,
+)
 from trade_rl.evaluation.runs.execute import CandidateRunResult
+from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
 
 
@@ -119,6 +134,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
             spec=spec,
             symbols=tuple(loaded.symbols),
             comparison=comparison,
+            ppo_training_timesteps=2048,
         )
 
     monkeypatch.setattr(candidate_run, "execute_candidate_run", fake_execute)
@@ -138,7 +154,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v3"
+    assert summary["schema_version"] == "lean_candidate_result_v14"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -160,13 +176,43 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_training_layout": "sequential",
+        "ppo_rollout_steps_per_env": None,
+        "ppo_minimum_hold_bars": 0,
+        "ppo_observation_schema": "ppo_observation_v2",
+        "ppo_settle_terminal_position": False,
+        "ppo_training_timesteps": 2048,
+        "ppo_training_minimum_hold_suppressed_count": 0,
+        "pretrade_risk_config": None,
         "forecast_switch_cost": None,
     }
+
+    age_aware_without_risk = dict(summary)
+    age_aware_without_risk["candidate_config"] = {
+        **summary["candidate_config"],
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA_V3,
+        "ppo_settle_terminal_position": True,
+    }
+    age_aware_without_risk["evaluation"] = {
+        **summary["evaluation"],
+        "ppo_settle_terminal_position": True,
+    }
+    age_aware_without_risk["ppo_observation"] = ppo_observation_contract_payload(
+        PPO_OBSERVATION_SCHEMA_V3
+    )
+    with pytest.raises(ValueError, match="explicit.*risk"):
+        candidate_artifact._validate_ppo_training_evidence(
+            age_aware_without_risk,
+            result_schema="lean_candidate_result_v6",
+        )
     assert summary["evaluation"] == {
         "start": "2026-01-01T04:00:00.000000000",
         "stop_exclusive": "2026-01-01T07:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 1_000.0,
+        "ppo_settle_terminal_position": False,
+        "expected_periods": 3,
+        "pretrade_risk_config": None,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
     }
     assert [item["symbol"] for item in summary["by_symbol"]] == [
@@ -288,27 +334,94 @@ def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None
         )
 
 
-def test_v1_run_rejects_forecast_switch_cost(tmp_path) -> None:
-    root = tmp_path / "legacy-v1"
-    root.mkdir()
-    summary = {
-        "schema_version": "lean_candidate_result_v1",
-        "candidate_config": {"forecast_switch_cost": 0.0007},
-        "by_symbol": [],
-    }
-    (root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
-    np.savez_compressed(root / "returns.npz")
-    implementation: dict[str, object] = {}
-    runtime: dict[str, object] = {}
-    provenance = {
-        "schema_version": "candidate_run_provenance_v1",
-        "implementation": implementation,
-        "implementation_digest": content_digest(implementation),
-        "runtime_environment": runtime,
-        "runtime_environment_digest": content_digest(runtime),
-        "research_context_digest": None,
-    }
-    (root / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
+    tmp_path,
+) -> None:
+    dataset = market()
+    risk_config = PreTradeRiskConfig(
+        max_gross=0.5,
+        max_abs_weight=0.1,
+        max_turnover=None,
+        drawdown_start=0.1,
+        drawdown_stop=0.2,
+    )
+    config = replace(
+        parse_candidate_run_config(run_config()),
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=risk_config,
+    )
+    spec = resolve_candidate_run_spec(
+        dataset,
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
+    )
+    risk = PreTradeRisk(risk_config)
+    per_symbol = compare_strategies_by_symbol(
+        dataset,
+        {"ppo": ConstantIntentStrategy(PositionIntent.FLAT)},
+        start_index=4,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk=risk,
+        settle_terminal_position=True,
+    )
+    shared_replay = run_shared_cash_replay(
+        dataset,
+        (
+            ConstantIntentStrategy(PositionIntent.FLAT),
+            ConstantIntentStrategy(PositionIntent.FLAT),
+        ),
+        start_index=4,
+        stop_index=7,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        risk=risk,
+        minimum_hold_bars=0,
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    diagnostics = shared_replay.diagnostics
+    shared_entry = SharedCashStrategyComparisonEntry(
+        name="ppo",
+        replay=shared_replay,
+        metrics=evaluate_performance(
+            shared_replay.returns,
+            turnover_total=diagnostics.turnover_total,
+            total_cost=diagnostics.total_cost,
+            funding_pnl=diagnostics.funding_pnl,
+            borrow_cost=diagnostics.borrow_cost,
+            n_trades=diagnostics.n_trades,
+            rebalance_events=diagnostics.rebalance_events,
+            termination_count=diagnostics.termination_count,
+        ),
+    )
+    result = CandidateRunResult(
+        spec=spec,
+        symbols=tuple(dataset.symbols),
+        comparison=UniversalStrategyComparison(
+            by_symbol=per_symbol.by_symbol,
+            shared_cash_ppo=shared_entry,
+            ppo_training_timesteps=2048,
+        ),
+        ppo_training_timesteps=2048,
+    )
 
-    with pytest.raises(ValueError, match="forecast switch cost.*result v1"):
-        load_candidate_run_artifact(root)
+    published = candidate_artifact.publish_candidate_run(
+        tmp_path / "shared-cash-result",
+        result,
+        build_candidate_run_provenance(),
+    )
+    loaded = candidate_artifact.load_candidate_run_artifact(published.root)
+
+    assert loaded.has_verified_full_evaluation_coverage
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v14"
+    portfolio = loaded.summary["shared_cash_ppo"]
+    assert portfolio["name"] == "ppo"
+    assert portfolio["final_portfolio_value"] == 1_000.0
+    assert portfolio["terminal_settlement_complete"] is True
+    assert portfolio["ledger_evidence"]["interval_count"] == 3
+    assert len(portfolio["ledger_evidence"]["digest"]) == 64
+    assert np.array_equal(loaded.returns["shared_cash_ppo"], np.zeros(3))

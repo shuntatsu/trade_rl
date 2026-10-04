@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 
 import pytest
@@ -19,11 +19,15 @@ from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
+    PPO_HOLDING_DURATION_SELECTION_RULE,
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
 
 
 def resolved_config(*, ppo_seed: int = 2) -> ResolvedRunConfig:
@@ -112,6 +116,39 @@ def test_study_plan_requires_baseline_seed_to_equal_first_registered_seed() -> N
         study_plan(baseline_config=resolved_config(ppo_seed=5), ppo_seeds=(2, 5))
 
 
+def test_ppo_holding_study_plan_requires_the_exact_preregistered_risk_profile() -> None:
+    baseline = replace(
+        resolved_config(ppo_seed=0),
+        schema_version="resolved_run_config_v5",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_minimum_hold_bars=0,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.1,
+            max_turnover=1.0,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        ),
+    )
+
+    with pytest.raises(
+        ContractViolationError,
+        match="violates the PPO holding-duration protocol",
+    ):
+        study_plan(
+            research_question=(
+                "Compare PPO hold durations.\n\n" + PPO_HOLDING_DURATION_SELECTION_RULE
+            ),
+            baseline_config=baseline,
+            ppo_seeds=(0, 1, 2, 3, 4),
+            allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+            max_experiments=4,
+            protocol=StudyProtocol.PPO_HOLDING_DURATION,
+            schema_version="controlled_study_plan_v4",
+        )
+
+
 def test_study_plan_binds_fixed_candidate_and_control_rosters() -> None:
     plan = study_plan()
     assert plan.candidate_strategy_names == (
@@ -148,6 +185,37 @@ def test_study_plan_v2_binds_preregistered_final_window() -> None:
         plan.final_evaluation_stop_exclusive
     )
     assert plan.digest == content_digest(payload)
+
+
+def test_study_plan_preserves_legacy_positional_schema_version() -> None:
+    expected = study_plan(
+        final_evaluation_start="2026-03-01T00:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        schema_version="controlled_study_plan_v2",
+    )
+
+    plan = StudyPlan(
+        expected.research_question,
+        expected.dataset_id,
+        expected.dataset_artifact_schema,
+        expected.dataset_artifact_digest,
+        expected.symbols,
+        expected.baseline_config,
+        expected.ppo_seeds,
+        expected.allowed_factors,
+        expected.max_experiments,
+        expected.n_bootstrap,
+        expected.bootstrap_seed,
+        expected.implementation_digest,
+        expected.runtime_environment_digest,
+        expected.final_evaluation_start,
+        expected.final_evaluation_stop_exclusive,
+        expected.research_context,
+        expected.schema_version,
+    )
+
+    assert plan.schema_version == "controlled_study_plan_v2"
+    assert plan.protocol is None
 
 
 def test_study_plan_v1_forbids_final_window_fields() -> None:

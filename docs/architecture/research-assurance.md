@@ -80,6 +80,174 @@ G2は「実装を読んだ限り正しそう」ではなく、G1の意味を独�
 
 example-based unit testだけで重要なmechanismを保証済みとしない。境界値、入力変換、時刻変更、複数注文、異常終了などを通じて、同じinvariantを別の形でも壊せないか確認する。
 
+## Research-specific contract: PPO medium-term minimum-hold comparison
+
+Quantity-preserving hold has two independent G2 counterexamples. With a constant
+economic value, a 2-for-1 or reverse split must change filled and pending proposal
+units together without a new same-side fill. With constant trading price but a
+different mark price, the same quantity proposal must retain its signed units;
+valuation changes equity, not the intended position. Tests cover LONG and SHORT
+across PPO training and both replay paths, compare cash and fees with a direct
+unit/cash oracle, and retain a partial entry through a split. Separate order tests
+keep limit/stop bounds on trading reference prices. These are software conformance
+checks, not evidence of a profitable policy or real corporate-action feeds. A
+separate cash-book oracle covers entry sizing without explicit initial prices,
+including differing dataset mark and trading close, without mutating the input.
+
+This is an active result-blind design for a new development Study. It has not
+generated or inspected economic results, and it does not reuse the historical
+Observation-v2 PPO baseline as its control.
+
+### G0 — question, hypothesis, and falsifiers
+
+The question is whether assigning a freshly trained, age-aware PPO controller a
+minimum-hold treatment improves net return under the user's 20% drawdown limit.
+The primary hypothesis is that some crypto price continuation persists over
+several days, while hourly exits and reversals can pay avoidable execution cost.
+This mechanism is plausible but is not established by the current data or this
+software. With a separately retrained PPO in each arm, the estimand is the
+effect of assigning the **PPO system** a minimum-dwell rule, including changed
+entries and later actions; it is not the isolated effect of holding identical
+trades longer.
+
+The result-blind candidate horizons are 72, 168, 336, and 504 completed hourly
+bars (3, 7, 14, and 21 days), compared with a freshly trained H=0 PPO. Every arm
+uses Observation v3, so position age is available to the baseline as well. The
+primary score for horizon H is the median across the preregistered five PPO
+seeds of the equal-weight mean across symbols of each independent account's
+after-cost total return over the same evaluation window. A horizon is eligible
+only when every seed-symbol cell completes, every H=0 and candidate account is
+flat with no active order remainder after terminal settlement, every account's
+realized maximum drawdown is at most 20%, and its median paired per-seed return
+difference from H=0 is positive. Select the eligible horizon with the highest primary score;
+an exact tie goes to the shorter hold. If none is eligible, record NO_WINNER.
+
+This is a fixed maximum-of-four development selection rule, not a significance
+test. Do not report unadjusted p-values or describe the selected development
+score as evidence of profitability. The four-way selection bias is addressed
+by treating this as screening only: a profitability claim requires a frozen
+winner to pass the separate one-shot, sealed unused-future evaluation. The
+primary metric and this full selection rule must appear in the immutable
+StudyPlan `research_question` before any outcome is generated. Until the exact
+Dataset/window and that StudyPlan digest are sealed, G0 is specified but NOT
+ESTABLISHED and no economic run is authorized. Falsifiers include failure to
+beat H=0 after costs, incomplete seed-symbol cells, or any account exceeding
+the drawdown guardrail. Even a pass cannot establish a shared-cash portfolio
+edge or live-trading eligibility.
+
+### Shared-cash evaluation protocol v2
+
+The legacy `ppo_holding_duration_v1` above retains independent per-symbol
+accounts. A new `ppo_shared_cash_holding_duration_v2` uses a separate bootstrap
+config v6 / StudyPlan v6 identity. Each seed has one 100,000 USDT account shared
+across the full symbol roster. At every hourly decision, per-symbol PPO
+proposals enter one portfolio-wide risk projection and execution, with the
+same frozen costs, capacity, and terminal settlement for baseline and candidate.
+The v2 selector uses each combined portfolio's total return and realized maximum
+drawdown, not an average of independent symbol accounts. An arm is eligible
+only when all five paired baseline/candidate portfolios complete flat terminal
+settlement with no active order remainder, each portfolio's observed maximum
+drawdown is at most 20%, and the median paired portfolio return difference is
+positive. The primary score is the median candidate portfolio total return;
+ties go to the shorter hold. No eligible arm means NO_WINNER.
+
+Training remains on single-symbol PPO episodes while v2 evaluation combines
+their proposals in one shared-cash book. Therefore this estimates whether the
+existing per-symbol PPO policy behaves acceptably under the declared portfolio
+execution mechanism; it does not establish a jointly trained portfolio policy.
+The pre-trade 20% stop also cannot prevent a larger realized loss after price
+gaps. v2 requires a fresh result-blind G0-G2 review of this training/evaluation
+scope and the exact implementation before any fit or economic replay.
+
+### G1 — fixed mechanism and claim limits
+
+The planned base clock is 1h and each PPO is freshly fitted on the same causal
+Dataset and ordered fit scope. Features, seed roster, requested/realized PPO
+budget, initial capital, fees/funding/borrow assumptions, execution overlay,
+evaluation timestamps, and terminal settlement are identical. Only
+`ppo_minimum_hold_bars` changes. The current intended explicit risk config is
+`max_gross=0.5`, `max_abs_weight=0.1`, `max_turnover=null`,
+`drawdown_start=0.10`, `drawdown_stop=0.20`, with the remaining
+`PreTradeRiskConfig` defaults. The same object is used in training and every
+strategy replay. These limits apply independently to each symbol account; they
+do not create joint shared cash or portfolio-wide drawdown control. A hard stop
+cannot prevent a gap from realizing more than 20% drawdown. All arms settle the
+terminal position through the same executor and costs.
+
+Every age-aware candidate resolver requires exactly regular one-hour bars, so
+72/168/336/504 mean 3/7/14/21 elapsed days rather than an arbitrary number of
+bars on another clock. Low-level PPO training and inference paths also reject a
+positive hold duration paired with Observation v2.
+
+During age `< H`, voluntary PPO intents preserve the exact actual signed filled
+quantity and cancel outstanding target remainders. Risk projection runs
+afterward and may reduce or flatten. At age `H`, the current sampled target
+intent becomes effective, including reapplying same-side target size after an
+earlier partial fill. PPO still uses raw sampled actions and log-probabilities;
+the constraint is part of the environment transition. Therefore suppressed
+actions and exact train/replay semantics must be audited rather than hidden.
+
+### G2 — semantic invariants and independent oracles
+
+Adaptive protective exits have a separate fill-state invariant. The latch follows
+the sign of the actual filled quantity, not the most recent effective intent:
+replay records a requested FLAT intent even when a missed or partial execution
+leaves the book open. Once a gross-return threshold requests an exit, a price
+recovery below that threshold must not clear the latch or permit signal-driven
+re-entry while any quantity remains.
+
+- **Counterexample:** a long reaches take-profit, its FLAT order misses, and the
+  next mark falls below take-profit while the directional signal remains LONG.
+  If `current_intent=FLAT` is mistaken for an actually flat book, the latch is
+  cleared and the strategy requests LONG again.
+- **Oracle:** the canonical shared-cash replay test
+  `test_adaptive_protective_exit_stays_latched_after_missed_fill_and_recovery`
+  checks a nonzero filled quantity across the missed fill and recovered mark,
+  requires FLAT to remain the strategy intent, and confirms the latch remains
+  set at that decision. A direct strategy test also makes marked weight zero
+  while quantity remains nonzero, ensuring the exact signed quantity is used.
+- **Known limitations:** the latch guarantees a repeated exit request while
+  quantity remains; it cannot guarantee that the next order fills, bound the
+  realized loss, or account for post-entry fees, funding, or borrow in the gross
+  threshold.
+
+- Position age is based on actual signed filled quantity: first nonzero fill is
+  age 1, same-side no-fill/add/reduction advances once per interval, flat resets
+  to 0, and a sign crossing restarts at 1. Independent expected-value tests
+  check these transitions and the H-1/H boundary.
+- While locked, FLAT/flip cannot close, reverse, add exposure, or leave an
+  unfilled order remainder active. A small executor-level ledger oracle checks
+  quantities and active orders. The unlock case checks same-side retarget after
+  partial entry. A separate risk path proves the hard risk exit still wins.
+- Training and replay are different callers of the shared treatment. A scripted
+  policy on the same synthetic market compares per-bar age, intent, target,
+  fills, return, terminal cash, and final residual/order state. Training evidence
+  records the suppression count. Replay artifacts record every suppressed or
+  unlocked decision with raw/effective intent, age before/after, filled quantity
+  before/after, post-risk target, risk reasons, final inventory, and active or
+  terminal order state. Any non-flat residual or active order remainder makes
+  the arm ineligible; terminal settlement alone does not imply flatness.
+- Terminal settlement has a separate expected-cash/cost check, confirms the
+  same exclusive end and latency window, and reports any residual exposure.
+
+The evaluation layer now also exposes a distinct `run_shared_cash_replay` path
+that can enforce per-symbol age from actual shared-book fills, then apply one
+portfolio risk projection and terminal settlement through one ledger. Its v2
+ledger records raw/effective intents, ages, quantities, and suppression/unlock
+state. This is a software capability only: it does not change the frozen v1
+Study's independent-account denominator, risk, or selection semantics, and it
+does not turn the existing one-active-symbol PPO training environment into a
+joint portfolio learner. Any Study that uses the shared path must create a new
+immutable identity, bind one total-cash/notional scale across training and
+replay, select from the combined portfolio equity path, and close fresh G0-G2
+review before generating economic results.
+
+The current implementation and focused tests are still undergoing independent
+result-blind review. G2 remains NOT ESTABLISHED until that review and the full
+contract checks pass. No G4 economic result may be generated before G0-G2 are
+closed and the complete StudyPlan, including the selection rule above, is
+sealed.
+
 ## Research-specific contract: corrected PPO fit-only normalization replication
 
 This contract applies only to the sealed corrected-economics comparison owned by
@@ -582,9 +750,54 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Counterexample:** 既知の期間で複数候補を試した後、名前だけ変えた最終候補を同じ期間で「初見」と扱う。
 
-**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` はfinal-eligibleな新規lineでcontextをresult前configへ必須化する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
+**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
+
+Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
+inside the sealed screen plan. Attempt numbers are consecutive; every successor
+records the predecessor protocol digest, final journal tip, disposition, reason
+codes and last observation time. The seal rejects an omitted predecessor for a
+declared successor and rejects an `observation_gap` disposition before the fixed
+180-second limit has elapsed. Accepted dispositions are `invalidated` and
+`incomplete`; reason codes are `clock_reversal`, `collector_failure`,
+`deadline_missed`, `integrity_failure`, `late_start`, `manual_abort`,
+`observation_gap`, `review_blocked` and `source_unavailable`. Economic screen
+outcomes and metrics are excluded from the result-blind packet. A fresh review
+resolves the referenced prior protocol and event chain against their preserved
+roots. The lineage fields remain caller assertions: the schema alone does not
+authenticate external roots, prevent a caller from claiming a new attempt 1, or
+prove that the declared disposition is truthful. G0 review must verify the
+complete predecessor chain before a successor is sealed.
 
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
+
+## Research-specific contract: PPO versus A2C update families
+
+The proposed PPO/A2C development comparison changes the RL update family while
+holding the existing 12-feature directional task and shared
+execution implementation fixed. Training uses all five symbols sequentially
+with timestamps before 2023-01-01; evaluation uses reused 2023–2024 development
+intervals in independent per-symbol accounts. The registered seeds, transition
+budget, algorithm settings, costs, and three evaluation scenarios are specified
+in `docs/research/current-status.md` and the matching machine contract.
+
+- **G0:** Either learner may pass only the fixed absolute profitability and
+  execution-risk screens. Relative A2C uplift is not an edge explanation and
+  cannot select A2C when PPO has not independently qualified. The reused
+  development period cannot support future or unused-data claims.
+- **G1:** Both policies use the same observations, discrete intent, reward,
+  training risk, transition budget, and maintained execution/accounting path.
+  Evaluation accounts are independent per symbol. The 20% drawdown veto is
+  therefore per account; it does not prove a combined portfolio meets a 20%
+  drawdown limit. That requires a later shared-capital study.
+- **G2:** Mocked SB3 fitter tests compare captured constructor settings with the
+  frozen PPO/A2C contract. A pure oracle rejects incomplete or malformed
+  matrices and applies separate absolute screens, paired uplift, and hard
+  execution guards to synthetic/verified rows. Passing these tests proves no
+  economic edge and does not authorize fitting or replay.
+
+Economic execution remains blocked until a fresh independent result-blind G0–G2
+review is bound to the exact protocol, implementation, and data scope. A later
+G3 evidence review remains separate from the G4 result decision.
 
 ## G3: Evidence Validity
 

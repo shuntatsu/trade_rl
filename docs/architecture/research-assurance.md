@@ -996,3 +996,50 @@ Issue #810のP0は、期待終端純利益と訓練surrogateの混同、口座�
 - G2: `tests/evaluation/objectives/` は独立した終端金額から資本分母・入出金・残債を検算する。等確率の1.20/0.90と確定1.045は期待利益と期待logの順位が逆転する反例。入出金込みの固定分母equity増分が終端値へtelescopingすること、1h/4h decisionの同じ実時間discount、NaN/inf/bool・未知mode・不整合clock・aware境界・identity変更の反例を検査する。`BoundObjectiveClock` は期間とhorizonの不一致、float換算で隠れる小数秒、DST境界を検査し、両宣言のidentityを同時にbindする。
 
 Known limitations: profile digest参照の内容検証、runtime clock/terminal bootstrap、共有口座joint learning、prequential forecasts、account parity、採用selector、正式事前登録・G4 authorizationはこのcapabilityにない。`terminal_profit_aligned` は宣言の代数的整合だけであり、現行PPOや未接続のadapterがそのrewardを実現している証拠ではない。P0全体の通過、新規経済実験の許可、G4/G5は別途source-bound machine evidenceとfresh result-blind reviewを必要とする。
+
+## Result-blind direct-simple connection
+
+G0 asks whether a prefix-only price-return estimate can reach actual-account
+allocation without changing units, using future labels or creating a second
+ledger. This is the nonRL baseline connection for the later nonRL/residual/direct
+RL comparison. Direct labels avoid the expectation/log transformation error;
+there is no new market-demand causal story or established edge. Primary software
+acceptance is independent arithmetic and quantity/cash/fee agreement plus
+fail-closed rejection. No economic score selects a model or parameter here.
+
+G1 fixes independent-symbol capital, existing selected features and balanced
+weights, one mature fit per block, frozen uncalibrated linear projection and
+pooled marginal label variance. Availability is a declared simulation assumption.
+Allocation requires the exact decision packet/horizon and matching same-close
+account valuation. Costs/carry have separate causal declarations. Hard risk and
+next-processing-bar execution preserve existing priority. Raw price labels omit
+corporate-action wealth and carry; future corporate actions never filter current
+admission. Later actions and next-open gaps remain canonical outcomes and expose
+this surrogate's limits. No terminal wealth/RL reward or walk-forward model
+exchange is implemented by this connection.
+
+G2 uses +1 and -.5 direct labels: mean .25, marginal variance .5625, whereas
+`expm1(mean_log)` is zero. Independent nonconstant Ridge arithmetic verifies
+direct-label projection and absolute weight effects. Future suffix price,
+feature, publication, split and dividend changes cannot alter earlier vintages
+or packets. Maturity boundaries, stale/delayed packets, rehashed nested
+unit/label/variance/model/recipe mismatches, unavailable selected features and
+mark/close mismatch are rejected. Producer-to-executor tests independently
+reconstruct fills, quantities, fees and cash, including next-open gaps and
+split-aware HOLD. Changed forecast/cost/account inputs fail before admission.
+Legacy numeric/payload oracles preserve old log behavior.
+
+Equivalent valid hour/second/millisecond timestamp storage must produce the same
+normalized stream. A returned account cannot replay a paid dividend at an old
+decision with unchanged marks: a declared Dataset/index processing clock is
+checked before admission and advanced by canonical execution. Correct
+continuation carries book, order book and next index, charging that dividend
+once. Legacy unmarked books remain unchanged. The clock authenticates neither a
+caller-supplied bootstrap account nor historical source availability.
+
+These inputs are synthetic. The reader checks recorded consistency against an
+external digest, not an independent fitting receipt or historical authenticity.
+Real-data fitting/replay, unused-data consumption, selection and G4/G5 remain
+unauthorized by this software. Fresh source-bound AI G0-G2 review, final-head
+full CI, formal independent research approval and preregistered empirical
+contracts remain separate requirements.

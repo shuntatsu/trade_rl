@@ -18,6 +18,18 @@ from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.forecasts.simple_prequential import (
+    fit_prequential_simple_ridge,
+)
+from trade_rl.strategies.forecasts.simple_return import (
+    SimpleReturnRidgeModel,
+    SimpleReturnTrainingSet,
+)
+from trade_rl.strategies.forecasts.simple_stream import (
+    FrozenSimpleReturnStream,
+    SimpleReturnPacket,
+    SimpleReturnVintage,
+)
 from trade_rl.strategies.forecasts.stream import ForecastBlock, FrozenForecastStream
 from trade_rl.strategies.forecasts.supervised import (
     CausalForecastTrainingSet,
@@ -30,13 +42,19 @@ __all__ = [
     "ForecastIntentConfig",
     "ForecastIntentController",
     "FrozenForecastStream",
+    "FrozenSimpleReturnStream",
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
     "PacketForecastStrategy",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
+    "SimpleReturnPacket",
+    "SimpleReturnRidgeModel",
+    "SimpleReturnTrainingSet",
+    "SimpleReturnVintage",
     "build_causal_forecast_training_set",
     "fit_lightgbm_forecast",
     "fit_prequential_ridge",
+    "fit_prequential_simple_ridge",
     "fit_ridge_forecast",
 ]

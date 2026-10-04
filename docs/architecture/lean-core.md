@@ -727,3 +727,59 @@ Issue #810の新規研究向けに `evaluation/objectives` が事業目的と金
 `BoundObjectiveClock` はUTC評価期間の正確な整数秒数と金融時計のeconomic horizonが一致することを要求し、両宣言のdigestを `bound_objective_clock_v1` に結び付ける。この有限評価期間はfitデータ区間や最大保有期間とは別の意味である。小数秒は丸めず拒否する。これは任意の新規bindingであり、個別宣言のconstructorを変更しない。
 
 これらは独立した宣言・算術capabilityであり、既存runner/env/Studyへ接続されていない。共有口座訓練、費用校正、最終評価、研究実行の認可、利益性は証明しない。
+
+## Direct-simple forecast allocation
+
+The separate `simple_return_ridge_stream_v1` calls the existing mature-row
+selector once per prefix, preserves row order and absolute symbol-balanced
+weights, and derives realized labels as `end_close / start_close - 1`.
+`expm1(mean_log)` does not supply an expected simple return. The shared
+numeric-only Ridge solver preserves old log model/payload arithmetic, covered
+by fixed and same-runtime regression oracles.
+
+The new model is an **uncalibrated regularized linear projection** of raw
+same-close price returns. Its expected-simple unit describes the quantity being
+estimated, not a verified conditional expectation. Its frozen
+`fit_prefix_marginal_variance` is the weighted population variance of those same
+mature labels, unannualized and in squared simple-return units. It is pooled
+across fit symbols, not conditional uncertainty, confidence, a covariance matrix
+or a loss guarantee. Absolute weights remain unchanged because rescaling them
+changes Ridge regularization.
+
+Vintages bind selected inputs, actual traced endpoints/maturity, fit-only model
+parameters and marginal variance. Packets bind decision close, selected snapshot,
+availability and exact horizon. Delayed simulation packets can be recorded;
+allocation v1 consumes only the exact current packet with completion at that
+decision and zero inference delay, without stale fallback. Nonfinite arithmetic
+or predictions below -1 fail without clipping. The reader pins an external
+content digest and checks reconstructed nested schemas, labels, variance, recipe
+and predictions; it neither refits nor independently authenticates the original
+fit or historical source availability.
+
+`evaluation.forecast_allocation` checks Dataset lineage, symbol, selected feature
+names/values/availability and exact clocks. Packet close, Dataset close/mark and
+actual BookState mark must agree. Separate `HorizonCostEstimates` bind source,
+availability, horizon and initial-notional rate basis. Aggregate availability is
+the later model/cost time. `execute_forecast_proposal` rebinds these inputs and
+actual account state before existing risk and canonical execution; changed
+inputs fail. The caller continues with the returned book, order book and
+`next_index` together.
+
+This consumer requires an explicit BookState processing clock: Dataset digest
+and last completed index. Canonical stateful execution validates it before
+admission, preserves it through cloning and advances it after each completed
+bar. Reusing a returned account at an earlier index fails even when marks are
+unchanged, preventing repeated dividend/carry processing. Initial clock values
+are caller declarations, not authenticated historical receipts. Existing
+unmarked books retain their default behavior; old artifacts are not migrated.
+
+The label is a **price-return surrogate**, not held-quantity wealth or net
+profit. It excludes dividends, split-adjusted wealth, funding, borrow and cash
+carry; their realized events belong to the executor. No future split/dividend
+scan admits or suppresses present predictions. A later split can change raw
+price units while canonical quantity adjustment preserves wealth. Next-open
+gaps also separate realized fills from same-close predictions. These mismatches
+need a prospective instrument/label/economics contract and empirical calibration
+before market utility can be claimed; recorded prices alone cannot establish an
+event-free future horizon. No Study, RL consumer or economic authorization is
+introduced here.

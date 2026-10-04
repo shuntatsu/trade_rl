@@ -67,9 +67,10 @@ trade_rl/
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
+│   ├── allocation.py
 │   ├── carry.py
 │   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
-│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py,stream.py,prequential.py}
+│   ├── forecasts/{controller.py,supervised.py,training_trace.py,ridge.py,lightgbm.py,stream.py,prequential.py,_ridge_math.py,simple_return.py,simple_stream.py,simple_prequential.py}
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
@@ -78,6 +79,9 @@ trade_rl/
     ├── evidence.py
     ├── series.py
     ├── directional.py
+    ├── allocation.py
+    ├── forecast_allocation.py
+    ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
     ├── carry.py
     ├── directional_candidates.py
     ├── directional_selection.py
@@ -577,10 +581,38 @@ ownership, lower-layer direction and absence of a second ledger; mechanism
 oracles live in strategy/evaluation tests. The current-close expected-return
 contract is not supplied by a mean-log forecast packet. Wiring a separately
 versioned expected-simple estimator or an RL consumer requires its own causal,
-clock, economic and assurance verification.
+clock, economic and assurance verification. The separate direct-simple producer
+and nonRL consumer below provide this bounded software connection; the remaining
+RL and economic research contracts are still required.
 
 ## Net-profit declaration ownership
 
 `evaluation/objectives/{contract.py,clock.py,binding.py}` はIssue #810の新規研究向けの事業目的、資本分母、終端純利益算術、regular金融時計と評価期間の一致bindingを所有する。Tier-2 facade `trade_rl.evaluation.objectives` は `CapitalContract`、`ObjectiveContract`、`FinancialClockContract`、`BoundObjectiveClock`、`net_equity_increment` をwrapperなしで公開する。Tier-1 `trade_rl.evaluation` の公開面は拡張しない。
 
 このcapabilityはstandard library、`_validation`、canonical artifact hashingだけへ依存する。strategy、execution、Run/Study lifecycle、外部認証・ネットワークを呼ばず、第二の台帳や研究実行経路を持たない。下位strategyからevaluationへの逆依存を作らない。将来adapterは検証済みの値を下位constructorへ明示的に渡し、現在のPPO training objectiveやhistorical artifactを置換しない。
+
+## Direct-simple producer and consumer ownership
+
+`forecasts/simple_return.py` owns immutable direct labels, the distinct simple
+model and marginal fit variance. `_ridge_math.py` owns only numeric weighted
+Ridge operations shared with `ridge.py`; it owns no units, selection, schema or
+execution. `simple_stream.py` owns separate versioned records/reader;
+`simple_prequential.py` selects and fits each prefix once. The forecast facade
+directly exports the six simple APIs from their owners. Tier-1 exports and old
+log records retain their meanings.
+
+`evaluation/forecast_allocation.py` exposes `HorizonCostEstimates`,
+`propose_forecast_target` and `execute_forecast_proposal`. It validates exact
+current snapshot/horizon/valuation, then invokes the existing allocation
+composition. It owns no fit, ledger, risk formula or order transition. Forecast
+owners do not import evaluation, simulation, risk or RL. Architecture tests guard
+these directions and reject fit/accounting in admission; synthetic mechanism
+tests cover direct labels, serialization, causality and canonical cash/quantity.
+
+`simulation/accounting.BookState` owns the optional paired Dataset/index
+processing clock and clone preservation. `simulation/stateful/execution.py`
+checks and advances a declared clock after completed bars. The forecast consumer
+requires a known matching clock without editing it or duplicating accounting.
+Bootstrap values are caller declarations; legacy unmarked accounts and artifact
+schemas retain their meanings. Continuation uses the returned book, order book
+and next index together.

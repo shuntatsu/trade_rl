@@ -1347,16 +1347,17 @@ execution produce a separate approved/filled trace. Exact quantity HOLD cancels
 pending MARKET remainders while preserving canonical carry/split processing.
 
 This is an opt-in software foundation with synthetic decision, independent
-numerical and cash/quantity oracles. It has not fitted an expected-simple model,
-calibrated costs, run an economic comparison or established improved profit.
+numerical and cash/quantity oracles. The separate direct-simple connection below
+adds synthetic model fits; no expected-simple market model has been fitted,
+costs calibrated, economic comparison run or improved profit established.
 The current-close signal is a declared proxy for next-processing-bar execution;
 risk and venue rules can alter the scalar optimum. A mean-log prediction is not
 an expected-simple prediction. Existing replay/PPO/artifact semantics and the
 20% drawdown research guardrail remain unchanged; gaps or missed fills can still
 exceed that guardrail. No sealed run is reopened.
 
-Issue #810 remains open. Outstanding work includes versioned causal
-expected-simple estimates, common nonRL/residual/direct RL context and execution,
+Issue #810 remains open. Outstanding work includes empirical expected-simple
+calibration, common nonRL/residual/direct RL context and execution,
 objective/financial-clock integration, continuous-account walk-forward,
 calibrated cost/capacity stress, a finite preregistered Study and independently
 authorized economic evidence. This slice supplies neither a new WINNER nor
@@ -1372,3 +1373,35 @@ and formal independent research approval remain integration requirements.
 これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。PR #794のtraining discount objectiveとこのbusiness objectiveは別の責務で、gamma/GAEの既定値を重複変更しない。PR #790のshared-cash replayもjoint learning済みとは扱わない。
 
 次段階は参照したrisk/economics/運用recipeの検証と、既存executorを使ったtraining/replay parity、上流のprequential packet、金融clock/終端のadapter整合、合成市場での学習可能性の検査である。これらの不足を閉じ、fresh result-blind G0-G2 reviewと正式な有限予算研究契約を結果前に固定するまで、新規G4実行へ進まない。実データfit/replay、未使用future開封、封印run再試行、live発注はこの変更では実施しない。利益性、WINNER/NO_WINNER/INVALIDの経済判断はまだ未確立である。
+
+## Issue #810: direct-simple forecast connection
+
+A separate versioned producer derives direct close-ratio labels from the existing
+selector's exact mature rows and freezes next-block Ridge projections. Packets
+bind selected snapshot, decision price, availability, horizon and uncalibrated
+pooled marginal label variance. The consumer connects these to actual BookState
+allocation, separately declared horizon costs, hard risk and canonical execution.
+Current/forecast close valuations must match; stale/delayed packets and changed
+proposal inputs fail.
+
+The new consumer requires a declared Dataset/index account clock. Canonical
+execution preserves and advances it, rejecting an old index that would repeat
+dividend/carry despite unchanged marks. Continuation carries book, order book and
+next index together. Synthetic tests cover that failure and equivalent valid
+timestamp storage units. Bootstrap clocks remain caller declarations; this
+bounded consistency check does not close Issue #810's full financial runtime or
+continuous-account research requirements. Legacy unmarked books remain unchanged.
+
+This is software tested on synthetic inputs, not measured market profit. Raw
+close labels are price-return surrogates for next-open execution and exclude
+held-quantity corporate-action wealth. Costs, carry, variance and conditional
+expectations are uncalibrated. Future actions never filter present predictions.
+Old log/PPO/Run/Study semantics and the 20% research DD guardrail are retained.
+
+The candidate preserves exact P0/P2/allocation histories for review. Remaining
+Issue #810 requirements include common residual/direct-RL consumers, runtime
+financial clock/terminal semantics, actual synthetic learning and reload parity,
+continuous-account walk-forward, cost/capacity evidence, complete finite trial
+registration and independently authorized economic comparison. No new WINNER,
+G4/G5 result, final-data or live-order eligibility is established. Integration
+still requires final-head full CI and formal independent research approval.

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.strategies.forecasts._ridge_math import _solve_weighted_ridge
 from trade_rl.strategies.forecasts.controller import (
     CostAwareForecastIntentController,
     ForecastIntentConfig,
@@ -20,8 +21,6 @@ from trade_rl.strategies.forecasts.supervised import (
 )
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
-
-_SCALE_FLOOR = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,32 +178,9 @@ def _fit_ridge_training_set(
     """Use the same solver on the same validated rows, without a second selector."""
     if not math.isfinite(alpha) or alpha <= 0.0:
         raise ValueError("alpha must be finite and positive")
-    x = training.features
-    y = training.labels
-    weights = training.sample_weights
-    weight_sum = float(weights.sum())
-
-    feature_mean = np.sum(x * weights[:, None], axis=0) / weight_sum
-    centered_x = x - feature_mean
-    weighted_variance = (
-        np.sum(
-            centered_x**2 * weights[:, None],
-            axis=0,
-        )
-        / weight_sum
+    feature_mean, feature_scale, coefficients, intercept = _solve_weighted_ridge(
+        training.features, training.labels, training.sample_weights, alpha=alpha
     )
-    raw_scale = np.sqrt(weighted_variance)
-    feature_scale = np.where(raw_scale > _SCALE_FLOOR, raw_scale, 1.0)
-    standardized = centered_x / feature_scale
-
-    intercept = float(np.dot(weights, y) / weight_sum)
-    centered_y = y - intercept
-    sqrt_weights = np.sqrt(weights)
-    weighted_x = standardized * sqrt_weights[:, None]
-    weighted_y = centered_y * sqrt_weights
-    gram = weighted_x.T @ weighted_x
-    regularized = gram + alpha * np.eye(len(training.feature_indices), dtype=np.float64)
-    coefficients = np.linalg.solve(regularized, weighted_x.T @ weighted_y)
 
     return RidgeForecastModel(
         feature_indices=training.feature_indices,

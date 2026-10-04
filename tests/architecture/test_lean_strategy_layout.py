@@ -69,6 +69,10 @@ def test_strategy_family_packages_exist() -> None:
         "forecasts/supervised.py",
         "forecasts/training_trace.py",
         "forecasts/ridge.py",
+        "forecasts/_ridge_math.py",
+        "forecasts/simple_return.py",
+        "forecasts/simple_stream.py",
+        "forecasts/simple_prequential.py",
         "forecasts/lightgbm.py",
         "rl/__init__.py",
         "rl/intent.py",
@@ -106,6 +110,12 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
         "FrozenForecastStream",
         "PacketForecastStrategy",
         "fit_prequential_ridge",
+        "FrozenSimpleReturnStream",
+        "SimpleReturnPacket",
+        "SimpleReturnRidgeModel",
+        "SimpleReturnTrainingSet",
+        "SimpleReturnVintage",
+        "fit_prequential_simple_ridge",
     }
     assert set(forecasts.__all__) == prequential_names | {
         "CausalForecastTrainingSet",
@@ -123,6 +133,27 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
     for owner, names in (
         (forecast_stream, {"ForecastBlock", "FrozenForecastStream"}),
         (prequential_forecasts, {"PacketForecastStrategy", "fit_prequential_ridge"}),
+    ):
+        for name in names:
+            assert getattr(forecasts, name) is getattr(owner, name), name
+        assert (
+            _imported_names(STRATEGIES / "forecasts" / "__init__.py", owner.__name__)
+            == names
+        )
+
+    from trade_rl.strategies.forecasts import (
+        simple_prequential,
+        simple_return,
+        simple_stream,
+    )
+
+    for owner, names in (
+        (
+            simple_stream,
+            {"FrozenSimpleReturnStream", "SimpleReturnPacket", "SimpleReturnVintage"},
+        ),
+        (simple_return, {"SimpleReturnTrainingSet", "SimpleReturnRidgeModel"}),
+        (simple_prequential, {"fit_prequential_simple_ridge"}),
     ):
         for name in names:
             assert getattr(forecasts, name) is getattr(owner, name), name

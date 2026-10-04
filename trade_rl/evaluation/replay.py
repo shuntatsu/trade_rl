@@ -245,6 +245,7 @@ class _ExecutedEntryPrices:
         quantities: np.ndarray,
         *,
         terminated: bool = False,
+        settled_symbols: np.ndarray | None = None,
     ) -> None:
         for event in events:
             filled = float(event.filled_quantity)
@@ -273,6 +274,14 @@ class _ExecutedEntryPrices:
         actual = np.asarray(quantities, dtype=np.float64)
         if actual.shape != self._quantities.shape:
             raise RuntimeError("execution fill events diverged from book quantities")
+        if settled_symbols is not None:
+            settled = np.asarray(settled_symbols, dtype=np.bool_)
+            if settled.shape != actual.shape:
+                raise RuntimeError("settled-symbol mask does not match book quantities")
+            if np.any(actual[settled] != 0.0):
+                raise RuntimeError("inactive asset settlement left an open position")
+            self._quantities[settled] = actual[settled]
+            self._average_prices[settled] = 0.0
         if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
             if terminated:
                 self._quantities = actual.copy()
@@ -582,6 +591,9 @@ def run_single_symbol_replay(
             latest_execution_observation.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            settled_symbols=~dataset.resolved_array("asset_active")[
+                execution.next_index
+            ],
         )
         book = execution.book
         position_age_bars = next_position_age_bars(
@@ -646,6 +658,9 @@ def run_single_symbol_replay(
                 latest_execution_observation.order_events,
                 execution.book.quantities,
                 terminated=execution.termination_reason is not None,
+                settled_symbols=~dataset.resolved_array("asset_active")[
+                    execution.next_index
+                ],
             )
             book = execution.book
             position_age_bars = next_position_age_bars(
@@ -852,6 +867,9 @@ def run_shared_cash_replay(
             stateful_evidence.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            settled_symbols=~dataset.resolved_array("asset_active")[
+                execution.next_index
+            ],
         )
         if capture_ledger_evidence:
             if execution_observation_count != len(ledger_intervals) + 1:

@@ -299,6 +299,15 @@ class StatefulSymbolFillProcessor:
             for allocation in allocations:
                 _, trigger, order_path, execution_price = metadata[allocation.order_id]
                 order = runtime.require_active_order(allocation.order_id)
+                if (
+                    runtime.book.termination_reason is not None
+                    and not order.intent.reduce_only
+                ):
+                    runtime.cancel_active_orders(
+                        processing_index=processing_index,
+                        reason="economic_termination",
+                    )
+                    break
                 allocation = self._recheck_closing_allocation(
                     runtime, order, allocation
                 )
@@ -423,6 +432,12 @@ class StatefulSymbolFillProcessor:
                     remaining_capacity_notional=remaining_capacity,
                 )
             )
+            if runtime.book.termination_reason is not None:
+                runtime.cancel_active_orders(
+                    processing_index=processing_index,
+                    reason="economic_termination",
+                )
+                break
         return attempted_order_ids
 
     @staticmethod

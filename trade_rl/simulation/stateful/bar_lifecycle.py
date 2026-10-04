@@ -93,7 +93,7 @@ class StatefulBarLifecycle:
                 reason="inactive_asset",
                 symbol_mask=inactive,
             )
-            if np.any(inactive & (np.abs(runtime.book.quantities) > _TOLERANCE)):
+            if np.any(inactive & (np.abs(runtime.book.quantities) > 0.0)):
                 runtime.book.settle_positions(
                     mask=inactive,
                     prices=dataset.open[processing_index],

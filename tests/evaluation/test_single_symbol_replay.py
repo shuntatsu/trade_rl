@@ -253,6 +253,33 @@ def test_pooled_dataset_replays_only_selected_symbol() -> None:
     assert getattr(first_observation, "features")[0] == 0.0
 
 
+def test_inactive_asset_settlement_reconciles_execution_entry_tracker() -> None:
+    dataset = _rising_market()
+    active = np.ones((dataset.n_bars, dataset.n_symbols), dtype=np.bool_)
+    active[2:, 0] = False
+    dataset = replace(
+        dataset,
+        asset_active=active,
+        symbol_active=active,
+        tradable=active,
+        information_available=active,
+        delisting_recovery=np.ones((dataset.n_bars, dataset.n_symbols)),
+    )
+
+    result = evaluation.run_single_symbol_replay(
+        dataset,
+        AlwaysLong(),
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(1))
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+    assert len(result.returns.values) == 5
+
+
 def test_replay_rejects_invalid_symbol_index() -> None:
     with pytest.raises(ValueError, match="symbol_index"):
         evaluation.run_single_symbol_replay(

@@ -76,6 +76,7 @@ def _intent(
     executor: MarketExecutor,
     quantity: float,
     *,
+    symbol_index: int = 0,
     order_type: OrderType = OrderType.MARKET,
     limit_price: float | None = None,
     stop_price: float | None = None,
@@ -89,7 +90,7 @@ def _intent(
         dataset_id=executor.dataset.dataset_id,
         target_identity=target_identity,
         execution_policy_digest=executor.execution_policy_digest,
-        symbol_index=0,
+        symbol_index=symbol_index,
         requested_quantity=quantity,
         order_type=order_type,
         time_in_force=time_in_force,
@@ -1432,6 +1433,158 @@ def test_interval_gross_return_reconciles_explicit_execution_cost() -> None:
         - result.interval_cash_interest
     )
     assert gross_value / 1_000.0 - 1.0 == pytest.approx(result.interval_gross_return)
+
+
+def test_later_symbol_does_not_fill_after_margin_termination() -> None:
+    n_bars = 6
+    close = np.tile(np.asarray([120.0, 100.0]), (n_bars, 1))
+    close[0] = 100.0
+    open_price = close.copy()
+    open_price[0] = 100.0
+    dataset = MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("A", "B"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 2, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((n_bars, 2), 1_000.0),
+        funding_rate=np.zeros((n_bars, 2)),
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+    executor = _executor(
+        dataset,
+        max_participation_rate=1.0,
+        fee_rate=0.01,
+        max_leverage=3.0,
+        maintenance_margin_rate=0.56,
+        collateral_haircut=0.1,
+    )
+    book = BookState.zero(
+        2,
+        1_000.0,
+        dataset.close[0],
+        dataset.resolved_array("contract_multipliers"),
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (
+            _intent(executor, 10.0, symbol_index=0),
+            _intent(executor, 5.0, symbol_index=1),
+        ),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.termination_reason == EconomicTerminationReason.MARGIN_CALL.value
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(2))
+    assert result.fill_count == 1
+    assert result.interval_cost == pytest.approx(12.0)
+    assert not result.order_book.active_orders
+
+
+def test_inactive_asset_settlement_closes_sub_tolerance_residual() -> None:
+    active = np.zeros((6, 1), dtype=np.bool_)
+    dataset = _market(
+        asset_active=active,
+        symbol_active=active,
+        tradable=active,
+        information_available=active,
+        delisting_recovery=np.full((6, 1), 0.5),
+    )
+    executor = _executor(dataset)
+    residual_quantity = 1e-13
+    book = BookState(
+        quantities=np.array([residual_quantity]),
+        cash=1_000.0 - residual_quantity * dataset.close[0, 0],
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    np.testing.assert_array_equal(result.book.quantities, np.zeros(1))
+    assert result.book.portfolio_value == pytest.approx(1_000.0)
+
+
+def test_reduce_only_order_can_fill_after_margin_termination() -> None:
+    dataset = _market()
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.array([0.5]),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        max_gross=1.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+    runtime = StatefulExecutionRuntime.create(
+        executor,
+        book,
+        OrderBookState.empty(),
+    )
+    runtime.book.terminate(EconomicTerminationReason.MARGIN_CALL)
+    intent = OrderIntent.create(
+        dataset_id=dataset.dataset_id,
+        target_identity="post-termination-reduction",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=-2.5,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        reduce_only=True,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    runtime.submit_intents((intent,))
+    pending = runtime.order_book.active_orders[0].mark_eligible(processing_index=1)
+    runtime.order_book = runtime.order_book.replace(pending)
+    tick, lot, minimum = executor._effective_rule_array_views(index=1)
+    attempted = StatefulSymbolFillProcessor(executor).process_symbols(
+        runtime,
+        StatefulBarContext(
+            previous_index=0,
+            processing_index=1,
+            period_start_value=1_000.0,
+            open_prices=dataset.open[1],
+            tick_size=tick,
+            lot_size=lot,
+            minimum_notional=minimum,
+            processing_year_fraction=dataset.elapsed_year_fraction(0, 1),
+            gap_cash_carry_delta=0.0,
+        ),
+        [pending],
+    )
+
+    assert intent.order_id in attempted
+    fill = next(
+        event
+        for event in runtime.events
+        if event.order_id == intent.order_id and event.event_type == "filled"
+    )
+    assert fill.filled_quantity == pytest.approx(-2.5)
+    assert runtime.book.quantities[0] == 0.0
 
 
 def test_interval_gross_return_removes_signed_funding_from_same_fill_path() -> None:

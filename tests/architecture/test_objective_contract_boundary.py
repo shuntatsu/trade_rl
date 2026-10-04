@@ -4,7 +4,7 @@ from pathlib import Path
 
 from tests.architecture.test_lean_dependency_boundaries import collect_trade_rl_imports
 from trade_rl.evaluation import objectives
-from trade_rl.evaluation.objectives import clock, contract
+from trade_rl.evaluation.objectives import binding, clock, contract
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl" / "evaluation" / "objectives"
@@ -33,11 +33,13 @@ def test_objective_facade_reexports_owners_without_expanding_evaluation_root() -
     import trade_rl.evaluation as evaluation
 
     assert objectives.__all__ == [
+        "BoundObjectiveClock",
         "CapitalContract",
         "FinancialClockContract",
         "ObjectiveContract",
         "net_equity_increment",
     ]
+    assert objectives.BoundObjectiveClock is binding.BoundObjectiveClock
     assert objectives.CapitalContract is contract.CapitalContract
     assert objectives.ObjectiveContract is contract.ObjectiveContract
     assert objectives.net_equity_increment is contract.net_equity_increment

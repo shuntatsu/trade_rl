@@ -617,4 +617,6 @@ Issue #810の新規研究向けに `evaluation/objectives` が事業目的と金
 
 `FinancialClockContract` はregular clockのdecision/execution/reward間隔、有限horizon、rollout長、gamma、GAE lambda、reward schemaを明示する。初期契約は1 decisionにつき1 reward、execution刻みへの整合、horizonのdecision刻みへの整合を要求する。時間を揃えたdiscountを比較できるが、rollout切断と経済終端のruntime処理は実装しない。固定初期資本を分母とするequity増分の総和はgamma=1で終端純利益へ一致し、log報酬とは異なる。`terminal_profit_aligned` はこの代数的関係だけを表す。
 
+`BoundObjectiveClock` はUTC評価期間の正確な整数秒数と金融時計のeconomic horizonが一致することを要求し、両宣言のdigestを `bound_objective_clock_v1` に結び付ける。この有限評価期間はfitデータ区間や最大保有期間とは別の意味である。小数秒は丸めず拒否する。これは任意の新規bindingであり、個別宣言のconstructorを変更しない。
+
 これらは独立した宣言・算術capabilityであり、既存runner/env/Studyへ接続されていない。共有口座訓練、費用校正、最終評価、研究実行の認可、利益性は証明しない。

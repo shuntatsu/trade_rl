@@ -82,6 +82,16 @@ example-based unit testだけで重要なmechanismを保証済みとしない。
 
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
+Quantity-preserving hold has two independent G2 counterexamples. With a constant
+economic value, a 2-for-1 or reverse split must change filled and pending proposal
+units together without a new same-side fill. With constant trading price but a
+different mark price, the same quantity proposal must retain its signed units;
+valuation changes equity, not the intended position. Tests cover LONG and SHORT
+across PPO training and both replay paths, compare cash and fees with a direct
+unit/cash oracle, and retain a partial entry through a split. Separate order tests
+keep limit/stop bounds on trading reference prices. These are software conformance
+checks, not evidence of a profitable policy or real corporate-action feeds.
+
 This is an active result-blind design for a new development Study. It has not
 generated or inspected economic results, and it does not reuse the historical
 Observation-v2 PPO baseline as its control.

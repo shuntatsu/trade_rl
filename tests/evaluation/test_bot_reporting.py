@@ -90,6 +90,7 @@ def test_bot_cost_diagnostics_match_flat_price_round_trip() -> None:
         high=prices,
         low=prices,
         close=prices,
+        mark_price=prices,
         identity_payload_json=None,
     )
     _, report = run_trading_bot(

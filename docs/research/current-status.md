@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-03 (JST)
+更新基準: 2026-10-05 (JST)
 
 ## 結論
 
@@ -14,6 +14,19 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Quantity-preserving hold repair (2026-10-05)
+
+Synthetic counterexamples exposed two quantity-hold mismatches in PPO training
+and canonical replay. A split changed the filled book but left the desired
+quantity in old units; a distinct mark price was used for weights but trading
+close for inverse quantity sizing. Unchanged intents consequently created extra
+fills, fees, and unintended exposure. Repair rebases cached proposals, including
+unfilled entries, by processed split factors and separates mark-based sizing from
+trading-reference order prices. Signed quantity, cash, fee, and order-bound
+oracles cover training, single-symbol replay, and shared-cash replay. Historical
+artifacts are unchanged. This is a software repair; it supplies no new PPO
+profitability or winner evidence and does not authorize a sealed-run retry.
 
 ## Trading-bot validation repair (2026-10-03)
 

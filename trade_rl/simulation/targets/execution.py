@@ -60,6 +60,7 @@ def execute_target_statefully(
         book=book,
         order_book=order_book,
         reference_prices=executor.dataset.close[start_index],
+        valuation_prices=book.mark_prices,
         decision_equity=max(book.portfolio_value, _EQUITY_TOLERANCE),
         submit_index=start_index,
         latency_bars=executor.cost.order_latency_bars,

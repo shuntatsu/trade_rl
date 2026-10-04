@@ -579,6 +579,11 @@ class PPOTradingEnv(gym.Env):
         return_history.extend(interval_returns)
 
         quantity_before = float(self.book.quantities[symbol_index])
+        self.desired_quantity *= float(
+            self.dataset.resolved_array("split_factor")[
+                execution.next_index, symbol_index
+            ]
+        )
         self.book = execution.book
         self.current_intent = intent
         self.index = execution.next_index

@@ -53,6 +53,8 @@ artifacts / evidence
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 
+PPO環境と各replayは、分割後の数量単位に希望数量を換算します。目標を注文数量へ変換するsimulationの処理はBookStateのマーク価格を使い、注文の参照価格・limit・stopは取引価格を使います。評価と注文の価格基準を分けても、約定・会計の所有者は共通のMarketExecutorです。
+
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 
 ## 境界を見るときのチェック

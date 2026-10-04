@@ -67,6 +67,13 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+Split changes the units of both the filled book and the cached strategy proposal.
+PPO training, single-symbol replay, and shared-cash replay rebase the proposal by
+the processed split factor, including any unfilled entry remainder. A same-side
+hold therefore keeps split-adjusted exposure rather than trading back to an old
+unit count. This unit conversion does not replace a pending proposal with the
+actual partial fill or bypass hard risk.
+
 ### PPO Observation v2
 
 初回canonical real-data M2で使うteacher-free PPOのpolicy observationは、fit-scope leakageを避けるため最小のcausal contractへ固定する。tensor順序は次である。
@@ -262,6 +269,13 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 ## Execution / accounting authority
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
+
+Weight-to-quantity sizing uses the current book's mark prices, the same valuation
+basis as its equity and weights. Trading close remains the submission reference
+for order identity, limit/stop offsets, and order-completion diagnostics. Distinct
+mark and trading prices must not generate a rebalance for an unchanged quantity
+proposal. Direct low-level reconciliation callers that omit valuation prices
+retain their explicit reference-price sizing contract.
 
 不変条件:
 

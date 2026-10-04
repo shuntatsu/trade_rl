@@ -1,12 +1,14 @@
 ## 結論
 
+研究の主軸を**システムトレード**へ変更しました。売買ルールと時間軸を改善し、同じ資金・リスク・約定条件で費用控除後の利益を比較します。PPOは、単純なルールに追加価値を示せるかを検証する任意の候補です。
+
 現在のTrade RLは、**再現可能な実データbaselineとControlled Experimentを検証できる研究基盤までは成立しているが、継続的な利益性やwinner strategyはまだ証明していない**段階です。
 
 Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionは **KEEP_BASELINE** です。
 
 ## PPO中期保有期間の次期設計
 
-従来の独立口座版 `ppo_holding_duration_v1` は、PPOを主役に、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。
+既存の独立口座版 `ppo_holding_duration_v1` は、任意のPPO比較として、Observation v3を共通で使うH=0と3 / 7 / 14 / 21日相当の最低保有期間を比較します。データ、評価期間、費用、初期資金、リスク条件、5 seedを揃え、seed内の銘柄平均を先に取ってからseed中央値でprimary scoreを決めます。H=0と候補の全独立口座で終端決済後の建玉と未約定注文をなくし、実現DDを20%以下に保つ条件も採点へ含めます。優先順位の変更でこの固定済みprotocolの意味を変更しません。
 
 共通資金版 `ppo_shared_cash_holding_duration_v2` も実装しました。5銘柄をseedごとに一つの100,000 USDT口座で評価し、個別銘柄リターンの平均ではなくportfolio全体のreturn/DDで選びます。bootstrap v6 / StudyPlan v6 / comparison v4でv1と分離し、終端flat・残注文なし・最大DD 20%以下・H=0比のseed中央値が正を条件、seed中央値returnをscoreとします。PPO学習はsingle-symbolのままです。mocked bootstrap / synthetic lifecycle testsは通過しましたが、G0-G2独立reviewは未完了で、v2 fit・経済replayは未実行です。利益性や勝者は未確認です。
 
@@ -74,12 +76,15 @@ PPO aggregate metricはExperiment 0001のformal decision oracleには使って�
 
 ## 次の研究ゲート
 
-1. developmentで一因子Experimentを積む。
-2. winner / no-winner判断を事前ruleに従って固定する。
-3. 一般のfinal-eligibleな新規Studyはbootstrap v4 / StudyPlan v3、PPO保有期間protocolはbootstrap v5 / StudyPlan v5でunused windowを事前登録する。final startはdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後に置き、historical StudyPlanへwindowを後付けしない。
-4. そのStudyがWINNERになった場合だけ、実装済みのfinal authorization gateでStudy freeze・winner evidence・事前登録windowをone-shot artifactへbindする。
-5. authorizationとは別の将来consumerが、そのartifactを検証して初めてsealed unused-futureを開く。
-6. final evaluation後もexecution stress、capacity、account-specific economicsを別途確認する。
+1. 既存bot研究と実行中Runの結果を検算し、重複実行を避ける。cash・単純rule対照、実fill、終端flat、費用・実効latency stressを確認する。
+2. no-winnerなら情報源・時間軸・regime・exitのうち一因子を事前登録してdevelopmentを改善する。PPOの新規学習を前提にしない。
+3. winner / no-winner判断を事前ruleに従って固定する。
+4. 一般のfinal-eligibleな新規Studyはbootstrap v4 / StudyPlan v3、PPO保有期間protocolはbootstrap v5 / StudyPlan v5でunused windowを事前登録する。final startはdevelopment Datasetと申告済みconsumed-evidence scopeの両方より後に置き、historical StudyPlanへwindowを後付けしない。
+5. そのStudyがWINNERになった場合だけ、実装済みのfinal authorization gateでStudy freeze・winner evidence・事前登録windowをone-shot artifactへbindする。
+6. authorizationとは別の将来consumerが、そのartifactを検証して初めてsealed unused-futureを開く。
+7. final evaluation後もexecution stress、capacity、account-specific economicsを別途確認する。
+
+funding-carryは固有の資金・担保・prospective観測条件で別に検証します。方向性botの20% drawdown条件やcarryの10%条件は、各固定済みprotocolを維持します。未使用finalを繰り返し開いたり、利益が出るまで採否条件を弱めたりしません。
 
 **authorization gateが実装済みであることは、final Datasetを開いたこと・final P&Lを得たこと・production適格性を意味しません。** 現時点ではfinal economic evaluationそのものは未実行です。
 

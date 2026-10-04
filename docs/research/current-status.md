@@ -1,8 +1,10 @@
 # Current research status
 
-更新基準: 2026-10-03 (JST)
+更新基準: 2026-10-04 (JST)
 
 ## 結論
+
+現在の研究方針は**システムトレードを主軸とし、PPOは追加価値を検証する任意の比較候補**とする。採用目標は、事前固定したリスク・資金・執行条件の下で、手数料・spread・slippage・borrowを控除し、fundingの受払を反映した利益を高め、その改善が後続の未使用期間でも維持される戦略を見つけることである。費用はDatasetとexecution overlayにbindした仮定であり、実際のvenue fillを証明しない。PPO学習やmodel complexityの増加を研究継続の前提にしない。
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。
 
@@ -14,6 +16,27 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Systematic-trading primary research direction (2026-10-04)
+
+2026-10-04のユーザー指示により、戦略開発と改善の優先順位をシステムトレード中心へ変更する。これは研究資源の配分と新規実験の方針であり、既存のimmutable Study、consumed evidence、sealed protocol、実行中のRunの意味や承認条件を変更しない。
+
+| 優先する作業 | 比較する仮説 | 判断に必要な証拠 |
+| --- | --- | --- |
+| 既存bot研究線の完了・検算 | trend、mean-reversion、channel、adaptiveと、週足BB / 一目均衡表など既存のresult-blind packet | 同一資金・risk・costでcashと単純ruleを比較し、実fill・ledger・終端flat・cost/latency stressを確認 |
+| 低turnoverのrule改善 | entryの情報、時間軸、regime filter、exitを一因子ずつ変更 | prefixだけで選択し、後続developmentでnet return・drawdown・turnover・costを確認。取引がゼロならedge未確認とする |
+| 独立したfunding-carry候補の検証 | spot-long / perpetual-shortの費用控除後carry | 固有のcollateral・funding・source-to-ledger・prospective観測契約を維持。方向性botと混ぜて同一比較とは扱わない |
+| 任意のforecast / PPO比較 | 成立した単純ruleに追加価値があるか | 同じ経済条件のpaired comparison、学習候補のseed dispersion、未使用期間の改善。rule以上の価値が未成立なら優先しない |
+
+profitだけを後付け最大化せず、各新規protocolで目的関数、candidate budget、cash / simple-rule対照、account mode、capital、リスク、時間窓、consumed-evidence scope、cost / effective-latency stress、採否条件を結果前に固定する。方向性botの既存20% drawdown screenとcarry固有の10% screenはそのprotocolの条件として維持する。異なる口座・資金・評価期間の利益率を並べてwinnerを選ばない。`balanced`など既存のsealed scoreを結果後にnet-return scoreへ差し替えない。
+
+新しい利益目的protocolのprimary scoreは、同じaccount mode・初期資金・評価期間での**終端net wealthの初期資金からの増分**とし、終端flat / order remainderなし、事前drawdown条件、cash / simple-rule対照、事前stress条件を満たす候補だけを順位付けする。同一初期資金ならnet returnは同じ順位を与える。risk条件を緩めて利益だけを増やす候補は採用せず、独立銘柄口座の合計・reset-windowの仮想積をcontinuous shared-cash wealthとして採点しない。
+
+cashは取引候補と同じprefixで比較する。cash選択、negative net return、stress failure、終端未決済、insufficient fillsは正当なno-winner / NOT_ESTABLISHEDの証拠であり、合格thresholdを弱めたり最終期間を再利用したりして解消しない。全探索と閲覧済み結果をconsumed evidenceへ記録し、繰り返し比較した後続windowもdevelopmentとして扱う。
+
+継続作業は、current `main`とopen PR / active Runを毎回確認し、既存の同目的研究線を完了・独立検証してから次のboundedな一因子実験へ進む。`#797`のbot-profit研究は`#795`のvalidation repairをbaseにしているため、stacked headのFast Pushだけをmain向けfull CIの代わりにしない。経済実行にはpacket固有のfresh result-blind reviewとverificationを、統合にはcurrent `main`を含むexact PR HEADのfull CIと独立reviewを要求する。自己申告reviewやこの方針変更自体を実行承認にしない。
+
+未使用finalはcandidate・risk・costをfreezeしてから一度だけ開く。繰り返すのはdevelopmentの改善であり、final evaluationではない。継続研究の認可はlive注文・資金投入の認可ではない。現在、最大利益、継続的な利益性、winnerはいずれも未確立である。
 
 ## Trading-bot validation repair (2026-10-03)
 
@@ -51,8 +74,9 @@ Bot reportはbar-return intervalのcount / positive rate / profit factorとDatas
 
 ## Active PPO medium-term holding-duration design
 
-The user's direction is to keep PPO as the main learner and compare multi-day
-to multi-week holding treatments under a 20% maximum-drawdown guardrail. The
+PPO is now an optional secondary comparison under the systematic-trading
+primary direction above. The existing result-blind design compares multi-day
+to multi-week holding treatments under its 20% maximum-drawdown guardrail. The
 current frozen `ppo_holding_duration_v1` design compares a freshly trained,
 Observation-v3 H=0 PPO with minimum-hold horizons of 72, 168, 336, and 504
 hourly bars (3, 7, 14, and 21 days). This estimates the effect of assigning a PPO system a minimum-dwell
@@ -1268,8 +1292,13 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 ## 現在の次アクション
 
-現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
+現在の優先順位はシステムトレードの既存研究線を完了し、費用控除後のedgeを独立検証することである。
 
-> 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
+1. bot validation repair / bot-profit研究のcurrent head、base、active Run、review、full CIを確認し、同じpacketを重複実行しない。
+2. 既存packetの実行結果をraw return、実fill、ledger、cash、cost / effective-latency stressから独立検算し、事前ruleで継続・棄却を決める。
+3. no-winnerなら情報源・horizon・regime・exitのうち一因子を選び、boundedな次のdevelopment protocolとconsumed-evidence lineageを結果前に固定する。PPOの新規学習をこの手順の前提にしない。
+4. 成立したrule candidateをfreezeできた場合だけ、別契約のone-shot unused-future評価へ進む。
+
+Portable Canonical Experiment 0001のKEEP_BASELINEは維持する。新方針を理由にそのimmutable comparisonや既存PPO / carry protocolを書き換えない。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

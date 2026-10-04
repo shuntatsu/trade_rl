@@ -20,7 +20,12 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "31c774196450a993c685b4e79654d3b5639ac7fe34a3a9637b08f21c86e730d8"
+      "sha256": "e50004557b86e098255a8dca3b109c6491064272a12b26daceae9b7508da2d73"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Systematic-trading primary research direction (2026-10-04)",
+      "sha256": "45205d4500231f47d83601901d14dbcec29650afbd0c3a6efa087f3d989008bd"
     },
     {
       "path": "docs/research/current-status.md",
@@ -35,7 +40,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Active PPO medium-term holding-duration design",
-      "sha256": "8948da7817c8ce7038eb9e08f02ca42341e2e85d595517a0d1e7a69aef916513"
+      "sha256": "0af851b24f3a6722877505c7211c968e1da75ddf309fb153c0fdb65c356ae908"
     }
   ],
   "code_references": []

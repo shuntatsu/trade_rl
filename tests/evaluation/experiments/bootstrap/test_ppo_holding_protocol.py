@@ -86,6 +86,13 @@ def _ppo_shared_cash_v6_payload() -> dict[str, object]:
     return payload
 
 
+def _ppo_shared_cash_v7_payload() -> dict[str, object]:
+    payload = _ppo_shared_cash_v6_payload()
+    payload["schema_version"] = "canonical_m2_bootstrap_config_v7"
+    payload["study_protocol"] = StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3.value
+    return payload
+
+
 def _write_config(tmp_path: Path, payload: object) -> Path:
     path = tmp_path / "ppo-holding-bootstrap.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -153,6 +160,39 @@ def test_v6_config_rejects_the_independent_account_protocol(
 
     with pytest.raises(ValueError, match="requires its matching PPO protocol"):
         load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+
+def test_v7_config_round_trips_ohlc_stress_protocol(tmp_path: Path) -> None:
+    payload = _ppo_shared_cash_v7_payload()
+
+    config = load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+    assert config.schema_version == "canonical_m2_bootstrap_config_v7"
+    assert config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
+    assert config.to_payload() == payload
+
+
+def test_v7_config_rejects_the_historical_shared_cash_protocol(
+    tmp_path: Path,
+) -> None:
+    payload = _ppo_shared_cash_v7_payload()
+    payload["study_protocol"] = StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION.value
+
+    with pytest.raises(ValueError, match="requires its matching PPO protocol"):
+        load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
+
+
+def test_v6_shared_cash_bootstrap_is_read_only(tmp_path: Path) -> None:
+    from trade_rl.evaluation.experiments.bootstrap.workflow import (
+        bootstrap_canonical_m2_study,
+    )
+
+    config_path = _write_config(tmp_path, _ppo_shared_cash_v6_payload())
+
+    with pytest.raises(ValueError, match="historical and read-only"):
+        bootstrap_canonical_m2_study(config_path, tmp_path / "old-bootstrap")
+
+    assert not (tmp_path / "old-bootstrap").exists()
 
 
 def test_v5_rejects_final_start_at_dataset_stop_before_bootstrap(
@@ -310,12 +350,12 @@ def test_v5_context_cannot_consume_evidence_after_final_start(
         load_canonical_m2_bootstrap_config(_write_config(tmp_path, payload))
 
 
-def test_v6_bootstrap_binds_shared_cash_selection_before_training(
+def test_v7_bootstrap_binds_ohlc_stress_selection_before_training(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_v4_fakes(monkeypatch)
-    config_path = _write_config(tmp_path, _ppo_shared_cash_v6_payload())
+    config_path = _write_config(tmp_path, _ppo_shared_cash_v7_payload())
     output = tmp_path / "canonical-ppo-shared-cash"
 
     result = bootstrap_canonical_m2_study(config_path, output)
@@ -323,8 +363,8 @@ def test_v6_bootstrap_binds_shared_cash_selection_before_training(
     snapshot = inspect_study(output / "study")
     assert snapshot.baseline is None
     assert snapshot.experiment_sequences == ()
-    assert snapshot.plan.schema_version == "controlled_study_plan_v6"
-    assert snapshot.plan.protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+    assert snapshot.plan.schema_version == "controlled_study_plan_v7"
+    assert snapshot.plan.protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
     assert snapshot.plan.is_ppo_shared_cash_holding_duration_study
     assert snapshot.plan.final_evaluation_start == "2024-03-01T04:00:00.000000000"
     assert (

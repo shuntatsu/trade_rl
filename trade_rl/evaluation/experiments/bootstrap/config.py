@@ -41,6 +41,7 @@ _SCHEMA_VERSION_V3 = "canonical_m2_bootstrap_config_v3"
 _SCHEMA_VERSION_V4 = "canonical_m2_bootstrap_config_v4"
 _SCHEMA_VERSION_V5 = "canonical_m2_bootstrap_config_v5"
 _SCHEMA_VERSION_V6 = "canonical_m2_bootstrap_config_v6"
+_SCHEMA_VERSION_V7 = "canonical_m2_bootstrap_config_v7"
 _TOP_LEVEL_KEYS_V1 = frozenset(
     {
         "schema_version",
@@ -66,6 +67,7 @@ _TOP_LEVEL_KEYS_V3 = frozenset(
 _TOP_LEVEL_KEYS_V4 = frozenset((*_TOP_LEVEL_KEYS_V3, "research_context"))
 _TOP_LEVEL_KEYS_V5 = frozenset((*_TOP_LEVEL_KEYS_V4, "study_protocol"))
 _TOP_LEVEL_KEYS_V6 = _TOP_LEVEL_KEYS_V5
+_TOP_LEVEL_KEYS_V7 = _TOP_LEVEL_KEYS_V6
 _BASELINE_FIELDS = (
     "signal_name",
     "feature_names",
@@ -277,6 +279,7 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V4,
             _SCHEMA_VERSION_V5,
             _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
         }:
             raise ValueError("schema_version does not match canonical M2 contract")
         if self.schema_version == _SCHEMA_VERSION_V1:
@@ -321,7 +324,11 @@ class CanonicalM2BootstrapConfig:
                 raise ValueError("v4 bootstrap config requires final evaluation window")
             if not isinstance(self.research_context, StudyResearchContext):
                 raise ValueError("v4 bootstrap config requires research_context")
-        elif self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+        elif self.schema_version in {
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
+        }:
             if self.execution_economics is None:
                 raise ValueError("v5 bootstrap config requires execution_economics")
             if (
@@ -332,7 +339,9 @@ class CanonicalM2BootstrapConfig:
             if not isinstance(self.research_context, StudyResearchContext):
                 raise ValueError("v5 bootstrap config requires research_context")
             required_protocol = (
-                StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
+                if self.schema_version == _SCHEMA_VERSION_V7
+                else StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
                 if self.schema_version == _SCHEMA_VERSION_V6
                 else StudyProtocol.PPO_HOLDING_DURATION
             )
@@ -341,10 +350,11 @@ class CanonicalM2BootstrapConfig:
                     f"{self.schema_version} bootstrap config requires its matching PPO protocol"
                 )
         if (
-            self.schema_version not in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+            self.schema_version
+            not in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6, _SCHEMA_VERSION_V7}
             and self.study_protocol is not None
         ):
-            raise ValueError("study_protocol requires v5 or v6 bootstrap config")
+            raise ValueError("study_protocol requires v5, v6, or v7 bootstrap config")
         if self.execution_economics is not None and not isinstance(
             self.execution_economics, ExecutionEconomicsProfile
         ):
@@ -403,6 +413,7 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V4,
             _SCHEMA_VERSION_V5,
             _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
         }:
             assert self.final_evaluation_start is not None
             assert self.final_evaluation_stop_exclusive is not None
@@ -425,12 +436,14 @@ class CanonicalM2BootstrapConfig:
                 timeframes=timeframes,
             )
             if final_start < data_stop or (
-                self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                self.schema_version
+                in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6, _SCHEMA_VERSION_V7}
                 and final_start == data_stop
             ):
                 raise ValueError(
                     "final_evaluation_start must be strictly later than data_stop_exclusive"
-                    if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                    if self.schema_version
+                    in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6, _SCHEMA_VERSION_V7}
                     else "final_evaluation_start must not precede data_stop_exclusive"
                 )
             if final_stop <= final_start:
@@ -443,6 +456,7 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V4,
             _SCHEMA_VERSION_V5,
             _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
         }:
             assert research_context is not None
             assert final_start is not None
@@ -497,6 +511,7 @@ class CanonicalM2BootstrapConfig:
         if self.study_protocol in {
             StudyProtocol.PPO_HOLDING_DURATION,
             StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
         }:
             risk = self.baseline.pretrade_risk_config
             if base_timeframe != "1h":
@@ -516,7 +531,11 @@ class CanonicalM2BootstrapConfig:
                     "bootstrap config violates the PPO holding-duration protocol"
                 )
             if (
-                self.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                self.study_protocol
+                in {
+                    StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+                    StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
+                }
                 and self.baseline.initial_capital != PPO_SHARED_CASH_INITIAL_CAPITAL
             ):
                 raise ValueError(
@@ -555,7 +574,8 @@ class CanonicalM2BootstrapConfig:
                     name: self.baseline.to_json_payload()[name]
                     for name in _BASELINE_FIELDS_V5
                 }
-                if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+                if self.schema_version
+                in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6, _SCHEMA_VERSION_V7}
                 else _baseline_payload(self.baseline)
             ),
             "ppo_seeds": list(self.ppo_seeds),
@@ -571,6 +591,7 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V4,
             _SCHEMA_VERSION_V5,
             _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
         }:
             assert self.final_evaluation_start is not None
             assert self.final_evaluation_stop_exclusive is not None
@@ -584,10 +605,15 @@ class CanonicalM2BootstrapConfig:
             _SCHEMA_VERSION_V4,
             _SCHEMA_VERSION_V5,
             _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
         }:
             assert self.research_context is not None
             payload["research_context"] = self.research_context.to_payload()
-        if self.schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+        if self.schema_version in {
+            _SCHEMA_VERSION_V5,
+            _SCHEMA_VERSION_V6,
+            _SCHEMA_VERSION_V7,
+        }:
             assert self.study_protocol is not None
             payload["study_protocol"] = self.study_protocol.value
         return payload
@@ -647,9 +673,15 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
         research_context = StudyResearchContext.from_payload(
             raw.get("research_context")
         )
-    elif schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}:
+    elif schema_version in {
+        _SCHEMA_VERSION_V5,
+        _SCHEMA_VERSION_V6,
+        _SCHEMA_VERSION_V7,
+    }:
         expected_keys = (
-            _TOP_LEVEL_KEYS_V6
+            _TOP_LEVEL_KEYS_V7
+            if schema_version == _SCHEMA_VERSION_V7
+            else _TOP_LEVEL_KEYS_V6
             if schema_version == _SCHEMA_VERSION_V6
             else _TOP_LEVEL_KEYS_V5
         )
@@ -712,7 +744,8 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
     baseline_raw = _require_mapping(raw.get("baseline"), field="baseline")
     baseline_fields = (
         _BASELINE_FIELDS_V5
-        if schema_version in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6}
+        if schema_version
+        in {_SCHEMA_VERSION_V5, _SCHEMA_VERSION_V6, _SCHEMA_VERSION_V7}
         else frozenset(_BASELINE_FIELDS)
     )
     _expect_exact_keys(baseline_raw, baseline_fields, field="baseline")

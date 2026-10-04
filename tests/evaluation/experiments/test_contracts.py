@@ -23,6 +23,7 @@ from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_RISK_CONFIG,
     PPO_HOLDING_DURATION_SELECTION_RULE,
     PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE,
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
@@ -84,6 +85,96 @@ def test_shared_cash_selection_rule_names_ohlc_drawdown_stress() -> None:
     assert "realized maximum drawdown" not in (
         PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
     )
+
+
+def test_historical_v6_shared_cash_plan_keeps_realized_drawdown_semantics() -> None:
+    from trade_rl.evaluation.experiments.codec import _study_plan_from_payload
+
+    baseline = replace(
+        resolved_config(ppo_seed=0),
+        schema_version="resolved_run_config_v5",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_minimum_hold_bars=0,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=PPO_HOLDING_DURATION_RISK_CONFIG,
+    )
+    context = StudyResearchContext.from_payload(
+        {
+            "schema_version": "study_research_context_v1",
+            "parent_context_digests": [],
+            "consumed_evidence": [],
+        }
+    )
+    plan = StudyPlan(
+        research_question=(
+            "Does a shared-cash PPO holding treatment improve returns?\n\n"
+            + PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE
+        ),
+        dataset_id="a" * 64,
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="b" * 64,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        baseline_config=baseline,
+        ppo_seeds=(0, 1, 2, 3, 4),
+        allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+        max_experiments=4,
+        n_bootstrap=1_000,
+        bootstrap_seed=7,
+        implementation_digest="c" * 64,
+        runtime_environment_digest="d" * 64,
+        final_evaluation_start="2026-03-01T00:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        research_context=context,
+        schema_version="controlled_study_plan_v6",
+        protocol=StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+    )
+
+    restored = _study_plan_from_payload(plan.to_payload())
+
+    assert restored.schema_version == "controlled_study_plan_v6"
+    assert restored.protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+    assert restored.shared_cash_ledger_schema == "shared_cash_replay_ledger_v3"
+    assert restored.digest == plan.digest
+    assert "realized maximum drawdown" in restored.research_question
+
+
+def test_v7_shared_cash_plan_binds_ohlc_stress_protocol() -> None:
+    baseline = replace(
+        resolved_config(ppo_seed=0),
+        schema_version="resolved_run_config_v5",
+        ppo_observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        ppo_minimum_hold_bars=0,
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=PPO_HOLDING_DURATION_RISK_CONFIG,
+    )
+    context = StudyResearchContext.from_payload(
+        {
+            "schema_version": "study_research_context_v1",
+            "parent_context_digests": [],
+            "consumed_evidence": [],
+        }
+    )
+
+    plan = study_plan(
+        research_question=(
+            "Compare shared-cash PPO holding durations.\n\n"
+            + PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+        ),
+        baseline_config=baseline,
+        ppo_seeds=(0, 1, 2, 3, 4),
+        allowed_factors=(ControlledFactor.PPO_MINIMUM_HOLD,),
+        max_experiments=4,
+        final_evaluation_start="2026-03-01T00:00:00.000000000",
+        final_evaluation_stop_exclusive="2026-04-01T00:00:00.000000000",
+        research_context=context,
+        protocol=StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
+        schema_version="controlled_study_plan_v7",
+    )
+
+    assert plan.schema_version == "controlled_study_plan_v7"
+    assert plan.is_ppo_shared_cash_holding_duration_study
+    assert plan.shared_cash_ledger_schema == "shared_cash_replay_ledger_v4"
+    assert plan.to_payload()["protocol"] == "ppo_shared_cash_holding_duration_v3"
 
 
 def test_resolved_run_config_is_frozen_and_digest_stable() -> None:

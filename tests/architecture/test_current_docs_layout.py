@@ -351,12 +351,16 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "controlled_study_plan_v4",
         "controlled_study_plan_v5",
         "controlled_study_plan_v6",
+        "controlled_study_plan_v7",
         "ppo_holding_duration_v1",
         "ppo_shared_cash_holding_duration_v2",
+        "ppo_shared_cash_holding_duration_v3",
         "canonical_m2_bootstrap_config_v4",
         "canonical_m2_bootstrap_config_v5",
         "canonical_m2_bootstrap_config_v6",
+        "canonical_m2_bootstrap_config_v7",
         "controlled_evidence_comparison_v4",
+        "controlled_evidence_comparison_v5",
     ):
         assert required in contract
 
@@ -382,9 +386,11 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
         "canonical_m2_bootstrap_config_v4",
         "canonical_m2_bootstrap_config_v5",
         "canonical_m2_bootstrap_config_v6",
+        "canonical_m2_bootstrap_config_v7",
         "controlled_study_plan_v3",
         "controlled_study_plan_v5",
         "controlled_study_plan_v6",
+        "controlled_study_plan_v7",
         "StudyResearchContext",
         "authorization時のcallerはwindowを選択できない",
         "legacy Study",
@@ -405,13 +411,17 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "canonical_m2_bootstrap_config_v4" in controlled_loop
     assert "canonical_m2_bootstrap_config_v5" in controlled_loop
     assert "canonical_m2_bootstrap_config_v6" in controlled_loop
+    assert "canonical_m2_bootstrap_config_v7" in controlled_loop
     assert "controlled_study_plan_v3" in controlled_loop
     assert "controlled_study_plan_v4" in controlled_loop
     assert "controlled_study_plan_v5" in controlled_loop
     assert "controlled_study_plan_v6" in controlled_loop
+    assert "controlled_study_plan_v7" in controlled_loop
     assert "ppo_holding_duration_v1" in controlled_loop
     assert "ppo_shared_cash_holding_duration_v2" in controlled_loop
+    assert "ppo_shared_cash_holding_duration_v3" in controlled_loop
     assert "controlled_evidence_comparison_v4" in controlled_loop
+    assert "controlled_evidence_comparison_v5" in controlled_loop
     assert "historical bootstrap v3" in controlled_loop
 
     research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
@@ -420,33 +430,35 @@ def test_final_evaluation_authorization_is_durable_current_architecture() -> Non
     assert "canonical_m2_bootstrap_config_v4" in research
     assert "canonical_m2_bootstrap_config_v5" in research
     assert "canonical_m2_bootstrap_config_v6" in research
+    assert "canonical_m2_bootstrap_config_v7" in research
     assert "controlled_study_plan_v3" in research
     assert "controlled_study_plan_v4" in research
     assert "controlled_study_plan_v5" in research
     assert "controlled_study_plan_v6" in research
+    assert "controlled_study_plan_v7" in research
     assert "ppo_holding_duration_v1" in research
     assert "ppo_shared_cash_holding_duration_v2" in research
+    assert "ppo_shared_cash_holding_duration_v3" in research
     assert "one 100,000 USDT account shared" in research
     assert "Candidate Run schema" in research
-    assert "v8 persists" in research
-    assert "complete per-interval shared-cash ledger" in research
+    assert "Candidate Run v11 with ledger v4" in research
+    assert "combined portfolio return series" in research
+    assert "ordered accounting transitions" in research
     assert "independently hand-calculated multi-symbol" in research
     assert "StudyResearchContext" in research
-    assert "既存artifactは当時の意味を維持" in research
+    assert "inspection with its historical realized-drawdown rule" in (
+        " ".join(research.split())
+    )
 
     guide_status = (
         ROOT / "guide" / "content" / "pages" / "research-status.md"
     ).read_text(encoding="utf-8")
     assert "100,000 USDT" in guide_status
     assert "個別銘柄リターンの平均ではなく" in guide_status
-    assert "各時間帯の約定・保有・リスク判断を完全な記録として保存" in guide_status
-    assert "学習と評価の売買判断を同じ市場データで照合するテスト" in guide_status
-    assert "複数銘柄を扱う時の資金・費用計算を手計算で照合するテスト" in guide_status
-    assert (
-        "G2は新しい実装へのfresh independent result-blind reviewと関連contract checksが終わるまで未確立です。"
-        in guide_status
-    )
-    assert "台帳に実際に適用した数量差分" in guide_status
+    assert "ppo_shared_cash_holding_duration_v3" in guide_status
+    assert "OHLC stressはバー内の価格順序を再現せず" in guide_status
+    assert "fresh G0-G2 reviewが未完了" in guide_status
+    assert "将来の利益を保証しません" in guide_status
 
 
 def test_v11_shared_cash_accounting_contract_is_documented() -> None:
@@ -494,6 +506,9 @@ def test_v11_shared_cash_accounting_contract_is_documented() -> None:
 
 
 def test_v11_shared_cash_drawdown_uses_conservative_ohlc_stress() -> None:
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
     lean_core = (DOCS / "architecture" / "lean-core.md").read_text(encoding="utf-8")
     current_status = (DOCS / "research" / "current-status.md").read_text(
         encoding="utf-8"
@@ -513,9 +528,27 @@ def test_v11_shared_cash_drawdown_uses_conservative_ohlc_stress() -> None:
     assert "25% OHLC stress drawdown when interval returns imply only 10%" in (
         current_status
     )
-    assert "Ordinary single-symbol replay does not apply the" in current_status
+    assert "Training and ordinary single-symbol replay use a different risk path" in (
+        current_status
+    )
+    assert "updates shared-account drawdown state" in research_assurance
     assert "OHLC does not reveal the intrabar price order" in research_assurance
-    assert "実現経路の再現ではなく、保守的な価格幅のstress" in guide_status
+    assert "OHLC stressはバー内の価格順序を再現せず" in guide_status
+    assert "single-symbolのrisk path" in guide_status
+    assert "comparison v5はOHLC-stressを保存したledger v4を要求し" in controlled_loop
+    assert "historical v2ならledger v3" in controlled_loop
+    assert (
+        "v2 EvidenceSetの再構築ではStudyPlanに対応する非stress ledger v3を要求する"
+        in (controlled_loop)
+    )
+    assert (
+        "v2 StudyPlan requires ledger v3 when existing EvidenceSets are reloaded"
+        in (research_assurance)
+    )
+    assert "Comparison v5 requires OHLC-stress ledger v4" in current_status
+    assert "comparison v4 reconstruction accept only non-stress ledger v3" in (
+        current_status
+    )
 
 
 def test_research_assurance_is_durable_current_architecture() -> None:
@@ -587,6 +620,10 @@ def test_research_assurance_is_durable_current_architecture() -> None:
         "canonical_m2_bootstrap_config_v5",
         "canonical_m2_bootstrap_config_v6",
         "controlled_study_plan_v6",
+        "canonical_m2_bootstrap_config_v7",
+        "controlled_study_plan_v7",
+        "ppo_shared_cash_holding_duration_v2",
+        "ppo_shared_cash_holding_duration_v3",
     ):
         assert required in contract
 
@@ -638,7 +675,7 @@ def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> N
     assert "paired improvement alone can still leave an arm loss-making" in (
         " ".join(current_status.split()).lower()
     )
-    assert "canonical v6 bootstrap passed network-free inspection" in (
+    assert "canonical v6 packet is read-only and passes network-free inspection" in (
         " ".join(current_status.split()).lower()
     )
     assert "8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464" in (
@@ -651,10 +688,13 @@ def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> N
         current_status
     )
     current_status_flat = " ".join(current_status.split()).lower()
-    assert "baseline-only `run_baseline` invocation started" in current_status_flat
+    assert "baseline-only `run_baseline` process started" in current_status_flat
     assert "stopped because fresh g0-g2 review is incomplete" in current_status_flat
-    assert "outputs remain uninspected" in current_status_flat
-    assert "no candidate run has been performed" in current_status_flat
+    assert (
+        "no output or result from that invocation has been inspected"
+        in current_status_flat
+    )
+    assert "no candidate comparison" in current_status_flat
     assert "median absolute candidate " in study_contract
     assert (
         "portfolio return is positive, and median paired total-return improvement"
@@ -665,14 +705,17 @@ def test_shared_cash_holding_selector_and_operational_target_are_explicit() -> N
         "research-only diagnostic and does not change the operational target"
         in lean_core
     )
-    assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_status
-    assert "candidateのseed中央値returnが正" in guide_status
-    assert "paired return中央値も正" in guide_status
-    rationale_ja = "H=0を上回っても、候補が損失のままなら利益目標は満たしません"
-    assert rationale_ja in guide_status
-    assert "candidateのseed中央値returnが正" in guide_experiment_loop
-    assert "paired return中央値も正" in guide_experiment_loop
-    assert rationale_ja in guide_experiment_loop
+    assert "実運用の「1銘柄ずつ独立account」は変わりません" in guide_status
+    assert (
+        "candidateのseed中央値returnとH=0比のpaired return中央値が両方プラス"
+        in guide_status
+    )
+    assert "OHLC高値安値stress DD 20%以下" in guide_status
+    assert (
+        "candidateのseed中央値returnとH=0比のpaired return中央値が両方プラス"
+        in guide_experiment_loop
+    )
+    assert "OHLC高値安値stress DD 20%以下" in guide_experiment_loop
     assert "実運用の「1銘柄ずつ独立account」は変えません" in guide_experiment_loop
 
 

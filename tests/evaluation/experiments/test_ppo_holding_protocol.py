@@ -34,6 +34,8 @@ from trade_rl.evaluation.experiments import (
     verify_experiment,
 )
 from trade_rl.evaluation.experiments.contracts import (
+    PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE,
     StudyOutcome,
     StudyResearchContext,
 )
@@ -138,13 +140,13 @@ def _holding_study(
     publish_market_dataset_artifact(dataset_root, dataset)
     execute = (
         _fake_shared_cash_execute()
-        if protocol == "ppo_shared_cash_holding_duration_v2"
+        if protocol == "ppo_shared_cash_holding_duration_v3"
         else _fake_execute()
     )
     monkeypatch.setattr(evidence_module, "execute_candidate_run", execute)
     root = tmp_path / "study"
     baseline_config = _holding_config()
-    if protocol == "ppo_shared_cash_holding_duration_v2":
+    if protocol == "ppo_shared_cash_holding_duration_v3":
         baseline_config = replace(baseline_config, initial_capital=100_000.0)
     snapshot = create_study(
         root,
@@ -167,6 +169,20 @@ def _holding_baseline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     baseline = run_baseline(root, dataset_root=dataset_root)
     assert baseline.baseline is not None
     return root, dataset_root, baseline
+
+
+def _rewrite_as_historical_shared_cash_v2(root: Path, snapshot) -> None:
+    current_rule = PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+    assert snapshot.plan.research_question.endswith(current_rule)
+    payload = snapshot.plan.to_payload()
+    payload["schema_version"] = "controlled_study_plan_v6"
+    payload["protocol"] = "ppo_shared_cash_holding_duration_v2"
+    payload["research_question"] = payload["research_question"][: -len(current_rule)]
+    payload["research_question"] += PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE
+    (root / "plan.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_legacy_holding_protocol_reloads_observation_v3_shared_cash_evidence(
@@ -265,19 +281,69 @@ def test_shared_cash_holding_protocol_is_bound_to_a_separate_plan_schema(
     _, _, snapshot = _holding_study(
         tmp_path,
         monkeypatch,
-        protocol="ppo_shared_cash_holding_duration_v2",
+        protocol="ppo_shared_cash_holding_duration_v3",
     )
 
-    assert snapshot.plan.schema_version == "controlled_study_plan_v6"
-    assert snapshot.plan.protocol.value == "ppo_shared_cash_holding_duration_v2"
+    assert snapshot.plan.schema_version == "controlled_study_plan_v7"
+    assert snapshot.plan.protocol.value == "ppo_shared_cash_holding_duration_v3"
     assert snapshot.plan.is_ppo_holding_duration_study
     assert snapshot.plan.is_ppo_shared_cash_holding_duration_study
     assert snapshot.plan.to_payload()["protocol"] == (
-        "ppo_shared_cash_holding_duration_v2"
+        "ppo_shared_cash_holding_duration_v3"
     )
     assert "do not average independent per-symbol accounts" in (
         snapshot.plan.research_question
     )
+
+
+def test_historical_shared_cash_protocol_cannot_create_a_new_study(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ContractViolationError, match="historical and read-only"):
+        _holding_study(
+            tmp_path,
+            monkeypatch,
+            protocol="ppo_shared_cash_holding_duration_v2",
+        )
+
+    assert not (tmp_path / "study" / "plan.json").exists()
+
+
+def test_historical_shared_cash_study_cannot_start_baseline_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, dataset_root, snapshot = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v3",
+    )
+    _rewrite_as_historical_shared_cash_v2(root, snapshot)
+
+    with pytest.raises(ContractViolationError, match="read-only"):
+        run_baseline(root, dataset_root=dataset_root)
+
+    assert not (root / "baseline").exists()
+
+
+def test_historical_shared_cash_reload_rejects_ohlc_stress_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, dataset_root, snapshot = _holding_study(
+        tmp_path,
+        monkeypatch,
+        protocol="ppo_shared_cash_holding_duration_v3",
+    )
+    run_baseline(root, dataset_root=dataset_root)
+    _rewrite_as_historical_shared_cash_v2(root, snapshot)
+
+    with pytest.raises(
+        ArtifactIntegrityError,
+        match="shared-cash ledger schema does not match Study protocol",
+    ):
+        inspect_study(root, dataset_root=dataset_root)
 
 
 def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
@@ -289,7 +355,7 @@ def test_shared_cash_evidence_publication_fails_closed_on_source_binding_error(
     root, dataset_root, _ = _holding_study(
         tmp_path,
         monkeypatch,
-        protocol="ppo_shared_cash_holding_duration_v2",
+        protocol="ppo_shared_cash_holding_duration_v3",
     )
     calls = 0
 
@@ -348,7 +414,7 @@ def test_shared_cash_study_reload_revalidates_resealed_borrow_overlay_binding(
     root, dataset_root, _ = _holding_study(
         tmp_path,
         monkeypatch,
-        protocol="ppo_shared_cash_holding_duration_v2",
+        protocol="ppo_shared_cash_holding_duration_v3",
     )
     run_baseline(root, dataset_root=dataset_root)
 
@@ -548,7 +614,7 @@ def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
     root, dataset_root, plan = _holding_study(
         tmp_path,
         monkeypatch,
-        protocol="ppo_shared_cash_holding_duration_v2",
+        protocol="ppo_shared_cash_holding_duration_v3",
     )
     baseline = run_baseline(root, dataset_root=dataset_root)
     assert baseline.baseline is not None
@@ -560,7 +626,7 @@ def test_shared_cash_protocol_completes_comparison_decision_and_freeze(
         assert verification.status.value == "CONTROLLED"
         comparison = compare_experiment(root, sequence)
         assert comparison.to_payload()["factor_effect"]["schema_version"] == (
-            "controlled_evidence_comparison_v4"
+            "controlled_evidence_comparison_v5"
         )
         decision = decide_experiment(
             root,

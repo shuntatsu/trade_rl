@@ -17,6 +17,7 @@ from trade_rl.data import (
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
     PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
     analyze_evidence_set,
     compare_evidence_sets,
 )
@@ -193,6 +194,11 @@ def _build_evidence_node(
 def _assert_mutable(state: _StudyState) -> None:
     if state.frozen is not None:
         raise StudyFrozenError("Study is frozen and cannot be mutated")
+    if state.plan.protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION:
+        raise ContractViolationError(
+            "historical shared-cash protocol v2 is read-only; economic evaluation "
+            "is disabled"
+        )
 
 
 def create_study(
@@ -225,9 +231,15 @@ def create_study(
                 resolved_protocol = StudyProtocol(protocol)
             except (TypeError, ValueError) as error:
                 raise ContractViolationError("unsupported Study protocol") from error
+        if resolved_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION:
+            raise ContractViolationError(
+                "shared-cash protocol v2 is historical and read-only; create a v3 "
+                "OHLC-stress Study"
+            )
         if resolved_protocol in {
             StudyProtocol.PPO_HOLDING_DURATION,
             StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
         } and (
             final_evaluation_start is None
             or final_evaluation_stop_exclusive is None
@@ -254,8 +266,9 @@ def create_study(
         provenance = build_candidate_run_provenance()
         if resolved_protocol is not None:
             plan_schema = (
-                "controlled_study_plan_v6"
-                if resolved_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                "controlled_study_plan_v7"
+                if resolved_protocol
+                is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
                 else "controlled_study_plan_v5"
             )
         elif research_context is not None:
@@ -271,6 +284,7 @@ def create_study(
         if resolved_protocol in {
             StudyProtocol.PPO_HOLDING_DURATION,
             StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+            StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
         }:
             if (
                 not isinstance(resolved_research_question, str)
@@ -280,7 +294,8 @@ def create_study(
             resolved_research_question = resolved_research_question.strip()
             selection_rule = (
                 PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
-                if resolved_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+                if resolved_protocol
+                is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
                 else PPO_HOLDING_DURATION_SELECTION_RULE
             )
             if not resolved_research_question.endswith(selection_rule):
@@ -565,7 +580,9 @@ def compare_experiment(
             state, experiment.definition.baseline_evidence_digest
         )
         expected_schema = (
-            PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+            PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+            if state.plan.uses_ohlc_drawdown_stress
+            else PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
             if state.plan.is_ppo_shared_cash_holding_duration_study
             else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
             if state.plan.is_ppo_holding_duration_study

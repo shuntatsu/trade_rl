@@ -9,6 +9,7 @@ from trade_rl.data import MarketDataset
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
     PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
     compare_evidence_sets,
 )
 from trade_rl.evaluation.experiments.codec import (
@@ -120,6 +121,7 @@ def _load_evidence_node(
     expected_dataset_artifact_digest: str | None,
     expected_execution_overlay: str | None,
     require_shared_cash_source_binding: bool,
+    expected_shared_cash_ledger_schema: str | None,
 ) -> tuple[LoadedEvidenceSet, _AnalysisBinding]:
     root = store.root / relative
     if root.is_symlink() or not root.is_dir():
@@ -139,6 +141,7 @@ def _load_evidence_node(
             expected_dataset_artifact_digest=expected_dataset_artifact_digest,
             expected_execution_overlay=expected_execution_overlay,
             require_shared_cash_source_binding=require_shared_cash_source_binding,
+            expected_shared_cash_ledger_schema=(expected_shared_cash_ledger_schema),
         )
     except (ArtifactIntegrityError, ValueError) as error:
         raise ArtifactIntegrityError(
@@ -255,6 +258,7 @@ def _reconstruct(
             require_shared_cash_source_binding=(
                 plan.is_ppo_shared_cash_holding_duration_study
             ),
+            expected_shared_cash_ledger_schema=plan.shared_cash_ledger_schema,
         )
         if _semantic_payload_without_seed(
             baseline.semantic_config
@@ -338,6 +342,7 @@ def _reconstruct(
                 require_shared_cash_source_binding=(
                     plan.is_ppo_shared_cash_holding_duration_study
                 ),
+                expected_shared_cash_ledger_schema=plan.shared_cash_ledger_schema,
             )
             if _semantic_payload_without_seed(
                 candidate.semantic_config
@@ -417,7 +422,9 @@ def _reconstruct(
                 field="factor-effect schema_version",
             )
             expected_factor_effect_schema = (
-                PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+                PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+                if plan.uses_ohlc_drawdown_stress
+                else PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
                 if plan.is_ppo_shared_cash_holding_duration_study
                 else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
                 if plan.is_ppo_holding_duration_study
@@ -425,7 +432,9 @@ def _reconstruct(
             )
             if factor_effect_schema != expected_factor_effect_schema:
                 required_schema = (
-                    "schema v4"
+                    "schema v5"
+                    if plan.uses_ohlc_drawdown_stress
+                    else "schema v4"
                     if plan.is_ppo_shared_cash_holding_duration_study
                     else "schema v3"
                 )

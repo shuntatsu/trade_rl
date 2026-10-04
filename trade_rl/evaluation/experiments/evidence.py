@@ -334,6 +334,7 @@ def _candidate_shared_cash_ledger(
     *,
     dataset: MarketDataset,
     expected_dataset_artifact_digest: str,
+    expected_shared_cash_ledger_schema: str | None = None,
 ) -> Mapping[str, object]:
     """Validate the identities and schema needed to bind candidate prices."""
     try:
@@ -367,6 +368,13 @@ def _candidate_shared_cash_ledger(
         "shared_cash_replay_ledger_v4",
     }:
         raise ArtifactIntegrityError("candidate source ledger schema is unsupported")
+    if (
+        expected_shared_cash_ledger_schema is not None
+        and ledger_schema != expected_shared_cash_ledger_schema
+    ):
+        raise ArtifactIntegrityError(
+            "shared-cash ledger schema does not match Study protocol"
+        )
     ledger = ledger_evidence.get("payload")
     if not isinstance(ledger, Mapping):
         raise ArtifactIntegrityError("candidate source ledger payload is invalid")
@@ -1124,12 +1132,14 @@ def _validate_shared_cash_candidate_source_binding(
     dataset: MarketDataset,
     expected_dataset_artifact_digest: str,
     expected_execution_overlay: str | None = None,
+    expected_shared_cash_ledger_schema: str | None = None,
 ) -> None:
     """Bind shared-cash accounting evidence to a content-verified Dataset."""
     ledger = _candidate_shared_cash_ledger(
         candidate_summary,
         dataset=dataset,
         expected_dataset_artifact_digest=expected_dataset_artifact_digest,
+        expected_shared_cash_ledger_schema=expected_shared_cash_ledger_schema,
     )
     evaluation = candidate_summary.get("evaluation")
     execution_overlay = (
@@ -1379,6 +1389,7 @@ def execute_evidence_set(
                     dataset=dataset,
                     expected_dataset_artifact_digest=artifact.artifact_digest,
                     expected_execution_overlay=(plan.baseline_config.execution_overlay),
+                    expected_shared_cash_ledger_schema=(plan.shared_cash_ledger_schema),
                 )
             identity = inspect_candidate_run_artifact(run_root)
             loaded_runs[seed] = loaded
@@ -1499,8 +1510,26 @@ def load_evidence_set(
     expected_dataset_artifact_digest: str | None = None,
     expected_execution_overlay: str | None = None,
     require_shared_cash_source_binding: bool = False,
+    expected_shared_cash_ledger_schema: str | None = None,
 ) -> LoadedEvidenceSet:
     """Load and re-verify one EvidenceSet, including its shared-cash source."""
+
+    if expected_shared_cash_ledger_schema is not None and (
+        expected_shared_cash_ledger_schema
+        not in {
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        }
+    ):
+        raise ArtifactIntegrityError(
+            "expected shared-cash ledger schema is unsupported"
+        )
+    if expected_shared_cash_ledger_schema is not None and (
+        not require_shared_cash_source_binding
+    ):
+        raise ArtifactIntegrityError(
+            "expected shared-cash ledger schema requires source binding"
+        )
 
     evidence_root = Path(root)
     if evidence_root.is_symlink() or not evidence_root.is_dir():
@@ -1561,6 +1590,7 @@ def load_evidence_set(
                 dataset=dataset,
                 expected_dataset_artifact_digest=expected_dataset_artifact_digest,
                 expected_execution_overlay=expected_execution_overlay,
+                expected_shared_cash_ledger_schema=(expected_shared_cash_ledger_schema),
             )
         runs[seed] = loaded
 

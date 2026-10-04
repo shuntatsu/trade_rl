@@ -40,6 +40,7 @@ LEGACY_SCHEMA = "controlled_evidence_comparison_v1"
 CURRENT_SCHEMA = "controlled_evidence_comparison_v2"
 HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v3"
 SHARED_CASH_HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v4"
+OHLC_SHARED_CASH_HOLDING_PROTOCOL_SCHEMA = "controlled_evidence_comparison_v5"
 
 
 def _with_shared_cash_portfolio(
@@ -47,6 +48,7 @@ def _with_shared_cash_portfolio(
     values: tuple[float, ...],
     *,
     settled: bool = True,
+    ledger_schema: str = "shared_cash_replay_ledger_v3",
 ) -> LoadedCandidateRun:
     summary = to_json_value(run.summary)
     assert isinstance(summary, dict)
@@ -70,7 +72,7 @@ def _with_shared_cash_portfolio(
         "terminal_settlement_complete": settled,
         "ledger_evidence": {
             "payload": {
-                "schema_version": "shared_cash_replay_ledger_v3",
+                "schema_version": ledger_schema,
                 "final_max_drawdown": maximum_drawdown,
             }
         },
@@ -455,6 +457,50 @@ def test_shared_cash_protocol_compares_combined_portfolio_per_seed() -> None:
     assert metrics.median_excess_return == pytest.approx(0.01)
     assert metrics.worst_max_drawdown == pytest.approx(0.30)
     assert not metrics.eligible
+
+
+@pytest.mark.parametrize(
+    ("comparison_schema", "ledger_schema"),
+    (
+        (
+            SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+            "shared_cash_replay_ledger_v4",
+        ),
+        (
+            OHLC_SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+            "shared_cash_replay_ledger_v3",
+        ),
+    ),
+)
+def test_shared_cash_comparison_requires_ledger_bound_to_drawdown_semantics(
+    comparison_schema: str,
+    ledger_schema: str,
+) -> None:
+    baseline = {
+        seed: _with_shared_cash_portfolio(
+            _run(seed),
+            (0.0, 0.0, 0.0, 0.0),
+            ledger_schema=ledger_schema,
+        )
+        for seed in (0, 1)
+    }
+    candidate = {
+        seed: _with_shared_cash_portfolio(
+            _run(seed, candidate_shift=0.01),
+            (0.01, 0.0, 0.0, 0.0),
+            ledger_schema=ledger_schema,
+        )
+        for seed in (0, 1)
+    }
+
+    with pytest.raises(ArtifactIntegrityError, match="ledger schema"):
+        compare_evidence_sets(
+            baseline,
+            candidate,
+            n_bootstrap=8,
+            bootstrap_seed=13,
+            schema_version=comparison_schema,
+        )
 
 
 def test_shared_cash_selector_accepts_exact_twenty_percent_drawdown() -> None:

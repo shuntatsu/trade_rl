@@ -533,3 +533,9 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Net-profit declaration ownership
+
+`evaluation/objectives/{contract.py,clock.py}` はIssue #810の新規研究向けの事業目的、資本分母、終端純利益算術とregular金融時計の宣言を所有する。Tier-2 facade `trade_rl.evaluation.objectives` は `CapitalContract`、`ObjectiveContract`、`FinancialClockContract`、`net_equity_increment` をwrapperなしで公開する。Tier-1 `trade_rl.evaluation` の公開面は拡張しない。
+
+このcapabilityはstandard library、`_validation`、canonical artifact hashingだけへ依存する。strategy、execution、Run/Study lifecycle、外部認証・ネットワークを呼ばず、第二の台帳や研究実行経路を持たない。下位strategyからevaluationへの逆依存を作らない。将来adapterは検証済みの値を下位constructorへ明示的に渡し、現在のPPO training objectiveやhistorical artifactを置換しない。

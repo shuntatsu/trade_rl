@@ -850,3 +850,13 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Net-profit redesign: initial P0 declarations
+
+Issue #810のP0は、期待終端純利益と訓練surrogateの混同、口座数による資本分母の混同、金融時間を無視したdiscount設定を結果前に反証する。これは新しい研究の宣言capabilityであり、現行Studyの問いや失敗判定を変更しない。
+
+- G0: 同じ資本・risk・情報・執行条件で新規運用方式を比較する。目的は期待終端純利益だが、単一の実現endpointを期待値や将来利益の保証と呼ばない。有効なsignalを消してcashだけ選ぶことも完了証拠にはしない。
+- G1: canonical after-cost equity、固定初期資本、符号付き純入出金、有限UTC期間、決済/継続評価、参照profile/運用recipeを宣言する。複数独立口座の資本総額と共有口座1つの資本を区別する。equity増分とlog reward、business objectiveとdiscount/GAEは別の意味である。
+- G2: `tests/evaluation/objectives/` は独立した終端金額から資本分母・入出金・残債を検算する。等確率の1.20/0.90と確定1.045は期待利益と期待logの順位が逆転する反例。入出金込みの固定分母equity増分が終端値へtelescopingすること、1h/4h decisionの同じ実時間discount、NaN/inf/bool・未知mode・不整合clock・aware境界・identity変更の反例を検査する。
+
+Known limitations: profile digest参照の内容検証、runtime clock/terminal bootstrap、共有口座joint learning、prequential forecasts、account parity、採用selector、正式事前登録・G4 authorizationはこのcapabilityにない。`terminal_profit_aligned` は宣言の代数的整合だけであり、現行PPOや未接続のadapterがそのrewardを実現している証拠ではない。P0全体の通過、新規経済実験の許可、G4/G5は別途source-bound machine evidenceとfresh result-blind reviewを必要とする。

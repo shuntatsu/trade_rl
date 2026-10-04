@@ -606,3 +606,15 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Net-profit objective declarations
+
+Issue #810の新規研究向けに `evaluation/objectives` が事業目的と金融時計を宣言する。既存の独立銘柄口座、PPO log報酬、Run/Study schema、過去の選定基準は変更しない。
+
+`CapitalContract` は独立口座ごとの初期資本、または共有口座1つの初期資本を保持する。`ObjectiveContract.net_profit_rate` は `sum(terminal_equity - initial_equity - signed_net_deposits) / sum(initial_equity)` を計算する。独立口座の単純なリターン平均を共有資金の利益へ変換せず、不等資本では資本加重になる。負の終端equityも残債を含む損失として保持する。金額は同じaccount currencyのcanonical ledgerから渡す。費用をこの計算でもう一度控除しない。
+
+`net_profit_objective_v1` は期間のaware UTC境界、期末決済/継続mark評価、economics/risk/deployment recipeのSHA-256参照、20%以下の研究DD基準、税引前・固定インフラ費別報告・符号付き入出金の意味をidentityへbindする。digest参照はprofile内容の検証や執行の適合性の証明ではない。20%はgapや執行不能時にも守られる損失保証ではない。
+
+`FinancialClockContract` はregular clockのdecision/execution/reward間隔、有限horizon、rollout長、gamma、GAE lambda、reward schemaを明示する。初期契約は1 decisionにつき1 reward、execution刻みへの整合、horizonのdecision刻みへの整合を要求する。時間を揃えたdiscountを比較できるが、rollout切断と経済終端のruntime処理は実装しない。固定初期資本を分母とするequity増分の総和はgamma=1で終端純利益へ一致し、log報酬とは異なる。`terminal_profit_aligned` はこの代数的関係だけを表す。
+
+これらは独立した宣言・算術capabilityであり、既存runner/env/Studyへ接続されていない。共有口座訓練、費用校正、最終評価、研究実行の認可、利益性は証明しない。

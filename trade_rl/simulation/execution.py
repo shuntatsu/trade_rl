@@ -354,6 +354,18 @@ class MarketExecutor:
             ]
             | None
         ) = None
+        self._effective_rule_array_cache_inputs: (
+            tuple[
+                MarketDataset,
+                ExecutionCostConfig,
+                ExecutionRuleStress,
+                MarketOrderProfile | None,
+            ]
+            | None
+        ) = None
+        self._effective_rule_array_cache: dict[
+            int, tuple[np.ndarray, np.ndarray, np.ndarray]
+        ] = {}
         if market_order_profile is not None:
             if type(market_order_profile) is not MarketOrderProfile:
                 raise ValueError(
@@ -367,8 +379,14 @@ class MarketExecutor:
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
 
-    def _base_rule_array(self, field_name: str, *, floor: float) -> np.ndarray:
-        return np.maximum(self.dataset.resolved_array(field_name), floor)
+    def _base_rule_array(
+        self,
+        field_name: str,
+        *,
+        floor: float,
+        index: int,
+    ) -> np.ndarray:
+        return np.maximum(self.dataset.resolved_array(field_name)[index], floor)
 
     def _validate_rule_stress(self) -> None:
         requirements = (
@@ -390,23 +408,33 @@ class MarketExecutor:
                     f"{field_name} must be positive for execution-rule sensitivity"
                 )
 
-    def effective_rule_arrays(
+    def _calculate_effective_rule_arrays(
         self, *, index: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if not 0 <= index < self.dataset.n_bars:
             raise IndexError("execution-rule index is outside the dataset")
         tick = (
-            self._base_rule_array("tick_size", floor=self.cost.tick_size)[index]
+            self._base_rule_array(
+                "tick_size",
+                floor=self.cost.tick_size,
+                index=index,
+            )
             * self.rule_stress.tick_size_factor
         )
         lot = (
-            self._base_rule_array("lot_size", floor=self.cost.lot_size)[index]
+            self._base_rule_array(
+                "lot_size",
+                floor=self.cost.lot_size,
+                index=index,
+            )
             * self.rule_stress.lot_size_factor
         )
         minimum = (
-            self._base_rule_array("minimum_notional", floor=self.cost.minimum_notional)[
-                index
-            ]
+            self._base_rule_array(
+                "minimum_notional",
+                floor=self.cost.minimum_notional,
+                index=index,
+            )
             * self.rule_stress.minimum_notional_factor
         )
         if self.market_order_profile is not None:
@@ -425,6 +453,49 @@ class MarketExecutor:
                     rule.minimum_notional * self.rule_stress.minimum_notional_factor,
                 )
         return tick, lot, minimum
+
+    def _effective_rule_array_views(
+        self, *, index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return read-only rule arrays cached for the internal execution path."""
+
+        if not 0 <= index < self.dataset.n_bars:
+            raise IndexError("execution-rule index is outside the dataset")
+        cache_inputs = (
+            self.dataset,
+            self.cost,
+            self.rule_stress,
+            self.market_order_profile,
+        )
+        previous_inputs = self._effective_rule_array_cache_inputs
+        if previous_inputs is None or any(
+            previous is not current
+            for previous, current in zip(previous_inputs, cache_inputs, strict=True)
+        ):
+            self._effective_rule_array_cache.clear()
+            self._effective_rule_array_cache_inputs = cache_inputs
+
+        cached = self._effective_rule_array_cache.pop(index, None)
+        if cached is not None:
+            self._effective_rule_array_cache[index] = cached
+            return cached
+
+        computed = self._calculate_effective_rule_arrays(index=index)
+        for array in computed:
+            array.setflags(write=False)
+        self._effective_rule_array_cache[index] = computed
+        if len(self._effective_rule_array_cache) > 2:
+            oldest_index = next(iter(self._effective_rule_array_cache))
+            del self._effective_rule_array_cache[oldest_index]
+        return computed
+
+    def effective_rule_arrays(
+        self, *, index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return fresh writable arrays for the requested execution-rule row."""
+
+        tick, lot, minimum = self._effective_rule_array_views(index=index)
+        return tick.copy(), lot.copy(), minimum.copy()
 
     def market_order_rule(self, symbol_index: int) -> MarketOrderRule | None:
         profile = self.market_order_profile
@@ -529,7 +600,7 @@ class MarketExecutor:
         index: int,
         directions: np.ndarray | None = None,
     ) -> np.ndarray:
-        tick, _, _ = self.effective_rule_arrays(index=index)
+        tick, _, _ = self._effective_rule_array_views(index=index)
         rounded = prices.copy()
         mask = tick > 0.0
         scaled = np.zeros_like(rounded)
@@ -554,7 +625,7 @@ class MarketExecutor:
     def _round_quantities(self, quantities: np.ndarray, *, index: int) -> np.ndarray:
         from trade_rl.simulation.quantities import quantize_quantity
 
-        _, lot, _ = self.effective_rule_arrays(index=index)
+        _, lot, _ = self._effective_rule_array_views(index=index)
         return np.array(
             [
                 quantize_quantity(float(quantity), float(step))[0]
@@ -729,7 +800,7 @@ class MarketExecutor:
             self.dataset.resolved_array("sell_allowed")[market_index],
         )
         trade_mask = trade_mask & direction_allowed
-        _, _, minimum_notional = self.effective_rule_arrays(index=market_index)
+        _, _, minimum_notional = self._effective_rule_array_views(index=market_index)
         requested_notional_vector = np.where(
             np.abs(requested_notional_vector) >= minimum_notional,
             requested_notional_vector,

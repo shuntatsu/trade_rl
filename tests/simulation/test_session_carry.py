@@ -233,7 +233,19 @@ def test_session_gap_borrow_uses_previous_close_before_next_open() -> None:
     assert result.interval_cash_interest == pytest.approx(expected_interest)
 
 
-def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
+@pytest.mark.parametrize(
+    ("next_open", "borrow_rate", "expected_borrow_amount", "expected_cash"),
+    [
+        (120.0, 219.0, 800.0, 100.0),
+        (260.0, 0.0, 0.0, 200.0),
+    ],
+)
+def test_gap_margin_call_flattens_at_next_open_not_previous_close(
+    next_open: float,
+    borrow_rate: float,
+    expected_borrow_amount: float,
+    expected_cash: float,
+) -> None:
     timestamps = np.array(
         [
             "2026-01-02T16:00:00",
@@ -242,7 +254,7 @@ def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
         ],
         dtype="datetime64[ns]",
     )
-    open_price = np.array([[100.0], [120.0], [120.0]])
+    open_price = np.array([[100.0], [next_open], [next_open]])
     dataset = MarketDataset(
         dataset_id="e" * 64,
         symbols=("A",),
@@ -262,7 +274,7 @@ def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
         periods_per_year=1_638,
         calendar_kind=MarketCalendarKind.SESSION,
         nominal_bar_hours=1.0,
-        borrow_rate=np.full((3, 1), 219.0),
+        borrow_rate=np.full((3, 1), borrow_rate),
         cash_rate=np.zeros(3),
     )
     book = BookState.from_weights(
@@ -288,12 +300,13 @@ def test_gap_margin_call_flattens_at_next_open_not_previous_close() -> None:
     )
 
     gap_fraction = 64.0 / (365.0 * 24.0)
-    expected_borrow = 500.0 * 219.0 * gap_fraction
-    assert expected_borrow == pytest.approx(800.0)
+    expected_borrow = 500.0 * borrow_rate * gap_fraction
+    assert expected_borrow == pytest.approx(expected_borrow_amount)
     assert result.interval_borrow_cost == pytest.approx(expected_borrow)
     assert result.termination_reason == EconomicTerminationReason.MARGIN_CALL.value
     assert result.book.quantities[0] == pytest.approx(0.0)
-    assert result.book.cash == pytest.approx(100.0)
+    assert getattr(result.book, "_exact_quantities") == ("0",)
+    assert result.book.cash == pytest.approx(expected_cash)
 
 
 def test_session_gap_carry_drawdown_is_recorded_before_open_recovery() -> None:

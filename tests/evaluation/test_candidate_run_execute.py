@@ -6,11 +6,13 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
 from trade_rl.evaluation.runs.config import (
     CandidateRunConfig,
     resolve_candidate_run_spec,
 )
 from trade_rl.evaluation.runs.execute import execute_candidate_run
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 
@@ -70,7 +72,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
 
     dataset = market()
     spec = resolved_spec(dataset)
-    comparison = object()
+    comparison = UniversalStrategyComparison(by_symbol=(), ppo_training_timesteps=2048)
     calls: list[tuple[object, object, dict[str, object]]] = []
 
     def fake_suite(loaded, lean_config, **kwargs):
@@ -84,6 +86,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert result.spec is spec
     assert result.symbols == dataset.symbols
     assert result.comparison is comparison
+    assert result.ppo_training_timesteps == 2048
     assert len(calls) == 1
     loaded, lean_config, kwargs = calls[0]
     assert loaded is dataset
@@ -97,6 +100,7 @@ def test_execute_candidate_run_delegates_exactly_once_to_candidate_suite(
     assert execution_cost == ExecutionCostConfig.zero()
     assert execution_cost.processing_bar_volume_capacity is True
     assert kwargs["risk"] is None
+    assert kwargs["include_ppo_shared_cash_replay"] is False
 
 
 def test_execute_candidate_run_rejects_dataset_identity_mismatch() -> None:
@@ -108,3 +112,53 @@ def test_execute_candidate_run_rejects_dataset_identity_mismatch() -> None:
         match="dataset id does not match resolved candidate run spec",
     ):
         execute_candidate_run(dataset, spec)
+
+
+def test_execute_candidate_run_uses_one_explicit_risk_for_training_and_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.runs import execute as execute_module
+
+    dataset = market()
+    configured_risk = PreTradeRiskConfig(
+        max_gross=0.5,
+        max_abs_weight=0.1,
+        max_turnover=None,
+        drawdown_start=0.1,
+        drawdown_stop=0.2,
+    )
+    original = resolved_spec(dataset)
+    config = replace(
+        original.config,
+        ppo_minimum_hold_bars=0,
+        ppo_observation_schema="ppo_observation_v3",
+        ppo_settle_terminal_position=True,
+        pretrade_risk_config=configured_risk,
+    )
+    spec = resolve_candidate_run_spec(
+        dataset,
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=config,
+    )
+    comparison = UniversalStrategyComparison(
+        by_symbol=(),
+        ppo_training_timesteps=2048,
+        ppo_training_minimum_hold_suppressed_count=0,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_suite(loaded, lean_config, **kwargs):
+        captured["risk"] = kwargs["risk"]
+        captured["settlement"] = lean_config.ppo_settle_terminal_position
+        captured["shared_cash"] = kwargs["include_ppo_shared_cash_replay"]
+        return comparison
+
+    monkeypatch.setattr(execute_module, "run_lean_candidate_suite", fake_suite)
+
+    execute_candidate_run(dataset, spec)
+
+    assert isinstance(captured["risk"], PreTradeRisk)
+    assert captured["risk"].config == configured_risk
+    assert captured["settlement"] is True
+    assert captured["shared_cash"] is True

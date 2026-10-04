@@ -26,6 +26,10 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 市場、銘柄、時間足、期間、取引所metadataなど、どの市場証拠を使うかを先に決めます。
 
+新規final-eligible M2研究は、データ同期前に条件を固定します。一般はconfig v4、独立口座PPOはv5、共有資金PPOはv6を使い、protocol・baseline/risk・final window・`StudyResearchContext`を別identityへbindします。bootstrapはDatasetとStudyPlanまでを作り、学習・replayはG0-G2 review後に別実行します。
+
+現行のStudy CLIは外部reviewの完了を認証しないため、この順序は運用上のrelease prerequisiteとして扱います。
+
 ## 2. 生データを固定する
 
 source URL、SHA-256、size、取引所metadata等を保存し、再取得時にも同じ入力だったか照合できる状態にします。

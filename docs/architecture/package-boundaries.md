@@ -63,6 +63,7 @@ trade_rl/
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
 │   ├── dataset_scope.py
+│   ├── position_duration.py
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
@@ -72,6 +73,7 @@ trade_rl/
 │   └── rl/{intent.py,ppo.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
 └── evaluation/
     ├── replay.py
+    ├── bot.py
     ├── metrics.py
     ├── evidence.py
     ├── series.py
@@ -83,6 +85,10 @@ trade_rl/
     ├── ppo_risk_study.py
     ├── ppo_feature_study.py
     ├── ppo_feature_checkpoint.py
+    ├── ppo_normalization_replication.py
+    ├── ppo_normalization_execution.py
+    ├── ppo_normalization_activation.json
+    ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/{__init__.py,store.py,account.py,engine.py,control.py,supervisor.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -108,6 +114,8 @@ trade_rl/
 ```
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
+
+`evaluation/rl_family_comparison/` はPPO/A2C比較の固定設定、replay-cell schema validation、および純粋な開発判定oracleだけを所有する。SB3 constructor mocksと合成セルが固定設定・判定規則の回帰を検査する。このpackageはDataset/artifact I/O、fit/replay、ledger、paper、production/live authorizationを所有せず、`trade_rl.evaluation` の公開APIも拡張しない。
 
 ## Provider evidence boundary
 
@@ -227,7 +235,7 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `artifacts`
 
-汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。market data、strategy、evaluation等のupper layerを知らない。
+汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem renameを使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。copy fallbackでatomic性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
 
 ### `data`
 
@@ -266,7 +274,9 @@ floors. Unselected symbols and omitted-profile behavior retain their contracts.
 
 ### `strategies`
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。`position_duration.py` は実際のsigned quantityから保有episode ageを導き、minimum-hold中のintent制約を共通定義する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
+
+`StrategyObservation.gross_position_return` と `current_position_quantity` はoptionalなexecution-derived inputである。`evaluation/replay.py` はexecutionのfill `OrderEvent.execution_price`と現行book markからsigned mark-to-average-fill returnを計算し、現時点の実約定quantityとともに `RegimeAdaptiveStrategy` へ渡す。strategy packageはfill ledgerやreplayへ依存せず、adaptive exit requestのlatchを公開する。`current_intent` は直近のeffective targetであり、未約定・部分約定後の実保有側とは異なることがあるため、adaptive latchはsigned filled quantityで管理し、数量が0になるまで維持する。replayはそのlatchがあるFLAT intentに限りminimum-hold constraintをbypassする。gross returnはentry後fee、funding、borrowを含まない。exit fillはtrigger後のeligible execution stepに発生し、gapやliquidityを含む経済保証ではない。
 
 ### `evaluation`
 
@@ -278,16 +288,16 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `config.py`: Run JSONの単一parse/resolution authority。
 - `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
 - `provenance.py`: implementation/runtime/research-context provenance生成。
-- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。Observation-v3 shared-cash PPO replayを含むRunは`lean_candidate_result_v7`へ追加portolio return seriesとsettlement / ledger evidenceをbindし、loaderがreturn / maximum drawdownをraw seriesから再計算する。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
 `trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
 
-`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`contracts/research.py` の `StudyResearchContext` / `ConsumedEvidence` はStudyをまたいで既知development evidenceが次の研究定義へ流入した事実をmachine-readableに表し、context-bound `StudyPlan` digestの一部となる。これはresult/selection oracleではなくprovenance authorityである。 `codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
+`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`contracts/research.py` の `StudyResearchContext` / `ConsumedEvidence` はStudyをまたいで既知development evidenceが次の研究定義へ流入した事実をmachine-readableに表し、context-bound `StudyPlan` digestの一部となる。これはresult/selection oracleではなくprovenance authorityである。`contracts/study.py` がversioned `StudyProtocol` identityと、PPO holding-duration protocolの完全一致risk profileを所有し、`protocols.py` はv1 independent-account / v2 shared-cash result eligibilityとwinner orderingをpure selectorとして共有する。`analysis.py` はv3 seed-symbol comparisonとv4 combined shared-cash portfolio comparisonを所有し、v4はpersisted portfolio seriesから再計算されたreturn / drawdownを選定へ渡す。`codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
 
 `evaluation/experiments/bootstrap/` は次だけを所有する。
 
-- `config.py`: strict `CanonicalM2BootstrapConfig` parse/normalization/preflightと単一seed-policy authority。historical v1-v3のpayload/digest/read semanticsを維持する。v2は明示的なbuild-level execution economics、v3はpreregistered final window、v4はさらに `StudyResearchContext` をbootstrap identityへbindし、新規final-eligible research lineの正本となる。
+- `config.py`: strict `CanonicalM2BootstrapConfig` parse/normalization/preflightと単一seed-policy authority。historical v1-v5のpayload/digest/read semanticsを維持する。v2は明示的なbuild-level execution economics、v3はpreregistered final window、v4はさらに `StudyResearchContext` をbootstrap identityへbindし、新規final-eligible research lineの正本となる。v5はlegacy independent-account PPO holding selector、v6はnew shared-cash PPO holding selectorを別StudyPlan schemaへbindする。
 - `binance.py`: exact exchange-info / Vision source freeze、raw-source roster、cache-only transport composition。
 - `workflow.py`: source → canonical dataset → immutable StudyPlanをwhole-root stagingで構築し、manifest検証後に一回だけpublishする。v2ではbuildへ渡したexecution economicsと、生成/reloadしたDataset economic arraysおよびidentity-bound profileの一致もfail-closedで検証する。
 - `cli.py`: `--config` / `--output` をparseしてworkflowを呼ぶだけのfilesystem adapter。
@@ -319,8 +329,71 @@ protocol, source, runtime, feature schema, and artifact digests are verified.
 Interrupted work is not a completed checkpoint. Legacy partial study roots
 cannot be imported into this runner. The evaluation public facade is unchanged.
 
-Its private CLI provides `prepare`, `fit`, `replay-cell`, `assemble-arm`, and
-`finalize`, each with `--source` and `--output`. `prepare` requires a fresh root
+`evaluation/ppo_normalization_replication.py` owns the sealed, result-blind
+corrected-economics PPO fit-only feature-standardization protocol. It freezes the
+five matched seeds, raw/normalized arms, common current directional execution
+contract, 2023-2024 development window, runtime/artifact identity, relative gate,
+absolute family gate, and no-rescue boundary. It does not fit a model or publish
+P&L.
+
+`evaluation/ppo_normalization_execution.py` owns only the later software/evidence
+boundary for that protocol: the exact ten fresh-fit slots, prepared-root state machine,
+PPO fit delegation, inference-bundle publication/reload, current shared-cash directional
+replay, no-refit verification, and comparison recomputation. It does not implement a
+second PPO trainer, normalizer, executor, accounting path, selection oracle, or repository-
+global one-shot transport. `prepare_replication_execution` is the only root-creation
+transition: it validates current activation provenance before filesystem mutation, builds
+the complete root in sibling staging, validates it, and publishes by atomic rename.
+Claim/failure transitions are private and derive activation/implementation identity from
+that prepared root rather than caller-supplied digests. Per-root immutability therefore
+does not by itself establish repository-global exactly-once execution. The separate
+`tools/ppo_normalization_actions.py` transport and
+`.github/workflows/ppo-normalization-execution.yml` own that repository-global boundary:
+an open Draft request PR may change only the canonical execution-request record, must
+contain current `main`, and must have exact-head Core / real-PPO / Guide / generic-review
+Green before a write-authorized canonical request comment can proceed. That request HEAD
+is authorization provenance only: the request record separately binds the reviewed/sealed
+implementation source SHA, and economic execution / no-refit verification checkout that
+sealed source rather than inheriting later Python changes from current `main`. The transport
+revalidates the merged implementation seal/review tags and the frozen source Artifact,
+requires the fixed activation tag to be absent, and creates that tag before crossing any
+economic slot boundary. A failed activated run may publish only a non-economic failure
+receipt; partial slot evidence is not uploaded as execution evidence.
+
+The sealed protocol's `source_blobs` remain historical preregistration provenance; later
+correctness fixes to the maintained PPO/artifact path are not rewritten into those bytes.
+The exact current execution implementation/runtime is instead bound by separately reviewed
+activation provenance and rechecked around long fit/replay before durable publication.
+`evaluation/ppo_normalization_activation.json` is a canonical non-Python activation
+authority. It is committed with `activation_sha256=null` in the software-only state.
+The candidate implementation identity intentionally hashes `trade_rl/**/*.py` only and
+canonicalizes Python source line endings (`CRLF -> LF`, bare `CR` rejected) before hashing,
+so clean checkouts on different host policies reconstruct one source identity. A later
+result-blind activation commit can therefore bind the reviewed Python implementation without
+changing that implementation digest. The activation itself must bind result-blind
+implementation-seal, fresh-reconstruction, and assurance-review evidence digests.
+
+A local `verified.json` is no longer sufficient to make a comparison independent.
+Before comparison publication, the ten verification-record identities must be transitively
+bound to a fresh verifier artifact authority carrying repository/run/artifact identity,
+raw artifact SHA-256 and the matching GitHub API digest. The one-shot workflow therefore
+uploads execution evidence only after all ten slots complete, re-downloads that complete
+artifact by immutable id/run/raw digest into a separate no-refit verifier job, uploads a
+complete verification artifact, and only then re-downloads it in the finalizer to construct
+the verifier authority and reveal `comparison.json`. Execution requires the exact
+activation runtime; the verifier uses a separately frozen stable-runtime contract requiring
+the same Python implementation/version, machine architecture, OS family, and complete
+bound package map while recording kernel release without making it an equality gate.
+Bundle manifest and all parent paths are validated before SB3 deserialization, and realized
+PPO timesteps must equal the sealed 262,144 budget. The committed activation resource
+remains null until the authenticated request lifecycle actually creates the one-shot
+activation; transport capability by itself does not authorize or execute economics. These
+modules remain private evaluation surfaces that do not expand
+`trade_rl.evaluation.__all__`.
+
+`evaluation/ppo_feature_checkpoint.py`'s private CLI provides `prepare`, `fit`,
+`replay-cell`, `assemble-arm`, and `finalize`, each with `--source` and `--output`.
+`prepare` requires a fresh root
 and writes `checkpoint-protocol.json`, which embeds the unchanged economic
 `core_protocol` and the checkpoint execution contract. `fit` and `assemble-arm`
 select `--factor` and `--seed`; `replay-cell` also selects `--scenario` and
@@ -416,7 +489,7 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 このGit tree内のproseやarchitecture testだけでbranch protectionが有効とは判断しない。ruleset/protectionの設定変更後はGitHub stateをread-backし、required check、PR requirement、force-push/deletion、maintainer/admin bypassを確認する。管理surfaceが利用できない場合は未設定/未検証として扱う。
 
-PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、exact HEADにバインドされた外部レビュー（Gemini 3.8 Flash等の独立監査）をトリガーする。重大な指摘事項（Medium / High）が検出された場合は `### Disposition: BLOCKED` としてマージを差し戻し、指摘事項が解消され全必須CIがGreenであれば `### Disposition: APPROVED` として自動またはIntegratorによるマージ・クローズの対象となる。
+PRに要求される独立研究レビュー（`Generic Independent Research Review` / `Independent Research Review`）は、PR authorとは異なるGitHub principalによるexact HEADレビューを要求する。承認は正式な `APPROVED` review stateと本文の独立レビューmarker、単独の `### Disposition: APPROVED` 見出しを満たす場合だけ認める。`### Disposition: BLOCKED` を含む該当レビューが一つでもあれば承認より優先し、保留・曖昧・古いHEADのレビューはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みレビューはIntegratorによるマージ・クローズの対象となる。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
 
@@ -449,6 +522,6 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 ## Distribution source closure
 
-構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。
+構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpを確認する。source closureはPython sourceの配布契約であり、optional trainerの実学習、全platform動作、すべてのnon-code resourceを保証するものではない。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。

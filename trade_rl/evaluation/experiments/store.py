@@ -6,12 +6,15 @@ import json
 import os
 import shutil
 import threading
-import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, cast
 
+from trade_rl.artifacts.atomic_write import (
+    _temporary_name_suffix,
+    atomic_rename_directory,
+)
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
@@ -37,7 +40,9 @@ def _lock_file(handle: BinaryIO) -> None:
 
     import fcntl
 
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    flock = getattr(fcntl, "flock")
+    lock_ex = getattr(fcntl, "LOCK_EX")
+    flock(handle.fileno(), lock_ex)
 
 
 def _unlock_file(handle: BinaryIO) -> None:
@@ -52,7 +57,9 @@ def _unlock_file(handle: BinaryIO) -> None:
 
     import fcntl
 
-    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    flock = getattr(fcntl, "flock")
+    lock_un = getattr(fcntl, "LOCK_UN")
+    flock(handle.fileno(), lock_un)
 
 
 class StudyStore:
@@ -149,7 +156,7 @@ class StudyStore:
                 f"Study artifact already exists: {relative}"
             )
 
-        staging = target.with_name(f".{target.name}.staging-{uuid.uuid4().hex}")
+        staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
         try:
             with staging.open("xb") as handle:
                 handle.write(canonical_json_bytes(value))
@@ -193,7 +200,7 @@ class StudyStore:
                 f"Study artifact already exists: {relative}"
             )
 
-        staging = target.with_name(f".{target.name}.staging-{uuid.uuid4().hex}")
+        staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
         staging.mkdir()
         try:
             builder(staging)
@@ -201,7 +208,7 @@ class StudyStore:
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
-            staging.rename(target)
+            atomic_rename_directory(staging, target)
         finally:
             if staging.exists() or staging.is_symlink():
                 if staging.is_dir() and not staging.is_symlink():

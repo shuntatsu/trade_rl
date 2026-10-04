@@ -46,7 +46,24 @@ Ridge, LightGBM, and PPO are trained as universal models/policies without symbol
 
 ## Run a development comparison
 
-A canonical filesystem market dataset artifact and one JSON run config are required. Market-data artifacts are not committed to this repository.
+The bot diagnostic CLI also runs chronological parameter tuning and walk-forward
+checks on an existing Dataset artifact:
+
+```bash
+uv run python -m trade_rl.evaluation.bot --mode walk-forward \
+  --strategy adaptive --dataset <dataset-artifact-dir> \
+  --objective balanced --windows 3 --max-combinations 60 --json
+```
+
+Each fold resets capital and strategy state. Reports expose terminal settlement
+and residual positions; their compounded return is a hypothetical summary.
+These are development diagnostics. Use `--demo` explicitly for a synthetic
+software smoke. Channel strategies require the four named prior-candle channel
+features from `with_price_channels`; arbitrary first columns are rejected.
+
+The candidate comparison below requires a canonical filesystem market dataset
+artifact and one JSON run config. Market-data artifacts are not committed to this
+repository.
 
 ```bash
 uv run --extra forecast-gbm --extra train-sb3 \
@@ -77,10 +94,19 @@ See `docs/research/current-status.md` for the evidence and limitations.
 Use a dedicated checkout and unchanged Python environment for the entire study.
 Choose an aware ISO start at least five minutes in the future. Sealing reserves
 a new directory and prints a protocol digest; preserve that digest outside the
-study directory before starting collection.
+study directory before starting collection. Prepare a UTF-8 JSON lineage file
+from a result-blind review of earlier attempts, following
+`docs/specs/funding-carry-paper.md`. For the currently documented series, the
+next attempt is number 2 and must cite attempt 1 using the identifiers recorded
+in `docs/research/current-status.md`. Do not seal a successor until an
+independent result-blind review has resolved the remaining attempt-uniqueness
+and source-to-ledger checks; no successor is currently authorized.
 
 ```bash
-python -m trade_rl.evaluation.paper.cli seal --root <new-study-dir> --start-at <future-UTC-ISO-time>
+python -m trade_rl.evaluation.paper.cli seal \
+  --root <new-study-dir> \
+  --start-at <future-UTC-ISO-time> \
+  --attempt-lineage-json <reviewed-lineage.json>
 python -m trade_rl.evaluation.paper.cli run --root <study-dir> --protocol-sha256 <sealed-digest>
 python -m trade_rl.evaluation.paper.cli status --root <study-dir> --protocol-sha256 <sealed-digest>
 ```

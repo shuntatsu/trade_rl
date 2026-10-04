@@ -20,9 +20,15 @@ from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.contracts.study import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
+    PPO_HOLDING_DURATION_HORIZONS,
+    PPO_HOLDING_DURATION_MAX_DRAWDOWN,
+    PPO_HOLDING_DURATION_RISK_CONFIG,
+    PPO_HOLDING_DURATION_SEED_COUNT,
+    PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
     StudyFreeze,
     StudyOutcome,
     StudyPlan,
+    StudyProtocol,
 )
 
 __all__ = [
@@ -37,9 +43,15 @@ __all__ = [
     "ExperimentDecisionKind",
     "ExperimentDefinition",
     "ExperimentFailure",
+    "PPO_HOLDING_DURATION_HORIZONS",
+    "PPO_HOLDING_DURATION_MAX_DRAWDOWN",
+    "PPO_HOLDING_DURATION_RISK_CONFIG",
+    "PPO_HOLDING_DURATION_SEED_COUNT",
+    "PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE",
     "ResolvedRunConfig",
     "StudyFreeze",
     "StudyOutcome",
     "StudyPlan",
+    "StudyProtocol",
     "StudyResearchContext",
 ]

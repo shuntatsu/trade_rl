@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.evaluation.experiments.test_evidence import _config
+from tests.evaluation.experiments.test_evidence import _config, _fake_execute
 from tests.evaluation.experiments.test_workflow import _with_baseline
 from trade_rl.evaluation.experiments import (
     ControlledFactor,
@@ -124,19 +124,27 @@ def test_invalid_candidate_never_enters_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+
     root, dataset_root, snapshot = _with_baseline(tmp_path, monkeypatch)
     assert snapshot.baseline is not None
     define_experiment(
         root,
         dataset_root=dataset_root,
-        hypothesis="Declare wrong factor so the attempt becomes INVALID.",
+        hypothesis="Preserve the PPO training-budget delta but test invariant drift.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
-        candidate_config=replace(_config(), rule_entry_threshold=0.20),
+        candidate_config=replace(_config(), ppo_total_timesteps=96),
         baseline_evidence_digest=snapshot.baseline.fingerprint,
+    )
+    monkeypatch.setattr(
+        evidence_module,
+        "execute_candidate_run",
+        _fake_execute(drift_constant_long=True),
     )
     candidate = run_experiment(root, 1, dataset_root=dataset_root)
     verification = verify_experiment(root, 1)
     assert verification.status.value == "INVALID"
+    assert any("unaffected strategy" in item for item in verification.violations)
     assert inspect_study(root).lineage_evidence_digests == (
         snapshot.baseline.fingerprint,
     )

@@ -2,12 +2,15 @@
   "id": "implementation-ppo",
   "title": "PPOは何を見て、どう学び、どう売買するか",
   "nav_label": "PPOの実装を追う",
-  "summary": "PPO Observation v2の5区分、sequential/interleaved学習layout、環境step内のhard riskと約定、学習後のPPOIntentStrategyまでを実装と対応付けて追います。",
+  "summary": "PPO Observation v2/v3、保有年齢と最小保有期間、sequential/interleaved学習layout、環境step内のhard riskと約定を実装と対応付けて追います。",
   "role": "detail",
   "keywords": [
     "PPO",
     "観測",
     "Observation v2",
+    "Observation v3",
+    "position_age_bars",
+    "minimum_hold_bars",
     "local_values",
     "local_available",
     "local_staleness",
@@ -29,7 +32,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "PPO",
-      "sha256": "63badcf4a59d47456b78666120b533b10648930d0a3ddff87d932b31ea82adf7"
+      "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
     }
   ],
   "code_references": [
@@ -37,9 +40,9 @@
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation",
       "kind": "function",
-      "source_sha256": "90ea85bd5588759c5445fcd30b7ad2ef9e9efd17e8f199bde5d60bf60ad3fe2c",
-      "label_ja": "PPO観測 v2を符号化",
-      "description_ja": "StrategyObservationから選択feature値、availability、stalenessを抽出し、共通のObservation v2フィールドencoderへ渡します。",
+      "source_sha256": "3ad6da88e5d723e5f86377a1c8f4758667a4d135fb7a61d39cb0802514a70e85",
+      "label_ja": "PPO観測 v2/v3を符号化",
+      "description_ja": "StrategyObservationから選択feature値、availability、stalenessを抽出します。Observation v3では実約定量に基づくposition_age_barsも共通encoderへ渡します。",
       "variables": [
         {
           "name": "selected",
@@ -55,6 +58,11 @@
           "name": "staleness",
           "label_ja": "鮮度遅延",
           "description_ja": "選択featureと同じ順序で並ぶ現在時点のstalenessです。"
+        },
+        {
+          "name": "observation",
+          "label_ja": "実約定後の保有年齢",
+          "description_ja": "StrategyObservationのposition_age_barsを読み取ります。これは実際に約定した符号付き数量から数えた保有bar数です。"
         }
       ],
       "tests": [
@@ -65,9 +73,9 @@
       "id": "encode-observation-fields",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation_fields",
       "kind": "function",
-      "source_sha256": "aaa6eaddc8e9458900575af0fc4cfada8493e0b9136fa4efc692a0f814e2318f",
+      "source_sha256": "c854ceca3973820050b3f10c9d420c9d624cf9729e9a91302235b4342e60c842",
       "label_ja": "選択済みPPO観測フィールドを符号化",
-      "description_ja": "同じ入力フィールドから有限性・availability mask・normalizerを適用し、Observation v2の固定順序ベクトルを作ります。学習時と実行時の共通encoderです。",
+      "description_ja": "同じ入力へ有限性・availability mask・normalizerを適用します。v2の5区分を保ち、v3では上限504 barで正規化した保有年齢を末尾に追加します。学習時と実行時の共通encoderです。",
       "variables": [
         {
           "name": "selected",
@@ -100,22 +108,29 @@
           "description_ja": "current_intentとcurrent_weightを1回ずつ持つ状態部分です。"
         },
         {
+          "name": "age_state",
+          "label_ja": "Observation v3の保有年齢",
+          "description_ja": "position_age_barsを504 barで上限処理して正規化します。v2では空です。"
+        },
+        {
           "name": "encoded",
           "label_ja": "PPOへ渡す観測ベクトル",
-          "description_ja": "5区分を固定順序で連結してfloat32化した最終観測です。"
+          "description_ja": "v2は5区分、v3は末尾の保有年齢を含む6区分を固定順序で連結してfloat32化します。"
         }
       ],
       "tests": [
-        "tests/strategies/test_ppo_intent.py"
+        "tests/strategies/test_ppo_intent.py",
+        "tests/strategies/test_ppo_observation_v3.py",
+        "tests/strategies/test_position_duration.py"
       ]
     },
     {
       "id": "env-step",
       "symbol": "trade_rl.strategies.rl.ppo.PPOTradingEnv.step",
       "kind": "method",
-      "source_sha256": "8f8e19e8fcc42ab521252cdf375fb11ecfd8b3f4505276a07bdb5e84b7043a49",
+      "source_sha256": "f96761302367046520fef3d90bb9bc8e88412fa135546eaeb01c54d9cb779c53",
       "label_ja": "PPO環境を1ステップ進める",
-      "description_ja": "actionを売買意図へ変換し、hard riskと約定を通します。max_turnover/drawdownのtransient projectionはproposalへ再注入せず、terminal settlement有効時は最後のagent interval後にFLAT proposalを同じrisk/execution経路で処理し、そのlog wealth changeをterminal rewardへ加算します。",
+      "description_ja": "actionを売買意図へ変換します。最小保有期間中はFLAT・反対方向を実約定側へ抑制しますが、hard riskはいつでも縮小・flattenできます。約定後の年齢を更新し、terminal settlement有効時は最後に同じrisk/execution経路でFLATを処理します。",
       "variables": [
         {
           "name": "symbol_index",
@@ -146,16 +161,18 @@
       "tests": [
         "tests/strategies/test_ppo_intent.py",
         "tests/strategies/test_ppo_runtime_contracts.py",
-        "tests/strategies/test_ppo_terminal_settlement.py"
+        "tests/strategies/test_ppo_terminal_settlement.py",
+        "tests/strategies/test_ppo_observation_v3.py",
+        "tests/strategies/test_position_duration.py"
       ]
     },
     {
       "id": "fit-ppo",
       "symbol": "trade_rl.strategies.rl.ppo.fit_ppo_strategy",
       "kind": "function",
-      "source_sha256": "ada8be0eeb98b6b0bf6c47c1125cb664690a1e9c1f8cb3badc767c2fb0ce73b0",
+      "source_sha256": "f6958bc1e8f7f6a40cbd8150ecbb508b526141c3107171f8f3e37162504c93eb",
       "label_ja": "PPO方策を学習する",
-      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。主要なPPO constructor/policy construction値をsourceへ明示しつつ、SB3/PyTorch内部実装とdependency versionはimplementation identityの一部として残します。",
+      "description_ja": "既定sequentialとopt-in interleavedをCPU・1 threadで学習します。minimum_hold_barsとObservation schemaを学習環境へ同じ契約で渡し、Observation v3では実約定後の年齢をpolicy入力へ含めます。",
       "variables": [
         {
           "name": "training_layout",
@@ -166,6 +183,11 @@
           "name": "rollout_steps_per_env",
           "label_ja": "各固定銘柄envのrollout長",
           "description_ja": "interleaved時だけcallerが明示する各envのn_stepsです。結果から自動選択しません。"
+        },
+        {
+          "name": "minimum_hold_bars",
+          "label_ja": "最低保有bar数",
+          "description_ja": "policyの自発的なFLAT・反対方向intentを許可するまでの実約定後bar数です。hard riskのflattenには適用しません。"
         },
         {
           "name": "env",
@@ -184,14 +206,14 @@
       "id": "ppo-decide",
       "symbol": "trade_rl.strategies.rl.intent._ThreeActionIntentStrategy.decide",
       "kind": "method",
-      "source_sha256": "b072b6bd9c39f1732841b5f7aca48380c5d94d43347b7bcd13542124a8ba48dc",
+      "source_sha256": "ca700afac8c958102983ac9d1e2d0b8971e9c77c94b786a9025a92aef4226161",
       "label_ja": "学習済みPPOで売買意図を決める",
-      "description_ja": "実行時も共通のObservation v2 field encoderで観測を作り、deterministic predictのactionをSHORT・FLAT・LONGの売買意図へ戻します。",
+      "description_ja": "実行時も学習時と同じObservation schemaのfield encoderで観測を作ります。最小保有中のpolicy intent制約を適用し、deterministic predictのactionをSHORT・FLAT・LONGへ戻します。",
       "variables": [
         {
           "name": "encoded",
           "label_ja": "実行時のPPO観測",
-          "description_ja": "学習時と同じObservation v2 schemaを持つ観測ベクトルです。"
+          "description_ja": "学習時と同じObservation v2/v3 schemaを持つ観測ベクトルです。v3では実約定後の保有年齢を含みます。"
         },
         {
           "name": "action",

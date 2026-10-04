@@ -105,7 +105,11 @@ def _source_snapshot_bytes(provenance: dict[str, Any]) -> bytes:
         for row in manifest:
             relative = row["path"]
             path = package_root / relative
-            raw = path.read_bytes()
+            raw = path.read_bytes().replace(b"\r\n", b"\n")
+            if b"\r" in raw:
+                raise ValueError(
+                    f"source contains unsupported bare CR bytes: {relative}"
+                )
             if _sha256(raw) != row["sha256"]:
                 raise ValueError(f"source changed while snapshotting: {relative}")
             info = ZipInfo(f"trade_rl/{relative}", date_time=(1980, 1, 1, 0, 0, 0))

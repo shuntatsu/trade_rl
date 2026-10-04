@@ -69,7 +69,18 @@ def test_independent_review_status_runs_only_after_full_verification() -> None:
     assert "name: Generic Independent Research Review" in generic
     assert "name: Independent Research Review" in smoke
     assert "gh api --paginate" in generic
-    assert "independent-research-review-audit" in generic
+    assert "permissions:\n      pull-requests: read" in generic
+    assert "tools/independent_research_review.py" in generic
+    assert '--expected-head "$HEAD_SHA"' in generic
+    assert "env -u GITHUB_TOKEN -u GH_TOKEN uv run" in generic
+    assert 'contains("### Disposition: APPROVED")' not in generic
+    assert 'contains("### Disposition: BLOCKED")' not in generic
+
+    review_evaluator = generic.split(
+        "      - name: Evaluate exact-head independent research review", 1
+    )[1].split("  ppo-4h-independent-review:", 1)[0]
+    assert "GITHUB_TOKEN: ${{" not in review_evaluator
+    assert "GH_TOKEN: ${{" not in review_evaluator
 
 
 def test_review_events_repeat_full_software_verification_before_status() -> None:
@@ -77,3 +88,15 @@ def test_review_events_repeat_full_software_verification_before_status() -> None
     review_event_guard = "github.event_name == 'pull_request_review'"
 
     assert text.count(review_event_guard) >= 4
+
+
+def test_generic_review_guard_is_type_checked_by_repository_ci() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert (
+        text.count(
+            "uv run mypy tools/agent_repo tests/architecture/distribution.py "
+            "tools/independent_research_review.py"
+        )
+        == 2
+    )

@@ -217,6 +217,19 @@ def require_review_identity_retryable(
                 "terminal Gemini review evidence is expired or has no expiry status"
             )
 
+    if any(
+        attempt >= current_attempt
+        for run_id, attempt in terminal_attempts
+        if run_id == current_run
+    ):
+        raise ValueError("review result artifact attempt ordering is malformed")
+    if any(
+        attempt < current_attempt
+        for run_id, attempt in terminal_attempts
+        if run_id == current_run
+    ):
+        raise ValueError("terminal Gemini review already exists")
+
     seen: set[tuple[int, int]] = set()
     for artifact in artifacts:
         if not isinstance(artifact, dict):
@@ -253,9 +266,6 @@ def require_review_identity_retryable(
             raise ValueError("review identity already has an attempt")
         if attempt >= current_attempt:
             raise ValueError("review lineage attempt ordering is malformed")
-        if key in terminal_attempts:
-            raise ValueError("terminal Gemini review already exists")
-
         jobs = jobs_for_attempt(run_id, attempt)
         if not isinstance(jobs, list):
             raise ValueError("review lineage job inventory is malformed")
@@ -299,13 +309,6 @@ def require_review_identity_retryable(
         # A completed successful upload with no final review artifact is therefore
         # the observable transport-failure state and is retryable.  A terminal
         # response is identified by the immutable final reviewer artifact above.
-
-    if any(
-        attempt > current_attempt
-        for run_id, attempt in terminal_attempts
-        if run_id == current_run
-    ):
-        raise ValueError("review result artifact attempt ordering is malformed")
 
 
 def _parse_request_body(body: object) -> tuple[str, str, str]:
@@ -872,6 +875,39 @@ def build_attestation(
     }
 
 
+def _http_error_summary(error: urllib.error.HTTPError) -> str:
+    base = f"remote API request failed with HTTP {error.code}"
+    try:
+        raw = error.read(64 * 1024 + 1)
+    except (OSError, ValueError):
+        return base
+    if len(raw) > 64 * 1024:
+        return base
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return base
+    if not isinstance(payload, dict):
+        return base
+    detail = payload.get("error")
+    if not isinstance(detail, dict):
+        return base
+
+    fields: list[str] = []
+    provider_code = detail.get("code")
+    if isinstance(provider_code, int) and not isinstance(provider_code, bool):
+        fields.append(f"provider_code={provider_code}")
+    status = detail.get("status")
+    if isinstance(status, str) and status.strip():
+        fields.append(f"status={' '.join(status.split())[:128]}")
+    message = detail.get("message")
+    if isinstance(message, str) and message.strip():
+        fields.append(f"message={' '.join(message.split())[:512]}")
+    if not fields:
+        return base
+    return f"{base} ({', '.join(fields)})"
+
+
 def _api_bytes(
     url: str,
     *,
@@ -903,9 +939,11 @@ def _api_bytes(
                 raise ReviewTransportError("remote API returned an unexpected status")
             raw = response.read(_MAX_API_BYTES + 1)
     except urllib.error.HTTPError as error:
-        raise ReviewTransportError(
-            f"remote API request failed with HTTP {error.code}"
-        ) from None
+        try:
+            summary = _http_error_summary(error)
+        finally:
+            error.close()
+        raise ReviewTransportError(summary) from None
     except (OSError, urllib.error.URLError, TimeoutError):
         raise ReviewTransportError(
             "remote API request could not be completed"
@@ -1296,8 +1334,12 @@ def build_gemini_request(packet: dict[str, Any]) -> dict[str, Any]:
             }
         ],
         "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseJsonSchema": _gemini_schema(),
+            "responseFormat": {
+                "text": {
+                    "mimeType": "application/json",
+                    "schema": _gemini_schema(),
+                }
+            },
         },
     }
 

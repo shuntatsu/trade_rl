@@ -16,7 +16,11 @@ from typing import Any
 from trade_rl._validation import require_aware_datetime
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
 from trade_rl.evaluation.paper.engine import PaperEngine
-from trade_rl.evaluation.paper.operations import screen_plan
+from trade_rl.evaluation.paper.operations import (
+    REQUIRED_FILL_SYMBOL_INDICES,
+    screen_plan,
+    validate_attempt_lineage,
+)
 from trade_rl.evaluation.runs import build_candidate_run_provenance
 
 
@@ -36,6 +40,7 @@ class Measurements:
     quality_failures: tuple[str, ...]
     unpaid_funding: tuple[dict[str, str], ...]
     filled_symbols: tuple[int, ...]
+    post_close_funding: bool
 
 
 def screen_reasons(measured: Measurements) -> list[str]:
@@ -59,6 +64,7 @@ def screen_reasons(measured: Measurements) -> list[str]:
         or any(value <= 0 for value in m.block_returns),
         "missing_block_funding": len(m.block_funding_counts) != 3
         or any(count <= 0 for count in m.block_funding_counts),
+        "post_close_funding": m.post_close_funding,
         "drawdown_limit": not 0 <= m.maximum_drawdown < 0.1,
         "initial_coverage_gap": not 0 <= m.first_delay_seconds <= 180,
         "observation_coverage_gap": not 0 <= m.maximum_gap_seconds <= 180,
@@ -68,7 +74,7 @@ def screen_reasons(measured: Measurements) -> list[str]:
         "nonterminal_stop": m.stop_reason != "terminal_close",
         "quality_failure": bool(m.quality_failures),
         "unpaid_funding": bool(m.unpaid_funding),
-        "missing_instrument_fills": m.filled_symbols != (0, 1, 2, 3),
+        "missing_instrument_fills": m.filled_symbols != REQUIRED_FILL_SYMBOL_INDICES,
     }
     return [name for name, failed in checks.items() if failed]
 
@@ -84,6 +90,7 @@ def measure_observations(
     points: list[tuple[datetime, float]] = []
     counts = [0, 0, 0]
     filled: set[int] = set()
+    post_close_funding = False
     for record in records:
         event = record["event"]
         if event["kind"] == "gap":
@@ -96,9 +103,13 @@ def measure_observations(
             row["symbol_index"] for row in result["fills"] if row["filled_lots"]
         )
         for payment in result["funding"]:
-            known = timestamp(payment["known_at"])
-            if payment["amount"] and known >= start_at:
-                index = min(2, int((known - start_at).total_seconds() // (30 * 86400)))
+            settled = timestamp(payment["funding_at"])
+            if not payment["amount"]:
+                continue
+            if settled >= close_at:
+                post_close_funding = True
+            if start_at <= settled < close_at:
+                index = int((settled - start_at).total_seconds() // (30 * 86400))
                 counts[index] += 1
     account = status["account"]
     equities = [10000.0]
@@ -133,6 +144,7 @@ def measure_observations(
         quality_failures=tuple(status["quality_failures"]),
         unpaid_funding=tuple(unpaid_funding),
         filled_symbols=tuple(sorted(filled)),
+        post_close_funding=post_close_funding,
     )
 
 
@@ -224,9 +236,20 @@ def evaluate_paper_study(
     close = start + timedelta(days=90)
     if protocol["settings"] != PaperSettings(start_at=start, close_at=close).to_dict():
         raise ValueError("paper study differs from fixed prospective settings")
+    research_plan = study.get("research_plan")
+    try:
+        if not isinstance(research_plan, dict):
+            raise ValueError("paper research plan must be an object")
+        lineage = validate_attempt_lineage(
+            research_plan.get("attempt_lineage"),
+            sealed_at=timestamp(study["created_at"]),
+        )
+        expected_plan = screen_plan(attempt_lineage=lineage)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("paper attempt lineage is invalid") from error
     if (
         study.get("schema") != "paper_public_collection_v1"
-        or study.get("research_plan") != screen_plan()
+        or research_plan != expected_plan
         or study.get("interval_seconds") != 60
         or study.get("terminal_grace_seconds") != 180
         or timestamp(study["created_at"]) > start - timedelta(minutes=5)
@@ -280,8 +303,9 @@ def evaluate_paper_study(
                 "paper study source/runtime provenance changed during assessment"
             )
         return dict(
-            schema="carry_paper_assessment_v1",
+            schema="carry_paper_assessment_v2",
             protocol_sha256=expected_protocol_sha256,
+            attempt_lineage=lineage,
             final_tip=expected_tip,
             assessed_at=now.isoformat(),
             decision="PAPER_SCREEN_PASSED" if not reasons else "PAPER_SCREEN_REJECTED",

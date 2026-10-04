@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_ppo_feature_normalization import _fit
-from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts import atomic_write, canonical_json_bytes, content_digest
+from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import PPOIntentStrategy
 from trade_rl.strategies.rl.ppo_artifact import (
     load_normalized_ppo,
@@ -21,8 +22,11 @@ class Policy:
     loaded = False
     load_device = None
     load_path = None
-    observation_space = SimpleNamespace(shape=(5,))
+    observation_shape = (5,)
     action_space = SimpleNamespace(n=3, start=0)
+
+    def __init__(self):
+        self.observation_space = SimpleNamespace(shape=self.observation_shape)
 
     def save(self, path):
         Path(path).write_bytes(b"policy bytes")
@@ -181,6 +185,56 @@ def test_raw_ppo_inference_bundle_roundtrip_binds_feed_feature_schema(
             feature_names=("wrong", "unused"),
         )
     assert not Policy.loaded
+
+
+@pytest.mark.parametrize("minimum_hold_bars", (0, 168))
+def test_observation_v3_inference_bundle_roundtrip_preserves_hold_contract(
+    tmp_path, monkeypatch, minimum_hold_bars
+) -> None:
+    Policy.loaded = False
+    monkeypatch.setattr(Policy, "observation_shape", (6,))
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        observation_schema=PPO_OBSERVATION_SCHEMA_V3,
+        minimum_hold_bars=minimum_hold_bars,
+    )
+    root = tmp_path / "observation-v3-policy"
+
+    digest = save_ppo_inference_bundle(
+        root,
+        strategy,
+        feature_names=("signal",),
+    )
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    loaded = load_ppo_inference_bundle(
+        root,
+        expected_digest=digest,
+        feature_names=("signal",),
+    )
+
+    assert manifest["schema"] == "ppo_inference_bundle_v2"
+    assert manifest["observation"]["schema_version"] == PPO_OBSERVATION_SCHEMA_V3
+    assert manifest["minimum_hold_bars"] == minimum_hold_bars
+    assert loaded.observation_schema == PPO_OBSERVATION_SCHEMA_V3
+    assert loaded.minimum_hold_bars == minimum_hold_bars
+
+
+def test_inference_bundle_rejects_minimum_hold_without_age_observation() -> None:
+    with pytest.raises(ValueError, match="age-aware observation"):
+        PPOIntentStrategy(
+            Policy(),
+            feature_indices=(0,),
+            feature_names=("signal",),
+            minimum_hold_bars=168,
+        )
 
 
 def test_normalized_ppo_inference_bundle_roundtrip_preserves_transform(
@@ -370,6 +424,94 @@ def test_failed_inference_bundle_save_leaves_no_partial_destination(tmp_path) ->
     assert list(tmp_path.glob(".policy.staging-*")) == []
 
 
+@pytest.mark.parametrize("normalized", [False, True])
+def test_inference_bundle_retries_transient_windows_publication_lock(
+    tmp_path, monkeypatch, normalized
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(),
+        feature_indices=(0,),
+        feature_names=("signal",),
+        feature_normalizer=_fit() if normalized else None,
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    original_rename = type(root).rename
+    attempts = 0
+    delays = []
+
+    def locked_once(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporary Windows publication lock")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
+    digest = save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == 2
+    assert len(delays) == 1
+    assert (root / "policy.zip").read_bytes() == b"policy bytes"
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    assert digest == content_digest(manifest)
+    assert (manifest["normalizer"] is not None) is normalized
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
+def test_inference_bundle_cleans_staging_after_exhausted_publication_lock(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_names=("signal",)
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    attempts = 0
+
+    def always_locked(source, target):
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError("persistent Windows publication lock")
+
+    monkeypatch.setattr(type(root), "rename", always_locked)
+    monkeypatch.setattr(atomic_write.time, "sleep", lambda delay: None)
+    with pytest.raises(PermissionError, match="persistent Windows"):
+        save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == len(atomic_write._DIRECTORY_RENAME_RETRY_DELAYS) + 1
+    assert not root.exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
+def test_inference_bundle_does_not_overwrite_a_competing_publication(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_names=("signal",)
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    attempts = 0
+
+    def competing_publication(source, target):
+        nonlocal attempts
+        attempts += 1
+        Path(target).mkdir()
+        (Path(target) / "policy.zip").write_bytes(b"competing policy")
+        raise PermissionError("destination was published concurrently")
+
+    monkeypatch.setattr(type(root), "rename", competing_publication)
+    with pytest.raises(PermissionError, match="concurrently"):
+        save_ppo_inference_bundle(root, strategy, feature_names=("signal",))
+
+    assert attempts == 1
+    assert (root / "policy.zip").read_bytes() == b"competing policy"
+    assert not (root / "manifest.json").exists()
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
 @pytest.mark.parametrize(
     ("observation_shape", "action_n", "action_start"),
     (
@@ -475,7 +617,10 @@ def test_ppo_artifact_load_rejects_symlink_members_before_policy_deserialization
     external = tmp_path / f"external-{artifact_kind}-{member_name}"
     external.write_bytes(member.read_bytes())
     member.unlink()
-    member.symlink_to(external)
+    try:
+        member.symlink_to(external)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
     Policy.loaded = False
     Policy.load_path = None
 
@@ -587,7 +732,10 @@ def test_ppo_artifact_publish_rejects_dangling_symlink_destination(
     publisher,
 ) -> None:
     root = tmp_path / f"{publisher}-bundle"
-    root.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    try:
+        root.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this platform")
 
     if publisher == "normalized":
         strategy = PPOIntentStrategy(

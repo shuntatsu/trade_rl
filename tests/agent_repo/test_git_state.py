@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -55,6 +56,10 @@ def test_read_git_state_reports_exact_worktree_and_base_facts(tmp_path: Path) ->
     assert state.workflow_paths == (".github/workflows/ci.yml",)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows filenames cannot contain ASCII tab characters",
+)
 def test_read_git_state_preserves_exact_staged_path_with_tab(tmp_path: Path) -> None:
     _init_repository(tmp_path)
     odd_path = tmp_path / "trade_rl" / "odd\tname.py"
@@ -71,6 +76,10 @@ def test_read_git_state_preserves_exact_staged_path_with_tab(tmp_path: Path) -> 
     assert state.changed_paths == ("trade_rl/odd\tname.py",)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows filenames cannot contain ASCII tab characters",
+)
 def test_read_git_state_preserves_exact_untracked_path_with_tab(tmp_path: Path) -> None:
     _init_repository(tmp_path)
     odd_path = tmp_path / "scratch\tname.txt"
@@ -81,6 +90,10 @@ def test_read_git_state_preserves_exact_untracked_path_with_tab(tmp_path: Path) 
     assert state.untracked_paths == ("scratch\tname.txt",)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows filenames cannot contain ASCII tab characters",
+)
 def test_read_git_state_preserves_exact_base_changed_path_with_tab(
     tmp_path: Path,
 ) -> None:

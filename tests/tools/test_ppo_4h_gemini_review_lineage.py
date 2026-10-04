@@ -164,6 +164,25 @@ def test_same_run_retry_uses_result_artifact_not_continue_on_error_conclusion() 
         )
 
 
+def test_result_artifact_without_matching_packet_still_blocks_retry() -> None:
+    identity = review.review_identity_digest(
+        repository="owner/repo",
+        repository_id=99,
+        pull_number=900,
+        reviewed_code_sha=REVIEWED_SHA,
+    )
+
+    with pytest.raises(ValueError, match="terminal Gemini review already exists"):
+        review.require_review_identity_retryable(
+            identity,
+            current_run_id=100,
+            current_run_attempt=2,
+            artifacts=[],
+            result_artifacts=[_result_artifact(run_id=100, attempt=1)],
+            jobs_for_attempt=lambda _run, _attempt: [],
+        )
+
+
 def test_same_run_retry_fails_closed_when_evidence_upload_state_is_ambiguous() -> None:
     identity = review.review_identity_digest(
         repository="owner/repo",

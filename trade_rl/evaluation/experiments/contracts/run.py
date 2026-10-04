@@ -14,13 +14,22 @@ from trade_rl.evaluation.experiments.contracts._common import (
     contract_unique_texts,
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
+from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.rl.intent import (
     PPO_GLOBAL_FEATURE_NAMES,
-    PPO_OBSERVATION_SCHEMA,
+    PPO_OBSERVATION_SCHEMA_V3,
+    PPO_OBSERVATION_SCHEMAS,
+)
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_TRAINING_LAYOUT_INTERLEAVED,
+    PPO_TRAINING_LAYOUT_SEQUENTIAL,
 )
 
 _RESOLVED_RUN_CONFIG_V1 = "resolved_run_config_v1"
 _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
+_RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
+_RESOLVED_RUN_CONFIG_V4 = "resolved_run_config_v4"
+_RESOLVED_RUN_CONFIG_V5 = "resolved_run_config_v5"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -60,6 +69,11 @@ class ResolvedRunConfig:
     ppo_observation_schema: str | None = None
     ppo_global_feature_names: tuple[str, ...] = ()
     schema_version: str = _RESOLVED_RUN_CONFIG_V1
+    ppo_training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL
+    ppo_rollout_steps_per_env: int | None = None
+    ppo_minimum_hold_bars: int = 0
+    ppo_settle_terminal_position: bool = False
+    pretrade_risk_config: PreTradeRiskConfig | None = None
 
     def __post_init__(self) -> None:
         signal_name = contract_text(self.signal_name, field="signal_name")
@@ -150,14 +164,31 @@ class ResolvedRunConfig:
             field="execution_overlay",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        ppo_training_layout = self.ppo_training_layout
+        ppo_rollout_steps_per_env = self.ppo_rollout_steps_per_env
+        ppo_minimum_hold_bars = 0
+        ppo_settle_terminal_position = False
+        pretrade_risk_config: PreTradeRiskConfig | None = None
         if schema_version == _RESOLVED_RUN_CONFIG_V1:
             if self.ppo_observation_schema is not None or self.ppo_global_feature_names:
                 raise ContractViolationError(
                     "resolved_run_config_v1 must not define a PPO observation contract"
                 )
+            if (
+                ppo_training_layout != PPO_TRAINING_LAYOUT_SEQUENTIAL
+                or ppo_rollout_steps_per_env is not None
+            ):
+                raise ContractViolationError(
+                    "resolved_run_config_v1 must not define a PPO training layout"
+                )
             ppo_observation_schema: str | None = None
             ppo_global_feature_names: tuple[str, ...] = ()
-        elif schema_version == _RESOLVED_RUN_CONFIG_V2:
+        elif schema_version in {
+            _RESOLVED_RUN_CONFIG_V2,
+            _RESOLVED_RUN_CONFIG_V3,
+            _RESOLVED_RUN_CONFIG_V4,
+            _RESOLVED_RUN_CONFIG_V5,
+        }:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
                 field="ppo_observation_schema",
@@ -172,11 +203,96 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "ppo_global_feature_names must contain unique values"
                 )
-            if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:
+            if ppo_observation_schema not in PPO_OBSERVATION_SCHEMAS:
                 raise ContractViolationError("unsupported PPO observation schema")
             if ppo_global_feature_names != PPO_GLOBAL_FEATURE_NAMES:
                 raise ContractViolationError(
                     "PPO global feature names do not match the frozen observation contract"
+                )
+            if schema_version == _RESOLVED_RUN_CONFIG_V2:
+                if (
+                    ppo_training_layout != PPO_TRAINING_LAYOUT_SEQUENTIAL
+                    or ppo_rollout_steps_per_env is not None
+                ):
+                    raise ContractViolationError(
+                        "resolved_run_config_v2 must not define a PPO training layout"
+                    )
+            else:
+                ppo_training_layout = contract_text(
+                    ppo_training_layout,
+                    field="ppo_training_layout",
+                )
+                if ppo_training_layout not in {
+                    PPO_TRAINING_LAYOUT_SEQUENTIAL,
+                    PPO_TRAINING_LAYOUT_INTERLEAVED,
+                }:
+                    raise ContractViolationError("unsupported PPO training layout")
+            if schema_version in {
+                _RESOLVED_RUN_CONFIG_V3,
+                _RESOLVED_RUN_CONFIG_V4,
+                _RESOLVED_RUN_CONFIG_V5,
+            }:
+                if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
+                    if ppo_rollout_steps_per_env is not None:
+                        raise ContractViolationError(
+                            "sequential PPO layout cannot define rollout steps"
+                        )
+                elif (
+                    isinstance(ppo_rollout_steps_per_env, bool)
+                    or not isinstance(ppo_rollout_steps_per_env, int)
+                    or ppo_rollout_steps_per_env <= 0
+                ):
+                    raise ContractViolationError(
+                        "interleaved PPO layout requires positive rollout steps"
+                    )
+            if schema_version in {
+                _RESOLVED_RUN_CONFIG_V4,
+                _RESOLVED_RUN_CONFIG_V5,
+            }:
+                ppo_minimum_hold_bars = contract_non_negative_int(
+                    self.ppo_minimum_hold_bars,
+                    field="ppo_minimum_hold_bars",
+                )
+                if not isinstance(self.ppo_settle_terminal_position, bool):
+                    raise ContractViolationError(
+                        "ppo_settle_terminal_position must be boolean"
+                    )
+                ppo_settle_terminal_position = self.ppo_settle_terminal_position
+                if (
+                    ppo_minimum_hold_bars > 0
+                    and ppo_observation_schema != PPO_OBSERVATION_SCHEMA_V3
+                ):
+                    raise ContractViolationError(
+                        "PPO minimum hold requires the age-aware observation"
+                    )
+            elif self.ppo_minimum_hold_bars != 0 or self.ppo_settle_terminal_position:
+                raise ContractViolationError(
+                    "legacy resolved-run config cannot define duration semantics"
+                )
+            if schema_version == _RESOLVED_RUN_CONFIG_V5:
+                if self.pretrade_risk_config is not None and not isinstance(
+                    self.pretrade_risk_config, PreTradeRiskConfig
+                ):
+                    raise ContractViolationError(
+                        "pretrade_risk_config must be a PreTradeRiskConfig or null"
+                    )
+                pretrade_risk_config = self.pretrade_risk_config
+                if ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
+                    if not ppo_settle_terminal_position:
+                        raise ContractViolationError(
+                            "age-aware PPO comparison requires terminal settlement"
+                        )
+                    if pretrade_risk_config is None:
+                        raise ContractViolationError(
+                            "age-aware PPO comparison requires explicit pre-trade risk config"
+                        )
+                    if pretrade_risk_config.drawdown_stop > 0.20:
+                        raise ContractViolationError(
+                            "PPO drawdown stop must not exceed 20%"
+                        )
+            elif self.pretrade_risk_config is not None:
+                raise ContractViolationError(
+                    "legacy resolved-run config cannot define pre-trade risk"
                 )
         else:
             raise ContractViolationError("unsupported resolved-run config schema")
@@ -202,6 +318,19 @@ class ResolvedRunConfig:
         object.__setattr__(self, "ppo_observation_schema", ppo_observation_schema)
         object.__setattr__(self, "ppo_global_feature_names", ppo_global_feature_names)
         object.__setattr__(self, "schema_version", schema_version)
+        object.__setattr__(self, "ppo_training_layout", ppo_training_layout)
+        object.__setattr__(
+            self,
+            "ppo_rollout_steps_per_env",
+            ppo_rollout_steps_per_env,
+        )
+        object.__setattr__(self, "ppo_minimum_hold_bars", ppo_minimum_hold_bars)
+        object.__setattr__(
+            self,
+            "ppo_settle_terminal_position",
+            ppo_settle_terminal_position,
+        )
+        object.__setattr__(self, "pretrade_risk_config", pretrade_risk_config)
 
     @classmethod
     def from_candidate_spec(
@@ -231,9 +360,14 @@ class ResolvedRunConfig:
             gross_budget=config.gross_budget,
             initial_capital=config.initial_capital,
             execution_overlay=spec.execution_overlay,
-            ppo_observation_schema=PPO_OBSERVATION_SCHEMA,
+            ppo_observation_schema=config.ppo_observation_schema,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V2,
+            schema_version=_RESOLVED_RUN_CONFIG_V5,
+            ppo_training_layout=lean.ppo_training_layout,
+            ppo_rollout_steps_per_env=lean.ppo_rollout_steps_per_env,
+            ppo_minimum_hold_bars=lean.ppo_minimum_hold_bars,
+            ppo_settle_terminal_position=lean.ppo_settle_terminal_position,
+            pretrade_risk_config=config.pretrade_risk_config,
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -258,9 +392,42 @@ class ResolvedRunConfig:
             "initial_capital": self.initial_capital,
             "execution_overlay": self.execution_overlay,
         }
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V2:
+        if self.schema_version in {
+            _RESOLVED_RUN_CONFIG_V2,
+            _RESOLVED_RUN_CONFIG_V3,
+            _RESOLVED_RUN_CONFIG_V4,
+            _RESOLVED_RUN_CONFIG_V5,
+        }:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
+        if self.schema_version in {
+            _RESOLVED_RUN_CONFIG_V3,
+            _RESOLVED_RUN_CONFIG_V4,
+            _RESOLVED_RUN_CONFIG_V5,
+        }:
+            payload["ppo_training_layout"] = self.ppo_training_layout
+            payload["ppo_rollout_steps_per_env"] = self.ppo_rollout_steps_per_env
+        if self.schema_version in {
+            _RESOLVED_RUN_CONFIG_V4,
+            _RESOLVED_RUN_CONFIG_V5,
+        }:
+            payload["ppo_minimum_hold_bars"] = self.ppo_minimum_hold_bars
+            payload["ppo_settle_terminal_position"] = self.ppo_settle_terminal_position
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V5:
+            risk = self.pretrade_risk_config
+            payload["pretrade_risk_config"] = (
+                None
+                if risk is None
+                else {
+                    "max_gross": risk.max_gross,
+                    "max_abs_weight": risk.max_abs_weight,
+                    "max_turnover": risk.max_turnover,
+                    "drawdown_start": risk.drawdown_start,
+                    "drawdown_stop": risk.drawdown_stop,
+                    "emergency_turnover_override": risk.emergency_turnover_override,
+                    "fail_closed_tolerance": risk.fail_closed_tolerance,
+                }
+            )
         return payload
 
     @property

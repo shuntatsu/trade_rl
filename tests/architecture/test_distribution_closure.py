@@ -12,6 +12,11 @@ import pytest
 
 SOURCE = "trade_rl/__init__.py"
 CONTENT = b'__version__ = "1.0"\n'
+ACTIVATION_RESOURCE = "trade_rl/evaluation/ppo_normalization_activation.json"
+ACTIVATION_CONTENT = (
+    b'{"activation_sha256":null,'
+    b'"schema":"ppo_normalization_execution_activation_authority_v1"}'
+)
 
 
 def _git(root: Path, *args: str) -> None:
@@ -36,6 +41,23 @@ def checkout(tmp_path: Path) -> Path:
         "source fixture",
     )
     return root
+
+
+def _add_activation_resource(checkout: Path) -> None:
+    path = checkout / ACTIVATION_RESOURCE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(ACTIVATION_CONTENT)
+    _git(checkout, "add", ACTIVATION_RESOURCE)
+    _git(
+        checkout,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "activation resource fixture",
+    )
 
 
 def _archive(
@@ -171,4 +193,102 @@ def test_archive_symlink_package_parent_is_rejected(
             info.size = len(CONTENT)
             stream.addfile(info, io.BytesIO(CONTENT))
     with pytest.raises(ValueError, match="regular|symlink"):
+        _verify(checkout, archive)
+
+
+@pytest.mark.parametrize("extension", [".whl", ".tar.gz"])
+def test_activation_resource_matches_checkout_and_distribution(
+    checkout: Path,
+    extension: str,
+) -> None:
+    _add_activation_resource(checkout)
+    archive = checkout.parent / ("activation" + extension)
+    _archive(
+        archive,
+        [(SOURCE, CONTENT), (ACTIVATION_RESOURCE, ACTIVATION_CONTENT)],
+    )
+    _verify(checkout, archive)
+
+
+@pytest.mark.parametrize("extension", [".whl", ".tar.gz"])
+@pytest.mark.parametrize("kind", ["missing", "changed"])
+def test_activation_resource_distribution_drift_fails_closed(
+    checkout: Path,
+    extension: str,
+    kind: str,
+) -> None:
+    _add_activation_resource(checkout)
+    entries = [(SOURCE, CONTENT)]
+    if kind == "changed":
+        changed = (
+            b'{"activation_sha256":"'
+            + b"a" * 64
+            + b'","schema":"ppo_normalization_execution_activation_authority_v1"}'
+        )
+        entries.append((ACTIVATION_RESOURCE, changed))
+    archive = checkout.parent / ("activation-drift" + extension)
+    _archive(archive, entries)
+    with pytest.raises(ValueError, match="source|mismatch|activation"):
+        _verify(checkout, archive)
+
+
+@pytest.mark.parametrize("extension", [".whl", ".tar.gz"])
+def test_activation_resource_archive_symlink_is_rejected(
+    checkout: Path,
+    extension: str,
+) -> None:
+    _add_activation_resource(checkout)
+    archive = checkout.parent / ("activation-symlink" + extension)
+    if extension == ".whl":
+        with zipfile.ZipFile(archive, "w") as stream:
+            source = zipfile.ZipInfo(SOURCE)
+            source.create_system = 3
+            source.external_attr = stat.S_IFREG << 16
+            stream.writestr(source, CONTENT)
+            resource = zipfile.ZipInfo(ACTIVATION_RESOURCE)
+            resource.create_system = 3
+            resource.external_attr = stat.S_IFLNK << 16
+            stream.writestr(resource, b"elsewhere")
+    else:
+        with tarfile.open(archive, "w:gz") as stream:
+            source = tarfile.TarInfo("trade_rl-1.0/" + SOURCE)
+            source.size = len(CONTENT)
+            stream.addfile(source, io.BytesIO(CONTENT))
+            resource = tarfile.TarInfo("trade_rl-1.0/" + ACTIVATION_RESOURCE)
+            resource.type = tarfile.SYMTYPE
+            resource.linkname = "elsewhere"
+            stream.addfile(resource)
+    with pytest.raises(ValueError, match="symlink|regular"):
+        _verify(checkout, archive)
+
+
+@pytest.mark.parametrize("kind", ["missing", "changed", "symlink"])
+def test_activation_resource_checkout_drift_fails_closed(
+    checkout: Path,
+    kind: str,
+) -> None:
+    _add_activation_resource(checkout)
+    resource = checkout / ACTIVATION_RESOURCE
+    if kind == "missing":
+        resource.unlink()
+    elif kind == "changed":
+        resource.write_bytes(
+            b'{"activation_sha256":"'
+            + b"a" * 64
+            + b'","schema":"ppo_normalization_execution_activation_authority_v1"}'
+        )
+    else:
+        target = checkout / "activation-target.json"
+        target.write_bytes(ACTIVATION_CONTENT)
+        resource.unlink()
+        try:
+            resource.symlink_to(target)
+        except OSError:
+            pytest.skip("symlinks are unavailable on this platform")
+    archive = checkout.parent / "activation-checkout.whl"
+    _archive(
+        archive,
+        [(SOURCE, CONTENT), (ACTIVATION_RESOURCE, ACTIVATION_CONTENT)],
+    )
+    with pytest.raises(ValueError, match="worktree|source|regular|symlink"):
         _verify(checkout, archive)

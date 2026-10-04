@@ -1307,3 +1307,13 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Net-profit redesign groundwork (Issue #810)
+
+新規の非LLM trader再設計は、事業目的・資本・金融時計の宣言から開始する。`evaluation/objectives` は期待終端純利益を目的名にし、canonical after-cost ledgerの実現endpointを固定初期資本と符号付き入出金で評価する。複数独立口座と共有口座1つの資本分母、利益/log目的の順位差、負の終端equity、regular clockとdiscountの意味をsynthetic contract testsで検査する。研究DD基準は最大20%を維持する。
+
+`BoundObjectiveClock` により、新規bindingではUTC評価期間とeconomic horizonの一致を整数秒で要求し、個別宣言のdigestを同時に固定する。小数秒を丸めた期間や不一致の時計は拒否する。profile内容やruntimeの検証へは接続されていない。
+
+これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。PR #794のtraining discount objectiveとこのbusiness objectiveは別の責務で、gamma/GAEの既定値を重複変更しない。PR #790のshared-cash replayもjoint learning済みとは扱わない。
+
+次段階は参照したrisk/economics/運用recipeの検証と、既存executorを使ったtraining/replay parity、上流のprequential packet、金融clock/終端のadapter整合、合成市場での学習可能性の検査である。これらの不足を閉じ、fresh result-blind G0-G2 reviewと正式な有限予算研究契約を結果前に固定するまで、新規G4実行へ進まない。実データfit/replay、未使用future開封、封印run再試行、live発注はこの変更では実施しない。利益性、WINNER/NO_WINNER/INVALIDの経済判断はまだ未確立である。

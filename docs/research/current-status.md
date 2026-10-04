@@ -816,25 +816,120 @@ base median, positive 2023 and 2024 base medians, and positive medians under
 both fixed stresses. Otherwise the lineage stops after the smoke. Even a pass
 does not establish general profitability, unused-data evidence, production
 eligibility, or live-trading readiness. Economic execution remains blocked
-until exact-head Full CI and a fresh result-blind G0-G2 review are bound to the
-fixed contract. This smoke does not accept a same-author review as that fresh review. The
-trigger gate requires a formal GitHub PR review on the smoke's owning pull
-request from a distinct GitHub principal, exact review `commit_id`, exact
-review-body hash, and a
-canonical `ppo_4h_indicator_source_review_v2` payload whose code/contract
-identity, reviewer-independence status, G0/G1/G2 outcomes, blocking findings and
-development-only authorization all agree with the trigger record before source
-download or PPO fitting may start. GitHub now exposes the waiting state through
-an `Independent Research Review` check that runs only after Lean Core, real-SB3
-PPO Runtime, and Human Guide verification succeed. Review submit/edit/dismiss
-events repeat those checks and then refetch the current formal-review inventory;
-only reviews passing the execution gate's canonical validator can satisfy the check.
-`PENDING` therefore means software verification completed but the exact-head
-independent result-blind review is still absent or invalid; `READY` means only
-that the authenticated review-evidence transition may proceed, not that PPO
-economics may run directly.
+until exact-head software verification and a fresh result-blind G0-G2 review are bound
+to the fixed contract. The review is now process-bound rather than GitHub-principal-
+bound: the same authenticated GitHub account may transport the formal review, but a
+same-principal body/tag assertion cannot authorize anything unless it references
+immutable evidence from the frozen trusted Google Gemini reviewer authority identified by
+`seal/ppo-4h-gemini-review-authority-20260927-v5`.
 
-A separate trusted reviewer transport is being integrated in `tools/ppo_4h_gemini_review.py` and `.github/workflows/ppo-4h-gemini-review.yml`. Its authority model separates canonical request/packet generation, secret-free exact-SHA Core / PPO Runtime / Human Guide verification, and a fresh secret-bearing Google Gemini review job. The reviewer attestation binds exact code/tag identity, frozen trusted workflow/runner identity, request authority, canonical result-blind packet digest, trusted verification job identities, system-instruction/Gemini-request digests, raw Gemini-response digest, and returned Gemini model/response identity. The review job does not execute target code or consume artifacts produced by target-executing jobs. This capability is **not yet an authorization for this smoke by itself**: after the transport is independently reviewed and merged, its exact implementation identity must be frozen, and the active execution gate must consume and independently verify reviewer-run evidence from that frozen authority before same-GitHub-principal posting can replace its current distinct-principal requirement. No Gemini reviewer artifact, PPO fit/replay, or economic result is claimed by merely integrating the transport capability.
+The active execution lifecycle remains on the dedicated **open draft execution PR**
+`research/ppo-4h-indicator-smoke-execution -> main`. Draft state is required through
+review authorization and the evidence-only trigger transition. Review-status and
+trigger-time authorization compare the reviewed SHA against live current `main`; a
+main advance invalidates the old exact-head authorization and requires resynchronization
+before review can proceed.
+
+The canonical source review is now
+`ppo_4h_indicator_source_review_v4`. It binds the exact reviewed code/static-contract
+identity, annotated tag name/object SHA, stable semantic `review_identity_digest`,
+trusted reviewer run id/attempt, artifact id/raw-ZIP SHA-256, canonical attestation
+SHA-256, Google Gemini provider/model/response provenance,
+`reviewer_context=trusted_default_branch_read_only`, result-blind G0/G1/G2,
+disposition, blocking findings, and development-only authorization. The committed
+trigger record is `ppo_4h_indicator_smoke_review_v3` with
+`reviewer_surface=github_pr_review_v3` and repeats the same trusted reviewer identity
+fields plus the exact formal-review URL/body SHA-256.
+
+The execution gate independently re-fetches the trusted reviewer authority rather than
+trusting those source-review fields. It requires GitHub Actions run
+`PPO 4h Gemini Review` to be a completed/success `issue_comment` run on `main`.
+The bootstrap-reviewed authority anchor is the commit targeted by
+`seal/ppo-4h-gemini-review-authority-20260927-v5`. A later `main` head is acceptable
+only when GitHub proves it is a descendant of that anchor with `behind_by=0` and the
+execution gate independently refetches the workflow/runner bytes at that exact run head.
+Their frozen SHA-256 identities are
+`98318fa4f4dafecc1d0c1401d55e7abecdfa11d33cf2367ad1701623eb94ab17`
+and
+`be75c8f8394a575c119ade3e4138b0816257e6ffb96369ae69c386873cbbfcd5`.
+The gate refetches the same-run trusted Core / PPO Runtime / Human Guide and Gemini
+semantic-review jobs, downloads the named reviewer artifact, binds GitHub metadata and
+raw ZIP digest, safely extracts the exact artifact roster, hashes canonical
+`reviewer-attestation.json`, and verifies the attested workflow/runner/request/tag/
+packet/Gemini-response identities before accepting G0/G1/G2.
+
+The review tag remains `review/ppo-4h-indicator-smoke-vN` and is an annotated tag
+bound by name + tag object SHA + reviewed commit SHA. A stable semantic-review identity
+is separately derived from repository id + execution PR + exact reviewed SHA + frozen
+review protocol; incrementing a tag version does not permit review shopping on unchanged
+source. The trusted workflow permits only same-run retry before a terminal provider
+response, rejects another run for the same identity, and fails closed when matching
+lineage evidence has expired. Later ordinary PR reviews posted by the same transport
+account do not supersede an immutable terminal Gemini decision.
+
+The trusted reviewer workflow is already independently reviewed and merged. Its request
+job validates/refetches the canonical request, requester write/admin authority, Draft
+execution PR, current-main containment, tag identity and review lineage, then builds a
+result-blind packet from target bytes without executing them. Separate Core / PPO
+Runtime / Human Guide jobs execute the fixed verification commands without Gemini
+credentials. The secret-bearing review job receives only the canonical request packet,
+executes no target code, separates trusted system instruction from untrusted evidence,
+and binds the raw Gemini request/response bytes and returned model/response identity.
+The packet excludes mutable result-status documentation; a real packet generated from
+the existing #767 reviewed source did not contain unrelated economic-result labels.
+
+The first trusted request for #767 used reviewed SHA `2e78ae61...`, review tag
+`review/ppo-4h-indicator-smoke-v1`, and frozen authority v1. Request run
+`36289664090` completed the request packet and all three trusted software-verification
+jobs, but attempts 1 and 2 both failed at Gemini provider transport with HTTP 500 before
+any terminal semantic response or reviewer attestation existed. Authority v1 sent the
+legacy `responseJsonSchema` structured-output field. Authority v2 corrected that to
+`responseSchema`, was independently reviewed/frozen, and #767 restarted on
+`be20ff97...` with review tag `review/ppo-4h-indicator-smoke-v2`. Its fresh trusted
+run `36304175265` again completed all three trusted software jobs but failed at the
+provider with HTTP 500 before any semantic response or attestation. Neither v1 nor v2
+transport failure is G0-G2 evidence.
+
+Current Google Gemini 3.x REST structured-output examples use
+`generationConfig.responseFormat.text.mimeType/schema`; authority v3 migrated the
+request to that shape and forbade the deprecated `responseMimeType`,
+`responseSchema`, and `responseJsonSchema` keys. #767 was resynchronized to
+`8ca2d110...`, software lanes passed, and review tag
+`review/ppo-4h-indicator-smoke-v3` was created only afterwards. Fresh trusted run
+`36306400096` still failed at provider transport with HTTP 500 before any terminal
+Gemini semantic response or attestation. Authority v4 then tested the raw enum spelling
+`APPLICATION_JSON`, but the provider still failed before a semantic response.
+
+A subsequent contract audit against Google's raw REST example found that the wire
+shape uses `responseFormat.text.mimeType="application/json"` and that Gemini 3.x
+migration guidance removes deprecated sampling parameters such as `temperature`.
+The authority-v5 transport repair restored that MIME string, removed `temperature: 0`, and added bounded
+provider-error diagnostics that expose only code/status/message while suppressing raw
+bodies, nested details, credentials, and packet content. Its exact-head review-event CI
+run `36319375502` was Green and the merged reviewer implementation was frozen as
+`seal/ppo-4h-gemini-review-authority-20260927-v5` at anchor commit
+`b35d1b76...`. The trusted workflow/runner bytes are unchanged on current `main`
+even though unrelated commits advanced the branch.
+
+That unrelated main advance exposed an overly strict consumer rule: requiring the
+review workflow run head to equal the frozen authority commit makes a content-identical
+trusted reviewer unusable as soon as `main` advances. The consumer therefore pins the
+bootstrap-reviewed v5 anchor and frozen workflow/runner digests, requires any later run
+head to be a Git descendant of that anchor with `behind_by=0`, and independently
+refetches/hashes the trusted workflow and runner at the exact run head. Unrelated main
+advances are accepted only while those bytes remain identical; any reviewer-byte drift
+fails closed.
+
+Because current `main`, the frozen authority, and the consumer contract changed, the
+old #767 v1-v4 reviewed SHAs/tags/transport-failed requests are not reused. The execution
+branch must contain current `main`, pin authority v5, complete fresh exact-head
+software verification, and only then create the next unused annotated review tag and one
+fresh canonical trusted-review request. A successful trusted attestation must pass the
+v4 source-review / v3 trigger consumer before the evidence-only trigger commit can be
+created. Any terminal BLOCKED semantic review requires a new reviewed source HEAD before
+another semantic review may become authoritative. No PPO fit/replay or economic result
+has been authorized by the transport attempts above, and none of this establishes
+profitability, unused-data evidence, production eligibility, or live-trading readiness.
 
 The repository now has an A2C intent adapter, sequential CPU fitter, and
 algorithm-specific inference bundle over the same `Discrete(3)` environment.

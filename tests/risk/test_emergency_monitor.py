@@ -112,6 +112,41 @@ def test_split_does_not_trigger_emergency_price_risk() -> None:
     assert result.reasons == ()
 
 
+def test_split_adjustment_is_applied_to_volatility_returns() -> None:
+    dataset = market_with_last_bar_shock()
+    close = np.full_like(dataset.close, 100.0)
+    close[12:, 0] = 50.0
+    open_price = np.vstack((close[0], close[:-1]))
+    split_factor = np.ones_like(close)
+    split_factor[12, 0] = 2.0
+    split_dataset = replace(
+        dataset,
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        split_factor=split_factor,
+    )
+    unadjusted_dataset = replace(split_dataset, split_factor=np.ones_like(close))
+    monitor = CausalEmergencyRiskMonitor(
+        EmergencyRiskConfig(
+            volatility_ratio=1.5,
+            volatility_short_hours=0.5,
+            volatility_long_hours=3.0,
+        )
+    )
+
+    adjusted = monitor.assess(split_dataset, index=12, weights=np.array([0.5, 0.0]))
+    unadjusted = monitor.assess(
+        unadjusted_dataset, index=12, weights=np.array([0.5, 0.0])
+    )
+
+    np.testing.assert_array_equal(adjusted.flatten_mask, np.array([False, False]))
+    assert adjusted.reasons == ()
+    np.testing.assert_array_equal(unadjusted.flatten_mask, np.array([True, False]))
+    assert unadjusted.reasons == ("volatility_spike:BTC",)
+
+
 def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     dataset = market_with_last_bar_shock()
     current = np.array([0.40, 0.0])

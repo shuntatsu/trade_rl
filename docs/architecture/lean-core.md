@@ -249,6 +249,7 @@ Risk / executionが担当するもの:
 - maximum absolute weight
 - leverage / margin / insolvency
 - drawdown emergency
+- stop-loss, gap, and volatility emergency returns apply the current bar's split factor before comparing price risk.
 - liquidity / participation capacity
 - minimum notional
 - tick / lot constraints

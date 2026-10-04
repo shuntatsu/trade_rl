@@ -92,6 +92,12 @@ The fixed consumed-development baseline is adaptive with regime threshold0 and h
 
 G1 holds actual filled quantity while nonflat age is below24; flat entry remains available. First fill/sign change gives age1, same-sign exposure advances age, flat gives0, and age24 unlocks. A protective FLAT, global risk and terminal phase take precedence. No guarantee follows that turnover decreases or loss stays below20%. G2 independently checks hold ages, both quantity signs, all requested intents, protective bypass, partial-fill cancellation, unlock/re-entry, global risk and terminal settlement. Fresh result-blind AI review and source/runtime/script/Dataset binding precede economics. All arm raw returns/ledgers and reset-normalized products are retained; result-dependent rescue and unused/final/live claims remain forbidden.
 
+## Research-specific contract: deterministic bot native daily signal factor
+
+The fixed baseline uses hourly24bar log return with adaptive regime0 and quantity hold24. The single candidate changes only `signal_index` to the existing named native daily24bar log-return channel. This treatment jointly changes horizon, amplitude, update cadence and availability; it does not isolate horizon alone. Slower positioning/attention continuation is a falsifiable premise, while lagged reversal exposure and funding are counterexamples. Raw entry/exit thresholds, capital, holding, risk, economics, selection and the all-arm positive absolute/paired screen remain frozen.
+
+G1 consumes completed native daily events causally aligned to the hourly clock, never an unfinished bar or hourly substitute. G2 independently checks the native24bar formula, warmup/source range, delayed availability, staleness, missing-row rejection, future-mutation invariance, channel binding/permutation and unchanged hold/risk/terminal behavior. Source/runtime/script/Dataset identities, full arm raw evidence, write-once outputs and fresh result-blind review precede economics. Repeated Q1 use remains adaptive consumed development; a passed screen alone cannot establish general profitability, winner, unused/final eligibility or live readiness.
+
 ## Research-specific contract: PPO medium-term minimum-hold comparison
 
 This is an active result-blind design for a new development Study. It has not

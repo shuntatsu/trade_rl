@@ -1540,7 +1540,14 @@ def load_evidence_set(
         if _run_summary_seed(loaded) != seed:
             raise ArtifactIntegrityError("EvidenceSet Run seed mismatch")
         has_shared_cash_result = loaded.summary.get("shared_cash_ppo") is not None
-        if has_shared_cash_result or require_shared_cash_source_binding:
+        has_source_binding = (
+            dataset is not None
+            and expected_dataset_artifact_digest is not None
+            and expected_execution_overlay is not None
+        )
+        if require_shared_cash_source_binding or (
+            has_shared_cash_result and has_source_binding
+        ):
             if (
                 dataset is None
                 or expected_dataset_artifact_digest is None

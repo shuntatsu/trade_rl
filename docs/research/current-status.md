@@ -148,8 +148,14 @@ StudyPlan digest is
 `c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d`. The
 workspace-only packet is at
 `report/ppo-shared-cash-canonical-v6-20261003/`; its Study directory contains
-only the immutable plan, and no baseline or experiments were published. No v2 fit or economic
-replay has been run. The previous sealed
+only the immutable plan when baseline execution was started. On 2026-10-04
+00:40 JST, a baseline-only `run_baseline` process started from the local
+`codex/ppo-holding-duration` checkout at source SHA
+`370a97e6fc0f09e29a40f1b7b4c49b3ed09f593a`. It was still active at inspection
+and was stopped because fresh G0-G2 review of the current PR head is incomplete.
+Its outputs and artifacts have not been inspected. No result from that invocation
+is verified against the current PR head; no candidate comparison or verified
+PPO profitability result exists. The previous sealed
 one-shot normalization run 36356182462 completed all ten execution slots, but
 independent verification failed because a fresh bundle replay differed from its
 published result. Finalization was skipped and no verified comparison was
@@ -218,10 +224,13 @@ G2 remains NOT ESTABLISHED until the exact implementation receives fresh
 independent result-blind review and all required contract checks pass. Human
 review of the updated Guide description is a separate documentation gate
 required before its source fingerprints are refreshed; it is not a G2 oracle.
-No PPO training or economic replay has started for this duration study. G4
-remains blocked; existing M2 results are not evidence for this duration
-question. The next sequence is to close G0-G2 on this exact packet, then freshly
-train H=0 under Observation v3 before any candidate result is generated.
+A baseline-only `run_baseline` invocation started against the older source SHA
+recorded above and was stopped because fresh G0-G2 review is incomplete. Its
+outputs remain uninspected and it is not verified for this exact packet; no
+candidate run has been performed. G4 remains blocked; existing M2 results are
+not evidence for this duration question. The next sequence is to close G0-G2 on
+this exact packet, then freshly train H=0 under Observation v3 before any
+candidate result is generated.
 The local Study workflow does not authenticate an external G0-G2 review; this
 remains an operator release prerequisite, and `run_baseline` / `run_experiment`
 must not be called until it is closed. Caller-written `assurance-review.json`

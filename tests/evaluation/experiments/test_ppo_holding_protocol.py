@@ -169,6 +169,26 @@ def _holding_baseline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return root, dataset_root, baseline
 
 
+def test_legacy_holding_protocol_reloads_observation_v3_shared_cash_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.experiments import evidence as evidence_module
+    from trade_rl.evaluation.experiments import inspect_study, run_baseline
+
+    root, dataset_root, _ = _holding_study(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        evidence_module,
+        "execute_candidate_run",
+        _fake_shared_cash_execute(),
+    )
+
+    baseline = run_baseline(root, dataset_root=dataset_root)
+
+    assert baseline.baseline is not None
+    assert inspect_study(root).baseline is not None
+
+
 def test_handwritten_review_record_is_not_an_authoritative_assurance_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -437,6 +457,7 @@ def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evid
     )
 
     payload = ledger_evidence["payload"]
+    pristine_payload = json.loads(json.dumps(payload))
     fill_interval = next(
         interval
         for interval in payload["intervals"]
@@ -488,7 +509,7 @@ def test_shared_cash_source_binding_rejects_fill_price_forged_across_linked_evid
             expected_dataset_artifact_digest=dataset_artifact.artifact_digest,
         )
 
-    cost_payload = json.loads(json.dumps(ledger_evidence["payload"]))
+    cost_payload = json.loads(json.dumps(pristine_payload))
     cost_interval = next(
         interval
         for interval in cost_payload["intervals"]

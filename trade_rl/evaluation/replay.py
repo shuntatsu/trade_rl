@@ -21,6 +21,9 @@ from trade_rl.simulation import (
     ExecutionResult,
     MarketExecutor,
 )
+from trade_rl.simulation.diagnostics.accounting_transition import (
+    AccountingTransitionEvidence,
+)
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import OrderEvent
@@ -133,9 +136,12 @@ class SharedCashLedgerIntervalEvidence:
     order_events: tuple[OrderEvent, ...]
     capacity_events: tuple[SymbolCapacityEvidence, ...]
     funding_events: tuple[FundingBoundaryEvidence, ...]
+    accounting_transitions: tuple[AccountingTransitionEvidence, ...] = ()
 
-    def to_mapping(self) -> dict[str, object]:
-        return {
+    def to_mapping(
+        self, *, include_accounting_transitions: bool = False
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
             "borrow_cost_after": self.borrow_cost_after,
             "borrow_cost_before": self.borrow_cost_before,
             "cash_after": self.cash_after,
@@ -169,6 +175,11 @@ class SharedCashLedgerIntervalEvidence:
             "turnover_total_after": self.turnover_total_after,
             "turnover_total_before": self.turnover_total_before,
         }
+        if include_accounting_transitions:
+            payload["accounting_transitions"] = tuple(
+                transition.to_mapping() for transition in self.accounting_transitions
+            )
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +204,8 @@ class SharedCashReplayLedgerEvidence:
     terminal_order_reasons: tuple[tuple[str, str], ...]
     decisions: tuple[SharedCashReplayDecision, ...] = ()
     schema_version: str = "shared_cash_replay_ledger_v1"
+    initial_mark_prices: tuple[float, ...] = ()
+    contract_multipliers: tuple[float, ...] = ()
 
     def to_mapping(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -206,7 +219,18 @@ class SharedCashReplayLedgerEvidence:
             "final_portfolio_value": self.final_portfolio_value,
             "final_total_cost": self.final_total_cost,
             "final_turnover_total": self.final_turnover_total,
-            "intervals": tuple(interval.to_mapping() for interval in self.intervals),
+            "intervals": tuple(
+                interval.to_mapping(
+                    include_accounting_transitions=(
+                        self.schema_version
+                        in {
+                            "shared_cash_replay_ledger_v3",
+                            "shared_cash_replay_ledger_v4",
+                        }
+                    )
+                )
+                for interval in self.intervals
+            ),
             "schema_version": self.schema_version,
             "start_index": self.start_index,
             "stop_index": self.stop_index,
@@ -214,10 +238,20 @@ class SharedCashReplayLedgerEvidence:
             "terminal_order_reasons": self.terminal_order_reasons,
             "termination_reason": self.termination_reason,
         }
-        if self.schema_version == "shared_cash_replay_ledger_v2":
+        if self.schema_version in {
+            "shared_cash_replay_ledger_v2",
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        }:
             payload["decisions"] = tuple(
                 decision.to_mapping() for decision in self.decisions
             )
+        if self.schema_version in {
+            "shared_cash_replay_ledger_v3",
+            "shared_cash_replay_ledger_v4",
+        }:
+            payload["contract_multipliers"] = self.contract_multipliers
+            payload["initial_mark_prices"] = self.initial_mark_prices
         return payload
 
 
@@ -245,6 +279,7 @@ class _ExecutedEntryPrices:
         quantities: np.ndarray,
         *,
         terminated: bool = False,
+        inactive_flat_mask: np.ndarray | None = None,
     ) -> None:
         for event in events:
             filled = float(event.filled_quantity)
@@ -273,6 +308,16 @@ class _ExecutedEntryPrices:
         actual = np.asarray(quantities, dtype=np.float64)
         if actual.shape != self._quantities.shape:
             raise RuntimeError("execution fill events diverged from book quantities")
+        if inactive_flat_mask is not None:
+            inactive_flat = np.asarray(inactive_flat_mask, dtype=np.bool_)
+            if inactive_flat.shape != self._quantities.shape:
+                raise RuntimeError(
+                    "inactive flat mask does not match the fill tracker roster"
+                )
+            if np.any(inactive_flat & (actual != 0.0)):
+                raise RuntimeError("inactive fill tracker reset requires a flat book")
+            self._quantities[inactive_flat] = 0.0
+            self._average_prices[inactive_flat] = 0.0
         if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
             if terminated:
                 self._quantities = actual.copy()
@@ -582,6 +627,10 @@ def run_single_symbol_replay(
             latest_execution_observation.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            inactive_flat_mask=(
+                ~dataset.resolved_array("asset_active")[execution.next_index]
+                & (execution.book.quantities == 0.0)
+            ),
         )
         book = execution.book
         position_age_bars = next_position_age_bars(
@@ -646,6 +695,10 @@ def run_single_symbol_replay(
                 latest_execution_observation.order_events,
                 execution.book.quantities,
                 terminated=execution.termination_reason is not None,
+                inactive_flat_mask=(
+                    ~dataset.resolved_array("asset_active")[execution.next_index]
+                    & (execution.book.quantities == 0.0)
+                ),
             )
             book = execution.book
             position_age_bars = next_position_age_bars(
@@ -708,6 +761,8 @@ def run_shared_cash_replay(
     minimum_hold_bars: int | Sequence[int] | None = None,
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
+    capture_accounting_evidence: bool = False,
+    ohlc_drawdown_stress: bool = False,
 ) -> SharedCashReplayResult:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -737,6 +792,12 @@ def run_shared_cash_replay(
         raise ValueError("initial_capital must be finite and positive")
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
+    if not isinstance(capture_accounting_evidence, bool):
+        raise ValueError("capture_accounting_evidence must be boolean")
+    if capture_accounting_evidence and not capture_ledger_evidence:
+        raise ValueError("accounting evidence requires ledger evidence")
+    if not isinstance(ohlc_drawdown_stress, bool):
+        raise ValueError("ohlc_drawdown_stress must be boolean")
     if minimum_hold_bars is None:
         hold_bars_by_symbol = tuple(
             getattr(strategy, "minimum_hold_bars", 0) for strategy in strategy_tuple
@@ -797,6 +858,8 @@ def run_shared_cash_replay(
         dataset,
         resolved_execution_cost,
         market_order_profile=market_order_profile,
+        capture_accounting_evidence=capture_accounting_evidence,
+        ohlc_drawdown_stress=ohlc_drawdown_stress,
         execution_observer=retain_latest_execution_observation,
     )
     risk_controller = risk or PreTradeRisk.default_for_execution(
@@ -852,6 +915,10 @@ def run_shared_cash_replay(
             stateful_evidence.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            inactive_flat_mask=(
+                ~dataset.resolved_array("asset_active")[execution.next_index]
+                & (execution.book.quantities == 0.0)
+            ),
         )
         if capture_ledger_evidence:
             if execution_observation_count != len(ledger_intervals) + 1:
@@ -890,6 +957,7 @@ def run_shared_cash_replay(
                     order_events=stateful_evidence.order_events,
                     capacity_events=stateful_evidence.capacity_evidence,
                     funding_events=stateful_evidence.funding_evidence,
+                    accounting_transitions=stateful_evidence.accounting_transitions,
                 )
             )
             active_order_remainders = stateful_evidence.active_order_remainders
@@ -1096,10 +1164,22 @@ def run_shared_cash_replay(
             active_order_remainders=active_order_remainders,
             terminal_order_reasons=terminal_order_reasons,
             decisions=tuple(decisions),
+            initial_mark_prices=tuple(float(value) for value in initial_prices),
+            contract_multipliers=tuple(
+                float(value) for value in dataset.resolved_array("contract_multipliers")
+            ),
             schema_version=(
-                "shared_cash_replay_ledger_v2"
-                if settle_terminal_position or any(hold_bars_by_symbol)
-                else "shared_cash_replay_ledger_v1"
+                "shared_cash_replay_ledger_v4"
+                if capture_accounting_evidence and ohlc_drawdown_stress
+                else (
+                    "shared_cash_replay_ledger_v3"
+                    if capture_accounting_evidence
+                    else (
+                        "shared_cash_replay_ledger_v2"
+                        if settle_terminal_position or any(hold_bars_by_symbol)
+                        else "shared_cash_replay_ledger_v1"
+                    )
+                )
             ),
         )
     return SharedCashReplayResult(

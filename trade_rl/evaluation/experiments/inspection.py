@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from trade_rl.data import MarketDataset
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
     PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
     compare_evidence_sets,
 )
 from trade_rl.evaluation.experiments.codec import (
@@ -48,6 +50,7 @@ from trade_rl.evaluation.experiments.errors import (
 from trade_rl.evaluation.experiments.evidence import (
     EvidenceSet,
     LoadedEvidenceSet,
+    _load_plan_dataset_source,
     load_evidence_set,
 )
 from trade_rl.evaluation.experiments.protocols import (
@@ -113,6 +116,12 @@ class _StudyState:
 def _load_evidence_node(
     store: StudyStore,
     relative: Path,
+    *,
+    dataset: MarketDataset | None,
+    expected_dataset_artifact_digest: str | None,
+    expected_execution_overlay: str | None,
+    require_shared_cash_source_binding: bool,
+    expected_shared_cash_ledger_schema: str | None,
 ) -> tuple[LoadedEvidenceSet, _AnalysisBinding]:
     root = store.root / relative
     if root.is_symlink() or not root.is_dir():
@@ -126,9 +135,18 @@ def _load_evidence_node(
             f"{relative} must contain exactly evidence/ and analysis.json"
         )
     try:
-        evidence = load_evidence_set(root / "evidence")
+        evidence = load_evidence_set(
+            root / "evidence",
+            dataset=dataset,
+            expected_dataset_artifact_digest=expected_dataset_artifact_digest,
+            expected_execution_overlay=expected_execution_overlay,
+            require_shared_cash_source_binding=require_shared_cash_source_binding,
+            expected_shared_cash_ledger_schema=(expected_shared_cash_ledger_schema),
+        )
     except (ArtifactIntegrityError, ValueError) as error:
-        raise ArtifactIntegrityError(f"{relative} EvidenceSet is invalid") from error
+        raise ArtifactIntegrityError(
+            f"{relative} EvidenceSet is invalid: {error}"
+        ) from error
     analysis = _analysis_binding_from_payload(
         store.read_json(relative / "analysis.json"),
         expected_evidence_fingerprint=evidence.evidence.fingerprint,
@@ -168,7 +186,11 @@ def _read_plan(store: StudyStore) -> StudyPlan:
     return _study_plan_from_payload(store.read_json("plan.json"))
 
 
-def _reconstruct(store: StudyStore) -> _StudyState:
+def _reconstruct(
+    store: StudyStore,
+    *,
+    dataset_root: str | Path | None = None,
+) -> _StudyState:
     root = store.root
     if root.is_symlink() or not root.is_dir():
         raise ArtifactIntegrityError("Study root must be a regular directory")
@@ -188,6 +210,38 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         raise ArtifactIntegrityError(f"unexpected Study root entries: {sorted(extras)}")
 
     plan = _read_plan(store)
+    source_dataset: MarketDataset | None = None
+    source_artifact_digest: str | None = None
+    if plan.is_ppo_shared_cash_holding_duration_study:
+        resolved_dataset_root = (
+            Path(dataset_root) if dataset_root is not None else root.parent / "dataset"
+        )
+        has_persisted_evidence = (root / "baseline" / "evidence").exists() or (
+            root / "baseline" / "evidence"
+        ).is_symlink()
+        experiments_root = root / "experiments"
+        if experiments_root.is_symlink():
+            raise ArtifactIntegrityError("experiments must be a regular directory")
+        if experiments_root.exists():
+            if not experiments_root.is_dir():
+                raise ArtifactIntegrityError("experiments must be a regular directory")
+            for entry in experiments_root.iterdir():
+                if entry.is_symlink() or not entry.is_dir():
+                    continue
+                candidate_evidence = entry / "candidate" / "evidence"
+                has_persisted_evidence = has_persisted_evidence or (
+                    candidate_evidence.exists() or candidate_evidence.is_symlink()
+                )
+        if resolved_dataset_root.exists() or resolved_dataset_root.is_symlink():
+            artifact, source_dataset = _load_plan_dataset_source(
+                dataset_root=resolved_dataset_root,
+                plan=plan,
+            )
+            source_artifact_digest = artifact.artifact_digest
+        elif has_persisted_evidence:
+            raise ArtifactIntegrityError(
+                "shared-cash Study reload requires its source Dataset artifact"
+            )
     baseline: LoadedEvidenceSet | None = None
     baseline_analysis: _AnalysisBinding | None = None
     evidence_by_digest: dict[str, LoadedEvidenceSet] = {}
@@ -195,7 +249,17 @@ def _reconstruct(store: StudyStore) -> _StudyState:
     lineage: list[str] = []
     baseline_root = root / "baseline"
     if baseline_root.exists() or baseline_root.is_symlink():
-        baseline, baseline_analysis = _load_evidence_node(store, Path("baseline"))
+        baseline, baseline_analysis = _load_evidence_node(
+            store,
+            Path("baseline"),
+            dataset=source_dataset,
+            expected_dataset_artifact_digest=source_artifact_digest,
+            expected_execution_overlay=plan.baseline_config.execution_overlay,
+            require_shared_cash_source_binding=(
+                plan.is_ppo_shared_cash_holding_duration_study
+            ),
+            expected_shared_cash_ledger_schema=plan.shared_cash_ledger_schema,
+        )
         if _semantic_payload_without_seed(
             baseline.semantic_config
         ) != _semantic_without_seed(plan.baseline_config):
@@ -270,7 +334,15 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         candidate_analysis: _AnalysisBinding | None = None
         if "candidate" in names:
             candidate, candidate_analysis = _load_evidence_node(
-                store, base / "candidate"
+                store,
+                base / "candidate",
+                dataset=source_dataset,
+                expected_dataset_artifact_digest=source_artifact_digest,
+                expected_execution_overlay=plan.baseline_config.execution_overlay,
+                require_shared_cash_source_binding=(
+                    plan.is_ppo_shared_cash_holding_duration_study
+                ),
+                expected_shared_cash_ledger_schema=plan.shared_cash_ledger_schema,
             )
             if _semantic_payload_without_seed(
                 candidate.semantic_config
@@ -350,7 +422,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 field="factor-effect schema_version",
             )
             expected_factor_effect_schema = (
-                PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+                PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+                if plan.uses_ohlc_drawdown_stress
+                else PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
                 if plan.is_ppo_shared_cash_holding_duration_study
                 else PPO_HOLDING_DURATION_COMPARISON_SCHEMA
                 if plan.is_ppo_holding_duration_study
@@ -358,7 +432,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             )
             if factor_effect_schema != expected_factor_effect_schema:
                 required_schema = (
-                    "schema v4"
+                    "schema v5"
+                    if plan.uses_ohlc_drawdown_stress
+                    else "schema v4"
                     if plan.is_ppo_shared_cash_holding_duration_study
                     else "schema v3"
                 )
@@ -549,7 +625,11 @@ def _experiment_state(state: _StudyState, sequence: int) -> _ExperimentState:
     )
 
 
-def inspect_study(root: str | Path) -> StudySnapshot:
+def inspect_study(
+    root: str | Path,
+    *,
+    dataset_root: str | Path | None = None,
+) -> StudySnapshot:
     """Reconstruct and validate a Study from immutable on-disk evidence."""
 
     path = Path(root)
@@ -559,7 +639,7 @@ def inspect_study(root: str | Path) -> StudySnapshot:
         )
     store = StudyStore(path)
     with store.mutation_lock():
-        return _reconstruct(store).snapshot(store.root)
+        return _reconstruct(store, dataset_root=dataset_root).snapshot(store.root)
 
 
 __all__ = ["StudySnapshot", "inspect_study"]

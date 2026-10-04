@@ -135,31 +135,66 @@ beat H=0 after costs, incomplete seed-symbol cells, or any account exceeding
 the drawdown guardrail. Even a pass cannot establish a shared-cash portfolio
 edge or live-trading eligibility.
 
-### Shared-cash evaluation protocol v2
+### Historical shared-cash evaluation protocol v2
 
 The legacy `ppo_holding_duration_v1` above retains independent per-symbol
-accounts. A new `ppo_shared_cash_holding_duration_v2` uses a separate bootstrap
-config v6 / StudyPlan v6 identity. Each seed has one 100,000 USDT account shared
+accounts. Historical `ppo_shared_cash_holding_duration_v2` binds bootstrap
+config v6 / StudyPlan v6 / comparison v4. Its frozen selection rule describes
+the 20% gate as realized maximum drawdown, so v6 artifacts remain readable under
+that wording and identity. They are read-only: existing plans and evidence may
+be inspected, but no baseline, candidate, or other Study mutation may run. The
+v2 StudyPlan requires ledger v3 when existing EvidenceSets are reloaded. A frozen
+v6 plan must not be rewritten to claim OHLC stress semantics.
+
+### Current shared-cash evaluation protocol v3
+
+The current `ppo_shared_cash_holding_duration_v3` uses bootstrap config v7 /
+StudyPlan v7 / comparison v5. Each seed has one 100,000 USDT account shared
 across the full symbol roster. At every hourly decision, per-symbol PPO
 proposals enter one portfolio-wide risk projection and execution, with the
 same frozen costs, capacity, and terminal settlement for baseline and candidate.
-The v2 selector uses each combined portfolio's total return and realized maximum
-drawdown, not an average of independent symbol accounts. An arm is eligible
-only when all five paired baseline/candidate portfolios complete flat terminal
-settlement with no active order remainder, each portfolio's observed maximum
-drawdown is at most 20%, and the median paired portfolio return difference is
-positive. The primary score is the median candidate portfolio total return;
-ties go to the shorter hold. No eligible arm means NO_WINNER.
+The selector uses combined portfolio total returns and conservative maximum
+drawdown stress from favorable and adverse marks across each bar's OHLC range,
+not an average of independent symbol accounts. An arm is eligible only when all
+five paired baseline/candidate portfolios settle flat with no active order
+remainder, each portfolio's OHLC-stress drawdown is at most 20%, the median
+absolute candidate portfolio return is positive, and the median paired
+portfolio return difference is positive. The primary score is median candidate
+portfolio total return; ties go to the shorter hold. No eligible arm means
+NO_WINNER. This shared-cash comparison is a research-only diagnostic and does
+not change the operational target of one independently traded symbol account
+at a time.
 
-Training remains on single-symbol PPO episodes while v2 evaluation combines
-their proposals in one shared-cash book. Therefore this estimates whether the
-existing per-symbol PPO policy behaves acceptably under the declared portfolio
-execution mechanism; it does not establish a jointly trained portfolio policy.
-The pre-trade 20% stop also cannot prevent a larger realized loss after price
-gaps. v2 requires a fresh result-blind G0-G2 review of this training/evaluation
-scope and the exact implementation before any fit or economic replay.
+The v3 G0 question is whether a minimum-hold treatment can produce a positive
+median after-cost shared-cash portfolio return while improving on a freshly
+trained H=0 PPO and keeping OHLC range-stress drawdown at or below 20%. A
+positive paired improvement alone can still leave the candidate loss-making,
+so positive median absolute return is an explicit development guardrail, not a
+claim of future profitability. Result-blind falsifiers are a nonpositive
+candidate-return median, a nonpositive paired-improvement median, incomplete
+terminal settlement, or any seed portfolio exceeding the drawdown limit.
 
-### G1 — fixed mechanism and claim limits
+The frozen v3 account scale is exactly 100,000 USDT. The entire symbol roster
+shares that one cash balance and one portfolio value; each per-symbol target is
+expressed against that combined portfolio value. Favorable marks establish each
+bar's peak before adverse marks measure range stress. OHLC does not reveal the
+intrabar price order, so the drawdown is a conservative range stress and not a
+reconstructed realized equity path. Bootstrap and StudyPlan validation reject
+any other starting capital because order minima, quantity rounding, and
+capacity can otherwise change the fills under the same protocol identity.
+
+Training remains on single-symbol PPO episodes while v3 evaluation combines
+their proposals in one shared-cash book. Training and ordinary single-symbol
+replay use a different risk path: v3 OHLC stress updates shared-account
+drawdown state, which feeds later pre-trade risk decisions and can trigger
+additional deleveraging. This estimates how the existing per-symbol PPO behaves
+under the declared portfolio execution mechanism; it does not establish a
+jointly trained portfolio policy. The pre-trade 20% stop also cannot prevent a
+larger realized loss after price gaps. v3 requires a
+fresh result-blind G0-G2 review of this training/evaluation scope and the exact
+implementation before any fit or economic replay.
+
+### G1 — independent-account v1 mechanism and claim limits
 
 The planned base clock is 1h and each PPO is freshly fitted on the same causal
 Dataset and ordered fit scope. Features, seed roster, requested/realized PPO
@@ -169,10 +204,12 @@ evaluation timestamps, and terminal settlement are identical. Only
 `max_gross=0.5`, `max_abs_weight=0.1`, `max_turnover=null`,
 `drawdown_start=0.10`, `drawdown_stop=0.20`, with the remaining
 `PreTradeRiskConfig` defaults. The same object is used in training and every
-strategy replay. These limits apply independently to each symbol account; they
-do not create joint shared cash or portfolio-wide drawdown control. A hard stop
-cannot prevent a gap from realizing more than 20% drawdown. All arms settle the
-terminal position through the same executor and costs.
+strategy replay. In legacy `ppo_holding_duration_v1`, these limits apply
+independently to each symbol account and do not create joint shared cash or
+portfolio-wide drawdown control. In current `ppo_shared_cash_holding_duration_v3`,
+the same risk settings are applied once to the combined book described above.
+A hard stop cannot prevent a gap from realizing more than 20% drawdown. All
+arms settle the terminal position through the same executor and costs.
 
 Every age-aware candidate resolver requires exactly regular one-hour bars, so
 72/168/336/504 mean 3/7/14/21 elapsed days rather than an arbitrary number of
@@ -229,18 +266,72 @@ re-entry while any quantity remains.
   the arm ineligible; terminal settlement alone does not imply flatness.
 - Terminal settlement has a separate expected-cash/cost check, confirms the
   same exclusive end and latency window, and reports any residual exposure.
+- Quantized fills preserve their exact accepted rational quantity separately
+  from the order event's float projection. The artifact validator binds that
+  exact evidence to the exact inventory delta; a regression covers a valid lot
+  fill whose float projection cannot round-trip to the original rational.
 
-The evaluation layer now also exposes a distinct `run_shared_cash_replay` path
-that can enforce per-symbol age from actual shared-book fills, then apply one
-portfolio risk projection and terminal settlement through one ledger. Its v2
-ledger records raw/effective intents, ages, quantities, and suppression/unlock
-state. This is a software capability only: it does not change the frozen v1
-Study's independent-account denominator, risk, or selection semantics, and it
-does not turn the existing one-active-symbol PPO training environment into a
-joint portfolio learner. Any Study that uses the shared path must create a new
-immutable identity, bind one total-cash/notional scale across training and
-replay, select from the combined portfolio equity path, and close fresh G0-G2
-review before generating economic results.
+The evaluation layer also exposes a distinct `run_shared_cash_replay` path that
+can enforce per-symbol age from actual shared-book fills, then apply one
+portfolio risk projection and terminal settlement through one ledger. The
+current `shared_cash_replay_ledger_v4` payload records raw/effective intents,
+ages, quantities, suppression/unlock state, ordered before/after accounting
+transitions, and favorable/adverse OHLC stress marks. The
+`lean_candidate_result_v11` artifact persists that complete interval ledger
+and binds its interval returns to the saved portfolio-return array. The loader
+recomputes cash, exact inventory, marks, multipliers, NAV, and transition
+balances from the persisted transitions, then checks that evidence against
+fills, corporate actions, carry, and terminal settlement. The v11 shared-cash
+`metrics.max_drawdown` is recomputed from ordered accounting states and per-bar
+OHLC stress marks: favorable marks establish peaks before adverse marks measure
+drawdown, including after each fill. Because OHLC omits intrabar price order,
+this is a conservative range stress, not realized-path reconstruction. Total
+return remains bound to the saved interval-return array. Controlled comparison
+uses this validated ledger stress drawdown for the risk gate and validates total
+return against the saved interval-return array. It must not reconstruct
+shared-cash drawdown from those interval returns. Historical
+`lean_candidate_result_v10` / `shared_cash_replay_ledger_v3`, v9 ledger-v2, v8
+ledger-v1/v2, and v7 digest-only artifacts retain their previous read contracts.
+Same-market training/replay parity and an independently hand-calculated
+multi-symbol cash/cost oracle exercise this boundary. The candidate-run loader
+does not reopen Dataset source rows from its digest, so internal artifact
+validation alone does not establish source binding. EvidenceSet generation
+and every later EvidenceSet reload for the shared-cash holding-duration
+protocol use a separate check against the frozen Dataset ID and artifact
+digest. Reload takes the Dataset artifact from the caller or the Study's
+adjacent `dataset/` directory; it does not trust a Dataset path recorded by the
+result artifact. The validator also matches the Run's execution overlay to the
+frozen StudyPlan, validates the initial mark and contiguous interval window,
+and binds each accounting transition to its source row: `open` and
+`mark_price`, `split_factor`, `asset_active` and
+`delisting_recovery`, `dividend`, `funding_due` and `funding_rate`, `cash_rate`,
+`borrow_rate`, and `timestamps` for elapsed carry time. For each borrow-charge
+transition it also checks `borrow_rate_multiplier` against the execution cost
+resolved from the registered overlay, rather than trusting the ledger's own
+multiplier. It recomputes the canonical Dataset identity across all identity
+arrays, covering source fields
+that do not appear in accounting transitions, including OHLCV (`open`, `high`,
+`low`, `close`, and `volume`),
+`fee_rate`/`maker_fee_rate`/`taker_fee_rate`/`spread_rate`, and
+`max_participation_rate`. Mutation tests change these inputs while retaining
+the saved ledger, Dataset ID, and expected artifact digest; both EvidenceSet
+generation and reload reject them. A lifecycle test also changes borrow-rate
+multipliers consistently across an internally valid Run, recomputes the Run
+and EvidenceSet digests and analysis binding, and confirms Study inspection
+still rejects the mismatch against the registered overlay. A fresh result-blind
+G0-G2 review and all contract checks remain required before economic execution.
+For each fill it also links the accounting transition to the exact order event
+and execution-policy digest, then recomputes the tick-rounded open price,
+notional, source-liquidity participation, and Dataset plus overlay fee, spread,
+and impact cost. Randomized slippage is rejected because its draw cannot be
+reconstructed from the registered source inputs. This source oracle does not
+establish exchange-live fill accuracy.
+The shared path does not change the frozen v1 Study's independent-account
+denominator, risk, or selection semantics, and does not turn the existing
+one-active-symbol PPO training environment into a jointly trained portfolio
+learner. Any Study using shared cash needs a new immutable identity, a single
+total-cash/notional scale, and selection from the combined portfolio equity
+path.
 
 The current implementation and focused tests are still undergoing independent
 result-blind review. G2 remains NOT ESTABLISHED until that review and the full
@@ -736,7 +827,7 @@ AI reviewのrun-specific transcriptやmodel reasoningをcurrent treeへcommitし
 
 **Counterexample:** 既知の期間で複数候補を試した後、名前だけ変えた最終候補を同じ期間で「初見」と扱う。
 
-**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、shared-cash protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` がprotocolとfinal windowをそれぞれ別identityへ固定する。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
+**Oracle:** current implementationでは、新規research lineが以前のdevelopment evidenceを使って仮説・observation・model・hyperparameter・evaluation design・result interpretationを決めた場合、そのidentityを `StudyResearchContext` の `ConsumedEvidence` として記録する。各recordはevidence digest、canonical development time scope、利用目的を持ち、parent research-context digestとともにcanonical sortされたpayloadへ固定される。context-boundな `controlled_study_plan_v3` はこのpayloadをStudy digestへ含め、`canonical_m2_bootstrap_config_v4` は一般のfinal-eligibleな新規lineでcontextをresult前configへ必須化する。独立per-symbol PPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5`、historical shared-cash `ppo_shared_cash_holding_duration_v2` は `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` / `controlled_evidence_comparison_v4` へ固定され、新規Studyにはread-onlyとする。v4 comparisonの再構築はnon-stress ledger v3だけを受け入れ、OHLC-stress ledger v4を拒否する。現行OHLC-stress `ppo_shared_cash_holding_duration_v3` は `canonical_m2_bootstrap_config_v7` / `controlled_study_plan_v7` / `controlled_evidence_comparison_v5` へ固定し、stress ledger v4を必須にする。preregistered final startが申告済みconsumed-evidence scopeの終了より前にある場合はconfig/Study constructionでfail closedにする。historical bootstrap v1-v3 / StudyPlan v1-v2はread semanticsを維持し、contextを後付けして再分類しない。
 
 Forward paper screens additionally bind a `carry_paper_attempt_lineage_v2` object
 inside the sealed screen plan. Attempt numbers are consecutive; every successor

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -39,6 +39,36 @@ class SequenceIntent:
         intent = self.intents[min(self.index, len(self.intents) - 1)]
         self.index += 1
         return intent
+
+
+def _fill_event(sequence: int, filled: float, price: float) -> OrderEvent:
+    return OrderEvent(
+        schema_version="order_event_v1",
+        sequence=sequence,
+        order_id=f"{sequence + 1:064x}",
+        replaced_order_id=None,
+        dataset_id="d" * 64,
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        event_type="partial_fill",
+        processing_index=sequence,
+        timestamp_ns=sequence,
+        previous_status=OrderStatus.ELIGIBLE,
+        new_status=OrderStatus.PARTIALLY_FILLED,
+        requested_quantity=1.0,
+        remaining_quantity=1.0,
+        filled_quantity=filled,
+        execution_price=price,
+        filled_notional=abs(filled * price),
+        capacity_before=1.0,
+        capacity_after=1.0,
+        participation_rate=0.0,
+        trigger_segment=None,
+        available_volume_fraction=1.0,
+        reason=None,
+        path_mode="conservative",
+        path_points=(),
+    )
 
 
 def _market(
@@ -126,6 +156,29 @@ def _risk(*, max_gross: float, max_turnover: float | None) -> PreTradeRisk:
 
 def test_shared_cash_replay_api_exists() -> None:
     assert callable(replay_module.run_shared_cash_replay)
+
+
+def test_accounting_capture_without_ohlc_stress_uses_v3_ledger() -> None:
+    result = replay_module.run_shared_cash_replay(
+        _market(np.full((5, 1), 100.0)),
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        capture_ledger_evidence=True,
+        capture_accounting_evidence=True,
+        ohlc_drawdown_stress=False,
+    )
+
+    assert result.ledger_evidence is not None
+    assert result.ledger_evidence.schema_version == "shared_cash_replay_ledger_v3"
+    assert all(
+        transition.transition_type != "ohlc_drawdown_stress"
+        for interval in result.ledger_evidence.intervals
+        for transition in interval.accounting_transitions
+    )
 
 
 def test_shared_cash_replay_settles_every_symbol_before_the_exclusive_close() -> None:
@@ -335,42 +388,30 @@ def test_fill_tracker_handles_tiny_position_reversal_without_product_underflow()
     None
 ):
     tracker = replay_module._ExecutedEntryPrices(1)
-
-    def event(sequence: int, filled: float, price: float) -> OrderEvent:
-        return OrderEvent(
-            schema_version="order_event_v1",
-            sequence=sequence,
-            order_id=f"{sequence + 1:064x}",
-            replaced_order_id=None,
-            dataset_id="d" * 64,
-            execution_policy_digest="e" * 64,
-            symbol_index=0,
-            event_type="partial_fill",
-            processing_index=sequence,
-            timestamp_ns=sequence,
-            previous_status=OrderStatus.ELIGIBLE,
-            new_status=OrderStatus.PARTIALLY_FILLED,
-            requested_quantity=1.0,
-            remaining_quantity=1.0,
-            filled_quantity=filled,
-            execution_price=price,
-            filled_notional=abs(filled * price),
-            capacity_before=1.0,
-            capacity_after=1.0,
-            participation_rate=0.0,
-            trigger_segment=None,
-            available_volume_fraction=1.0,
-            reason=None,
-            path_mode="conservative",
-            path_points=(),
-        )
-
-    tracker.ingest((event(0, 1e-200, 100.0),), np.asarray([1e-200]))
-    tracker.ingest((event(1, -2e-200, 200.0),), np.asarray([-1e-200]))
+    tracker.ingest((_fill_event(0, 1e-200, 100.0),), np.asarray([1e-200]))
+    tracker.ingest((_fill_event(1, -2e-200, 200.0),), np.asarray([-1e-200]))
 
     assert tracker.mark_gross_return(
         0, quantity=-1e-200, mark_price=200.0
     ) == pytest.approx(0.0)
+
+
+def test_fill_tracker_only_resets_for_explicit_inactive_flat_positions() -> None:
+    tracker = replay_module._ExecutedEntryPrices(1)
+    tracker.ingest((_fill_event(0, 0.5, 100.0),), np.asarray([0.5]))
+
+    with pytest.raises(
+        RuntimeError, match="execution fill events diverged from book quantities"
+    ):
+        tracker.ingest((), np.asarray([0.0]))
+
+    tracker.ingest((), np.asarray([0.0]), inactive_flat_mask=np.asarray([True]))
+    assert tracker.mark_gross_return(0, quantity=0.0, mark_price=100.0) is None
+
+    with pytest.raises(
+        RuntimeError, match="inactive fill tracker reset requires a flat book"
+    ):
+        tracker.ingest((), np.asarray([0.5]), inactive_flat_mask=np.asarray([True]))
 
 
 def test_shared_cash_hold_age_uses_partial_fill_and_cancels_unfilled_remainder() -> (
@@ -462,6 +503,57 @@ def test_shared_cash_drawdown_stop_overrides_minimum_hold() -> None:
     assert stop_decision.target_weights == pytest.approx((0.0,))
     assert "drawdown_deleveraging" in stop_decision.risk_reasons
     assert stop_decision.position_quantity_after == pytest.approx((0.0,))
+
+
+def test_ohlc_stress_drives_next_shared_cash_drawdown_deleveraging() -> None:
+    dataset = _market(np.full((5, 1), 100.0))
+    high = dataset.high.copy()
+    low = dataset.low.copy()
+    high[1, 0] = 150.0
+    low[1, 0] = 80.0
+    dataset = replace(dataset, high=high, low=low)
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.10,
+            drawdown_stop=0.20,
+        )
+    )
+
+    ordinary = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        settle_terminal_position=False,
+    )
+    stressed = replay_module.run_shared_cash_replay(
+        dataset,
+        (FixedIntent(PositionIntent.LONG),),
+        start_index=0,
+        stop_index=4,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        risk=risk,
+        settle_terminal_position=False,
+        ohlc_drawdown_stress=True,
+    )
+
+    ordinary_next_decision = ordinary.decisions[1]
+    stressed_next_decision = stressed.decisions[1]
+    assert ordinary.book.max_drawdown == 0.0
+    assert ordinary_next_decision.target_weights == pytest.approx((0.5,))
+    assert "drawdown_deleveraging" not in ordinary_next_decision.risk_reasons
+    assert stressed.book.max_drawdown > 0.20
+    assert stressed_next_decision.target_weights == pytest.approx((0.0,))
+    assert "drawdown_deleveraging" in stressed_next_decision.risk_reasons
 
 
 def test_shared_cash_minimum_hold_requires_age_aware_observation() -> None:

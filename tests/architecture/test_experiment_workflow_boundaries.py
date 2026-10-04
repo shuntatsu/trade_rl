@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import inspect
 from pathlib import Path
 
 import trade_rl.evaluation.experiments as experiments
@@ -224,6 +225,12 @@ def test_inspection_reconstructs_inside_the_same_mutation_lock() -> None:
     _assert_reconstruction_is_lock_scoped(
         _function(EXPERIMENTS / "inspection.py", "inspect_study")
     )
+
+
+def test_study_reload_and_mutations_accept_an_external_source_dataset() -> None:
+    for name in WORKFLOW_COMMANDS | {"inspect_study"}:
+        operation = getattr(workflow_module, name)
+        assert "dataset_root" in inspect.signature(operation).parameters, name
 
 
 def test_inspection_exports_preserve_existing_module_identity() -> None:

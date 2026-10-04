@@ -100,7 +100,7 @@ turnover cap, drawdown deleveraging at 10%, and hard stop at 20%, with other
 `PreTradeRiskConfig` fields at their defaults. This exact profile is enforced
 identically in PPO training and every strategy replay. In v1 each symbol remains
 an independent account; the 20% stop cannot guarantee the realized drawdown
-stays below 20% after a price gap. The new v2 protocol described below measures
+stays below 20% after a price gap. The current v3 protocol described below measures
 the same PPO horizon question on one 100,000 USDT account shared across the
 five symbols.
 
@@ -115,18 +115,107 @@ A separate result-blind shared-cash replay capability accepts age-aware
 minimum-hold decisions and reserved terminal settlement for multiple symbols in
 one account, with a versioned per-decision ledger. The immutable v5 StudyPlan
 above still means five independent 100,000 USDT accounts and retains that
-historical selection semantics. A new `ppo_shared_cash_holding_duration_v2`
-protocol now has a separate `canonical_m2_bootstrap_config_v6` /
-`controlled_study_plan_v6` identity. Its
-Candidate Run schema v7 persists the combined portfolio return series,
-terminal account state, and shared-ledger identity; comparison schema v4
-recomputes each seed's combined return / drawdown and selects on shared-cash
-results rather than averaging symbol accounts. Mocked bootstrap and full
-Study-lifecycle tests exercise this path. The local implementation is not yet
-cleared by the required fresh result-blind G0-G2 review, and no v2 fit or
-economic replay has been run. The previous sealed one-shot normalization run
-36356182462 completed execution but its independent verification failed, so it
-published no verified comparison. No verified PPO profitability result exists.
+historical selection semantics. The first shared-cash design,
+`ppo_shared_cash_holding_duration_v2`,
+bound `canonical_m2_bootstrap_config_v6`, `controlled_study_plan_v6`, and
+comparison v4 while describing its drawdown gate as realized maximum drawdown.
+Its frozen artifact at `report/ppo-shared-cash-canonical-v6-20261003/` contains
+only the preregistration. Reinspection preserves its Study digest
+`c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d`, Dataset
+identity, and bootstrap digest; no fit or replay output has been inspected.
+Because this contract differs from OHLC range stress, v2/v6 is now historical
+and read-only: plans and evidence may be reloaded for inspection, but no new or
+existing Study mutation or economic execution is allowed. Its EvidenceSet and
++comparison v4 reconstruction accept only non-stress ledger v3 and reject
++OHLC-stress ledger v4.
+
+The current shared-cash design is
+`ppo_shared_cash_holding_duration_v3` and binds
+`canonical_m2_bootstrap_config_v7`, `controlled_study_plan_v7`, and comparison
+v5. It fixes the shared account scale at 100,000 USDT, requires terminal-flat
+settlement with no active order remainder, conservative OHLC high/low stress
+drawdown at or below 20% for every seed, positive median candidate portfolio
+return, and positive median paired improvement versus H=0. Comparison v5
+requires OHLC-stress ledger v4 and rejects non-stress ledger v3. OHLC stress is a
+price-range stress, not a reconstruction of the realized intrabar path. The
+primary score is the median combined portfolio return across five seeds;
+ties go to the shorter holding period. Candidate Run schema v11 with ledger v4
+persists the combined portfolio return series, terminal account state, exact
+applied quantity deltas, and ordered accounting transitions. Mocked bootstrap
+and full Study-lifecycle tests exercise this path.
+Candidate Run v11 with ledger v4 preserves the exact accepted fill quantity,
+lot allocation, and exact quantity delta applied by the book alongside the
+float order-event projection. The loader validates no-lot full closes, where
+the applied delta consumes the exact position even if the projected fill leaves
+a tiny rational residual, and remains compatible with earlier v10 evidence.
+Termination flatten evidence is also required for non-flat margin-call closure.
+Shared-cash `metrics.max_drawdown` uses ordered OHLC stress transitions: for
+each bar, favorable marks establish the peak before adverse marks measure the
+drawdown, and a stress record follows every fill. A long uses the high for its
+favorable mark and the low for its adverse mark; shorts use the reverse. OHLC
+does not reveal intrabar price order, so this is a conservative range stress,
+not a reconstructed realized path. Total return remains bound to saved interval
+returns. The controlled comparison carries the loader-validated ledger stress
+drawdown into the shared-account 20% eligibility gate. A regression covers a
+25% OHLC stress drawdown when interval returns imply only 10%. This shared-cash
+stress mode is an explicit policy option, can run without accounting-evidence
+capture, and is included in the execution-policy digest. Accounting evidence
+uses ledger v4 with OHLC stress and v3 without it. Training and ordinary
+single-symbol replay use a different risk path: in v3 evaluation, OHLC stress
+updates shared-account drawdown state, which feeds later pre-trade risk decisions
+and can trigger additional deleveraging. The
+capital-boundary and full-ledger artifact tests, same-market PPO training/replay
+parity test, and independently hand-calculated multi-symbol cash/cost oracle
+pass locally. A source-row mutation oracle now rejects a shared-cash ledger when
+accounting inputs change while the saved ledger, Dataset ID, and expected
+artifact digest remain fixed. EvidenceSet generation and each Study reload
+repeat source binding against the Dataset artifact and execution overlay frozen
+in StudyPlan; an explicit Dataset path is supported when it is outside the
+Study's sibling `dataset/` directory. A lifecycle test reseals a mutated Run,
+EvidenceSet, and analysis digest chain, then confirms reload rejects its forged
+borrow multiplier. The oracle binds initial and interval marks, split and
+delisting terms, dividends, funding due flags and rates, cash and borrow rates,
+and elapsed carry time to their Dataset rows. Each borrow-charge transition's
+rate multiplier is checked against the registered execution overlay rather
+than trusted from the ledger. It also recomputes the canonical Dataset identity
+across all identity arrays; tests cover changes to volume, maximum
+participation, per-row fees, closing prices, and a forged borrow-rate
+multiplier. A fresh exact-head
+result-blind G0-G2 review and the repository quality gates are still required.
+The v3 selector also requires the median absolute candidate portfolio return
+to be positive, the median paired excess versus H=0 to be positive, complete
+terminal settlement, and conservative maximum drawdown under favorable and
+adverse marks from each bar's OHLC range at or below 20% for every seed.
+Paired improvement alone can still leave an arm loss-making after costs, so it
+does not answer the development question of whether the holding period produces
+positive portfolio profit. The absolute-return threshold is a screening
+guardrail, not evidence of future profitability.
+This shared-cash comparison is a research-only evaluation diagnostic; the
+operational target remains one independently traded symbol account at a time.
+As of 2026-10-04, the canonical v6 packet is read-only and passes network-free
+inspection with its historical realized-drawdown rule. Its
+bootstrap digest is
+`8af6229169013075a21a641b39e47357d6247ffb157ab78217d8063d6aa0c464`, its
+Dataset ID is
+`1f484ab2d294fa01890417036fd79f13f6bcdad8d8dd3e74d3013cf817bd7f57`, its
+Dataset artifact digest is
+`36ab05b9c9ea963408cf05b997273dd9bbe89c127904cacf1ff9e68c2b8dc173`, and its
+StudyPlan digest is
+`c37c7cb8c8d281ce8f921f4ce07bc41547a694cb25e9c0ddc4b32da33e2bff9d`. The
+workspace-only packet is at
+`report/ppo-shared-cash-canonical-v6-20261003/`; its Study directory contains
+only the immutable plan and no baseline/evidence outputs. On 2026-10-04
+00:40 JST, a baseline-only `run_baseline` process started from the local
+`codex/ppo-holding-duration` checkout at source SHA `370a97e`. It was still active at inspection
+and was stopped because fresh G0-G2 review of the current PR head is incomplete.
+The plan identity is retained without rewriting it. No output or result from
+that invocation has been inspected; no candidate comparison or verified PPO
+profitability result exists. New economic execution requires a fresh v7 plan
+and exact-head G0-G2 review. The previous sealed
+one-shot normalization run 36356182462 completed all ten execution slots, but
+independent verification failed because a fresh bundle replay differed from its
+published result. Finalization was skipped and no verified comparison was
+published. No verified PPO profitability result exists.
 
 The result-blind `ppo_holding_duration_v1` code path and focused contract tests
 are implemented on the `codex/ppo-holding-duration` work branch. On 2026-10-01, the new
@@ -191,10 +280,13 @@ G2 remains NOT ESTABLISHED until the exact implementation receives fresh
 independent result-blind review and all required contract checks pass. Human
 review of the updated Guide description is a separate documentation gate
 required before its source fingerprints are refreshed; it is not a G2 oracle.
-No PPO training or economic replay has started for this duration study. G4
-remains blocked; existing M2 results are not evidence for this duration
-question. The next sequence is to close G0-G2 on this exact packet, then freshly
-train H=0 under Observation v3 before any candidate result is generated.
+A baseline-only `run_baseline` invocation started against the older source SHA
+recorded above and was stopped because fresh G0-G2 review is incomplete. Its
+outputs remain uninspected and it is not verified for this exact packet; no
+candidate run has been performed. G4 remains blocked; existing M2 results are
+not evidence for this duration question. The next sequence is to close G0-G2 on
+this exact packet, then freshly train H=0 under Observation v3 before any
+candidate result is generated.
 The local Study workflow does not authenticate an external G0-G2 review; this
 remains an operator release prerequisite, and `run_baseline` / `run_experiment`
 must not be called until it is closed. Caller-written `assurance-review.json`

@@ -10,6 +10,7 @@ from statistics import median
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
     PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+    PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
 )
 from trade_rl.evaluation.experiments.contracts import (
     PPO_HOLDING_DURATION_HORIZONS,
@@ -55,7 +56,8 @@ class PPOSharedCashHoldingDurationMetrics:
     @property
     def eligible(self) -> bool:
         return (
-            self.median_excess_return > 0.0
+            self.score > 0.0
+            and self.median_excess_return > 0.0
             and self.worst_max_drawdown <= PPO_HOLDING_DURATION_MAX_DRAWDOWN
             and self.terminal_settlement_complete
         )
@@ -253,6 +255,7 @@ def ppo_shared_cash_holding_metrics(
     comparison: ExperimentComparison,
     *,
     expected_seeds: tuple[int, ...],
+    comparison_schema: str = PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
 ) -> PPOSharedCashHoldingDurationMetrics:
     """Validate and summarize a combined shared-cash PPO comparison."""
 
@@ -261,12 +264,15 @@ def ppo_shared_cash_holding_metrics(
     factor_effect = comparison.to_payload()["factor_effect"]
     if not isinstance(factor_effect, Mapping):
         raise ArtifactIntegrityError("factor-effect comparison must be an object")
-    if (
-        factor_effect.get("schema_version")
-        != PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
-    ):
+    if factor_effect.get("schema_version") != comparison_schema:
+        required_version = (
+            "v5"
+            if comparison_schema
+            == PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+            else "v4"
+        )
         raise ArtifactIntegrityError(
-            "shared-cash PPO protocol requires factor-effect schema v4"
+            f"shared-cash PPO protocol requires factor-effect schema {required_version}"
         )
     if factor_effect.get("seeds") != list(expected_seeds):
         raise ArtifactIntegrityError("shared-cash PPO seed roster is incomplete")
@@ -412,6 +418,11 @@ def ppo_study_metrics(
         return ppo_shared_cash_holding_metrics(
             comparison,
             expected_seeds=plan.ppo_seeds,
+            comparison_schema=(
+                PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+                if plan.uses_ohlc_drawdown_stress
+                else PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+            ),
         )
     return ppo_holding_metrics(
         comparison,

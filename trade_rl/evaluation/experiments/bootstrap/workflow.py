@@ -34,6 +34,7 @@ from trade_rl.evaluation.experiments.contracts import StudyProtocol
 from trade_rl.evaluation.experiments.contracts.study import (
     PPO_HOLDING_DURATION_SELECTION_RULE,
     PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE,
+    PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE,
 )
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
 from trade_rl.evaluation.runs import (
@@ -272,7 +273,10 @@ def _validate_study_against_config(
     *,
     dataset_root: Path,
 ) -> tuple[str, str, str]:
-    snapshot = inspect_study(dataset_root.parent / "study")
+    snapshot = inspect_study(
+        dataset_root.parent / "study",
+        dataset_root=dataset_root,
+    )
     plan = snapshot.plan
     dataset = load_market_dataset_artifact(dataset_root)
     artifact = inspect_published_market_dataset_artifact(dataset_root)
@@ -285,10 +289,14 @@ def _validate_study_against_config(
     if config.study_protocol in {
         StudyProtocol.PPO_HOLDING_DURATION,
         StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION,
+        StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3,
     }:
         selection_rule = (
-            PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+            PPO_SHARED_CASH_HOLDING_DURATION_V2_SELECTION_RULE
             if config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
+            else PPO_SHARED_CASH_HOLDING_DURATION_SELECTION_RULE
+            if config.study_protocol
+            is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
             else PPO_HOLDING_DURATION_SELECTION_RULE
         )
         if not expected_research_question.endswith(selection_rule):
@@ -320,7 +328,10 @@ def _validate_study_against_config(
     expected_final_stop = _study_final_timestamp(config.final_evaluation_stop_exclusive)
     if config.study_protocol is not None:
         expected_plan_schema = (
-            "controlled_study_plan_v6"
+            "controlled_study_plan_v7"
+            if config.study_protocol
+            is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION_V3
+            else "controlled_study_plan_v6"
             if config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION
             else "controlled_study_plan_v5"
         )
@@ -601,6 +612,11 @@ def bootstrap_canonical_m2_study(
     """Freeze source, publish dataset and StudyPlan, then atomically publish the root."""
 
     config = load_canonical_m2_bootstrap_config(config_path)
+    if config.study_protocol is StudyProtocol.PPO_SHARED_CASH_HOLDING_DURATION:
+        raise ValueError(
+            "shared-cash bootstrap v6 is historical and read-only; use v7 with "
+            "the OHLC-stress protocol for a new Study"
+        )
     output = Path(output_root)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"bootstrap output already exists: {output}")

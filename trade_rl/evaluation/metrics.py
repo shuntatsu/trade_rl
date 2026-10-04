@@ -60,6 +60,7 @@ def _require_non_negative(value: float, *, field: str) -> float:
 def evaluate_performance(
     returns: ReturnSeries,
     *,
+    observed_max_drawdown: float | None = None,
     turnover_total: float = 0.0,
     total_cost: float = 0.0,
     funding_pnl: float = 0.0,
@@ -68,7 +69,7 @@ def evaluate_performance(
     rebalance_events: int = 0,
     termination_count: int = 0,
 ) -> PerformanceMetrics:
-    """Compute all standard portfolio metrics from one return-series contract."""
+    """Compute return metrics with an optional pathwise account drawdown."""
 
     turnover = _require_non_negative(turnover_total, field="turnover_total")
     cost = _require_non_negative(total_cost, field="total_cost")
@@ -84,6 +85,13 @@ def evaluate_performance(
             raise ValueError(f"{field_name} must be a non-negative integer")
 
     values = returns.values
+    max_drawdown = (
+        _max_drawdown(values)
+        if observed_max_drawdown is None
+        else _require_non_negative(observed_max_drawdown, field="observed_max_drawdown")
+    )
+    if max_drawdown > 1.0:
+        raise ValueError("observed_max_drawdown must not exceed 1")
     mean = fmean(values)
     variance = fmean((value - mean) ** 2 for value in values)
     standard_deviation = math.sqrt(variance)
@@ -98,7 +106,7 @@ def evaluate_performance(
         total_return=compound_return(values),
         sharpe=sharpe,
         sortino=sortino,
-        max_drawdown=_max_drawdown(values),
+        max_drawdown=max_drawdown,
         turnover_total=turnover,
         total_cost=cost,
         funding_pnl=funding_pnl,

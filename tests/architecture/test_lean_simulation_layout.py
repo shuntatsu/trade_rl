@@ -31,6 +31,7 @@ EXPECTED_PACKAGE_FILES = {
     "targets": {"__init__.py", "execution.py"},
     "diagnostics": {
         "__init__.py",
+        "accounting_transition.py",
         "execution_stress.py",
         "funding.py",
         "runtime_performance.py",

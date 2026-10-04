@@ -25,12 +25,16 @@ _LEGACY_COMPARISON_SCHEMA = "controlled_evidence_comparison_v1"
 _COMPARISON_SCHEMA = "controlled_evidence_comparison_v2"
 PPO_HOLDING_DURATION_COMPARISON_SCHEMA = "controlled_evidence_comparison_v3"
 PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA = "controlled_evidence_comparison_v4"
+PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA = (
+    "controlled_evidence_comparison_v5"
+)
 _SUPPORTED_COMPARISON_SCHEMAS = frozenset(
     {
         _LEGACY_COMPARISON_SCHEMA,
         _COMPARISON_SCHEMA,
         PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
         PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+        PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
     }
 )
 
@@ -115,7 +119,11 @@ def _return_series(
     )
 
 
-def _shared_cash_ppo_metrics(run: LoadedCandidateRun) -> dict[str, object]:
+def _shared_cash_ppo_metrics(
+    run: LoadedCandidateRun,
+    *,
+    expected_ledger_schema: str | None = None,
+) -> dict[str, object]:
     payload = run.summary.get("shared_cash_ppo")
     if not isinstance(payload, Mapping) or payload.get("name") != "ppo":
         raise ArtifactIntegrityError("shared-cash PPO result is missing")
@@ -127,27 +135,49 @@ def _shared_cash_ppo_metrics(run: LoadedCandidateRun) -> dict[str, object]:
         raise ArtifactIntegrityError("shared-cash PPO result is malformed")
     if values is None:
         raise ArtifactIntegrityError("shared-cash PPO return series is missing")
+    ledger_evidence = payload.get("ledger_evidence")
+    ledger_payload = (
+        ledger_evidence.get("payload") if isinstance(ledger_evidence, Mapping) else None
+    )
+    if not isinstance(ledger_payload, Mapping):
+        raise ArtifactIntegrityError("shared-cash PPO ledger evidence is missing")
+    ledger_schema = ledger_payload.get("schema_version")
+    if ledger_schema not in {
+        "shared_cash_replay_ledger_v3",
+        "shared_cash_replay_ledger_v4",
+    }:
+        raise ArtifactIntegrityError("shared-cash PPO ledger schema is unsupported")
+    if expected_ledger_schema is not None and ledger_schema != expected_ledger_schema:
+        raise ArtifactIntegrityError(
+            "shared-cash PPO comparison ledger schema does not match "
+            "its drawdown semantics"
+        )
+    ledger_maximum_drawdown = _require_metric_number(
+        ledger_payload, "final_max_drawdown"
+    )
+    reported_maximum_drawdown = _require_metric_number(metrics, "max_drawdown")
+    if not np.isclose(
+        reported_maximum_drawdown,
+        ledger_maximum_drawdown,
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO max_drawdown does not match its validated ledger"
+        )
     series = _return_series(values, metrics)
     wealth = 1.0
-    peak = 1.0
-    maximum_drawdown = 0.0
     for value in series.values:
         wealth *= 1.0 + value
-        peak = max(peak, wealth)
-        maximum_drawdown = max(maximum_drawdown, 1.0 - wealth / peak)
     total_return = wealth - 1.0
-    for field, actual in (
-        ("total_return", total_return),
-        ("max_drawdown", maximum_drawdown),
-    ):
-        reported = _require_metric_number(metrics, field)
-        if not np.isclose(reported, actual, rtol=1e-12, atol=1e-12):
-            raise ArtifactIntegrityError(
-                f"shared-cash PPO {field} does not match raw portfolio returns"
-            )
+    reported_total_return = _require_metric_number(metrics, "total_return")
+    if not np.isclose(reported_total_return, total_return, rtol=1e-12, atol=1e-12):
+        raise ArtifactIntegrityError(
+            "shared-cash PPO total_return does not match raw portfolio returns"
+        )
     return {
         "total_return": total_return,
-        "max_drawdown": maximum_drawdown,
+        "max_drawdown": ledger_maximum_drawdown,
         "terminal_settlement_complete": settled,
         "n_periods": len(series.values),
     }
@@ -417,8 +447,16 @@ def compare_evidence_sets(
     if schema_version not in _SUPPORTED_COMPARISON_SCHEMAS:
         raise ArtifactIntegrityError("unsupported factor-effect comparison schema")
 
-    include_shared_cash_ppo = (
-        schema_version == PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+    include_shared_cash_ppo = schema_version in {
+        PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+        PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
+    }
+    expected_shared_cash_ledger_schema = (
+        "shared_cash_replay_ledger_v3"
+        if schema_version == PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA
+        else "shared_cash_replay_ledger_v4"
+        if schema_version == PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA
+        else None
     )
     baseline_seeds, baseline_symbols, baseline = _validate_runs(
         baseline_runs,
@@ -434,11 +472,17 @@ def compare_evidence_sets(
         raise ArtifactIntegrityError("baseline/candidate symbol rosters must match")
 
     shared_cash_by_seed: dict[int, tuple[dict[str, object], dict[str, object]]] = {}
-    if schema_version == PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA:
+    if include_shared_cash_ppo:
         expected_periods: int | None = None
         for seed in baseline_seeds:
-            baseline_portfolio = _shared_cash_ppo_metrics(baseline_runs[seed])
-            candidate_portfolio = _shared_cash_ppo_metrics(candidate_runs[seed])
+            baseline_portfolio = _shared_cash_ppo_metrics(
+                baseline_runs[seed],
+                expected_ledger_schema=expected_shared_cash_ledger_schema,
+            )
+            candidate_portfolio = _shared_cash_ppo_metrics(
+                candidate_runs[seed],
+                expected_ledger_schema=expected_shared_cash_ledger_schema,
+            )
             baseline_periods = baseline_portfolio["n_periods"]
             candidate_periods = candidate_portfolio["n_periods"]
             if (
@@ -502,6 +546,7 @@ def compare_evidence_sets(
                     if schema_version in {
                         PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
                         PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+                        PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
                     }:
                         seed_inputs = cross_seed_ppo_inputs[seed]
                         seed_inputs["candidate_total_return"].append(
@@ -598,6 +643,7 @@ def compare_evidence_sets(
     if schema_version in {
         PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
         PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+        PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
     }:
         cross_seed_by_seed: dict[str, object] = {}
         candidate_seed_means: list[float] = []
@@ -662,7 +708,10 @@ def compare_evidence_sets(
                 ),
             }
         }
-        if schema_version == PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA:
+        if schema_version in {
+            PPO_SHARED_CASH_HOLDING_DURATION_COMPARISON_SCHEMA,
+            PPO_SHARED_CASH_HOLDING_DURATION_OHLC_COMPARISON_SCHEMA,
+        }:
             portfolio_by_seed: dict[str, object] = {}
             portfolio_candidate_returns: list[float] = []
             portfolio_excess_returns: list[float] = []

@@ -36,13 +36,13 @@ StudyFreeze(WINNER)
 FinalEvaluationAuthorization
 ```
 
-一般の新規final-eligible research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext` を結果前configへbindする。bootstrapはそのcontextとwindowを `controlled_study_plan_v3` へ移し、inspection時にもconfigとPlanの一致を再計算する。独立per-symbol評価を使う従来のPPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` を維持する。共通資金portfolioで評価するPPO保有期間protocolは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` を使い、別のprotocol identityとselection ruleをbindする。v5 / v6いずれも `final_evaluation_start` がdevelopment Datasetに含まれる全timestampより厳密に後であることに加え、申告済みconsumed-development-evidence scopeがすべてpreregistered final start以前に終了していることを要求する。development replayで未使用でもDataset内または既知evidenceとして既に消費した期間はunused/finalとは扱わない。
+一般の新規final-eligible research lineでは `canonical_m2_bootstrap_config_v4` を使い、execution economics、final window、`StudyResearchContext` を結果前configへbindする。bootstrapはそのcontextとwindowを `controlled_study_plan_v3` へ移し、inspection時にもconfigとPlanの一致を再計算する。独立per-symbol評価を使う従来のPPO保有期間protocolは `canonical_m2_bootstrap_config_v5` / `controlled_study_plan_v5` を維持する。historical shared-cash v2 semanticsは `canonical_m2_bootstrap_config_v6` / `controlled_study_plan_v6` / comparison v4でread-onlyとし、現行OHLC-stress semanticsは `canonical_m2_bootstrap_config_v7` / `controlled_study_plan_v7` / comparison v5へ固定する。各protocol identityはselection ruleを含めてbindする。v5 / v6 / v7はいずれも `final_evaluation_start` がdevelopment Datasetに含まれる全timestampより厳密に後であることに加え、申告済みconsumed-development-evidence scopeがすべてpreregistered final start以前に終了していることを要求する。development replayで未使用でもDataset内または既知evidenceとして既に消費した期間はunused/finalとは扱わない。
 
 historical `canonical_m2_bootstrap_config_v3` / `controlled_study_plan_v2` は当時のpreregistered final-window authorityとしてread/authorization互換を維持する。contextを後付けしてhistorical Studyの意味を変更しない。
 
 authorization時のcallerはwindowを選択できない。public authorization APIは `final_evaluation_start` / `final_evaluation_stop_exclusive` を引数に持たず、bound StudyPlanにpreregisterされたwindowだけからartifactを構築する。
 
-historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな新規research lineでは、結果前にv4 bootstrap / context-bound v3 StudyPlanを作る。独立per-symbolのPPO保有期間protocolではv5 bootstrap / v5 StudyPlan、shared-cash portfolio protocolではv6 bootstrap / v6 StudyPlanを使う。historical v3 bootstrap / v2 StudyPlanは当時のauthorityとしてのみ維持する。
+historical bootstrap v1/v2 と `controlled_study_plan_v1` はread/inspection互換のまま保持するが、final windowを後付けしない。final windowを持たないlegacy Studyが後からWINNERになってもfinal authorization対象にはならない。final-eligibleな新規research lineでは、結果前にv4 bootstrap / context-bound v3 StudyPlanを作る。独立per-symbolのPPO保有期間protocolではv5 bootstrap / v5 StudyPlan、historical shared-cash v2ではv6 bootstrap / v6 StudyPlanをread-onlyで維持し、現行shared-cash v3ではv7 bootstrap / v7 StudyPlanを使う。historical v3 bootstrap / v2 StudyPlanは当時のauthorityとしてのみ維持する。
 
 ## Non-goals / dependency boundary
 
@@ -140,7 +140,7 @@ inspectionは次を拒否する。
 
 Final authorizationをStudy rootへ追記しない。
 
-`evaluation/experiments` はdevelopment lifecycleのauthorityであり、freeze後はimmutableである。final authorizationは別rootのread-only consumerとしてStudyをinspectionするだけである。
+`evaluation/experiments` はdevelopment lifecycleのauthorityであり、freeze後はimmutableである。final authorizationは別rootのread-only consumerとしてStudyをinspectionするだけである。shared-cash Studyではauthorizationの発行とread-backにもsource Datasetが必要となる。APIの`dataset_root`で明示でき、省略時はStudyの親にある`dataset/`を読む。これによりEvidenceSetとledgerをDataset artifactおよび凍結済みexecution overlayへ再結合する。
 
 test oracleはauthorization前後でStudy treeの全file bytes/digestが同一であることを確認する。
 

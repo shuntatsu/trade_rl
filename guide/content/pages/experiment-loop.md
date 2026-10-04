@@ -26,6 +26,8 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 新しい経済仮説やobservation、risk、execution semanticsを変えるStudyでは、結果を作る前にG0-G2の問い・機構・反証条件を固定し、freshなresult-blind AI reviewと独立oracleを通します。G3のevidence検証はこの前提審査の代わりになりません。条件が未確立の間はStudyPlanの準備までに留め、baselineやcandidateの経済結果は生成しません。
 
+共有資金replayのv11台帳は、保存された遷移入力から口座残高を再計算します。OHLCの高値・安値から有利・不利な価格を使って保守的な下落stressを測り、各約定の直後にも記録します。OHLCにバー内の価格順はないため、実現経路を再構成した値ではありません。StudyPlanは現行v3にはledger v4、historical v2にはledger v3を結び、baseline/candidate EvidenceSetの読込時に異なる版を拒否します。loader自体はDataset digestから元のsource rowsを再読込しませんが、現行の共通資金v3 EvidenceSet生成経路は、open / mark価格、OHLC high/low、fundingの発生・rate・timestamp・multiplier、split、delisting、dividend、cash / borrow rate、経過時間を、順序付き会計遷移から元Datasetの該当行へ照合します。さらにcanonical Dataset identityを全identity arrayから再検証します。source行だけを変えるtestに加え、volume・参加上限・fee・closeの変更も、保存ledgerを固定したまま拒否されます。v3評価ではOHLC stressが口座のDD状態を更新して後続のpre-trade risk判断へ影響するため、single-symbol学習時とはrisk mechanismが異なります。このoracleはevidenceとDatasetのsource整合性を確認しますが、経済的な優位性は証明せず、freshな独立G0-G2レビューと関連契約検査が済むまで経済実験を開始しません。
+
 現行のStudy CLIは、外部reviewやoracleの完了を認証する自動gateを持ちません。G0-G2が閉じる前に経済実験を始めないことは、実行者が守るrelease prerequisiteです。
 
 ## 1. Studyを作る
@@ -49,9 +51,11 @@ final evaluationへ進める一般の新規Studyでは、execution economics、u
 
 ### 共通資金ポートフォリオで評価する新protocol
 
-`ppo_shared_cash_holding_duration_v2`は5 seedごとに全symbolを一つの100,000 USDT口座で評価し、銘柄平均でなくportfolio return/DDを使います。H=0と候補が終端flat・残注文なし・DD 20%以下で、H=0比のseed中央値が正の場合だけ候補に残します。scoreはportfolio returnのseed中央値、同点なら短い保有期間です。
+旧版 `ppo_shared_cash_holding_duration_v2` は実現DDと記載した固定計画の読み戻し用に残しています。新しいStudyの作成には使いません。
 
-PPO trainingはsingle-symbolのままで、この比較はそのpolicyを共通資金へ適用した挙動を測ります。価格gapで実現DDが20%を超える可能性があり、fresh review・学習・検証・unused-period評価まで利益性は未確認です。
+現行 `ppo_shared_cash_holding_duration_v3` は5 seedごとに全symbolを一つの100,000 USDT口座で評価し、銘柄平均でなくportfolio return/DDを使います。bootstrap v7 / StudyPlan v7 / comparison v5で条件を固定します。H=0と候補が終端flat・残注文なし・各seedのOHLC高値安値stress DD 20%以下に加え、candidateのseed中央値returnとH=0比のpaired return中央値が両方プラスの場合だけ候補に残します。scoreはcandidate portfolio returnのseed中央値、同点なら短い保有期間です。OHLC stressはバー内の価格順を再現しません。このscreenは研究用の選別条件で、将来の利益を示しません。
+
+PPO trainingはsingle-symbolのままで、この比較はそのpolicyを共通資金へ適用した挙動を測る研究専用の評価診断です。実運用の「1銘柄ずつ独立account」は変えません。価格gapで実現DDが20%を超える可能性があり、fresh review・学習・検証・unused-period評価まで利益性は未確認です。
 
 ## 2. Baseline EvidenceSetを固定する
 

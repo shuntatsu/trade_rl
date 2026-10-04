@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "47e009ad41ca72b0cdd9d2f9972e7f4dcbac1145a0b40a8b25213e456c24d805"
+      "sha256": "a6dbec5142080c66ea9e391613fdfa801b7147d294f66ff3ba79d3a85b05767b"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -32,7 +32,7 @@
       "id": "ppo-holding-study-plan",
       "symbol": "trade_rl.evaluation.experiments.contracts.study.StudyPlan",
       "kind": "class",
-      "source_sha256": "8b49a4f09138b7b4c50aae091e9f9dd316291c7c6eba54feb158e1b424ca4cc2",
+      "source_sha256": "e26304f650e3f5d88354245e849b7650adb2030744a641122022da1ef0edc742",
       "label_ja": "比較protocolとrisk条件を固定するStudyPlan",
       "description_ja": "PPO保有期間protocol identity、horizon/seed/selection条件、完全一致のrisk profileを結果を見る前に不変Studyへbindします。",
       "variables": [],
@@ -45,7 +45,7 @@
       "id": "ppo-shared-cash-selection",
       "symbol": "trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics",
       "kind": "function",
-      "source_sha256": "b4e810ea3b10fb45e1d8255069c68e75f170fe9469a51e9fc7ddd693080ea441",
+      "source_sha256": "58a21e6066319ac65b95ac2b6e30972e8d0dc063fcd4892dda241f15b7b7b213",
       "label_ja": "共通資金portfolioの適格性と選択",
       "description_ja": "seed別のshared-cash returnとDD、paired excess、全portfolioの終端決済状態を再検証して候補を選びます。",
       "variables": [],
@@ -94,7 +94,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "57d6654a033a6e07af3d1ceb4f998487c943fb9de6b141a2636b0a07d71c9ce6",
+      "source_sha256": "ccffa5c53852ce7bcf9eb9120ee2cc588cdfd2c440e010be2f9f9710eda76843",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -106,7 +106,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "f80c5240c77670efc29e5f0f74f327408221f2f8993edc1a92016c690bbdcc67",
+      "source_sha256": "018230b03ac3e98fb9d898c600d9cc8c3479c20c6fa260033df96fdcab6763fd",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],

@@ -47,9 +47,11 @@ artifacts / evidence
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
 | 保有期間Studyの固定protocol・risk条件 | `trade_rl.evaluation.experiments.contracts.study.StudyPlan` |
 | 独立口座v1の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_holding_metrics` |
-| 共通資金v2の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
+| 共通資金v3の適格性・選択 | `trade_rl.evaluation.experiments.protocols.ppo_shared_cash_holding_metrics` |
 
 詳細なpath、line、signature、関連testは、このページ末尾の**実装を確認する**から開けます。
+
+共有資金Candidate Run v11は順序付き会計遷移と、約定で受理された正確な数量およびBookStateに適用された数量差分を保存し、loaderが保存入力から残高・約定・carryなどを再計算します。loader自体はDataset digestから元のsource rowsを再読込しません。一方、現行の共通資金v3 EvidenceSetの生成経路は、open / mark価格、fundingの発生・rate・timestamp・multiplier、split、delisting、dividend、cash / borrow rate、経過時間を元Datasetの該当行へ照合します。約定価格・数量・notional・流動性上限・fee・spread・impactも、元Datasetと固定済みexecution configから再計算します。さらにcanonical Dataset identityを全identity arrayから再検証します。source行だけを変えるmutation testと、volume・参加上限・fee・closeなどのDataset identity arrayを変えるtestは、保存ledgerを固定したまま拒否されます。loaderはsource整合性を検証しますが、利益性を証明しません。Run Core外から固定済みexecution overlayを解決する場合は、公開facadeの`trade_rl.evaluation.runs.execution_cost_for_overlay`を使います。独立G0-G2レビューが済むまでは経済実験を許可しません。
 
 決済専用注文の識別・受付は注文モデルと受付処理が担当します。流動性の配分処理は実際の約定順で残高を制限し、口座への約定反映と注文残量の失効はstateful実行処理が担当します。取引所固有の最小発注額の例外は、この能力とは別に検証する必要があります。
 
@@ -57,7 +59,7 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 
 保有数量がまだない口座は、同じsimulationの処理が現在の市場マーク価格を解決してからエントリー数量を求めます。初期価格を省略したBookStateも、この経路で処理できます。
 
-`position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
+`position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、現行v3 selectorは`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。historical v2は旧realized-DD条件を保ったread-only protocolです。bootstrapはDatasetとStudyPlanのみを準備します。
 
 ## 境界を見るときのチェック
 

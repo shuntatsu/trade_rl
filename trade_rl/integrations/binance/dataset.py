@@ -41,6 +41,8 @@ from trade_rl.integrations.binance.vision import (
     _normalize_epoch_ms,
 )
 
+FundingEvent = tuple[int, float] | tuple[int, float, float | None]
+
 
 @dataclass(frozen=True, slots=True)
 class BinanceDatasetBuildResult:
@@ -92,8 +94,8 @@ def _parse_kline_rows(
 
 def _align_funding(
     timestamps: np.ndarray,
-    events: Sequence[tuple[int, float]],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    events: Sequence[tuple[int, float] | tuple[int, float, float | None]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Aggregate every funding event into its completed native bar."""
 
     timestamp_ms = timestamps.astype("datetime64[ms]").astype(np.int64)
@@ -104,9 +106,17 @@ def _align_funding(
         raise ValueError("funding alignment requires a regular native clock")
     interval_ms = int(intervals[0])
     funding = np.zeros(len(timestamps), dtype=np.float64)
+    funding_price_rate = np.zeros(len(timestamps), dtype=np.float64)
     counts = np.zeros(len(timestamps), dtype=np.int32)
+    all_marks_present = True
+    any_mark_present = False
     previous: int | None = None
-    for raw_timestamp, raw_rate in sorted(events):
+    for event in sorted(events, key=lambda value: value[0]):
+        if len(event) == 2:
+            raw_timestamp, raw_rate = event
+            raw_mark_price = None
+        else:
+            raw_timestamp, raw_rate, raw_mark_price = event
         timestamp = _normalize_epoch_ms(raw_timestamp)
         if previous is not None and timestamp == previous:
             raise ValueError("Binance funding timestamps must be unique")
@@ -116,9 +126,27 @@ def _align_funding(
             continue
         if timestamp <= int(timestamp_ms[index]) - interval_ms:
             continue
-        funding[index] += _finite_float(raw_rate, field="funding rate")
+        rate = _finite_float(raw_rate, field="funding rate")
+        funding[index] += rate
+        if raw_mark_price is None:
+            all_marks_present = False
+        else:
+            any_mark_present = True
+            mark_price = _finite_float(
+                raw_mark_price, field="funding settlement mark price"
+            )
+            if mark_price <= 0.0:
+                raise ValueError("funding settlement mark price must be positive")
+            funding_price_rate[index] += rate * mark_price
         counts[index] += 1
-    return funding, counts > 0, counts
+    if any_mark_present and not all_marks_present:
+        raise ValueError("funding settlement marks must be present for every event")
+    return (
+        funding,
+        counts > 0,
+        counts,
+        funding_price_rate if all_marks_present else None,
+    )
 
 
 class BinanceMarketDataSource(MarketDataSource):
@@ -149,7 +177,7 @@ class BinanceMarketDataSource(MarketDataSource):
         self.transport = transport or BinancePublicTransport()
         self._sources_used: set[str] = set()
         self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
-        self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
+        self._funding_cache: dict[str, tuple[list[FundingEvent], object]] = {}
 
     @property
     def sources_used(self) -> tuple[str, ...]:
@@ -164,10 +192,16 @@ class BinanceMarketDataSource(MarketDataSource):
             return
         self._sources_used.add(str(source))
 
-    def _funding_events(self, symbol: str) -> list[tuple[int, float]]:
+    def _funding_events(self, symbol: str) -> list[FundingEvent]:
         cached = self._funding_cache.get(symbol)
         if cached is None:
-            events, funding_source = self.transport.load_funding_rates(
+            load_events = getattr(self.transport, "load_funding_events", None)
+            funding_loader = (
+                load_events
+                if callable(load_events)
+                else self.transport.load_funding_rates
+            )
+            events, funding_source = funding_loader(
                 market=self.market,
                 symbol=symbol,
                 start_ms=_epoch_ms(self.start_time),
@@ -211,7 +245,12 @@ class BinanceMarketDataSource(MarketDataSource):
             start_ms=start_ms,
             end_ms=end_ms,
         )
-        funding, funding_available, funding_event_count = _align_funding(
+        (
+            funding,
+            funding_available,
+            funding_event_count,
+            funding_price_rate,
+        ) = _align_funding(
             timestamps,
             self._funding_events(symbol),
         )
@@ -224,6 +263,7 @@ class BinanceMarketDataSource(MarketDataSource):
             close=close,
             volume=volume,
             funding_rate=funding,
+            funding_price_rate=funding_price_rate,
             funding_available=funding_available,
             funding_event_count=funding_event_count,
             tradable=np.ones(len(timestamps), dtype=np.bool_),

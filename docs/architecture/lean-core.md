@@ -269,6 +269,7 @@ P&Lの正本は `MarketExecutor + BookState` の一経路である。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。
+- Funding cash flow uses each event's funding rate multiplied by its exchange settlement mark, not the bar close or bar mark; the resulting per-bar funding notional is included in dataset identity and replay evidence.
 - partial fill後のpositionはrealized fill quantityで更新する。
 - `fill_ratio` と `unfilled_turnover` は注文の消化状態を表すため、requested側と同じsubmission reference priceでfilled quantityを評価する。adverse/favorableな実約定価格の変化だけで注文残量が消えたように見せない。`filled_turnover` は実際に売買した金額を表すためactual fill notional / starting equityを維持し、このcompletion指標とはprice basisを分ける。
 - lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
@@ -346,7 +347,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - `ExecutionRuleStress` が有効な場合、tick / lot / minimum-notional / adverse tick-roundingの変更は `MarketExecutor.execution_policy_digest` へbindする。nominal/default stressは既存cost digestをそのまま維持する。これによりnominal policyで作られたworking residualをstressed executorが同一policyとして再利用しない。
 - effective `tick_size > 0` のとき、外部/manual LIMITの `limit_price` と STOP_MARKETの `stop_price` はそのpoint-in-time tick grid上でなければadmissionでfail closedする。floatへの射影で生じる数ULPの表現誤差だけは同一grid点として扱い、実質的なoff-tick boundを後段のexecution-price roundingで別価格へ自動変換しない。一方、canonical target reconciliationがoffsetから内部生成するLIMIT/STOP boundは、未来のeligible-bar ruleを先読みせずsubmit時点のeffective tickだけを使って保守的にgridへsnapする（LIMIT buyは切り下げ/sellは切り上げ、STOP buyは切り上げ/sellは切り下げ）。eligible時点でruleが変わっていれば通常admissionが再検証する。`tick_size == 0` は従来どおりprice grid未指定として扱う。
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
-- fundingは対象時刻・符号・quantityに対して一度だけ計上する。
+- fundingはイベントごとのsettlement mark price × rateで求めたnotionalへsigned quantityとcontract multiplierを掛け、対象時刻に一度だけ計上する。bar close/現在bar markとsettlement markを同一視せず、raw rateとsettlement notional rateをDataset identity・artifact・execution evidenceへ別々に保持する。Dataset identity v7 / artifact v4とfunding evidence v2が現行形式で、従来のDataset artifact v3 / identity v6およびfunding evidence v1は読み取り時に元のidentity・canonical bytesを保つ。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
 - terminal mark-to-marketとforced closeを混同しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。

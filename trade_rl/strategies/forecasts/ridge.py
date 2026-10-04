@@ -14,6 +14,7 @@ from trade_rl.strategies.forecasts.controller import (
     ForecastIntentController,
 )
 from trade_rl.strategies.forecasts.supervised import (
+    CausalForecastTrainingSet,
     _immutable_array,
     build_causal_forecast_training_set,
 )
@@ -98,6 +99,13 @@ class RidgeForecastModel:
         if max(self.feature_indices) >= vector.size:
             raise ValueError("model feature index is outside observation features")
         selected = vector[list(self.feature_indices)]
+        return self.predict_selected(selected)
+
+    def predict_selected(self, selected_features: np.ndarray) -> float:
+        """Predict from already selected columns in the declared feature order."""
+        selected = np.asarray(selected_features, dtype=np.float64)
+        if selected.shape != self.feature_mean.shape:
+            raise ValueError("selected features must match the model layout")
         if not np.isfinite(selected).all():
             raise ValueError("forecast features must be finite")
         standardized = (selected - self.feature_mean) / self.feature_scale
@@ -162,6 +170,15 @@ def fit_ridge_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
+    return _fit_ridge_training_set(training, alpha=alpha)
+
+
+def _fit_ridge_training_set(
+    training: CausalForecastTrainingSet, *, alpha: float
+) -> RidgeForecastModel:
+    """Use the same solver on the same validated rows, without a second selector."""
+    if not math.isfinite(alpha) or alpha <= 0.0:
+        raise ValueError("alpha must be finite and positive")
     x = training.features
     y = training.labels
     weights = training.sample_weights
@@ -195,7 +212,7 @@ def fit_ridge_forecast(
         feature_scale=feature_scale,
         coefficients=coefficients,
         intercept=intercept,
-        horizon_hours=horizon_hours,
+        horizon_hours=training.horizon_hours,
         alpha=alpha,
         n_samples=training.n_samples,
         fit_cutoff=training.fit_cutoff,

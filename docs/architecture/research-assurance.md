@@ -785,6 +785,88 @@ Economic execution remains blocked until a fresh independent result-blind G0–G
 review is bound to the exact protocol, implementation, and data scope. A later
 G3 evidence review remains separate from the G4 result decision.
 
+## Research-specific contract: prequential Ridge stream
+
+### G0 — bounded question and limitations
+
+Issue #810 requires a forecast produced before the downstream decision, rather
+than a full-period fitted model's in-sample predictions. This stage asks whether
+the existing Ridge can be fitted on each available prefix, frozen, and used
+only in the following block with its timing and input identity preserved. The
+operational target is a causal input to a later common decision context, not
+selection of a profitable policy.
+
+The tentative economic premise is that measured, past price/volume features
+may retain conditional predictive information over a declared horizon. No
+specific persistence, market participant mechanism or after-cost edge is
+established here. Fitting more frequently does not create independent market
+experience. Ridge conditional mean log return is not expected simple return;
+exponentiating it does not remove that distinction. Its uncalibrated vintage
+cannot provide predictive coverage or an uncertainty bound.
+
+For this software stage, the primary check is temporal non-interference and
+the independently calculated synthetic Ridge forecast. Counterfactuals change
+only unused future suffixes, source publication boundaries, selected rows or
+forecast availability. A changed earlier prediction under an unchanged causal
+scope, use of a not-ready packet, or an inconsistent identity falsifies the
+capability. No economic trial, winner selection or new-data consumption is part
+of this stage. An exact economic question, Dataset/window, capital/risk/cost,
+trial budget, controls, source/runtime bundle and Study must be preregistered
+and independently reviewed before G4. G0/G1 for that Study remain NOT ESTABLISHED.
+The 20% observed-drawdown research guardrail is unchanged.
+
+### G1 — frozen availability and forecast semantics
+
+Each fit cutoff, declared completion, prediction block and inference delay is
+fixed before generation. Both price-label endpoints and their actual recorded
+publication clocks must be strictly before the cutoff. Completion is at or
+after cutoff, and the next block starts strictly after cutoff and at or after
+completion. Blocks are non-overlapping; a later vintage can use labels that
+have newly matured but cannot overwrite an earlier vintage.
+
+The sole existing row selector also supplies the actual ordered row/endpoint
+trace; the same immutable training object supplies the Ridge solve. The stream
+stores selected feature names/indices/values, weights, endpoint symbols/prices,
+source clocks, fit-only scaler and solved model parameters. Symbol IDs are
+lineage only, not fitted features. The producer accepts only source and selected
+features available on their Dataset row, conservatively rejecting late sources.
+It does not claim delayed-data reconstruction or independently validate the
+Dataset's upstream feature causality and historical source availability.
+
+Packet `as_of` denotes the feature snapshot time. A manually assembled snapshot
+can refer to a source published earlier; the source must be available by that
+snapshot. The current producer uses the Dataset bar close and admits only
+on-time inputs. Forecast readiness equals the maximum of snapshot, source and
+declared completion, plus the block's declared inference delay. All timing is
+`declared_simulation_v1`: no actual fit completion or latency receipt is claimed.
+
+Only the newest ready packet for the requested symbol in the active block,
+strictly before its horizon end, can reach the existing cost-aware controller.
+No-ready, missing input, wrong symbol, previous-block fallback and expired
+forecast are errors. There is no account, reward, portfolio allocator, ledger,
+fill, RL training or execution-clock change. The current switching-cost proxy
+is retained as a surrogate, not optimal after-cost portfolio allocation.
+
+### G2 — invariants and independent oracles
+
+| Invariant | Minimal counterexample | Oracle |
+|---|---|---|
+| Fit consumes only mature rows | endpoint or publication equals cutoff | Hand-listed actual start/end/symbol rows and strict timestamp comparisons |
+| Model depends only on its fit scope | mutate unused suffix prices/features/availability and whole-Dataset ID | Identical earlier model, packet and causal-scope digests |
+| Recorded prediction is the actual Ridge on selected inputs | constant or linear/quadratic synthetic signal | Hand-calculated intercept and regularized slope, then LONG/SHORT/cost-veto decisions |
+| Ready/expiry clock controls use | inference delay spans the newest snapshot, block gap, exact horizon end | Newest ready packet only; explicit error at uncovered decisions |
+| Frozen inputs cannot drift | mutate caller lists or reset NumPy write flags | Copied tuple/byte-backed arrays retain identical identities and forecasts |
+| Serialization retains the frozen contract | change training/model/timing with old or recomputed outer hash | Externally pinned content digest, nested identity/schema and model-input consistency checks |
+| Sparse selected inputs do not allocate a dense universe | valid one-column model with an enormous feature index | Allocation interception while constructor/readback retain the same prediction |
+
+Digest checking proves content integrity against an independently retained digest,
+not authenticity of the caller's Dataset or fitting receipt. The reader neither
+refits nor proves that model parameters were genuinely produced by the recorded
+training process. A caller can fabricate an internally consistent artifact and
+its new digest; external source/runtime and execution evidence remain required.
+Synthetic tests and a fresh result-blind source review do not establish G3-G5,
+profitability, full P2 delivery, downstream RL validity or live eligibility.
+
 ## G3: Evidence Validity
 
 G3は既存のcausal data、common accounting、immutable artifact、provenance、controlled factor、lineage、result-blind preregistrationをまとめて「その結果を研究判断へ使ってよいか」を問う。

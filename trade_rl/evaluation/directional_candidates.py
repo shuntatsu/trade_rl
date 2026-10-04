@@ -139,6 +139,7 @@ def fit_directional_candidate(
         gross_budget=gross_budget,
         total_timesteps=PPO_TIMESTEPS,
         seed=int(arm[-1]),
+        gamma=config.ppo_gamma,
         initial_capital=initial_capital,
         execution_cost=DIRECTIONAL_BASE_EXECUTION_COST,
         training_layout="sequential",

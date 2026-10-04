@@ -248,6 +248,83 @@ contract checks pass. No G4 economic result may be generated before G0-G2 are
 closed and the complete StudyPlan, including the selection rule above, is
 sealed.
 
+## Research-specific contract: PPO temporal-discount alignment
+
+This contract is a result-blind precursor to any development comparison of PPO
+discount factors. It does not authorize fitting or economic replay by itself.
+
+### G0 — narrow question, hypothesis, and falsifiers
+
+The question is whether the fixed hourly PPO learner assigns temporal credit over
+an appropriate horizon when the economic reward remains the canonical after-cost
+log wealth change. The operational target is the same directional PPO policy; the
+only proposed treatment is the temporal discount applied by PPO to future reward.
+
+The narrow hypothesis is that the maintained default `gamma=0.99` may put too
+little optimization weight on later realized reward for multi-day positions. This
+is a hypothesis about credit assignment, not evidence that a larger gamma is
+better and not a claim that `gamma=1` is correct.
+
+Result-blind falsifiers include:
+
+- changing gamma also changes reward, GAE lambda, observation, action, risk,
+  execution, accounting, capital, fit scope, or training budget;
+- a non-PPO strategy's replay changes in a declared `PPO_DISCOUNT` experiment;
+- a resolved v6 config or current Candidate Result v8/v9 cannot reconstruct the
+  exact gamma used by the PPO constructor;
+- legacy resolved v1-v5 or Candidate Result v1-v7 artifacts are reinterpreted as
+  having new objective-bound semantics;
+- canonical PPO environment reward ceases to equal after-cost log return plus the
+  documented terminal-settlement contribution.
+
+A future economic experiment must preregister its gamma roster and seed policy
+before results are generated. This contract does not choose that roster.
+
+### G1 — fixed mechanism and known mismatch
+
+`ppo_training_objective_v1` fixes reward schema `net_log_return_v1`:
+each ordinary agent transition uses `log1p(interval_net_return)` after canonical
+execution/accounting. When terminal settlement is enabled, realized settlement
+log-return is added to the terminal transition. The objective also records
+advantage normalization as enabled and fixes GAE lambda at 0.95. Only
+`ppo_gamma` is variable, and it must be finite in `(0, 1]`.
+
+New Run Core evidence uses `resolved_run_config_v6` to bind reward schema,
+gamma, and GAE lambda. Within a Study, reward schema and GAE lambda are fixed
+fields. `PPO_DISCOUNT` may change only `ppo_gamma`; reward shaping, reward
+scaling, GAE tuning, network changes, and training-layout changes require separate
+factors/studies.
+
+Known mechanism limitations remain explicit. PPO training is still one active
+symbol/account at a time, while the shared-cash holding evaluator can combine
+multiple symbols. Policy observations still do not include portfolio account
+drawdown. A discount study therefore tests temporal credit assignment inside the
+current training mechanism; it does not establish train/evaluation capital-scope
+equivalence or joint-portfolio learning.
+
+### G2 — semantic invariants and independent oracles
+
+Before any G4 execution, the implementation must demonstrate:
+
+- the environment/replay reward oracle continues to match canonical after-cost
+  interval returns and terminal settlement;
+- gamma validation rejects booleans, non-finite values, zero, negatives, and
+  values above one;
+- the exact requested gamma reaches the SB3 PPO constructor while GAE remains
+  fixed;
+- raw config, resolved v6 config, Candidate Result v8/v9 objective payload,
+  requested-config digest, and reconstructed candidate config preserve the same
+  gamma;
+- the controlled-delta verifier accepts `ppo_gamma` as the only path for
+  `PPO_DISCOUNT` and still exact-matches all unaffected strategies;
+- resolved v1-v5 and Candidate Result v1-v7 payloads continue to round-trip under
+  their original meaning and cannot masquerade as objective-bound v6/v8/v9
+  evidence.
+
+The fresh independent result-blind semantic review required by the general G0-G2
+gate is still required before a real-data discount experiment. This code contract
+alone establishes no economic uplift, profitability, or production readiness.
+
 ## Research-specific contract: corrected PPO fit-only normalization replication
 
 This contract applies only to the sealed corrected-economics comparison owned by

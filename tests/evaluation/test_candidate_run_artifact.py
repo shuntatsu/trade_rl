@@ -154,7 +154,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v6"
+    assert summary["schema_version"] == "lean_candidate_result_v12"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
@@ -176,6 +176,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 7,
+        "ppo_gamma": 0.99,
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
         "ppo_minimum_hold_bars": 0,
@@ -416,7 +417,7 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
 
     assert loaded.has_verified_full_evaluation_coverage
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v7"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v13"
     portfolio = loaded.summary["shared_cash_ppo"]
     assert portfolio["name"] == "ppo"
     assert portfolio["final_portfolio_value"] == 1_000.0

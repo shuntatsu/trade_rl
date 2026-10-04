@@ -24,8 +24,10 @@ from trade_rl.strategies.rl.intent import (
     PPO_OBSERVATION_SCHEMAS,
 )
 from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAMMA,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
+    validated_ppo_gamma,
 )
 
 LEGACY_DATASET_EXECUTION_OVERLAY = "zero_overlay_dataset_fields_authoritative"
@@ -72,6 +74,7 @@ class CandidateRunConfig:
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "ppo_gamma",
     )
 
     signal_name: str
@@ -94,6 +97,7 @@ class CandidateRunConfig:
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -144,6 +148,7 @@ class CandidateRunConfig:
             or self.ppo_seed < 0
         ):
             raise ValueError("ppo_seed must be a non-negative integer")
+        ppo_gamma = validated_ppo_gamma(self.ppo_gamma)
         if not isinstance(
             self.ppo_training_layout, str
         ) or self.ppo_training_layout not in {
@@ -213,6 +218,7 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(self, "ppo_gamma", ppo_gamma)
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
@@ -433,6 +439,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         forecast_exit_threshold=_required_float(raw, "forecast_exit_threshold"),
         ppo_total_timesteps=_required_int(raw, "ppo_total_timesteps"),
         ppo_seed=_required_int(raw, "ppo_seed"),
+        ppo_gamma=validated_ppo_gamma(raw.get("ppo_gamma", PPO_DEFAULT_GAMMA)),
         ppo_training_layout=training_layout,
         ppo_rollout_steps_per_env=_optional_positive_int(
             raw,
@@ -530,6 +537,7 @@ def resolve_candidate_run_spec(
         forecast_exit_threshold=config.forecast_exit_threshold,
         ppo_total_timesteps=config.ppo_total_timesteps,
         ppo_seed=config.ppo_seed,
+        ppo_gamma=config.ppo_gamma,
         ppo_training_layout=config.ppo_training_layout,
         ppo_rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,

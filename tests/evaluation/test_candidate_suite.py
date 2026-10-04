@@ -118,6 +118,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        ppo_gamma=0.9975,
         ppo_training_layout="interleaved",
         ppo_rollout_steps_per_env=512,
         fit_symbol_indices=(0,),
@@ -164,6 +165,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ppo_kwargs"]["gamma"] == pytest.approx(0.9975)
     assert calls["ppo_kwargs"]["training_layout"] == "interleaved"
     assert calls["ppo_kwargs"]["rollout_steps_per_env"] == 512
     assert calls["ppo_kwargs"]["minimum_hold_bars"] == 168

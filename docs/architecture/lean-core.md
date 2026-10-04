@@ -116,8 +116,10 @@ environment transition, not the economic action contract.
 Minimum-hold duration requires Observation v3. A duration Study binds the same
 v3 observation, terminal settlement, explicit `PreTradeRiskConfig`, Dataset,
 execution overlay, capital, and evaluation window for its H=0 baseline and all
-candidates. New `resolved_run_config_v5` and `lean_candidate_result_v6`
-identities bind these values; H alone is the `PPO_MINIMUM_HOLD` factor. The
+candidates. Historical duration/risk evidence used `resolved_run_config_v5` and
+`lean_candidate_result_v6`; current Run Core keeps those schemas readable while
+new objective-bound writes use `resolved_run_config_v6` and
+`lean_candidate_result_v12`. H alone is the `PPO_MINIMUM_HOLD` factor. The
 explicit risk config is shared by PPO training and every strategy replay. A
 drawdown stop at 0.20 is a hard pre-trade guard, not a guarantee that a price gap
 or terminal move cannot exceed 20% realized drawdown.
@@ -155,12 +157,14 @@ bypass the voluntary minimum-hold constraint.
 Latency, gaps, liquidity, and costs can move realized results past the threshold;
 these triggers do not guarantee a profit or cap a loss.
 
-New Observation-v3 Candidate Runs that include the shared-cash PPO replay use
-`lean_candidate_result_v7`. The artifact binds the combined return series,
-terminal cash / quantities, active-order and settlement state, and versioned
-shared-cash ledger digest; loading recomputes return and maximum drawdown from
-the return series. This provides the v2 Study's single-account comparison input
-while preserving v1 per-symbol selection semantics.
+Historical Observation-v3 Candidate Runs that include the shared-cash PPO replay
+use `lean_candidate_result_v7`; current objective-bound writes use
+`lean_candidate_result_v13`. Both bind the combined return series, terminal cash /
+quantities, active-order and settlement state, and versioned shared-cash ledger
+digest, while v13 additionally binds the PPO training objective and exact
+`ppo_gamma`. Loading recomputes return and maximum drawdown from the return
+series. This provides the v2 Study's single-account comparison input while
+preserving v1 per-symbol selection semantics.
 
 ### PPO training layout
 
@@ -215,6 +219,23 @@ configurations, invalid drawdown values, and proposals outside that limit
 continue through `PreTradeRisk.constrain` so its validation and projection remain
 in force.
 
+PPOのeconomic rewardは引き続き、canonical execution/accountingが返す
+after-cost `interval_net_return` の `log1p` とする。terminal settlementを使う場合は、
+settlement各intervalの実現log wealth changeを最後のterminal transitionへ加える。
+`ppo_training_objective_v1` はこのreward schemaを
+`net_log_return_v1` として明示し、既定 `gamma=0.99`、既定
+`gae_lambda=0.95`、advantage normalization有効をtraining objectiveの意味として
+記録する。新規Runは `resolved_run_config_v6` でこのreward schema、`ppo_gamma`、
+固定GAE lambdaをsemantic identityへbindし、Candidate Run artifactは通常経路を
+`lean_candidate_result_v12`、shared-cash経路を `lean_candidate_result_v13`
+として同じ `ppo_training_objective_v1` を保存する。`ppo_gamma` は有限な `(0, 1]` のみを許し、
+`PPO_DISCOUNT` Controlled Factorではこの値だけを変更できる。reward schemaと
+GAE lambdaを同じExperimentで変更してはならない。これはtemporal credit
+assignmentを独立に研究できるようにする契約であり、reward式、execution、
+accounting、risk、action semanticsを変更しない。また、per-symbol trainingと
+shared-cash evaluationのcapital scope差やpolicy inputにaccount drawdownがない
+既知のmismatchを解消するものではない。
+
 Directional PPOのfitとdevelopment評価は `DIRECTIONAL_BASE_EXECUTION_COST` を共通authorityとして使う。zero overlayでもDataset由来のfee / spread / funding / borrowは消さず、特に `borrow_rate_multiplier=1.0` を学習・評価の両方で維持する。過去のPPO evidenceは生成時の旧implementation SHAにbindされたままであり、このcorrected execution contractのcontrolとして自動再利用しない。
 
 `fit_ppo_strategy` の既定は従来どおり `sequential` であり、単一 `PPOTradingEnv` がfit symbolをfull-window episode単位でround-robinする。既存Studyやcandidateがlayoutを明示しない場合の意味は変えない。
@@ -227,7 +248,7 @@ Age-aware Observation v3の保有期間比較は、generic PPO既定値をその
 
 `interleaved` は明示選択する学習layout capabilityである。fit symbolごとに同じ `PPOTradingEnv` を `symbol_indices=(その1銘柄,)` で固定して1個ずつ作り、in-process `DummyVecEnv` で同一policyへ束ねる。観測、reward、execution/accounting、hard risk、network、entropy係数、総 `total_timesteps` は変更しない。callerは `rollout_steps_per_env` を結果を見る前に明示し、`rollout_steps_per_env × env数` が既存PPO minibatch size 64で割り切れることを要求する。
 
-Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。新規のduration/risk Runは`lean_candidate_result_v6`を使い、保有期間、Observation schema、terminal settlement、全評価期間のカバレッジ、training suppression count、明示pre-trade risk configも記録・検証する。従来のv5 artifactは互換読込するが、全期間カバレッジ検証済みとは扱わない。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
+Stable-Baselines3は全rollout単位で学習するため、requested `total_timesteps`と実際の`model.num_timesteps`は一致しない場合がある。`expected_ppo_realized_timesteps`がlayout別の丸め後step数を定義し、fit直後に実値を照合する。`lean_candidate_result_v3`はrequested/realized step数、layout、rollout長を記録し、load時にfit symbol数から再計算して検証する。historical duration/risk Runの`lean_candidate_result_v6`は保有期間、Observation schema、terminal settlement、全評価期間のカバレッジ、training suppression count、明示pre-trade risk configを記録・検証し、current `lean_candidate_result_v12`はそれに `ppo_training_objective_v1` と `ppo_gamma` の一致検証を加える。shared-cash版はhistorical v7 / current v13で同じobjective bindingを適用する。従来schemaは互換読込するが、新objective fieldを遡及的に補完しない。layout比較では同じrequested値だけでは不十分であり、baselineとcandidateのrealized transition数も一致させる。
 
 `A2CIntentStrategy` と `fit_a2c_strategy` は、PPOと同じprivate 3-action intent adapter、`PPOTradingEnv`、Observation v2、fit-scope専用 `PPOFeatureNormalizer` を再利用する。A2Cはsequential layoutだけを許し、各fit symbolに最低1 nominal full-window episode分のstep budgetを割り当てられるか、rollout `n_steps=5` 単位へ切り上げたeffective step数でfit前に検証する。このcoverageはbudget上の容量であり、risk termination等が起きる実行中に各symbolのtransitionを観測した証拠ではない。
 

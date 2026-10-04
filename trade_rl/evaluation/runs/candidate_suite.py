@@ -40,6 +40,10 @@ from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     fit_ppo_strategy,
 )
+from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAMMA,
+    validated_ppo_gamma,
+)
 from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
@@ -66,6 +70,7 @@ class LeanCandidateConfig:
     ppo_minimum_hold_bars: int = 0
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
+    ppo_gamma: float = PPO_DEFAULT_GAMMA
 
     def __post_init__(self) -> None:
         if (
@@ -116,6 +121,7 @@ class LeanCandidateConfig:
             raise ValueError("ppo_seed must be a non-negative integer")
         if self.ppo_seed < 0:
             raise ValueError("ppo_seed must be a non-negative integer")
+        ppo_gamma = validated_ppo_gamma(self.ppo_gamma)
         if not isinstance(
             self.ppo_training_layout, str
         ) or self.ppo_training_layout not in {
@@ -154,6 +160,7 @@ class LeanCandidateConfig:
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
+        object.__setattr__(self, "ppo_gamma", ppo_gamma)
 
 
 def _ppo_training_stop_index(
@@ -260,6 +267,7 @@ def run_lean_candidate_suite(
         gross_budget=gross_budget,
         total_timesteps=config.ppo_total_timesteps,
         seed=config.ppo_seed,
+        gamma=config.ppo_gamma,
         training_layout=config.ppo_training_layout,
         rollout_steps_per_env=config.ppo_rollout_steps_per_env,
         initial_capital=initial_capital,

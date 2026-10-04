@@ -44,12 +44,16 @@ from trade_rl.strategies.rl.ppo_normalization import (
     fit_ppo_feature_normalizer,
 )
 from trade_rl.strategies.rl.ppo_training import (
+    PPO_DEFAULT_GAE_LAMBDA,
+    PPO_DEFAULT_GAMMA,
     PPO_DEFAULT_N_STEPS,
     PPO_MINIBATCH_SIZE,
+    PPO_NORMALIZE_ADVANTAGE,
     PPO_TRAINING_LAYOUT_INTERLEAVED,
     PPO_TRAINING_LAYOUT_SEQUENTIAL,
     expected_ppo_realized_timesteps,
     validated_interleaved_rollout_steps,
+    validated_ppo_gamma,
     validated_training_layout,
 )
 
@@ -57,11 +61,11 @@ _PPO_LEARNING_RATE = 3e-4
 _PPO_DEFAULT_N_STEPS = PPO_DEFAULT_N_STEPS
 _PPO_BATCH_SIZE = PPO_MINIBATCH_SIZE
 _PPO_N_EPOCHS = 10
-_PPO_GAMMA = 0.99
-_PPO_GAE_LAMBDA = 0.95
+_PPO_GAMMA = PPO_DEFAULT_GAMMA
+_PPO_GAE_LAMBDA = PPO_DEFAULT_GAE_LAMBDA
 _PPO_CLIP_RANGE = 0.2
 _PPO_CLIP_RANGE_VF: float | None = None
-_PPO_NORMALIZE_ADVANTAGE = True
+_PPO_NORMALIZE_ADVANTAGE = PPO_NORMALIZE_ADVANTAGE
 _PPO_ENT_COEF = 0.0
 _PPO_VF_COEF = 0.5
 _PPO_MAX_GRAD_NORM = 0.5
@@ -654,6 +658,7 @@ def fit_ppo_strategy(
     training_layout: str = PPO_TRAINING_LAYOUT_SEQUENTIAL,
     rollout_steps_per_env: int | None = None,
     risk_config: PreTradeRiskConfig | None = None,
+    gamma: float = PPO_DEFAULT_GAMMA,
     normalize_features: bool = False,
     settle_terminal_position: bool = False,
     minimum_hold_bars: int = 0,
@@ -669,6 +674,7 @@ def fit_ppo_strategy(
         raise ValueError("total_timesteps must be a positive integer")
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("seed must be a non-negative integer")
+    ppo_gamma = validated_ppo_gamma(gamma)
     if not isinstance(settle_terminal_position, bool):
         raise ValueError("settle_terminal_position must be boolean")
     if (
@@ -794,7 +800,7 @@ def fit_ppo_strategy(
         n_steps=ppo_n_steps,
         batch_size=_PPO_BATCH_SIZE,
         n_epochs=_PPO_N_EPOCHS,
-        gamma=_PPO_GAMMA,
+        gamma=ppo_gamma,
         gae_lambda=_PPO_GAE_LAMBDA,
         clip_range=_PPO_CLIP_RANGE,
         clip_range_vf=_PPO_CLIP_RANGE_VF,

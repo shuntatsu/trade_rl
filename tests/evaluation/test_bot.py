@@ -44,6 +44,13 @@ def test_generate_demo_dataset_is_valid() -> None:
     assert dataset.features.shape == (100, 2, 5)
 
 
+def test_bot_config_preserves_existing_positional_field_order() -> None:
+    config = BotConfig("trend", 100_000.0, 0.2, 4, 0.017)
+
+    assert config.entry_threshold == 0.017
+    assert config.signal_index == 0
+
+
 def test_run_trading_bot_executes_successfully() -> None:
     dataset = generate_demo_dataset(n_bars=100, n_symbols=2, seed=123)
     cfg = BotConfig(

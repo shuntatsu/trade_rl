@@ -141,3 +141,19 @@ def test_tuning_rejects_invalid_signal_indices_before_replay(monkeypatch, signal
         bot.tune_for_maximum_profit(
             dataset, signal_index=signal_index, max_combinations=1
         )
+
+
+@pytest.mark.parametrize("signal_index", [-1, True, 1.5, 5])
+def test_run_trading_bot_rejects_invalid_signal_indices_before_replay(
+    monkeypatch, signal_index
+):
+    dataset = bot.generate_demo_dataset(n_bars=41, n_symbols=1)
+    monkeypatch.setattr(
+        bot,
+        "run_shared_cash_replay",
+        lambda *args, **kwargs: pytest.fail("invalid signal must fail before replay"),
+    )
+    config = bot.BotConfig(strategy_name="trend", signal_index=signal_index)
+
+    with pytest.raises(ValueError, match="signal_index"):
+        bot.run_trading_bot(dataset, config)

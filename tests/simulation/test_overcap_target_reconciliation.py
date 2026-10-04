@@ -83,6 +83,48 @@ def test_legacy_over_cap_nonzero_trim_creates_an_executable_reduce_only_order(
     assert result.rejected_count == 0
 
 
+def test_multi_symbol_over_cap_trims_create_executable_reduce_only_orders() -> None:
+    executor = _executor(2)
+    book = _book((1.6, 1.6), 300.0)
+
+    reconciled = reconcile_target(
+        dataset_id=executor.dataset.dataset_id,
+        target_identity="aggregate-over-cap-target",
+        execution_policy_digest=executor.execution_policy_digest,
+        target_weights=np.array([0.2, 0.2]),
+        book=book,
+        order_book=OrderBookState.empty(),
+        reference_prices=np.array([100.0, 100.0]),
+        decision_equity=book.portfolio_value,
+        submit_index=0,
+        latency_bars=1,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        expiry_index=None,
+        limit_offset_rate=0.01,
+        maximum_gross=executor.cost.max_leverage,
+    )
+
+    assert tuple(intent.symbol_index for intent in reconciled.new_intents) == (0, 1)
+    assert tuple(intent.requested_quantity for intent in reconciled.new_intents) == (
+        -1.0,
+        -1.0,
+    )
+    assert all(intent.reduce_only for intent in reconciled.new_intents)
+
+    result = executor.execute_orders(
+        book,
+        reconciled.order_book,
+        reconciled.new_intents,
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.exact_quantities == (Fraction(3, 5), Fraction(3, 5))
+    assert result.fill_count == 2
+    assert result.rejected_count == 0
+
+
 @pytest.mark.parametrize(
     "quantity,equity,weight", [(1.0, 1_000.0, 0.05), (10.0, 1_000.0, 0.5)]
 )

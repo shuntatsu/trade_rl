@@ -72,6 +72,7 @@ class CandidateRunConfig:
         "ppo_observation_schema",
         "ppo_settle_terminal_position",
         "pretrade_risk_config",
+        "forecast_switch_cost",
     )
 
     signal_name: str
@@ -94,6 +95,7 @@ class CandidateRunConfig:
     ppo_observation_schema: str = PPO_OBSERVATION_SCHEMA
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    forecast_switch_cost: float | None = None
 
     def __post_init__(self) -> None:
         signal_name = _validated_text(self.signal_name, field="signal_name")
@@ -188,6 +190,11 @@ class CandidateRunConfig:
             raise ValueError(
                 "pretrade_risk_config must be a PreTradeRiskConfig or null"
             )
+        forecast_switch_cost = (
+            None
+            if self.forecast_switch_cost is None
+            else _require_forecast_switch_cost(self.forecast_switch_cost)
+        )
         if self.ppo_observation_schema == PPO_OBSERVATION_SCHEMA_V3:
             if not self.ppo_settle_terminal_position:
                 raise ValueError(
@@ -213,6 +220,7 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
 
     def to_json_payload(self) -> dict[str, object]:
         """Return the normalized raw candidate-run JSON contract."""
@@ -220,6 +228,8 @@ class CandidateRunConfig:
         payload: dict[str, object] = {}
         for name in self.JSON_FIELDS:
             value = getattr(self, name)
+            if name == "forecast_switch_cost" and value is None:
+                continue
             if isinstance(value, np.datetime64):
                 payload[name] = str(np.datetime64(value, "ns"))
             elif isinstance(value, PreTradeRiskConfig):
@@ -310,6 +320,19 @@ def _require_non_negative_finite(value: object, *, field: str) -> float:
     resolved = _require_finite(value, field=field)
     if resolved < 0.0:
         raise ValueError(f"{field} must be finite and non-negative")
+    return resolved
+
+
+def _require_forecast_switch_cost(value: object) -> float:
+    message = "forecast_switch_cost must be finite and non-negative"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(message)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ValueError(message) from error
+    if not math.isfinite(resolved) or resolved < 0.0:
+        raise ValueError(message)
     return resolved
 
 
@@ -444,6 +467,11 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
         pretrade_risk_config=risk_config,
         gross_budget=_required_float(raw, "gross_budget"),
         initial_capital=_required_float(raw, "initial_capital"),
+        forecast_switch_cost=(
+            None
+            if raw.get("forecast_switch_cost") is None
+            else _require_forecast_switch_cost(raw.get("forecast_switch_cost"))
+        ),
     )
 
 
@@ -535,6 +563,7 @@ def resolve_candidate_run_spec(
         ppo_minimum_hold_bars=config.ppo_minimum_hold_bars,
         ppo_observation_schema=config.ppo_observation_schema,
         ppo_settle_terminal_position=config.ppo_settle_terminal_position,
+        forecast_switch_cost=config.forecast_switch_cost,
     )
     return ResolvedCandidateRunSpec(
         dataset_id=dataset.dataset_id,

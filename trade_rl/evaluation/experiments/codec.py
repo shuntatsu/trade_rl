@@ -206,26 +206,34 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v7",
     }:
         expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
     if schema_version in {
         "resolved_run_config_v3",
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v7",
     }:
         expected.update({"ppo_training_layout", "ppo_rollout_steps_per_env"})
-    if schema_version in {"resolved_run_config_v4", "resolved_run_config_v5"}:
+    if schema_version in {
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
         expected.update({"ppo_minimum_hold_bars", "ppo_settle_terminal_position"})
-    if schema_version == "resolved_run_config_v5":
+    if schema_version in {"resolved_run_config_v5", "resolved_run_config_v7"}:
         expected.add("pretrade_risk_config")
-    elif schema_version != "resolved_run_config_v1":
-        if schema_version not in {
-            "resolved_run_config_v2",
-            "resolved_run_config_v3",
-            "resolved_run_config_v4",
-            "resolved_run_config_v5",
-        }:
-            raise ArtifactIntegrityError("unsupported resolved-run config schema")
+    if schema_version == "resolved_run_config_v7":
+        expected.add("forecast_switch_cost")
+    elif schema_version not in {
+        "resolved_run_config_v1",
+        "resolved_run_config_v2",
+        "resolved_run_config_v3",
+        "resolved_run_config_v4",
+        "resolved_run_config_v5",
+    }:
+        raise ArtifactIntegrityError("unsupported resolved-run config schema")
     _expect_keys(raw, expected, label=field)
     terminal_settlement: object = raw.get("ppo_settle_terminal_position", False)
     if not isinstance(terminal_settlement, bool):
@@ -308,6 +316,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v7",
                 }
                 else "sequential"
             ),
@@ -318,6 +327,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     "resolved_run_config_v3",
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v7",
                 }
                 or raw["ppo_rollout_steps_per_env"] is None
                 else _as_int(
@@ -331,6 +341,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 not in {
                     "resolved_run_config_v4",
                     "resolved_run_config_v5",
+                    "resolved_run_config_v7",
                 }
                 else _as_int(
                     raw["ppo_minimum_hold_bars"],
@@ -343,8 +354,21 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                     raw["pretrade_risk_config"],
                     field=f"{field}.pretrade_risk_config",
                 )
-                if schema_version == "resolved_run_config_v5"
+                if schema_version
+                in {
+                    "resolved_run_config_v5",
+                    "resolved_run_config_v7",
+                }
                 else None
+            ),
+            forecast_switch_cost=(
+                None
+                if schema_version != "resolved_run_config_v7"
+                or raw["forecast_switch_cost"] is None
+                else _as_float(
+                    raw["forecast_switch_cost"],
+                    field=f"{field}.forecast_switch_cost",
+                )
             ),
         )
     except ContractViolationError as error:
@@ -544,11 +568,15 @@ def _candidate_config_payload(
     if resolved_schema_version in {
         "resolved_run_config_v4",
         "resolved_run_config_v5",
+        "resolved_run_config_v7",
     }:
         payload["ppo_minimum_hold_bars"] = config.ppo_minimum_hold_bars
         payload["ppo_observation_schema"] = config.ppo_observation_schema
         payload["ppo_settle_terminal_position"] = config.ppo_settle_terminal_position
-    if resolved_schema_version == "resolved_run_config_v5":
+    if resolved_schema_version in {
+        "resolved_run_config_v5",
+        "resolved_run_config_v7",
+    }:
         payload["pretrade_risk_config"] = (
             None
             if config.pretrade_risk_config is None
@@ -566,6 +594,8 @@ def _candidate_config_payload(
                 ),
             }
         )
+    if resolved_schema_version == "resolved_run_config_v7":
+        payload["forecast_switch_cost"] = config.forecast_switch_cost
     if (
         config.ppo_training_layout != "sequential"
         or config.ppo_rollout_steps_per_env is not None
@@ -602,6 +632,7 @@ def _candidate_config_from_resolved(config: ResolvedRunConfig) -> CandidateRunCo
             ),
             ppo_settle_terminal_position=config.ppo_settle_terminal_position,
             pretrade_risk_config=config.pretrade_risk_config,
+            forecast_switch_cost=config.forecast_switch_cost,
         )
     except ValueError as error:
         raise ArtifactIntegrityError(

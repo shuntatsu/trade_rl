@@ -41,6 +41,7 @@ _RESULT_SCHEMA_V4 = "lean_candidate_result_v4"
 _RESULT_SCHEMA_V5 = "lean_candidate_result_v5"
 _RESULT_SCHEMA_V6 = "lean_candidate_result_v6"
 _RESULT_SCHEMA_V7 = "lean_candidate_result_v7"
+_RESULT_SCHEMA_V14 = "lean_candidate_result_v14"
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
     {
         _RESULT_SCHEMA_V1,
@@ -50,6 +51,7 @@ _SUPPORTED_RESULT_SCHEMAS = frozenset(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V14,
     }
 )
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
@@ -102,7 +104,7 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+        if schema not in {_RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7, _RESULT_SCHEMA_V14}:
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -144,7 +146,10 @@ class LoadedCandidateRun:
                     or values.size != expected_periods
                 ):
                     return False
-        if schema == _RESULT_SCHEMA_V7:
+        if (
+            schema in {_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V14}
+            and self.summary.get("shared_cash_ppo") is not None
+        ):
             portfolio = self.summary.get("shared_cash_ppo")
             if not isinstance(portfolio, Mapping):
                 return False
@@ -294,11 +299,7 @@ def _result_payload(
         )
 
     summary: dict[str, object] = {
-        "schema_version": (
-            _RESULT_SCHEMA_V7
-            if result.comparison.shared_cash_ppo is not None
-            else _RESULT_SCHEMA_V6
-        ),
+        "schema_version": _RESULT_SCHEMA_V14,
         "ppo_observation": ppo_observation_contract_payload(
             config.ppo_observation_schema
         ),
@@ -336,6 +337,7 @@ def _result_payload(
             "ppo_training_minimum_hold_suppressed_count": (
                 result.ppo_training_minimum_hold_suppressed_count
             ),
+            "forecast_switch_cost": config.forecast_switch_cost,
         },
         "evaluation": {
             "start": str(config.evaluation_start),
@@ -604,6 +606,7 @@ def _validate_ppo_training_evidence(
         _RESULT_SCHEMA_V5,
         _RESULT_SCHEMA_V6,
         _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V14,
     }:
         if not {
             "ppo_minimum_hold_bars",
@@ -647,7 +650,12 @@ def _validate_ppo_training_evidence(
             observation_schema
         ):
             raise ValueError("candidate PPO observation contract mismatch")
-    if result_schema in {_RESULT_SCHEMA_V5, _RESULT_SCHEMA_V6, _RESULT_SCHEMA_V7}:
+    if result_schema in {
+        _RESULT_SCHEMA_V5,
+        _RESULT_SCHEMA_V6,
+        _RESULT_SCHEMA_V7,
+        _RESULT_SCHEMA_V14,
+    }:
         if "pretrade_risk_config" not in candidate_config:
             raise ValueError("candidate PPO risk config is incomplete")
         risk_config = candidate_config["pretrade_risk_config"]
@@ -1230,6 +1238,23 @@ def _validate_v7_return_coverage(
             raise ValueError("candidate shared-cash return metrics are inconsistent")
 
 
+def _validate_v14_forecast_switch_cost(summary: Mapping[str, object]) -> None:
+    candidate_config = summary.get("candidate_config")
+    if (
+        not isinstance(candidate_config, Mapping)
+        or "forecast_switch_cost" not in candidate_config
+    ):
+        raise ValueError("candidate forecast switch cost is missing from result v14")
+    switch_cost = candidate_config["forecast_switch_cost"]
+    if switch_cost is not None and (
+        isinstance(switch_cost, bool)
+        or not isinstance(switch_cost, (int, float))
+        or not math.isfinite(float(switch_cost))
+        or float(switch_cost) < 0.0
+    ):
+        raise ValueError("candidate forecast switch cost is invalid")
+
+
 def _semantic_returns_payload(
     returns: Mapping[str, np.ndarray],
 ) -> list[dict[str, object]]:
@@ -1264,6 +1289,13 @@ def _load_with_evidence(
     result_schema = summary.get("schema_version")
     if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
+    candidate_config = summary.get("candidate_config")
+    if (
+        result_schema != _RESULT_SCHEMA_V14
+        and isinstance(candidate_config, Mapping)
+        and "forecast_switch_cost" in candidate_config
+    ):
+        raise ValueError("forecast switch cost is invalid for a legacy result schema")
     if (
         result_schema in {_RESULT_SCHEMA_V2, _RESULT_SCHEMA_V3}
         and summary.get("ppo_observation") != ppo_observation_contract_payload()
@@ -1282,6 +1314,13 @@ def _load_with_evidence(
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_ppo_training_evidence(summary, result_schema=result_schema)
         _validate_v7_replay_evidence(summary)
+    if result_schema == _RESULT_SCHEMA_V14:
+        _validate_ppo_training_evidence(summary, result_schema=result_schema)
+        if summary.get("shared_cash_ppo") is not None:
+            _validate_v7_replay_evidence(summary)
+        else:
+            _validate_v6_replay_evidence(summary)
+        _validate_v14_forecast_switch_cost(summary)
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -1295,6 +1334,11 @@ def _load_with_evidence(
         _validate_v6_return_coverage(summary, returns)
     if result_schema == _RESULT_SCHEMA_V7:
         _validate_v7_return_coverage(summary, returns)
+    if result_schema == _RESULT_SCHEMA_V14:
+        if summary.get("shared_cash_ppo") is not None:
+            _validate_v7_return_coverage(summary, returns)
+        else:
+            _validate_v6_return_coverage(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,

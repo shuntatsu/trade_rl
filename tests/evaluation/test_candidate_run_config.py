@@ -67,6 +67,51 @@ def test_parse_candidate_run_config_returns_frozen_semantic_config() -> None:
     assert config.fit_symbol_names == ("BTCUSDT", "ETHUSDT")
     assert config.ppo_seed == 7
     assert config.fit_cutoff == np.datetime64("2026-01-01T04:00:00", "ns")
+    assert "forecast_switch_cost" not in config.to_json_payload()
+
+
+def test_candidate_run_config_binds_optional_forecast_switch_cost() -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = None
+    disabled = parse_candidate_run_config(raw)
+    assert disabled.forecast_switch_cost is None
+    assert "forecast_switch_cost" not in disabled.to_json_payload()
+
+    raw["forecast_switch_cost"] = 0.0007
+    enabled = parse_candidate_run_config(raw)
+    spec = resolve_candidate_run_spec(
+        market(),
+        dataset_artifact_schema="market_dataset_artifact_v3",
+        dataset_artifact_digest="d" * 64,
+        config=enabled,
+    )
+
+    assert enabled.forecast_switch_cost == pytest.approx(0.0007)
+    assert enabled.to_json_payload()["forecast_switch_cost"] == pytest.approx(0.0007)
+    assert spec.lean_config.forecast_switch_cost == pytest.approx(0.0007)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        True,
+        -0.001,
+        float("nan"),
+        float("inf"),
+        "0.0007",
+        pytest.param(10**1000, id="integer-overflow"),
+    ),
+)
+def test_candidate_run_config_rejects_invalid_forecast_switch_cost(
+    value: object,
+) -> None:
+    raw = raw_config()
+    raw["forecast_switch_cost"] = value
+
+    with pytest.raises(
+        ValueError, match="forecast_switch_cost must be finite and non-negative"
+    ):
+        parse_candidate_run_config(raw)
 
 
 def test_candidate_run_config_binds_horizon_observation_and_terminal_semantics() -> (

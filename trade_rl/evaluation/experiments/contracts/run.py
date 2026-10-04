@@ -30,6 +30,7 @@ _RESOLVED_RUN_CONFIG_V2 = "resolved_run_config_v2"
 _RESOLVED_RUN_CONFIG_V3 = "resolved_run_config_v3"
 _RESOLVED_RUN_CONFIG_V4 = "resolved_run_config_v4"
 _RESOLVED_RUN_CONFIG_V5 = "resolved_run_config_v5"
+_RESOLVED_RUN_CONFIG_V7 = "resolved_run_config_v7"
 
 if TYPE_CHECKING:
     from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
@@ -74,6 +75,7 @@ class ResolvedRunConfig:
     ppo_minimum_hold_bars: int = 0
     ppo_settle_terminal_position: bool = False
     pretrade_risk_config: PreTradeRiskConfig | None = None
+    forecast_switch_cost: float | None = None
 
     def __post_init__(self) -> None:
         signal_name = contract_text(self.signal_name, field="signal_name")
@@ -164,6 +166,25 @@ class ResolvedRunConfig:
             field="execution_overlay",
         )
         schema_version = contract_text(self.schema_version, field="schema_version")
+        forecast_switch_cost = self.forecast_switch_cost
+        if schema_version == _RESOLVED_RUN_CONFIG_V7:
+            if forecast_switch_cost is not None:
+                if isinstance(forecast_switch_cost, bool):
+                    raise ContractViolationError(
+                        "forecast_switch_cost must be finite and non-negative"
+                    )
+                forecast_switch_cost = contract_finite(
+                    forecast_switch_cost,
+                    field="forecast_switch_cost",
+                )
+                if forecast_switch_cost < 0.0:
+                    raise ContractViolationError(
+                        "forecast_switch_cost must be finite and non-negative"
+                    )
+        elif forecast_switch_cost is not None:
+            raise ContractViolationError(
+                "legacy resolved-run config cannot define forecast_switch_cost"
+            )
         ppo_training_layout = self.ppo_training_layout
         ppo_rollout_steps_per_env = self.ppo_rollout_steps_per_env
         ppo_minimum_hold_bars = 0
@@ -188,6 +209,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             ppo_observation_schema = contract_text(
                 self.ppo_observation_schema,
@@ -231,6 +253,7 @@ class ResolvedRunConfig:
                 _RESOLVED_RUN_CONFIG_V3,
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
+                _RESOLVED_RUN_CONFIG_V7,
             }:
                 if ppo_training_layout == PPO_TRAINING_LAYOUT_SEQUENTIAL:
                     if ppo_rollout_steps_per_env is not None:
@@ -248,6 +271,7 @@ class ResolvedRunConfig:
             if schema_version in {
                 _RESOLVED_RUN_CONFIG_V4,
                 _RESOLVED_RUN_CONFIG_V5,
+                _RESOLVED_RUN_CONFIG_V7,
             }:
                 ppo_minimum_hold_bars = contract_non_negative_int(
                     self.ppo_minimum_hold_bars,
@@ -269,7 +293,7 @@ class ResolvedRunConfig:
                 raise ContractViolationError(
                     "legacy resolved-run config cannot define duration semantics"
                 )
-            if schema_version == _RESOLVED_RUN_CONFIG_V5:
+            if schema_version in {_RESOLVED_RUN_CONFIG_V5, _RESOLVED_RUN_CONFIG_V7}:
                 if self.pretrade_risk_config is not None and not isinstance(
                     self.pretrade_risk_config, PreTradeRiskConfig
                 ):
@@ -331,6 +355,7 @@ class ResolvedRunConfig:
             ppo_settle_terminal_position,
         )
         object.__setattr__(self, "pretrade_risk_config", pretrade_risk_config)
+        object.__setattr__(self, "forecast_switch_cost", forecast_switch_cost)
 
     @classmethod
     def from_candidate_spec(
@@ -362,12 +387,13 @@ class ResolvedRunConfig:
             execution_overlay=spec.execution_overlay,
             ppo_observation_schema=config.ppo_observation_schema,
             ppo_global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
-            schema_version=_RESOLVED_RUN_CONFIG_V5,
+            schema_version=_RESOLVED_RUN_CONFIG_V7,
             ppo_training_layout=lean.ppo_training_layout,
             ppo_rollout_steps_per_env=lean.ppo_rollout_steps_per_env,
             ppo_minimum_hold_bars=lean.ppo_minimum_hold_bars,
             ppo_settle_terminal_position=lean.ppo_settle_terminal_position,
             pretrade_risk_config=config.pretrade_risk_config,
+            forecast_switch_cost=config.forecast_switch_cost,
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -397,6 +423,7 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_observation_schema"] = self.ppo_observation_schema
             payload["ppo_global_feature_names"] = list(self.ppo_global_feature_names)
@@ -404,16 +431,18 @@ class ResolvedRunConfig:
             _RESOLVED_RUN_CONFIG_V3,
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_training_layout"] = self.ppo_training_layout
             payload["ppo_rollout_steps_per_env"] = self.ppo_rollout_steps_per_env
         if self.schema_version in {
             _RESOLVED_RUN_CONFIG_V4,
             _RESOLVED_RUN_CONFIG_V5,
+            _RESOLVED_RUN_CONFIG_V7,
         }:
             payload["ppo_minimum_hold_bars"] = self.ppo_minimum_hold_bars
             payload["ppo_settle_terminal_position"] = self.ppo_settle_terminal_position
-        if self.schema_version == _RESOLVED_RUN_CONFIG_V5:
+        if self.schema_version in {_RESOLVED_RUN_CONFIG_V5, _RESOLVED_RUN_CONFIG_V7}:
             risk = self.pretrade_risk_config
             payload["pretrade_risk_config"] = (
                 None
@@ -428,6 +457,8 @@ class ResolvedRunConfig:
                     "fail_closed_tolerance": risk.fail_closed_tolerance,
                 }
             )
+        if self.schema_version == _RESOLVED_RUN_CONFIG_V7:
+            payload["forecast_switch_cost"] = self.forecast_switch_cost
         return payload
 
     @property

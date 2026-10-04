@@ -106,6 +106,7 @@ def _result() -> object:
         ppo_observation_schema="ppo_observation_v2",
         ppo_settle_terminal_position=False,
         pretrade_risk_config=None,
+        forecast_switch_cost=None,
     )
     lean_config = SimpleNamespace(
         signal_index=0,
@@ -121,6 +122,7 @@ def _result() -> object:
         ppo_training_layout="sequential",
         ppo_rollout_steps_per_env=None,
         ppo_minimum_hold_bars=0,
+        forecast_switch_cost=None,
     )
     metrics = SimpleNamespace(
         total_return=0.0,
@@ -259,11 +261,41 @@ def test_new_candidate_write_records_observation_v2_contract(tmp_path: Path) -> 
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "lean_candidate_result_v6"
+    assert summary["schema_version"] == "lean_candidate_result_v14"
     assert summary["ppo_observation"] == ppo_observation_contract_payload()
     loaded = load_candidate_run_artifact(artifact.root)
     candidate_config = loaded.summary["candidate_config"]
     assert candidate_config["ppo_training_timesteps"] == 2048
+    assert candidate_config["forecast_switch_cost"] is None
+
+
+def test_candidate_v14_binds_forecast_switch_cost(tmp_path: Path) -> None:
+    result = _result()
+    result.spec.config.forecast_switch_cost = 0.0007
+    result.spec.lean_config.forecast_switch_cost = 0.0007
+
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        result,  # type: ignore[arg-type]
+        _provenance(),
+    )
+    loaded = load_candidate_run_artifact(artifact.root)
+
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v14"
+    assert loaded.summary["candidate_config"]["forecast_switch_cost"] == pytest.approx(
+        0.0007
+    )
+
+
+def test_legacy_candidate_result_rejects_forecast_switch_cost(tmp_path: Path) -> None:
+    summary = _summary(schema="lean_candidate_result_v1", observation=None)
+    summary["candidate_config"] = {"forecast_switch_cost": 0.0007}
+    _write_root(tmp_path / "legacy", summary)
+
+    with pytest.raises(
+        ValueError, match="forecast switch cost is invalid for a legacy"
+    ):
+        load_candidate_run_artifact(tmp_path / "legacy")
 
 
 def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
@@ -304,7 +336,7 @@ def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
     )
 
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v6"
+    assert summary["schema_version"] == "lean_candidate_result_v14"
     assert summary["ppo_observation"] == ppo_observation_contract_payload(
         PPO_OBSERVATION_SCHEMA_V3
     )
@@ -334,7 +366,7 @@ def test_candidate_v6_binds_age_observation_and_holding_duration_and_risk(
     assert ppo_summary["active_order_remainders"] == []
 
     loaded = load_candidate_run_artifact(artifact.root)
-    assert loaded.summary["schema_version"] == "lean_candidate_result_v6"
+    assert loaded.summary["schema_version"] == "lean_candidate_result_v14"
 
 
 @pytest.mark.parametrize(
@@ -470,6 +502,7 @@ def test_historical_v5_candidate_artifact_remains_readable(tmp_path: Path) -> No
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
     summary["schema_version"] = "lean_candidate_result_v5"
     summary["evaluation"].pop("expected_periods")
+    summary["candidate_config"].pop("forecast_switch_cost")
     artifact.summary_path.write_text(
         json.dumps(summary, sort_keys=True, indent=2),
         encoding="utf-8",
@@ -503,6 +536,7 @@ def test_historical_v5_terminal_flag_is_not_full_coverage_evidence(
             summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
             summary["schema_version"] = "lean_candidate_result_v5"
             summary["evaluation"].pop("expected_periods")
+            summary["candidate_config"].pop("forecast_switch_cost")
             artifact.summary_path.write_text(
                 json.dumps(summary, sort_keys=True, indent=2),
                 encoding="utf-8",

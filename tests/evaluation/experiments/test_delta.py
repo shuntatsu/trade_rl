@@ -20,6 +20,7 @@ from trade_rl.evaluation.experiments.delta import (
 )
 from trade_rl.evaluation.experiments.evidence import EvidenceSet, LoadedEvidenceSet
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+from trade_rl.risk import PreTradeRiskConfig
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA_V3,
@@ -72,6 +73,19 @@ EXPECTED_RULES = {
     ),
     ControlledFactor.FORECAST_THRESHOLDS: (
         frozenset({("forecast_entry_threshold",), ("forecast_exit_threshold",)}),
+        frozenset(
+            {
+                "cash",
+                "constant_long",
+                "constant_short",
+                "trend",
+                "mean_reversion",
+                "ppo",
+            }
+        ),
+    ),
+    ControlledFactor.FORECAST_SWITCH_COST: (
+        frozenset({("forecast_switch_cost",)}),
         frozenset(
             {
                 "cash",
@@ -143,13 +157,21 @@ def _resolved(**overrides: object) -> ResolvedRunConfig:
         "ppo_training_layout": "sequential",
         "ppo_rollout_steps_per_env": None,
         "ppo_minimum_hold_bars": 0,
-        "ppo_settle_terminal_position": False,
+        "ppo_settle_terminal_position": True,
+        "pretrade_risk_config": PreTradeRiskConfig(
+            max_gross=0.5,
+            max_abs_weight=0.1,
+            max_turnover=None,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        ),
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 100_000.0,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
-        "schema_version": "resolved_run_config_v4",
+        "schema_version": "resolved_run_config_v7",
+        "forecast_switch_cost": None,
     }
     values.update(overrides)
     return ResolvedRunConfig(**values)  # type: ignore[arg-type]
@@ -331,6 +353,8 @@ def _candidate_for_factor(
         return replace(base, rule_entry_threshold=0.20)
     if factor is ControlledFactor.FORECAST_THRESHOLDS:
         return replace(base, forecast_entry_threshold=0.02)
+    if factor is ControlledFactor.FORECAST_SWITCH_COST:
+        return replace(base, forecast_switch_cost=0.0007)
     if factor is ControlledFactor.FIT_SYMBOL_SCOPE:
         return replace(
             base,

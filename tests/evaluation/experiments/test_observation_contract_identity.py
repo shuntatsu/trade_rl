@@ -86,6 +86,13 @@ def _v5_payload() -> dict[str, object]:
     return payload
 
 
+def _v7_payload(*, forecast_switch_cost: float | None = None) -> dict[str, object]:
+    payload = _v5_payload()
+    payload["schema_version"] = "resolved_run_config_v7"
+    payload["forecast_switch_cost"] = forecast_switch_cost
+    return payload
+
+
 def _study_plan(baseline_config) -> StudyPlan:
     return StudyPlan(
         research_question="Does the frozen M2 baseline generalize?",
@@ -311,3 +318,67 @@ def test_historical_v1_study_rejects_new_v2_evidence_before_execution() -> None:
 
     with pytest.raises(ArtifactIntegrityError, match="Study-fixed"):
         _check_study_fixed_config(plan, current)
+
+
+def test_resolved_run_v7_round_trips_switch_cost_identity() -> None:
+    payload = _v7_payload(forecast_switch_cost=0.0007)
+
+    resolved = _resolved_from_payload(payload, field="current")
+    candidate = _candidate_config_from_resolved(resolved)
+    requested = _candidate_config_payload(
+        candidate,
+        resolved_schema_version=resolved.schema_version,
+    )
+    disabled = _resolved_from_payload(_v7_payload(), field="disabled")
+
+    assert resolved.to_payload() == payload
+    assert resolved.forecast_switch_cost == pytest.approx(0.0007)
+    assert requested["forecast_switch_cost"] == pytest.approx(0.0007)
+    assert _study_plan(resolved).digest != _study_plan(disabled).digest
+
+
+def test_resolved_run_v7_round_trips_disabled_switch_cost_identity() -> None:
+    payload = _v7_payload()
+    resolved = _resolved_from_payload(payload, field="disabled")
+
+    assert resolved.to_payload() == payload
+    assert resolved.forecast_switch_cost is None
+
+
+def test_resolved_run_v7_preserves_interleaved_ppo_training_contract() -> None:
+    payload = _v7_payload(forecast_switch_cost=0.0007)
+    payload["ppo_training_layout"] = "interleaved"
+    payload["ppo_rollout_steps_per_env"] = 16
+
+    resolved = _resolved_from_payload(payload, field="interleaved")
+    candidate = _candidate_config_from_resolved(resolved)
+    requested = _candidate_config_payload(
+        candidate,
+        resolved_schema_version=resolved.schema_version,
+    )
+
+    assert resolved.to_payload() == payload
+    assert resolved.ppo_training_layout == "interleaved"
+    assert resolved.ppo_rollout_steps_per_env == 16
+    assert requested["ppo_training_layout"] == "interleaved"
+    assert requested["ppo_rollout_steps_per_env"] == 16
+
+
+def test_resolved_run_v5_rejects_forecast_switch_cost_field() -> None:
+    payload = _v5_payload()
+    payload["forecast_switch_cost"] = 0.0007
+
+    with pytest.raises(ArtifactIntegrityError):
+        _resolved_from_payload(payload, field="legacy")
+
+
+@pytest.mark.parametrize(
+    "switch_cost",
+    (True, -0.001, float("nan"), float("inf"), "0.0007"),
+)
+def test_resolved_run_v7_rejects_invalid_switch_cost(switch_cost: object) -> None:
+    payload = _v7_payload()
+    payload["forecast_switch_cost"] = switch_cost
+
+    with pytest.raises(ArtifactIntegrityError):
+        _resolved_from_payload(payload, field="invalid")

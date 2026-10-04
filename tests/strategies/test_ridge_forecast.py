@@ -121,7 +121,12 @@ def test_fitted_scaler_and_model_arrays_are_read_only() -> None:
             values.setflags(write=True)
 
 
-def observation(value: float, *, available: bool = True) -> StrategyObservation:
+def observation(
+    value: float,
+    *,
+    available: bool = True,
+    current: PositionIntent = PositionIntent.FLAT,
+) -> StrategyObservation:
     return StrategyObservation(
         index=10,
         timestamp=np.datetime64("2026-01-01T10:00:00", "ns"),
@@ -133,7 +138,7 @@ def observation(value: float, *, available: bool = True) -> StrategyObservation:
         ),
         global_features=np.asarray([0.0]),
         global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
+        current_intent=current,
         current_weight=0.0,
     )
 
@@ -162,6 +167,35 @@ def test_ridge_strategy_uses_shared_forecast_controller_and_fails_closed() -> No
     assert strategy.decide(observation(0.20)) is PositionIntent.LONG
     assert strategy.decide(observation(-0.20)) is PositionIntent.SHORT
     assert strategy.decide(observation(0.20, available=False)) is PositionIntent.FLAT
+
+
+def test_ridge_strategy_cost_aware_controller_is_explicit_opt_in() -> None:
+    model = RidgeForecastModel(
+        feature_indices=(0,),
+        feature_mean=np.asarray([0.0]),
+        feature_scale=np.asarray([1.0]),
+        coefficients=np.asarray([1.0]),
+        intercept=0.0,
+        horizon_hours=24,
+        alpha=1.0,
+        n_samples=100,
+        fit_cutoff=np.datetime64("2025-12-31T00:00:00", "ns"),
+    )
+    baseline = RidgeForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+    )
+    cost_aware = RidgeForecastStrategy(
+        model,
+        entry_threshold=0.10,
+        exit_threshold=0.02,
+        one_way_switch_cost=0.005,
+    )
+    obs = observation(0.01, current=PositionIntent.LONG)
+
+    assert baseline.decide(obs) is PositionIntent.FLAT
+    assert cost_aware.decide(obs) is PositionIntent.LONG
 
 
 def test_training_set_arrays_are_deeply_immutable() -> None:

@@ -104,9 +104,9 @@ Canonical bootstrapではDatasetの最終timestampが `data_stop_exclusive` と�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
-Historical v3 Studies remain immutable. Current Run Core creates `resolved_run_config_v5`, which binds PPO Observation schema, global policy roster, training layout, minimum-hold duration, terminal settlement, and optional explicit pre-trade risk config. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair. New duration/risk runs use `lean_candidate_result_v6` and record the risk config, full evaluation-period coverage, plus training/replay suppression counts. Historical v5 results remain readable without claiming verified full coverage.
+Historical `resolved_run_config_v1`–`v5` Studies remain immutable. Current Run Core creates `resolved_run_config_v7`, which binds PPO Observation schema, global policy roster, training layout/rollout, minimum-hold duration, terminal settlement, explicit pre-trade risk config, and the optional `forecast_switch_cost`. The first M2 global roster remains intentionally empty. Observation schema, terminal settlement, and risk config are Study-fixed. A duration Study uses the same age-aware v3 observation for its freshly trained H=0 baseline and every candidate. `PPO_MINIMUM_HOLD` alone may change `ppo_minimum_hold_bars`; `PPO_TRAINING_LAYOUT` alone may change the layout/rollout pair; `FORECAST_SWITCH_COST` alone may change `forecast_switch_cost`. Forecast switch cost affects only Ridge and LightGBM. New duration/risk/forecast runs use `lean_candidate_result_v14`; it binds the forecast cost while retaining the current PPO training, replay, risk, and full evaluation-period coverage checks. Historical result schemas remain readable without retroactively claiming forecast-cost semantics.
 
-historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
+historical `resolved_run_config_v1`–`v5` / Study artifactはread/inspection互換のため維持し、旧schemaへ`forecast_switch_cost`を後付けしない。EvidenceSet生成は実行前のfixed-field照合でschema混在をfail-closedにする。旧Studyを新semantic configへ暗黙migrationせず、新しいfactorを研究する場合はv7 configを持つ新しいStudy/lineageを使う。
 
 ## Study-owned EvidenceSet
 
@@ -130,6 +130,7 @@ Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そ�
 - `RULE_SIGNAL`
 - `RULE_THRESHOLDS`
 - `FORECAST_THRESHOLDS`
+- `FORECAST_SWITCH_COST`
 - `FIT_SYMBOL_SCOPE`
 - `PPO_TRAINING_BUDGET`
 - `PPO_TRAINING_LAYOUT` (`ppo_training_layout`と`ppo_rollout_steps_per_env`の組)

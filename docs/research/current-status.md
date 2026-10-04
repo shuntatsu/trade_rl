@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-10-04 (JST)
+更新基準: 2026-10-05 (JST)
 
 ## 結論
 
@@ -26,6 +26,20 @@ prefixで選定したconfigを凍結し、同じevaluation windowにbase、`Exec
 初回protocolのresult-blind点検でcash検算がsimulator return/bookの自己一致に留まることと、G0 premise記述の不足を指摘されたため、未実行の初回rootを保存し、新しい`output/bot-completion-20261004-r2/`へprotocol v2を固定した。digestは`1e330adb4916eb08de5e04133c9dbba59b5d8859a764dcece4efa0356da91192`、subset Dataset IDは`35b6b086b5a205ebff7b60215da127ba1140dc28740c2474b5d66a2f8a33bd5f`、economic execution sourceは`66b08491`である。fresh read-only AIによるG0-G2承認後に一度実行し、両foldのprefix選定はcashになった。全selected base/cost2/latency2はreturn0%・drawdown0%・terminal flat/order remainderなしで、profitable windowは0、software PASS / economic NOT_ESTABLISHEDだった。untuned adaptiveのbase evaluation reportは−5.856874%と−9.311650%であり、後続損失を見てcashへ切り替えたものではない。source cash rate・timestampから独立計算するcarry oracle、全interval coverage、raw-return/final-equity整合性、selected config凍結を確認した。最大利益、winner、unused final、live eligibilityは未確立で、結果後のparameter再選択は行っていない。
 
 fresh post-Artifact検算でsource/runtime、subsetの42 arrays、元executionの37 artifact hashesを独立確認した。初回出力にはprefix候補とbaseline evaluationのraw evidenceが不足していたため、既存8候補・baseline・cashと元の区間だけを固定して事後再構成した。新しい候補の追加やparameter再選択は行わず、元executionを変更していない。`selection-reconstruction-v2/receipt.json`は67 artifact hashes、22 replay、15,976 intervalsをbindし、別のread-only AIが6,454 fills、1,982 funding events、inventory/cash/cost/funding、順位と元baseline reportの完全一致を確認した。両prefixの全trading scoreは負でcashの0を下回り、経済判定はNOT_ESTABLISHEDのままである。この事後検算はconsumed developmentの証拠補完であり、別GitHub principalによる正式PR reviewを代替しない。
+
+## Quantity-preserving hold repair (2026-10-05)
+
+Synthetic counterexamples exposed two quantity-hold mismatches in PPO training
+and canonical replay. A split changed the filled book but left the desired
+quantity in old units; a distinct mark price was used for weights but trading
+close for inverse quantity sizing. Unchanged intents consequently created extra
+fills, fees, and unintended exposure. Repair rebases cached proposals, including
+unfilled entries, by processed split factors and separates mark-based sizing from
+trading-reference order prices. Signed quantity, cash, fee, and order-bound
+oracles cover training, single-symbol replay, and shared-cash replay. Cash-book
+entry also resolves current market marks when initial prices were omitted. Historical
+artifacts are unchanged. This is a software repair; it supplies no new PPO
+profitability or winner evidence and does not authorize a sealed-run retry.
 
 ## Trading-bot validation repair (2026-10-03)
 

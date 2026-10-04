@@ -1307,3 +1307,30 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Issue #810: opt-in after-cost allocation foundation
+
+The software now includes an independent-account scalar allocator and an actual
+execution consumer through `evaluation.allocation`. Expected-simple return,
+horizon variance, asymmetric transaction costs, future exit/funding/borrow/cash
+estimates and a variance preference determine a bounded surrogate target.
+Actual BookState and pending orders bind each proposal; final risk and canonical
+execution produce a separate approved/filled trace. Exact quantity HOLD cancels
+pending MARKET remainders while preserving canonical carry/split processing.
+
+This is an opt-in software foundation with synthetic decision, independent
+numerical and cash/quantity oracles. It has not fitted an expected-simple model,
+calibrated costs, run an economic comparison or established improved profit.
+The current-close signal is a declared proxy for next-processing-bar execution;
+risk and venue rules can alter the scalar optimum. A mean-log prediction is not
+an expected-simple prediction. Existing replay/PPO/artifact semantics and the
+20% drawdown research guardrail remain unchanged; gaps or missed fills can still
+exceed that guardrail. No sealed run is reopened.
+
+Issue #810 remains open. Outstanding work includes versioned causal
+expected-simple estimates, common nonRL/residual/direct RL context and execution,
+objective/financial-clock integration, continuous-account walk-forward,
+calibrated cost/capacity stress, a finite preregistered Study and independently
+authorized economic evidence. This slice supplies neither a new WINNER nor
+unused-data, paper/live-order or deployment eligibility. Final exact-head CI
+and formal independent research approval remain integration requirements.

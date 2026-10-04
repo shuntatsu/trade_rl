@@ -850,3 +850,57 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Result-blind scalar allocation foundation
+
+The optional after-cost family asks a bounded software question: can declared
+single-horizon expected-simple/cost/risk inputs produce a deterministic scalar
+allocation and reach the existing actual-account execution path without a
+second ledger? The economic hypothesis is only that excluding incremental
+trades whose expected benefit does not cover their costs can reduce avoidable
+turnover. This foundation supplies no empirical market edge or causal demand
+mechanism and cannot establish profit, forecast quality or future eligibility.
+
+Capital, observation and action are one independent-symbol account; multiple
+training symbols are not shared capital. The current decision sees only
+canonical actual holdings/cash/marks/risk and pending-order facts plus declared
+available estimates. One horizon covers mean simple return, its unannualized
+variance, all initial-notional costs and cash/carry estimates. Provenance and
+availability are caller declarations, not historical point-in-time proofs.
+The same-close scalar utility is the formula in the optional allocation section
+of lean-core. It is neither RL reward nor realized account P&L. First eligible
+MARKET fills remain on the next processing bar, with zero extra latency in v1.
+Execution uses the canonical signed self-financing cash model and ledger; this
+is not an assertion about exchange futures collateral economics.
+
+Hard risk uses latched maximum drawdown and takes priority over HOLD. Pending
+MARKET reduce-only remainders are explicitly included in HOLD cancellation;
+nonmarket/protective orders are unsupported and rejected. One bar advances
+through canonical fills/carry/corporate actions. A fixed terminal horizon,
+forced close, walk-forward state, cost calibration and a finite economic trial
+budget are not defined by this software and remain required before research.
+
+G0/G1 counterfactuals are fee-only cash, useful-signal entry, asymmetrical entry
+and reversal costs, held-short funding/borrow, signed cash return, risk interior
+solutions, exact ties and over-cap/empty feasible intervals. G2 uses independent
+piecewise SciPy/reference arithmetic and hand cash/quantity reconstruction from
+canonical synthetic fills; production utility and accounting functions are not
+reused as numerical oracles. Adversarial cases include mean-log unit and delayed
+return-interval mismatch, future availability, stale equal-equity holdings,
+pending-only change, terminal-order archive mutation, altered estimate horizon,
+recipe or target, changed account/dataset/policy/risk config, nonunit multipliers,
+mark drift, splits, partial fills and risk-forced de-risking. Additional
+counterexamples cover rounded flat-segment scores/turnover ties, nanosecond date
+overflow, zero-width drawdown boundaries, caller tolerance hiding drawdown,
+initial canonical margin failure, expired/late pending orders and future terminal
+transitions. A snapshot digest
+is consistency evidence, not an access-control or estimator-authenticity proof.
+
+Primary software acceptance is agreement with these bounded decision/execution
+oracles and fail-closed rejection before order admission. A submitted target
+must never be labelled filled without canonical evidence. There is no G4 score,
+winner or data selection here. Synthetic tests neither consume nor return
+unused market data. Real fitting/replay additionally requires fixed objective,
+capital/clocks, estimator/cost availability, Study scope/trial budget, fresh
+source-bound G0-G2 review and independent economic authorization. Formal GitHub
+research approval is separate from read-only AI source review.

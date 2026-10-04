@@ -606,3 +606,80 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Optional after-cost scalar allocation
+
+`strategies/allocation.py` owns a pure, independent-symbol allocator. Its input
+is a declared expected **simple** return from the current decision valuation to
+one explicit `horizon_end`; variance, asymmetric buy/sell costs, future exit,
+signed funding, short borrow and cash return use that same horizon. Mean log
+return cannot be converted to expected simple return by `expm1(mean_log)`.
+`source_identity` and aggregate `available_at` bind declared estimate provenance
+and availability; this software does not verify estimator receipts or calibrate
+costs. Older forecasts starting at an earlier valuation are rejected rather
+than reused as expected remaining return.
+
+For actual weight `w0`, the bounded scalar surrogate is:
+
+```text
+U(w) = cash_return * (1-w) + expected_simple_return * w
+       - risk_aversion * return_variance * w*w
+       - buy_cost * max(w-w0, 0) - sell_cost * max(w0-w, 0)
+       - exit_cost * abs(w) - funding_return * w
+       - borrow_return * max(-w, 0)
+```
+
+This is a concave piecewise quadratic with fixed exposure/optional turnover
+bounds. Endpoints, feasible kinks at zero/actual weight, and smooth stationary
+points determine its maximum. Exact ties choose actual HOLD, then minimum
+turnover, smaller absolute exposure, then signed weight; exact rational
+comparisons of the supplied IEEE coefficients prevent rounded endpoint scores
+from inventing gains on flat segments. Stationary points are represented as
+floating weights. No epsilon hides a small positive improvement. Current exposure outside the feasible interval is
+not a valid HOLD. Empty bounds and nonfinite arithmetic fail rather than pass.
+
+`evaluation/allocation.py` composes this optimizer with canonical `PreTradeRisk`
+and `MarketExecutor`. `propose_nonrl_target` builds a detached context from the
+actual `BookState`, accepted exact quantities and entire `OrderBookState`.
+The caller supplies a stable account ID; BookState itself has no account-ID
+registry. Context identity includes cash, marks, peak/latched drawdown, margin,
+termination, active and terminal orders, decision revision, dataset identity,
+execution policy and risk config. Proposal identity additionally includes every
+estimate, horizon, resolved allocator config, proposed weight and objective.
+`execute_nonrl_proposal` rejects changed or altered inputs before admission,
+recomputes the scalar proposal, and applies hard risk once. The returned
+`NonRLExecutionResult` keeps the proposal, risk target and canonical execution
+result so requested, approved and filled exposures remain distinguishable.
+
+V1 accepts only an independent-symbol account, MARKET orders, zero additional
+latency and one processing bar per call. Other-symbol positions/orders,
+nonmarket/protective orders, stale valuation marks and terminated accounts are
+rejected. Pending clocks must permit the next processing bar; already-expired
+or later-eligible residuals and future active/terminal transitions are rejected.
+The horizon must cover at least that first processing bar. Canonical margin and
+drawdown refresh on a detached BookState copy reject already-dead margin states
+and missing latched drawdown evidence; the original book is not mutated.
+Risk requires `drawdown_start < drawdown_stop <= 20%`; the canonical latched maximum
+drawdown is used. This guardrail cannot cap losses across gaps or missed fills.
+Static exposure limits are intersected before optimization; subsequent risk,
+quantization, order rejection, capacity and margin may change the submitted or
+realized allocation. Thus this is a scalar surrogate optimum **before final
+hard-risk projection**, not an executable or globally optimal net-profit claim.
+
+If final approved weights equal actual weights exactly, the execution-owned
+`execute_quantity_hold_statefully` cancels all selected-symbol pending MARKET
+orders, including reduce-only residuals, and advances without new intents or
+weight-to-quantity sizing. Canonical split/carry/mark processing still runs;
+splits change quantity units. Hard-risk reductions use the normal target path.
+Holding actual quantity differs from retaining an old partially filled target.
+The caller continues with both returned book and order book; no second ledger,
+free-cash reservation balance or execution compatibility cache is introduced.
+
+Current-close estimates remain a declared proxy because first eligible fills
+occur on the next processing bar. Future exit and carry estimates are charged
+on initial exposure in the surrogate, whereas realized costs/carry use canonical
+fills and marks. The signed self-financing cash term reflects this ledger's
+cash, including short proceeds or negative cash; it is not a universal futures
+collateral model. Existing intent replay, PPO defaults and historical artifacts
+retain their meanings. This family supplies no fit, Study, terminal-liquidation
+protocol, shared-capital solver, RL environment or live execution authorization.

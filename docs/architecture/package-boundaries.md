@@ -533,3 +533,29 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Optional allocation family ownership
+
+`strategies/allocation.py` is a Tier-2 family entry point for `AllocationInputs`,
+`AllocationContext`, `AllocationProposal` and `AfterCostTargetAllocator`. It
+owns declared horizon/unit contracts and deterministic scalar optimization.
+It imports no forecast/RL family, risk, simulation or evaluation owner; it reads
+no dataset/account and fits no model. Generic artifact hashing may bind its
+immutable input/proposal content.
+
+`evaluation/allocation.py` is a Tier-2 composition entry point for
+`propose_nonrl_target`, `execute_nonrl_proposal` and `NonRLExecutionResult`.
+It builds account provenance from existing BookState/order owners, applies
+canonical risk once and invokes simulation-owned target execution. It must
+not use `execute_interval`'s compatibility cache or own cash/P&L updates.
+`simulation/targets/execution.py` owns the opt-in quantity-HOLD cancellation
+and one-bar execution path, without a dependency on strategy/evaluation.
+
+The existing `trade_rl.strategies` and `trade_rl.evaluation` Tier-1 facades,
+three-intent callers, forecast packet meanings and PPO observation/training
+remain unchanged. `tests/architecture/test_allocation_boundary.py` guards
+ownership, lower-layer direction and absence of a second ledger; mechanism
+oracles live in strategy/evaluation tests. The current-close expected-return
+contract is not supplied by a mean-log forecast packet. Wiring a separately
+versioned expected-simple estimator or an RL consumer requires its own causal,
+clock, economic and assurance verification.

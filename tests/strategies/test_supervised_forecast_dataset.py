@@ -120,8 +120,61 @@ def test_training_set_excludes_labels_unavailable_by_fit_cutoff() -> None:
         horizon_hours=2,
     )
 
-    assert training.n_samples == 5
+    assert training.n_samples == 4
     assert np.datetime64("2026-01-01T05:00:00", "ns") not in training.label_end_times
+    assert np.datetime64("2026-01-01T07:00:00", "ns") not in training.label_end_times
+
+
+def test_training_set_excludes_delayed_start_price() -> None:
+    dataset = market()
+    available_at = np.broadcast_to(
+        dataset.timestamps[:, None], (dataset.n_bars, dataset.n_symbols)
+    ).copy()
+    available_at[3, 0] = np.datetime64("2026-01-01T08:00:00", "ns")
+    delayed = replace(
+        dataset,
+        available_at=available_at,
+        information_available=available_at <= dataset.timestamps[:, None],
+    )
+
+    training = build_causal_forecast_training_set(
+        delayed,
+        feature_indices=(0, 1),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    assert training.n_samples == 4
+    assert np.datetime64("2026-01-01T03:00:00", "ns") not in training.label_end_times
+    assert np.datetime64("2026-01-01T05:00:00", "ns") not in training.label_end_times
+
+
+@pytest.mark.parametrize(
+    ("missing_index", "missing_label_end", "sample_count"),
+    ((5, 7, 4), (6, 6, 5)),
+)
+def test_training_set_excludes_forward_filled_missing_price(
+    missing_index: int,
+    missing_label_end: int,
+    sample_count: int,
+) -> None:
+    dataset = market()
+    information_available = np.ones((dataset.n_bars, dataset.n_symbols), dtype=np.bool_)
+    information_available[missing_index, 0] = False
+    missing = replace(dataset, information_available=information_available)
+
+    training = build_causal_forecast_training_set(
+        missing,
+        feature_indices=(0, 1),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    assert training.n_samples == sample_count
+    missing_end_time = np.datetime64("2026-01-01T00:00:00", "ns") + np.timedelta64(
+        missing_label_end, "h"
+    )
+    assert missing_end_time not in training.label_end_times
 
 
 def test_multi_symbol_rows_use_no_symbol_feature_and_equal_symbol_weight() -> None:

@@ -119,6 +119,10 @@ def build_causal_forecast_training_set(
         dataset.resolved_array("available_at"),
         dtype="datetime64[ns]",
     ).astype(np.int64)
+    information_available = np.asarray(
+        dataset.resolved_array("information_available"),
+        dtype=np.bool_,
+    )
     horizon_ns = int(
         np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
     )
@@ -143,7 +147,12 @@ def build_causal_forecast_training_set(
             end_index = time_to_index.get(end_ns)
             if end_index is None or end_index <= start_index:
                 continue
-            if int(available_at_ns[end_index, symbol_index]) >= cutoff_ns:
+            if (
+                not information_available[start_index, symbol_index]
+                or not information_available[end_index, symbol_index]
+                or int(available_at_ns[start_index, symbol_index]) >= cutoff_ns
+                or int(available_at_ns[end_index, symbol_index]) >= cutoff_ns
+            ):
                 continue
             if not bool(np.all(availability[start_index, list(indices)])):
                 continue

@@ -990,7 +990,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 ## Causality and evaluation rules
 
 - `feature_available_time <= decision_time` を守る。
-- supervised labelは `label_end_time < fit_cutoff` で完結する。
+- supervised labelは `label_end_time < fit_cutoff` で完結し、始点と終点の価格行がともに観測済みで、両価格の `available_at < fit_cutoff` を満たす場合だけ採用する。欠損barのforward-fill価格とcutoff時点で未公開の価格を学習labelへ使わない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。

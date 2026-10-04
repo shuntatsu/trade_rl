@@ -222,7 +222,7 @@ class PreTradeRisk:
                 controlled[index] = 0.0
                 reduce_only_satisfied = True
                 continue
-            if target * current < -_TOLERANCE:
+            if target != 0.0 and np.signbit(target) != np.signbit(current):
                 raise ValueError("reduce-only target cannot change sign")
             if abs(target) >= abs(current) - _TOLERANCE:
                 controlled[index] = current

@@ -28,14 +28,16 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 ## Net-profit redesign: prequential forecast capability (2026-10-05)
 
-Issue #810 P2 now has a software path from the existing causal row selector and
-Ridge solver to frozen future-block packets and the existing cost-aware intent
-controller. The selector records its actual pooled symbol/price/publication
-endpoints. Each fit uses only strictly matured prefix labels; later blocks can
-consume newly matured labels but cannot rewrite earlier vintages or packets.
-Stored model/scaler and selected prediction inputs survive a digest-checked JSON
-round trip. Future-only Dataset suffix mutation must leave causal identities
-unchanged, while the whole-Dataset lineage ID may change.
+Issue #810 P2 has a software path from the existing causal row selector and
+Ridge solver to frozen future-block log-return packets. The prequential owner is
+now artifact-only and does not add a second intent-selection path. The selector
+records its actual pooled symbol/price/publication endpoints. Each fit uses only
+strictly matured prefix labels; later blocks can consume newly matured labels but
+cannot rewrite earlier vintages or packets. Stored model/scaler and selected
+prediction inputs survive a digest-checked JSON round trip. Future-only Dataset
+suffix mutation must leave causal identities unchanged, while the whole-Dataset
+lineage ID may change. The #810 trading path uses the separately versioned
+direct-simple forecast stream through the common allocator/risk/execution path.
 
 This is a partial P2 implementation. The default horizon remains 24h; no 72h
 economic comparison, parameter selection or real-data fit/replay has been

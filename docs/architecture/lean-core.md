@@ -61,9 +61,10 @@ are excluded from causal identities.
 assumptions. The stream identifies these as `declared_simulation_v1`, never as
 observed runtime receipts. Each packet binds a symbol, decision snapshot, selected
 inputs, source and forecast availability, exact horizon, conditional mean **log**
-return and model vintage. Only the newest ready, unexpired packet from the active
-block may reach the existing cost-aware intent controller. A gap, unavailable
-selected input, missing symbol or stale packet is an error, not a zero forecast.
+return and model vintage. The stream is a causal forecast artifact only: it does
+not choose an intent or execute a trade. A consumer must bind packet availability,
+units and downstream economics explicitly rather than adding another strategy
+adapter around the stream.
 
 Whole-Dataset ID is stored as lineage; the separate causal scope identity covers
 only consumed fit and prediction inputs. The JSON reader requires an externally
@@ -72,10 +73,11 @@ and recalculates each prediction from the frozen selected input and model. It
 does not refit or authenticate the original fitting process, inspect the source
 Dataset, prove historical point-in-time availability or attest runtime latency.
 
-The existing controller's switching-cost gate is a declared log-return proxy.
-It does not estimate expected simple return, uncertainty or optimal portfolio
-allocation. There is no new ledger, candidate Run/Study integration, joint RL
-training, live execution or profitability evidence in this capability.
+The existing intent controller remains a separate baseline capability. The
+Issue #810 allocation path uses the separately versioned direct-simple stream
+instead of converting these mean-log packets into expected-simple returns.
+There is no new ledger, candidate Run/Study integration, joint RL training,
+live execution or profitability evidence in this capability.
 
 ## Strategy contract
 

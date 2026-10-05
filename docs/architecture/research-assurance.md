@@ -23,6 +23,27 @@ Trade RLの研究変更は、結果の良し悪しを見る前に、**正しい�
 
 また、G0-G2の記録形式をただちに一つのmachine schemaへ固定しない。既存のpreregistration、StudyPlan、Issue/PRのresult-blind design record、architecture/contract testを使ってよい。ただし、経済結果を見た後に不足項目を都合よく追加して「事前に満たしていた」と扱ってはならない。将来machine-readable fieldへ昇格する場合はversioned schemaとして導入し、既存artifactを暗黙migrationしない。
 
+## Issue #810 signed insolvency software prerequisite
+
+The G0 question is whether an opt-in fixed-capital profit consumer can preserve
+losses beyond initial capital without changing historical zero-floor contracts.
+It is a software prerequisite, not an economic edge hypothesis or profit result.
+G1 declares independent canonical books, signed marked equity after economic
+termination, zero remaining quantity/margin, no additional liquidation trade,
+and an execution identity distinct from the historical policy. No market fit,
+replay, Study selection or unused-future access is authorized by this change.
+
+The G2 independent oracle starts with capital 1000, sells five units at 100 with
+fee 1, and marks a subsequent short liability at 400. Cash 1499 minus liability
+2000 must remain debt -501; the legacy mode must remain 0. Repeated margin updates must
+not erase that debt or add a second fee. Captured nominal/stressed legacy hashes,
+cross-policy order rejection and invalid-assignment tests guard compatibility.
+Multi-bar and same-bar counterexamples terminate through price, dividend,
+cash-interest and fill-fee phases. Later prices/carry and already admitted fills
+must not change terminal debt, and actual consumed-bar metadata must agree.
+The tests do not establish realistic liquidation slippage, recovery rules or
+debt interest, and bounded legacy interval/log diagnostics are not signed profit.
+
 ## G0: Research Question Validity
 
 研究を実行する前に、最低限次のResearch Question Contractを明示する。
@@ -1043,3 +1064,31 @@ Real-data fitting/replay, unused-data consumption, selection and G4/G5 remain
 unauthorized by this software. Fresh source-bound AI G0-G2 review, final-head
 full CI, formal independent research approval and preregistered empirical
 contracts remain separate requirements.
+
+## Allocation PPO software mechanism (Issue #810)
+
+G0 is whether a bounded single-account direct/residual policy can use the common
+after-cost transition and profit clock without treating learning as market
+evidence. The current observation is partial/raw; calibrated forecasts,
+normalization, full account/order state, continuous walk-forward and a finite
+market Study remain separate requirements.
+
+G1 fixes Discrete4 raw actions, bounded mapping, one final risk call, actual
+canonical Book equity, gamma=1, fixed-capital delta reward and true finite-horizon
+termination. GAE=.95 is an estimator choice. The fixed software learning protocol
+uses policy seeds0/7/17,4096 transitions each and separate train10/held-out
+100/101/102 cue schedules. The signal test requires at least80% effective exposure
+alignment, after-cost gain>.025 and gain above initialization>.02 in each held-out
+schedule. A separately fixed zero-response/.005-fee protocol requires no fills
+and zero net gain. Neither protocol is a market profitability test.
+
+G2 covers stale declarations, checked UTC/ns range, single-charge cash/fee
+oracles, signed -501 terminal debt/-1.501 reward, exact residual-center identity,
+quantity HOLD, rollout bootstrap/terminal masking and real SB3 learning.
+Save/load compares complete canonical execution traces. Lower receipts reject
+schema/layout/model/clock/budget/profile/time inconsistencies and verify policy
+bytes before deserialization. Observed row counts sum to realized training steps;
+their digests exclude unused global inputs and unvisited processing rows.
+Receipts remain consistency statements, not fitting/source authenticity or
+economic calibration. Formal independent approval, exact-head full CI and
+preregistered G4/G5 authorization remain required before market results.

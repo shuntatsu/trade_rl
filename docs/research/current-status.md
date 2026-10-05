@@ -2,6 +2,17 @@
 
 更新基準: 2026-10-05 (JST)
 
+## Issue #810: signed insolvency software candidate
+
+An opt-in canonical execution policy retains negative marked terminal equity
+instead of flooring it at zero. Historical defaults, policy digests and bounded
+interval/log diagnostics remain unchanged. Synthetic short-gap, repeated-margin,
+cache and order-identity tests use an independent cash/liability oracle. This is
+a software prerequisite for a new fixed-capital reward, not market profitability
+or a liquidation-cost calibration. Final-head full CI and formal independent
+research approval remain integration requirements. No economic result, sealed
+rerun, unused-future opening or live-order eligibility is established.
+
 ## 結論
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。
@@ -1399,9 +1410,30 @@ expectations are uncalibrated. Future actions never filter present predictions.
 Old log/PPO/Run/Study semantics and the 20% research DD guardrail are retained.
 
 The candidate preserves exact P0/P2/allocation histories for review. Remaining
-Issue #810 requirements include common residual/direct-RL consumers, runtime
-financial clock/terminal semantics, actual synthetic learning and reload parity,
-continuous-account walk-forward, cost/capacity evidence, complete finite trial
+Issue #810 requirements include full order/account state for common RL consumers,
+the full financial runtime and continuous-account walk-forward, cost/capacity
+evidence, complete finite trial
 registration and independently authorized economic comparison. No new WINNER,
 G4/G5 result, final-data or live-order eligibility is established. Integration
 still requires final-head full CI and formal independent research approval.
+
+## Issue #810: common allocation PPO candidate
+
+An unintegrated opt-in software candidate now connects bounded direct/residual
+actions to the same final risk and canonical independent-account execution.
+Fixed-capital after-cost reward and gamma1 are bound to actual regular clocks.
+The first real SB3 signal protocol passed all three fixed seeds and complete
+save/load execution-trace parity. Subsequent strict receipt/coverage repairs and
+the separate fee-only protocol are verified as software tests, not market
+selection. None of these synthetic schedules establish market profitability.
+
+The candidate rejects stale recipe/capital/profile declarations and UTC overflow,
+preserves signed terminal debt through a distinct canonical execution policy,
+and records actual action counts plus policy/critic-bootstrap observation rows.
+Calendar kind and effective bar duration are bound to deployment semantics.
+Full order/account observations,
+fit-only preprocessing, continuous account updates/walk-forward, calibration,
+capacity sensitivity, complete market trial registration, formal independent
+approval and authorized economic comparison remain open. Existing log/PPO/A2C,
+Run/Study and sealed outcomes are unchanged. No new WINNER/NO_WINNER/INVALID
+economic result, unused-future opening or live eligibility is established.

@@ -233,8 +233,33 @@ def execute_nonrl_proposal(
     )
     if fresh != proposal:
         raise ValueError("stale or altered allocation proposal/context")
+    target, execution = _execute_allocation_target(
+        executor,
+        book,
+        order_book,
+        target_weight=proposal.target_weight,
+        decision_digest=proposal.decision_digest,
+        pretrade_risk=pretrade_risk,
+        symbol_index=symbol_index,
+        start_index=start_index,
+    )
+    return NonRLExecutionResult(proposal, target, execution)
+
+
+def _execute_allocation_target(
+    executor: MarketExecutor,
+    book: BookState,
+    order_book: OrderBookState,
+    *,
+    target_weight: float,
+    decision_digest: str,
+    pretrade_risk: PreTradeRisk,
+    symbol_index: int,
+    start_index: int,
+) -> tuple[RiskConstrainedTarget, StatefulExecutionResult]:
+    """Execute an admitted scalar decision through final risk exactly once."""
     proposed_weights = np.zeros(executor.dataset.n_symbols, dtype=np.float64)
-    proposed_weights[symbol_index] = proposal.target_weight
+    proposed_weights[symbol_index] = target_weight
     target = pretrade_risk.constrain(
         proposed_weights, current=book.weights, drawdown=book.max_drawdown
     )
@@ -249,7 +274,7 @@ def execute_nonrl_proposal(
     else:
         identity = content_digest(
             {
-                "decision": proposal.decision_digest,
+                "decision": decision_digest,
                 "target": target.weights.tolist(),
             }
         )
@@ -262,7 +287,7 @@ def execute_nonrl_proposal(
             bars=1,
             target_identity=identity,
         )
-    return NonRLExecutionResult(proposal, target, execution)
+    return target, execution
 
 
 __all__ = ["NonRLExecutionResult", "propose_nonrl_target", "execute_nonrl_proposal"]

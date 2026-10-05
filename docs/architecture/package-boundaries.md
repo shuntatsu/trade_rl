@@ -255,6 +255,11 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのa
 
 ### `simulation`
 
+`MarketExecutor` owns the opt-in insolvency valuation policy as part of resolved
+execution identity. Both the historical zero floor and signed marked-debt mode
+use the same `BookState` ledger and terminal quantity/margin transition. Strategy
+and evaluation consumers must not implement a second debt or profit ledger.
+
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
@@ -616,3 +621,27 @@ requires a known matching clock without editing it or duplicating accounting.
 Bootstrap values are caller declarations; legacy unmarked accounts and artifact
 schemas retain their meanings. Continuation uses the returned book, order book
 and next index together.
+
+## Allocation PPO ownership
+
+strategies/allocation_action.py owns detached four-action decisions/proposals.
+evaluation/allocation_decision.py composes current forecast admission, selected
+RL-feature availability and the shared final-risk/canonical transition.
+evaluation/rl_allocation owns actual episode binding, the Gym adapter, explicit
+SB3 fitting and sampled-source receipts. It owns no second PnL ledger.
+
+strategies/rl/allocation_policy.py owns pure profile/recipe/observation encoding.
+allocation_model and allocation_artifact own inference and write-once verified
+policy loading; allocation_*_receipt, allocation_receipt_time,
+allocation_recipe_validation and allocation_manifest own strict lower receipt
+domains. Lower strategy owners do not import evaluation, fit or call networks.
+SB3 fitting/loading is lazy; old PPO/A2C facades and Discrete3 remain unchanged.
+
+MarketExecutor alone owns optional insolvency_valuation and its policy digest.
+retain_debt wraps the resolved existing economics identity in a distinct schema;
+the default floor_zero digest stays byte-identical. Source receipts distinguish
+the declared episode envelope from actual action rows/counts and observed policy
+or critic-bootstrap rows. Feature, forecast and cost receipts include bootstrap
+inputs; execution receipts bind actual processing bars, profile-selected capacity
+reference rows and the effective
+calendar/bar duration. Explicit execution fields exclude unused global features.

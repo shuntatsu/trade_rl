@@ -300,6 +300,26 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+The opt-in `MarketExecutor.insolvency_valuation="retain_debt"` policy preserves
+signed marked equity as cash when an economic termination flattens quantity and
+margin. A short gap can therefore leave a negative terminal cash balance. The
+default `floor_zero` policy retains the historical zero floor and its existing
+execution-policy digest. The debt policy wraps the resolved economics digest
+with a distinct versioned identity; orders from the other policy are rejected.
+Validated policy assignment participates in digest-cache invalidation.
+
+In debt mode, processing stops at the first economic termination phase, including
+open marking, fills, dividends and carry. The terminating mark and diagnostics
+remain recorded, but later carry, fills and bars are not consumed. Multi-bar
+results report the actual `bars_advanced` and matching `next_index`; the legacy
+zero-floor mode keeps its historical full-interval processing.
+
+This is an absorbing marked-debt valuation, not a new liquidation execution
+model: it adds no liquidation fill, extra liquidation fee or later debt interest.
+Legacy interval net/log-return diagnostics keep their bounded semantics. New
+fixed-capital profit consumers must use signed book equity rather than those
+legacy ratios; the flag alone does not change a reward or authorize research.
+
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset
 mark for its first entry sizing, including `BookState.zero` callers that omitted
@@ -783,3 +803,36 @@ need a prospective instrument/label/economics contract and empirical calibration
 before market utility can be claimed; recorded prices alone cannot establish an
 event-free future horizon. No Study, RL consumer or economic authorization is
 introduced here.
+
+## Opt-in allocation PPO account transition
+
+The allocation PPO path uses the same account-bound proposal, final hard risk
+and MarketExecutor/BookState transition as the non-RL allocator. Discrete4
+records the raw categorical action before projection: quantity HOLD, negative
+request, direct FLAT request/residual baseline, positive request. Direct targets
+are bounded weights; residual actions move from the exact optimizer target
+toward a feasible endpoint. The residual center retains the existing baseline
+order identity. Final hard risk runs once and can override HOLD.
+
+Its finite independent account uses regular one-bar decisions, gamma=1 and
+after-cost equity differences divided by fixed initial capital. Reward sums
+equal the canonical signed terminal equity difference. GAE remains a surrogate;
+this does not prove an unbiased terminal-profit gradient. A rollout cut continues
+the account and bootstraps. The declared finite endpoint terminates without
+another market bar or free liquidation, retaining marked positions/orders.
+Economic termination is absorbing in this episode; retain_debt keeps signed
+Book equity as terminal cash. Legacy floor_zero and interval/log arithmetic
+retain their meanings. This is not a realistic liquidation-fee/debt-interest
+model or a 20% loss guarantee.
+
+The versioned observation contains available raw selected features and ordered
+forecast/cost/account projections. Pending gross/count and maximum drawdown
+are partial state, not complete order history or a Markov-state claim.
+The recipe freezes this layout, action mapping, capital, horizon, actual
+risk/economics, calendar kind and effective processing-bar duration. A SESSION
+calendar's nominal bar duration changes carry timing even with regular decision
+timestamps, so it cannot silently share a continuous-calendar recipe. Runtime
+declarations are recomputed, not cached assertions.
+Execution RNG uses its declared cost seed independently of the policy seed.
+The inference bundle pins canonical manifest and policy bytes before loading a
+verified private copy. It does not resume an account, optimizer or execution RNG.

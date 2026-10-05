@@ -2,6 +2,17 @@
 
 更新基準: 2026-10-05 (JST)
 
+## Issue #810: signed insolvency software candidate
+
+An opt-in canonical execution policy retains negative marked terminal equity
+instead of flooring it at zero. Historical defaults, policy digests and bounded
+interval/log diagnostics remain unchanged. Synthetic short-gap, repeated-margin,
+cache and order-identity tests use an independent cash/liability oracle. This is
+a software prerequisite for a new fixed-capital reward, not market profitability
+or a liquidation-cost calibration. Final-head full CI and formal independent
+research approval remain integration requirements. No economic result, sealed
+rerun, unused-future opening or live-order eligibility is established.
+
 ## 結論
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。

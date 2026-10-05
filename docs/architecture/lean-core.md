@@ -270,6 +270,26 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+The opt-in `MarketExecutor.insolvency_valuation="retain_debt"` policy preserves
+signed marked equity as cash when an economic termination flattens quantity and
+margin. A short gap can therefore leave a negative terminal cash balance. The
+default `floor_zero` policy retains the historical zero floor and its existing
+execution-policy digest. The debt policy wraps the resolved economics digest
+with a distinct versioned identity; orders from the other policy are rejected.
+Validated policy assignment participates in digest-cache invalidation.
+
+In debt mode, processing stops at the first economic termination phase, including
+open marking, fills, dividends and carry. The terminating mark and diagnostics
+remain recorded, but later carry, fills and bars are not consumed. Multi-bar
+results report the actual `bars_advanced` and matching `next_index`; the legacy
+zero-floor mode keeps its historical full-interval processing.
+
+This is an absorbing marked-debt valuation, not a new liquidation execution
+model: it adds no liquidation fill, extra liquidation fee or later debt interest.
+Legacy interval net/log-return diagnostics keep their bounded semantics. New
+fixed-capital profit consumers must use signed book equity rather than those
+legacy ratios; the flag alone does not change a reward or authorize research.
+
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset
 mark for its first entry sizing, including `BookState.zero` callers that omitted

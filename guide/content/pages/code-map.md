@@ -57,6 +57,8 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 
 保有数量がまだない口座は、同じsimulationの処理が現在の市場マーク価格を解決してからエントリー数量を求めます。初期価格を省略したBookStateも、この経路で処理できます。
 
+経済的な終了時に負の純資産を保持するか、従来どおり0へ丸めるかもsimulationの所有範囲です。負債保持モードは共通の口座台帳と約定ポリシーIDに含め、strategyやevaluationへ別の損益計算を作りません。
+
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 
 ## 境界を見るときのチェック

@@ -2,6 +2,17 @@
 
 更新基準: 2026-10-05 (JST)
 
+## Issue #810: signed insolvency software candidate
+
+An opt-in canonical execution policy retains negative marked terminal equity
+instead of flooring it at zero. Historical defaults, policy digests and bounded
+interval/log diagnostics remain unchanged. Synthetic short-gap, repeated-margin,
+cache and order-identity tests use an independent cash/liability oracle. This is
+a software prerequisite for a new fixed-capital reward, not market profitability
+or a liquidation-cost calibration. Final-head full CI and formal independent
+research approval remain integration requirements. No economic result, sealed
+rerun, unused-future opening or live-order eligibility is established.
+
 ## 結論
 
 Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。
@@ -14,6 +25,34 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - PPOやforecastがruleを上回るという結論はない。
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
+
+## Net-profit redesign: prequential forecast capability (2026-10-05)
+
+Issue #810 P2 now has a software path from the existing causal row selector and
+Ridge solver to frozen future-block packets and the existing cost-aware intent
+controller. The selector records its actual pooled symbol/price/publication
+endpoints. Each fit uses only strictly matured prefix labels; later blocks can
+consume newly matured labels but cannot rewrite earlier vintages or packets.
+Stored model/scaler and selected prediction inputs survive a digest-checked JSON
+round trip. Future-only Dataset suffix mutation must leave causal identities
+unchanged, while the whole-Dataset lineage ID may change.
+
+This is a partial P2 implementation. The default horizon remains 24h; no 72h
+economic comparison, parameter selection or real-data fit/replay has been
+performed for this capability. Forecast completion/latency are declared
+simulation assumptions, not measured receipts. The source only admits inputs
+available on their Dataset row; it does not recover delayed feature histories.
+Log-return forecasts and the current cost proxy do not establish expected simple
+return or an optimal shared-cash allocator.
+
+The non-RL portfolio allocator, downstream RL packet observation, common
+DecisionContext, continuous-account walk-forward recipe, complete source/runtime
+bundle and economic diagnostics remain separate unfinished work. G0/G1 for an
+exact economic Study and G3-G5 are NOT ESTABLISHED. Synthetic timing, algebra,
+tamper and causality tests are software evidence only. The research drawdown
+guardrail remains 20%; there is no new winner, final-data opening or live-order
+authorization. See the result-blind mechanism contract in
+`architecture/research-assurance.md`.
 
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 
@@ -1024,7 +1063,7 @@ PPOのconstructor/policy constructionについて、current implementationが実
 ## Causality and evaluation rules
 
 - `feature_available_time <= decision_time` を守る。
-- supervised labelは `label_end_time < fit_cutoff` で完結する。
+- supervised labelは `label_end_time < fit_cutoff` で完結し、始点と終点の価格行がともに観測済みで、両価格の `available_at < fit_cutoff` を満たす場合だけ採用する。欠損barのforward-fill価格とcutoff時点で未公開の価格を学習labelへ使わない。
 - future由来のscaler/normalization/imputation/feature selectionを禁止する。
 - fit symbol subsetを使うtrainingでは、そのsubsetを情報scopeとして扱う。content-verified Datasetのselected cross-asset featureがholdout symbol universeへ依存する場合はfit前にrejectし、reference-dependent featureはreference symbolがfit scope内にある場合だけ許す。verified transformで元build configを追跡できないstrict subsetもfail closedにする。
 - development/final期間をfitやthreshold調整へ戻さない。
@@ -1307,3 +1346,94 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Issue #810: opt-in after-cost allocation foundation
+
+The software now includes an independent-account scalar allocator and an actual
+execution consumer through `evaluation.allocation`. Expected-simple return,
+horizon variance, asymmetric transaction costs, future exit/funding/borrow/cash
+estimates and a variance preference determine a bounded surrogate target.
+Actual BookState and pending orders bind each proposal; final risk and canonical
+execution produce a separate approved/filled trace. Exact quantity HOLD cancels
+pending MARKET remainders while preserving canonical carry/split processing.
+
+This is an opt-in software foundation with synthetic decision, independent
+numerical and cash/quantity oracles. The separate direct-simple connection below
+adds synthetic model fits; no expected-simple market model has been fitted,
+costs calibrated, economic comparison run or improved profit established.
+The current-close signal is a declared proxy for next-processing-bar execution;
+risk and venue rules can alter the scalar optimum. A mean-log prediction is not
+an expected-simple prediction. Existing replay/PPO/artifact semantics and the
+20% drawdown research guardrail remain unchanged; gaps or missed fills can still
+exceed that guardrail. No sealed run is reopened.
+
+Issue #810 remains open. Outstanding work includes empirical expected-simple
+calibration, common nonRL/residual/direct RL context and execution,
+objective/financial-clock integration, continuous-account walk-forward,
+calibrated cost/capacity stress, a finite preregistered Study and independently
+authorized economic evidence. This slice supplies neither a new WINNER nor
+unused-data, paper/live-order or deployment eligibility. Final exact-head CI
+and formal independent research approval remain integration requirements.
+
+## Net-profit redesign groundwork (Issue #810)
+
+新規の非LLM trader再設計は、事業目的・資本・金融時計の宣言から開始する。`evaluation/objectives` は期待終端純利益を目的名にし、canonical after-cost ledgerの実現endpointを固定初期資本と符号付き入出金で評価する。複数独立口座と共有口座1つの資本分母、利益/log目的の順位差、負の終端equity、regular clockとdiscountの意味をsynthetic contract testsで検査する。研究DD基準は最大20%を維持する。
+
+`BoundObjectiveClock` により、新規bindingではUTC評価期間とeconomic horizonの一致を整数秒で要求し、個別宣言のdigestを同時に固定する。小数秒を丸めた期間や不一致の時計は拒否する。profile内容やruntimeの検証へは接続されていない。
+
+これはP0の初期software capabilityであり、P0全体完了や経済仮説の成立ではない。現在のPPO log報酬・独立銘柄訓練・Run/Study reader・歴史的選定基準は維持する。PR #794のtraining discount objectiveとこのbusiness objectiveは別の責務で、gamma/GAEの既定値を重複変更しない。PR #790のshared-cash replayもjoint learning済みとは扱わない。
+
+次段階は参照したrisk/economics/運用recipeの検証と、既存executorを使ったtraining/replay parity、上流のprequential packet、金融clock/終端のadapter整合、合成市場での学習可能性の検査である。これらの不足を閉じ、fresh result-blind G0-G2 reviewと正式な有限予算研究契約を結果前に固定するまで、新規G4実行へ進まない。実データfit/replay、未使用future開封、封印run再試行、live発注はこの変更では実施しない。利益性、WINNER/NO_WINNER/INVALIDの経済判断はまだ未確立である。
+
+## Issue #810: direct-simple forecast connection
+
+A separate versioned producer derives direct close-ratio labels from the existing
+selector's exact mature rows and freezes next-block Ridge projections. Packets
+bind selected snapshot, decision price, availability, horizon and uncalibrated
+pooled marginal label variance. The consumer connects these to actual BookState
+allocation, separately declared horizon costs, hard risk and canonical execution.
+Current/forecast close valuations must match; stale/delayed packets and changed
+proposal inputs fail.
+
+The new consumer requires a declared Dataset/index account clock. Canonical
+execution preserves and advances it, rejecting an old index that would repeat
+dividend/carry despite unchanged marks. Continuation carries book, order book and
+next index together. Synthetic tests cover that failure and equivalent valid
+timestamp storage units. Bootstrap clocks remain caller declarations; this
+bounded consistency check does not close Issue #810's full financial runtime or
+continuous-account research requirements. Legacy unmarked books remain unchanged.
+
+This is software tested on synthetic inputs, not measured market profit. Raw
+close labels are price-return surrogates for next-open execution and exclude
+held-quantity corporate-action wealth. Costs, carry, variance and conditional
+expectations are uncalibrated. Future actions never filter present predictions.
+Old log/PPO/Run/Study semantics and the 20% research DD guardrail are retained.
+
+The candidate preserves exact P0/P2/allocation histories for review. Remaining
+Issue #810 requirements include full order/account state for common RL consumers,
+the full financial runtime and continuous-account walk-forward, cost/capacity
+evidence, complete finite trial
+registration and independently authorized economic comparison. No new WINNER,
+G4/G5 result, final-data or live-order eligibility is established. Integration
+still requires final-head full CI and formal independent research approval.
+
+## Issue #810: common allocation PPO candidate
+
+An unintegrated opt-in software candidate now connects bounded direct/residual
+actions to the same final risk and canonical independent-account execution.
+Fixed-capital after-cost reward and gamma1 are bound to actual regular clocks.
+The first real SB3 signal protocol passed all three fixed seeds and complete
+save/load execution-trace parity. Subsequent strict receipt/coverage repairs and
+the separate fee-only protocol are verified as software tests, not market
+selection. None of these synthetic schedules establish market profitability.
+
+The candidate rejects stale recipe/capital/profile declarations and UTC overflow,
+preserves signed terminal debt through a distinct canonical execution policy,
+and records actual action counts plus policy/critic-bootstrap observation rows.
+Calendar kind and effective bar duration are bound to deployment semantics.
+Full order/account observations,
+fit-only preprocessing, continuous account updates/walk-forward, calibration,
+capacity sensitivity, complete market trial registration, formal independent
+approval and authorized economic comparison remain open. Existing log/PPO/A2C,
+Run/Study and sealed outcomes are unchanged. No new WINNER/NO_WINNER/INVALID
+economic result, unused-future opening or live eligibility is established.

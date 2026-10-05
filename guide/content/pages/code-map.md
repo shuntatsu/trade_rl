@@ -42,6 +42,8 @@ artifacts / evidence
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
 | hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
+| 共通口座を使う配分PPO候補 | `trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv` |
+| 配分候補の観測を符号化 | `trade_rl.strategies.rl.allocation_policy.encode_allocation_observation` |
 | 単銘柄の共通評価リプレイ | `trade_rl.evaluation.replay.run_single_symbol_replay` |
 | 共通資金の複数銘柄リプレイ | `trade_rl.evaluation.replay.run_shared_cash_replay` |
 | 約定数量から保有期間を進める共通規則 | `trade_rl.strategies.position_duration.next_position_age_bars` |
@@ -56,6 +58,8 @@ artifacts / evidence
 PPO環境と各replayは、分割後の数量単位に希望数量を換算します。目標を注文数量へ変換するsimulationの処理はBookStateのマーク価格を使い、注文の参照価格・limit・stopは取引価格を使います。評価と注文の価格基準を分けても、約定・会計の所有者は共通のMarketExecutorです。
 
 保有数量がまだない口座は、同じsimulationの処理が現在の市場マーク価格を解決してからエントリー数量を求めます。初期価格を省略したBookStateも、この経路で処理できます。
+
+経済的な終了時に負の純資産を保持するか、従来どおり0へ丸めるかもsimulationの所有範囲です。負債保持モードは共通の口座台帳と約定ポリシーIDに含め、strategyやevaluationへ別の損益計算を作りません。
 
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 

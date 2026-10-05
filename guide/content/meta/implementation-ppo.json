@@ -21,9 +21,17 @@
     "training_layout",
     "sequential",
     "interleaved",
-    "DummyVecEnv"
+    "DummyVecEnv",
+    "配分PPO",
+    "固定初期資本",
+    "残差配分"
   ],
   "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Opt-in allocation PPO account transition",
+      "sha256": "cd950771b3ffd6890b82c920778b38a2f8a6933d3ab270666e00abe088644565"
+    },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "PPO Observation v2",
@@ -36,6 +44,19 @@
     }
   ],
   "code_references": [
+    {
+      "id": "allocation-environment",
+      "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
+      "kind": "class",
+      "source_sha256": "3bb974f7c08ad720be39973e5415aec722317a676eb5aeaa68402ed544628eb0",
+      "label_ja": "独立口座の配分PPO環境",
+      "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_rl_env.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
     {
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation",

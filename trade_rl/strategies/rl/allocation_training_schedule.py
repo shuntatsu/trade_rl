@@ -44,10 +44,17 @@ def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
     return value
 
 
-def _index(value: object, field: str, *, minimum: int = 0) -> int:
-    if type(value) is not int or value < minimum:
-        raise ValueError(f"{field} must be a native integer >= {minimum}")
+def _integer(value: object, field: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{field} must be a native integer")
     return value
+
+
+def _index(value: object, field: str, *, minimum: int = 0) -> int:
+    result = _integer(value, field)
+    if result < minimum:
+        raise ValueError(f"{field} must be >= {minimum}")
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,8 +80,8 @@ class AllocationTrainingWindow:
             raise ValueError("window symbol must be nonempty")
         start = _index(self.start_index, "start_index")
         stop = _index(self.stop_index, "stop_index", minimum=1)
-        decision = _index(self.decision_start_ns, "decision_start_ns")
-        terminal = _index(self.terminal_time_ns, "terminal_time_ns", minimum=1)
+        decision = _integer(self.decision_start_ns, "decision_start_ns")
+        terminal = _integer(self.terminal_time_ns, "terminal_time_ns")
         if start >= stop:
             raise ValueError("window start_index must precede stop_index")
         if decision >= terminal:

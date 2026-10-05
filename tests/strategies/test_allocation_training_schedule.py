@@ -100,6 +100,21 @@ def test_window_identity_excludes_whole_dataset_lineage_but_payload_retains_it()
     assert schedule(first).digest != schedule(relined).digest
 
 
+def test_window_allows_pre_epoch_clocks_when_order_is_valid():
+    _, AllocationTrainingWindow = capability()
+    value = AllocationTrainingWindow(
+        role="train",
+        dataset_id="a" * 64,
+        symbol="S0",
+        start_index=0,
+        stop_index=2,
+        decision_start_ns=-7_200_000_000_000,
+        terminal_time_ns=-3_600_000_000_000,
+        source_digest="b" * 64,
+    )
+    assert value.decision_start_ns < value.terminal_time_ns < 0
+
+
 def test_window_identity_does_not_depend_on_later_windows():
     first = window()
     baseline = schedule(first)

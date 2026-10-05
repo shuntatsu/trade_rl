@@ -14,6 +14,7 @@ from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import MarketExecutor
 from trade_rl.simulation.orders.model import (
+    _QUANTITY_TOLERANCE,
     OrderBookState,
     PendingOrder,
     _quantity_tolerance,
@@ -64,9 +65,17 @@ def snapshot_allocation_account(
     for order in (*order_book.active_orders, *order_book.terminal_orders):
         # Raw dataclass construction does not enforce canonical intent identity.
         restored = PendingOrder.from_mapping(asdict(order))
+        assert restored.exact_cumulative_filled_quantity is not None
+        has_fills = parse_quantity(restored.exact_cumulative_filled_quantity) != 0
         if (
             not restored.terminal
-            and restored.cumulative_filled_quantity != 0
+            and has_fills
+            and abs(restored.cumulative_filled_quantity) <= _QUANTITY_TOLERANCE
+        ):
+            raise ValueError("snapshot active progress is below native minimum fill")
+        if (
+            not restored.terminal
+            and has_fills
             and abs(restored.remaining_quantity)
             <= _quantity_tolerance(
                 restored.intent.requested_quantity,

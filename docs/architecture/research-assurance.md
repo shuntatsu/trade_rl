@@ -1119,6 +1119,11 @@ Dataset/index clock, selected-source availability and caller-refreshed margin.
 The producer uses native context/order validation and a detached margin check.
 It reuses native fill-completion tolerance to reject already-completed active
 remainders; the lower DTO separately rejects nonzero notional without fills.
+Nonzero active progress must exceed the native absolute minimum fill quantity.
+Progress presence is read from the exact rational quantity, including declarations
+whose reporting float underflows to zero.
+G2 also preserves legal small fills on large requests, distinguishing this
+minimum from the separate request-scaled completion tolerance.
 Selected-only vectors retain the global symbol slot; full native state/history
 binds the source digest. The DTO checks structure, exact signed quantities and
 compatible order clocks. No cash reservation, age, terminal-reader or numerical

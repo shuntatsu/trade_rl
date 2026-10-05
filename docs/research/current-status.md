@@ -1457,6 +1457,8 @@ matching clock, currently available selected market source, native order
 validation and already-refreshed canonical margin, including bootstrap setup.
 Impossible waiting clocks and zero-fill/nonzero-notional records are rejected;
 completed active remainders are checked with native completion tolerance.
+Active filled progress also respects the native absolute minimum fill quantity;
+legal small fills on large requests remain observable.
 Its cloned checks preserve source book/cache, orders and execution randomness.
 
 Pure no-fit tests cover exact fractions, direction/clock/schema counterexamples,

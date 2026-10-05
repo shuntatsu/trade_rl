@@ -872,6 +872,9 @@ from requested quantity minus exact cumulative fills, not reporting floats.
 The producer detaches before cache-refreshing account reads and validates orders
 through their existing native reader. Filled active remainders within native
 completion tolerance are rejected using the canonical order owner's rule.
+Nonzero active filled progress at or below the native absolute minimum fill
+quantity is also rejected. Legal small fills above that minimum remain visible,
+even when they are below the request-scaled completion tolerance.
 IDs/digests are evidence, not numeric
 policy inputs. DTO structural checks do not prove source/account authenticity;
 bootstrap clock and account ID remain caller declarations. This is neither a

@@ -35,13 +35,24 @@
     "明示学習設定",
     "Adam完了回数",
     "AllocationFeaturePreprocessing",
-    "因果的な特徴前処理"
+    "因果的な特徴前処理",
+    "配分観測v3"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/lean-core.md",
+      "heading": "Pure allocation observation v3 frozen-feature projection",
+      "sha256": "d39c61958bf51810d3770c8ee195aeeba5d3589233c224554849bd7799b7932f"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: pure allocation observation v3 candidate",
+      "sha256": "5a83277ebc3c3e1d56771f1572a77de49cc6902f4fc2ab60c11cbccb54d70189"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
       "heading": "Causal allocation feature preprocessing prefix",
-      "sha256": "4c16d00155d8e0995f2e94510aa00fe28d29fcfb38d7a9fcca4bc0f9094b5dcf"
+      "sha256": "9cd1186af0447f64222e70b1be8c1825515e55ef33956ff359b2753dfdf671c0"
     },
     {
       "path": "docs/research/current-status.md",
@@ -530,6 +541,44 @@
       "tests": [
         "tests/evaluation/test_allocation_preprocessing.py",
         "tests/architecture/test_allocation_preprocessing_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v3.allocation_observation_payload_v3",
+      "kind": "function",
+      "source_sha256": "b338baa3516e71c821ecf558cabd8612cb098ff5202d84a90e784d711bf9210e",
+      "label_ja": "特徴の変換だけを別版の観測へ束縛する",
+      "description_ja": "固定した特徴順・K/C/Nと凍結係数を組み合わせ、経済列の幅と意味を保ちます。現在の環境・学習器やbundleへの接続は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py",
+        "tests/architecture/test_allocation_observation_v3_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-encoder-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v3.encode_allocation_observation_v3",
+      "kind": "function",
+      "source_sha256": "944fa3165d9a350f376224c7aa434e747df022e3f7b75b851c0e801b01c7fc89",
+      "label_ja": "先頭の特徴だけを一度変換する",
+      "description_ja": "生存snapshotと生の判断から新しい配列を作り、最初のF列だけを変換します。経済列bytesと元の判断を保ち、終了通知や実Datasetの証明を引き受けません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py"
+      ]
+    },
+    {
+      "id": "allocation-recipe-v3",
+      "symbol": "trade_rl.strategies.rl.allocation_recipe_v3.allocation_recipe_payload_v3",
+      "kind": "function",
+      "source_sha256": "7093ff5ca786efd9f93f26f37a70e3a18d009c0f9b8fe27ddafb2d624c7411dd",
+      "label_ja": "凍結特徴のrecipeを別版にする",
+      "description_ja": "前処理と新しい観測を別版へ宣言し、既存actionと経済条件を保ちます。現在のbundle readerは未接続のrecipe v3を受け付けません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v3.py",
+        "tests/architecture/test_allocation_observation_v3_boundary.py"
       ]
     }
   ]

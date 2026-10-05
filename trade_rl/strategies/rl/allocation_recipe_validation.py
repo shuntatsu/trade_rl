@@ -13,7 +13,12 @@ from trade_rl.strategies.rl.allocation_policy import (
     AllocationRuntimeProfile,
     allocation_recipe_payload,
 )
+from trade_rl.strategies.rl.allocation_preprocessing import (
+    AllocationFeaturePreprocessing,
+    _native_json,
+)
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
+from trade_rl.strategies.rl.allocation_recipe_v3 import allocation_recipe_payload_v3
 
 
 def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
@@ -23,6 +28,14 @@ def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
 
 
 def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
+    if type(recipe) is not dict or type(recipe.get("schema")) is not str:
+        raise ValueError("allocation recipe dispatch requires a native mapping and tag")
+    v3 = recipe.get("schema") == "allocation_ppo_recipe_v3"
+    if v3:
+        try:
+            _native_json(recipe)
+        except RecursionError as error:
+            raise ValueError("v3 recipe must contain native finite JSON") from error
     action = _mapping(recipe.get("action"), {"schema", "mode", "scale"}, "action")
     if action["schema"] != "allocation_action_v1":
         raise ValueError("unknown allocation action schema")
@@ -62,7 +75,7 @@ def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
             runtime_profile=AllocationRuntimeProfile(**constructor),
         )
         contract = AllocationActionContract(action["mode"], action["scale"])
-        if recipe.get("schema") == "allocation_ppo_recipe_v2":
+        if v3 or recipe.get("schema") == "allocation_ppo_recipe_v2":
             observation = _mapping(
                 recipe.get("observation"),
                 {
@@ -77,8 +90,13 @@ def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
                     "order_sort",
                     "order_overflow",
                     "unused_slots",
-                },
-                "v2 observation",
+                }
+                | (
+                    {"feature_preprocessing", "feature_preprocessing_digest"}
+                    if v3
+                    else set()
+                ),
+                "allocation observation",
             )
             schema = AllocationObservationSchema(
                 tuple(observation["feature_names"]),
@@ -86,14 +104,30 @@ def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
                 observation["initial_capital"],
                 observation["episode_steps"],
             )
-            reconstructed = allocation_recipe_payload_v2(
-                contract, tuple(names), observation_schema=schema, **arguments
-            )
+            if v3:
+                reconstructed = allocation_recipe_payload_v3(
+                    contract,
+                    tuple(names),
+                    observation_schema=schema,
+                    feature_preprocessing=AllocationFeaturePreprocessing.from_payload(
+                        observation["feature_preprocessing"]
+                    ),
+                    **arguments,
+                )
+            else:
+                reconstructed = allocation_recipe_payload_v2(
+                    contract, tuple(names), observation_schema=schema, **arguments
+                )
         else:
             reconstructed = allocation_recipe_payload(
                 contract, tuple(names), **arguments
             )
     except (KeyError, TypeError, OverflowError) as error:
         raise ValueError("allocation recipe is malformed") from error
-    if json.loads(canonical_json_bytes(reconstructed)) != recipe:
+    differs = (
+        canonical_json_bytes(reconstructed) != canonical_json_bytes(recipe)
+        if v3
+        else json.loads(canonical_json_bytes(reconstructed)) != recipe
+    )
+    if differs:
         raise ValueError("allocation recipe differs from the supported contract")

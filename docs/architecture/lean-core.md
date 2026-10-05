@@ -1011,6 +1011,33 @@ application checks names/order/build/normalization/time, not a future Dataset ID
 Its time guard is fit-as-of, not enforcement of the declared policy start/window.
 Ordinary float32 casting may round tiny feature residuals to zero.
 It accepts feature values only, not an account observation or terminal sentinel.
-No allocation env, recipe or bundle consumes this declaration yet. Causality is
+No allocation env or bundle consumes this declaration yet. Causality is
 limited to the supplied arrays/publication contract; digests do not prove upstream
 feature construction, data authenticity or market learning success.
+
+## Pure allocation observation v3 frozen-feature projection
+
+`allocation_observation_payload_v3` composes the existing required feature order,
+K/C/N schema with the closed frozen preprocessing declaration and its digest.
+The new observation identity retains F+22+24K fields; it changes the meaning of
+only the first F values. `encode_allocation_observation_v3` accepts a live snapshot
+and raw AllocationDecision, validates through the existing v2 encoder, then applies
+one frozen float64-to-float32 transform to the fresh array's feature prefix. The
+economic suffix bytes, raw decision, forecast and allocation baseline stay intact.
+The v2 raw-feature admissibility domain remains required; ordinary normalized
+float32 casting can round tiny residuals to zero.
+
+`allocation_recipe_payload_v3` binds this projection and preserves the declared
+action/runtime/terminal semantics. The v3 reader requires native finite JSON and
+exact canonical reconstruction. Dispatch now rejects non-native root mappings or
+schema strings in all versions; valid legacy JSON and recipe bytes are unchanged.
+Existing environments, learners, input receipts and bundles do not consume recipe
+v3. Current bundle readers reject every recipe-v3 pairing.
+
+The live encoder does not accept terminal arrays. A later runtime must bypass the
+transform for the true all-zero terminal sentinel. Supplied names/order/build,
+upstream normalization and fit-as-of time are application checks, not proof of
+actual Dataset consumption or upstream causality. Training prefix provenance and
+the first policy decision require separate upper validation; future inference must
+bind actual feature semantics/time without requiring the full fit Dataset ID or
+fit-local indices. No runtime policy-window authorization or market fit is added.

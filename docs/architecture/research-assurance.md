@@ -1252,3 +1252,18 @@ closed-reader, clock, dependency and finite-reporting oracles are software evide
 Feature casting does not promise nonzero preservation or enforce a policy window.
 They establish neither upstream feature causality/authenticity nor actual PPO
 consumption, delayed-payoff learnability, sampling coverage or G4/G5 authorization.
+
+## Pure allocation observation v3 assurance
+
+G0 asks whether frozen feature projection can preserve the economic state exactly.
+G1 fixes a distinct observation/recipe identity, unchanged F+22+24K field order,
+one first-F transform and closed reconstruction, retaining raw-v2 admissibility.
+G2 literal mean/scale 1/1 maps future raw 4 to 3; two features map [4,14] to [3,2].
+Partial/opposed orders preserve the entire v2 economic suffix bytes and raw facts.
+Binding, nested aliases, version mixing and dispatch-subclass oracles reject; valid
+legacy JSON identities are unchanged, while non-native root/tag aliases now reject.
+Raw feature zero maps to -1, so an economic terminal zero vector must bypass this
+live-input encoder. Tiny normalized residuals may round to zero. These are pure
+software oracles; no runtime actor/boundary receipt, actual training-prefix or
+policy-window proof, terminal integration, upstream authenticity or G4/G5 approval
+is established. Current bundles intentionally reject the unconnected v3 recipe.

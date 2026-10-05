@@ -741,6 +741,16 @@ Neither owner imports account/risk processing or optional learners; the lower
 owner does not import the upper fitter. There is no runtime consumer, new facade,
 online normalization or sampler; existing legacy preprocessing remains unchanged.
 
+## Pure allocation observation v3 ownership
+
+`strategies/rl/allocation_observation_v3.py` owns a detached observation payload
+and feature-prefix encoder, composing existing v2 economics and frozen statistics.
+`strategies/rl/allocation_recipe_v3.py` owns its pure recipe builder; the existing
+recipe validator has an explicit v3 reconstruction lane and native root/tag dispatch.
+Neither lower owner imports environments, fitting, risk/account execution or optional
+learners. There is no new public facade, runtime consumer, bundle, online fit or
+sampler. Upper source admission and actual actor consumption remain future work.
+
 ## Stacked PR verification routing
 
 `.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through

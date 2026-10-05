@@ -9,10 +9,7 @@ from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
 )
-from trade_rl.strategies.forecasts.prequential import (
-    PacketForecastStrategy,
-    fit_prequential_ridge,
-)
+from trade_rl.strategies.forecasts.prequential import fit_prequential_ridge
 from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
@@ -45,7 +42,6 @@ __all__ = [
     "FrozenSimpleReturnStream",
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
-    "PacketForecastStrategy",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
     "SimpleReturnPacket",

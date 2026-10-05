@@ -42,7 +42,7 @@ pytest.importorskip("torch")
 def test_explicit_protocol_counts_actual_adam_calls_and_final_update(
     tmp_path, monkeypatch, steps, budget, expected
 ):
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
     from trade_rl.strategies.rl.allocation_artifact import (
         load_allocation_policy,
@@ -102,7 +102,7 @@ def test_explicit_protocol_counts_actual_adam_calls_and_final_update(
 
 
 def test_explicit_protocol_resolves_all_constructor_kwargs(monkeypatch):
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
 
     module = trainer()
@@ -171,7 +171,7 @@ def test_explicit_protocol_resolves_all_constructor_kwargs(monkeypatch):
 def test_native_kl_stop_skips_adam_but_enters_epoch_and_keeps_state(monkeypatch):
     import torch
 
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
 
     module = trainer()
@@ -216,7 +216,7 @@ def test_native_kl_stop_skips_adam_but_enters_epoch_and_keeps_state(monkeypatch)
 
 
 def test_explicit_protocol_hook_is_removed_on_learning_exception(monkeypatch):
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
 
     module = trainer()
@@ -248,7 +248,7 @@ def test_protocol_checks_built_activation_and_loaded_backend_without_optional_im
 ):
     import torch
 
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
     from trade_rl.strategies.rl import allocation_model as validator
 
@@ -270,7 +270,7 @@ def test_protocol_checks_built_activation_and_loaded_backend_without_optional_im
 def test_protocol_checks_actual_flatten_extractor_child(corruption):
     import torch
 
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
     from trade_rl.strategies.rl.allocation_model import (
         validate_allocation_protocol_model,
@@ -292,7 +292,7 @@ def test_protocol_checks_actual_flatten_extractor_child(corruption):
 
 
 def test_protocol_rejects_duplicate_actual_optimizer_parameter():
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from tests.strategies.test_allocation_protocol_receipt import protocol
     from trade_rl.strategies.rl.allocation_model import (
         validate_allocation_protocol_model,
@@ -310,7 +310,7 @@ def test_protocol_rejects_duplicate_actual_optimizer_parameter():
 
 @pytest.mark.parametrize("v2", [False, True])
 def test_none_protocol_retains_legacy_bytes_sources_and_actions(v2):
-    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.evaluation.test_allocation_training_source import protocol_env
     from trade_rl.artifacts import canonical_json_bytes
 
     def env():

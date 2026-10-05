@@ -464,7 +464,7 @@
       "tests": [
         "tests/integrations/test_allocation_ppo_runtime.py",
         "tests/strategies/test_allocation_protocol_receipt.py",
-        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
+        "tests/architecture/test_allocation_rl_boundary.py"
       ]
     },
     {
@@ -478,7 +478,7 @@
       "tests": [
         "tests/integrations/test_allocation_ppo_runtime.py",
         "tests/strategies/test_allocation_protocol_receipt.py",
-        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
+        "tests/architecture/test_allocation_rl_boundary.py"
       ]
     },
     {
@@ -492,7 +492,7 @@
       "tests": [
         "tests/integrations/test_allocation_ppo_runtime.py",
         "tests/strategies/test_allocation_protocol_receipt.py",
-        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
+        "tests/architecture/test_allocation_rl_boundary.py"
       ]
     }
   ]

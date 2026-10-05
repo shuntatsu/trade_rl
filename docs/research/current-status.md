@@ -1444,8 +1444,8 @@ economic result, unused-future opening or live eligibility is established.
 宣言mappingのsoftware testでclock、active-order status、exact quantity、
 deep immutabilityとdigest scopeを検証する。既存PPO v1はこのDTOを消費しない。
 source factsの読み出しは下記observer、numeric projectionは下記pure encoderが担当する。
-予約cash・position ageのモデルと、このsnapshotを消費するallocation RL adapterは未実装である。
-方策への接続、continuous walk-forward、正式な経済比較は後続作業である。
+明示v2 runtime接続は下記候補に追加した。予約cash・position ageのモデルは未実装である。
+continuous walk-forward、正式な経済比較は後続作業である。
 実市場fit / replay、経済比較、formal independent approvalやprofitabilityを達成した状態ではない。
 
 ## Issue #810: live independent-account observer candidate
@@ -1464,7 +1464,7 @@ Its cloned checks preserve source book/cache, orders and execution randomness.
 Pure no-fit tests cover exact fractions, direction/clock/schema counterexamples,
 detachment and unavailable-price exposure. This DTO is not a numeric RL
 observation, terminal reader, holding-age/reservation model or provenance proof.
-Common policy-state integration, train-only preprocessing, sampling, continuous
+Opt-in policy-state connection is below; train-only preprocessing, sampling, continuous
 walk-forward and complete trial registration remain separate work. No market
 result, G4/G5 approval, unused-future opening or live eligibility is established;
 integration still requires final-head full CI and formal independent approval.
@@ -1474,9 +1474,8 @@ integration still requires final-head full CI and formal independent approval.
 The lower immutable schema now declares ordered `F+9+13+24K` field names and
 binds feature names, bounded order slots, fixed capital and episode normalization
 length. Software tests cover layout/identity, detachment and constructor failures.
-The peer pure encoder supplies numeric generation. Snapshot-to-policy runtime
-binding and the PPO consumer remain unimplemented. Allocation v1 recipes/tensors
-remain unchanged.
+The peer pure encoder supplies numeric generation; the opt-in runtime below
+consumes it. Allocation v1 recipes/tensors and default consumers remain unchanged.
 There is no new fit/replay, market result, research approval or live eligibility.
 
 ## Issue #810: pure allocation observation v2 encoder candidate
@@ -1486,5 +1485,18 @@ returns detached bounded float32 account/order values. Signed exact quantities,
 current/historical drawdown, causal clock masks and fixed capital retain explicit
 meaning; ID-based execution priority, ages/reservations and source authenticity
 are outside its scope. No-fit arithmetic/failure oracles and v1 behavior checks
-cover this software stage. PPO train/load/source-receipt integration, train-only
+cover this software stage. Opt-in train/load/input receipts are below; train-only
 preprocessing, continuous walk-forward and economic comparison remain open.
+
+## Issue #810: allocation observation v2 runtime candidate
+
+The explicit v2 environment now reads admitted live account/order state, retains
+the same native transitions/rewards and uses distinct strict recipes/bundles.
+Software oracles verify default v1 compatibility, actual partial-order columns,
+terminal sentinels, real SB3 masks/bootstrap, consumed actor/boundary inputs and
+save/load trace parity. This is G0-G2 synthetic software evidence only.
+Sources/receipts do not prove authenticity, full Markov state or profitability.
+Full immutable training protocol/optimizer-step telemetry, fit-only preprocessing
+and sampling, continuous-account handover/walk-forward, calibrated finite market
+Study and formal G4/G5 approval remain open. Existing Run/Study/sealed outcomes
+and deployment eligibility remain unchanged.

@@ -307,3 +307,162 @@ def test_actual_short_rollout_receipt_includes_nonterminal_critic_bootstrap():
     assert source["decision_counts"] == [1, 1]
     assert source["observation_indices"] == [6, 7, 8]
     assert not env._terminated and env.index == 8
+
+
+def test_v2_true_terminal_masks_nonzero_critic_and_live_rollout_bootstraps():
+    import torch
+
+    from tests.evaluation.test_allocation_rl_observation_v2 import opt_in
+
+    args = parameters(stop=10)
+    args["bound"] = replace(
+        args["bound"], clock=replace(args["bound"].clock, rollout_steps=2)
+    )
+    env = AllocationTradingEnv(**opt_in(args))
+    model = trainer().build_allocation_ppo(env, seed=0)
+    critic_inputs, results = [], []
+    forward = model.policy.forward
+
+    def actor(obs):
+        actions, values, log_probs = forward(obs)
+        # A binary-exact current value isolates the terminal mask from GAE's
+        # ordinary advantage/value cancellation roundoff.
+        return actions, torch.zeros_like(values), log_probs
+
+    def critic(obs):
+        critic_inputs.append(obs.detach().cpu().numpy().copy())
+        return torch.full((1, 1), 7.0)
+
+    original = model.rollout_buffer.compute_returns_and_advantage
+
+    def capture(last_values, dones):
+        original(last_values, dones)
+        results.append(
+            (
+                bool(dones[0]),
+                float(model.rollout_buffer.returns[-1, 0]),
+                float(model.rollout_buffer.rewards[-1, 0]),
+            )
+        )
+
+    model.policy.predict_values = critic
+    model.policy.forward = actor
+    model.rollout_buffer.compute_returns_and_advantage = capture
+    _, callback = model._setup_learn(4)
+    model.collect_rollouts(model.env, callback, model.rollout_buffer, 2)
+    assert env.index == 8 and results[-1][0] is False
+    assert results[-1][1] == pytest.approx(results[-1][2] + 7.0)
+    model.collect_rollouts(model.env, callback, model.rollout_buffer, 2)
+    assert results[-1][0] is True and results[-1][1] == results[-1][2]
+    assert (
+        env.index == 6
+        and len(critic_inputs) == 2
+        and all(x.any() for x in critic_inputs)
+    )
+    infos = model.env.buf_infos[0]
+    assert not infos["TimeLimit.truncated"] and not infos["terminal_observation"].any()
+    assert infos["terminal_observation"].shape == env.observation_space.shape
+
+
+@pytest.mark.parametrize("budget", [2, 4])
+def test_actual_v2_consumed_tensors_receipt_and_save_load_trace(
+    tmp_path, monkeypatch, budget
+):
+    import hashlib
+    import json
+
+    from tests.evaluation.test_allocation_rl_observation_v2 import opt_in
+    from trade_rl.strategies.rl.allocation_artifact import (
+        load_allocation_policy,
+        save_allocation_policy,
+    )
+
+    args = parameters(stop=10)
+    args["bound"] = replace(
+        args["bound"], clock=replace(args["bound"].clock, rollout_steps=2)
+    )
+    env = AllocationTradingEnv(**opt_in(args))
+    module, actor_events, boundary_events = trainer(), [], []
+    build = module.build_allocation_ppo
+
+    def traced(*args, **kwargs):
+        model = build(*args, **kwargs)
+        forward, critic = model.policy.forward, model.policy.predict_values
+
+        def actor(obs, *a, **k):
+            actor_events.append(
+                (
+                    dict(
+                        phase="actor",
+                        index=env.index,
+                        episode_start=bool(model._last_episode_starts[0]),
+                    ),
+                    obs.detach().cpu().numpy().astype("<f4").tobytes(),
+                )
+            )
+            return forward(obs, *a, **k)
+
+        def boundary(obs):
+            done = bool(model._last_episode_starts[0])
+            boundary_events.append(
+                (
+                    dict(
+                        phase="rollout_boundary",
+                        index=env.index,
+                        last_transition_index=8 if len(boundary_events) == 0 else 10,
+                        done=done,
+                    ),
+                    obs.detach().cpu().numpy().astype("<f4").tobytes(),
+                )
+            )
+            return critic(obs)
+
+        model.policy.forward, model.policy.predict_values = actor, boundary
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", traced)
+    policy = module.fit_allocation_ppo(env, total_timesteps=budget, seed=0)
+    assert policy.manifest["schema"] == "allocation_ppo_inference_bundle_v2"
+    receipt = policy.manifest["training"]["observation_consumption"]
+
+    def digest(events):
+        result = hashlib.sha256()
+        for metadata, raw in events:
+            header = json.dumps(
+                metadata, separators=(",", ":"), sort_keys=True
+            ).encode()
+            result.update(
+                len(header).to_bytes(8, "big")
+                + header
+                + len(raw).to_bytes(8, "big")
+                + raw
+            )
+        return result.hexdigest()
+
+    assert receipt["actor_count"] == len(actor_events) == budget
+    assert receipt["rollout_boundary_count"] == len(boundary_events) == budget // 2
+    assert receipt["actor_digest"] == digest(actor_events)
+    assert receipt["rollout_boundary_digest"] == digest(boundary_events)
+    terminal = (
+        [(dict(phase="terminal_sentinel", index=10), np.zeros((71,), "<f4").tobytes())]
+        if budget == 4
+        else []
+    )
+    assert receipt["terminal_count"] == len(terminal) and receipt[
+        "terminal_digest"
+    ] == digest(terminal)
+    assert policy.manifest["training"]["source"]["observation_indices"] == (
+        [6, 7, 8, 9] if budget == 4 else [6, 7, 8]
+    )
+    pin = save_allocation_policy(tmp_path / "v2", policy)
+    loaded = load_allocation_policy(
+        tmp_path / "v2", expected_digest=pin, expected_recipe_digest=env.recipe_digest
+    )
+    assert loaded.manifest["training"]["observation_consumption"] == receipt
+    assert rollout(
+        AllocationTradingEnv(**opt_in(args)),
+        lambda x: policy.action(x, runtime_recipe_digest=env.recipe_digest),
+    ) == rollout(
+        AllocationTradingEnv(**opt_in(args)),
+        lambda x: loaded.action(x, runtime_recipe_digest=env.recipe_digest),
+    )

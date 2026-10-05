@@ -6,8 +6,9 @@ import importlib
 from typing import Any
 
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.input_receipt import AllocationInputRecorder
 from trade_rl.evaluation.rl_allocation.training_source import allocation_training_source
-from trade_rl.strategies.rl.allocation_manifest import ALLOCATION_BUNDLE_SCHEMA
+from trade_rl.strategies.rl.allocation_manifest import allocation_bundle_schema
 from trade_rl.strategies.rl.allocation_model import AllocationPPOPolicy
 
 
@@ -80,7 +81,13 @@ def fit_allocation_ppo(
             observed.add(execution.next_index)
         return True
 
-    model.learn(total_timesteps=total_timesteps, callback=observe_steps)
+    recorder = None
+    callback: Any = observe_steps
+    if env.observation_schema is not None:
+        recorder = AllocationInputRecorder(env)
+        callbacks = importlib.import_module("stable_baselines3.common.callbacks")
+        callback = recorder.callback(callbacks.BaseCallback, observe_steps)
+    model.learn(total_timesteps=total_timesteps, callback=callback)
     env.validate_binding()
     if (
         model.num_timesteps != total_timesteps
@@ -92,8 +99,8 @@ def fit_allocation_ppo(
     source = allocation_training_source(
         env, decision_counts=counts, observation_indices=tuple(sorted(observed))
     )
-    manifest = {
-        "schema": ALLOCATION_BUNDLE_SCHEMA,
+    manifest: dict[str, Any] = {
+        "schema": allocation_bundle_schema(recipe),
         "recipe": recipe,
         "recipe_digest": recipe_digest,
         "training": {
@@ -115,4 +122,6 @@ def fit_allocation_ppo(
             },
         },
     }
+    if recorder is not None:
+        manifest["training"]["observation_consumption"] = recorder.payload()
     return AllocationPPOPolicy(model, manifest)

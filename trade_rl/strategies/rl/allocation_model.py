@@ -19,6 +19,8 @@ def validate_allocation_model(model: Any, manifest: dict[str, Any]) -> None:
     count = len(manifest["recipe"]["feature_names"]) + len(
         manifest["recipe"]["observation"]["fields"]
     )
+    if manifest["recipe"]["schema"] == "allocation_ppo_recipe_v2":
+        count = len(manifest["recipe"]["observation"]["fields"])
     if (
         not isinstance(observation, gym.spaces.Box)
         or observation.shape != (count,)

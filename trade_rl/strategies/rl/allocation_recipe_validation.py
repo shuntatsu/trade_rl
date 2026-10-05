@@ -8,10 +8,12 @@ from typing import Any
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.strategies.allocation import AfterCostTargetAllocator
 from trade_rl.strategies.allocation_action import AllocationActionContract
+from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservationSchema
 from trade_rl.strategies.rl.allocation_policy import (
     AllocationRuntimeProfile,
     allocation_recipe_payload,
 )
+from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
 
 
 def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
@@ -54,13 +56,43 @@ def validate_allocation_recipe(recipe: dict[str, Any]) -> None:
         if key not in {"schema", "insolvency_valuation"}
     }
     try:
-        reconstructed = allocation_recipe_payload(
-            AllocationActionContract(action["mode"], action["scale"]),
-            tuple(names),
+        arguments = dict(
             allocator=AfterCostTargetAllocator(**recipe["allocator"]),
             expected_horizon_seconds=recipe["expected_horizon_seconds"],
             runtime_profile=AllocationRuntimeProfile(**constructor),
         )
+        contract = AllocationActionContract(action["mode"], action["scale"])
+        if recipe.get("schema") == "allocation_ppo_recipe_v2":
+            observation = _mapping(
+                recipe.get("observation"),
+                {
+                    "schema",
+                    "feature_names",
+                    "max_active_orders",
+                    "initial_capital",
+                    "episode_steps",
+                    "fields",
+                    "projection",
+                    "raw_feature_projection",
+                    "order_sort",
+                    "order_overflow",
+                    "unused_slots",
+                },
+                "v2 observation",
+            )
+            schema = AllocationObservationSchema(
+                tuple(observation["feature_names"]),
+                observation["max_active_orders"],
+                observation["initial_capital"],
+                observation["episode_steps"],
+            )
+            reconstructed = allocation_recipe_payload_v2(
+                contract, tuple(names), observation_schema=schema, **arguments
+            )
+        else:
+            reconstructed = allocation_recipe_payload(
+                contract, tuple(names), **arguments
+            )
     except (KeyError, TypeError, OverflowError) as error:
         raise ValueError("allocation recipe is malformed") from error
     if json.loads(canonical_json_bytes(reconstructed)) != recipe:

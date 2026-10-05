@@ -32,6 +32,7 @@ def test_learning_environment_uses_common_action_execution_without_a_second_ledg
         and isinstance(node.func, (ast.Name, ast.Attribute))
     }
     assert "execute_allocation_action" in calls
+    assert {"snapshot_allocation_account", "encode_allocation_observation_v2"} <= calls
     assert calls.isdisjoint(
         {"apply_fill", "apply_funding", "apply_borrow", "execute_interval"}
     )

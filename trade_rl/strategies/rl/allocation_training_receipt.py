@@ -9,6 +9,9 @@ from trade_rl.strategies.rl.allocation_clock_receipt import (
     validate_allocation_clock,
     validate_ppo_training_budget,
 )
+from trade_rl.strategies.rl.allocation_input_receipt import (
+    validate_allocation_input_receipt,
+)
 from trade_rl.strategies.rl.allocation_objective_receipt import (
     validate_allocation_objective,
 )
@@ -33,6 +36,11 @@ def _positive_integer(value: object, field: str, *, minimum: int = 1) -> int:
 def validate_allocation_training(
     training: object, recipe: dict[str, Any], recipe_digest: str
 ) -> None:
+    input_keys = (
+        {"observation_consumption"}
+        if recipe["schema"] == "allocation_ppo_recipe_v2"
+        else set()
+    )
     values = _mapping(
         training,
         {
@@ -43,7 +51,8 @@ def validate_allocation_training(
             "objective",
             "source",
             "ppo",
-        },
+        }
+        | input_keys,
         "training",
     )
     ppo = validate_ppo_training_budget(values)
@@ -111,6 +120,15 @@ def validate_allocation_training(
     if sum(counts) != values["actual_timesteps"]:
         raise ValueError(
             "sampled decision counts differ from the realized training budget"
+        )
+    if input_keys:
+        validate_allocation_input_receipt(
+            values["observation_consumption"],
+            recipe,
+            actual_steps=values["actual_timesteps"],
+            rollout_steps=ppo["n_steps"],
+            episode_starts=counts[0],
+            horizon_terminations=counts[-1] if indices[-1] == end - 1 else 0,
         )
     observations = source["observation_indices"]
     eligible_observations = {beginning, *indices, *(index + 1 for index in indices)}

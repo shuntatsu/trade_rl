@@ -673,7 +673,7 @@ identity remains digest-bound. Native completion tolerance stays owned by the
 order module and is reused by the observer, not copied into the lower DTO.
 The observer also reuses the native absolute minimum fill quantity for nonzero
 active progress; it does not substitute the request-scaled completion threshold.
-Existing allocation/PPO APIs are unchanged.
+Existing default allocation/PPO behavior is unchanged.
 
 ## Allocation observation v2 declaration ownership
 
@@ -696,3 +696,14 @@ Its direct imports exclude evaluation, simulation, risk and optional learners.
 Runtime admission stays with the observer; canonical accounting/order rules are
 not reimplemented here. Exact slot sorting is a representation choice, not
 native ID-based execution priority. There is no v1 recipe change or dispatch.
+
+## Allocation observation v2 runtime ownership
+
+evaluation/rl_allocation/env composes native margin initialization, admitted
+snapshot and lower encoder only for explicit v2. Its input_receipt recorder
+observes actual SB3 callback inputs; training owns lazy collector construction.
+strategies/rl/allocation_recipe_v2 and allocation_input_receipt own pure frozen
+recipe reconstruction and receipt consistency. Existing manifest/training/model
+validators dispatch the two supported versions; generic verified-file save/load
+is reused. No lower owner imports runtime or optional learners; no second ledger,
+Run/Study registration, default switch or new preprocessing layer is introduced.

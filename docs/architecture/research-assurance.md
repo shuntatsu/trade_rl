@@ -1173,4 +1173,28 @@ binary-value inequalities and successor maximality, subnormal/overflow failures,
 large intermediate products, equal projections with unequal exact order facts,
 ID/permutation invariance, absent/index-zero clocks and input nonmutation.
 V1 numeric/recipe behavior stays fixed. These fixtures are not native order
-admission or market evidence; train/load integration and G4/G5 remain unverified.
+admission or market evidence; runtime integration is covered below, G4/G5 remains open.
+
+## Allocation observation v2 runtime assurance
+
+G0 asks whether explicit opt-in state projection can share native transitions,
+reward and source receipts with v1. Partial observation, source authenticity,
+learnability and market profit are not established by this software stage.
+
+G1 preserves default v1 bytes and introduces a distinct v2 recipe/bundle binding
+features, K, C, episode steps and complete ordered fields. V2 reset refreshes
+canonical margin before live source admission. True horizon/insolvency termination
+returns a zero sentinel, never a live snapshot; truncation is not generated.
+Critic bootstrap is allowed only at a nonterminal rollout boundary.
+
+G2 compares same-action canonical books/rewards across versions, independent
+initial/live numeric columns, strict pre-loader layout/capital/horizon failures,
+and real installed SB3 terminal-return/nonterminal-bootstrap and save/load/source
+receipt oracles on fixed synthetic episodes. Independent real actor/critic spies
+match phase hashes/counts for two/four-step fits; exact actor value0 and boundary
+critic7 isolate terminal masking without a loose tolerance. V2-only receipts
+record consumed tensors/boundary inputs, not merely env-emitted observations;
+zero-count phase/digest inconsistencies fail before loading. Receipt integrity
+does not establish historical authenticity or a complete learning protocol.
+No market selection is performed; G4/G5, calibrated forecasts, train-only
+preprocessing/sampling and continuous-account walk-forward remain open.

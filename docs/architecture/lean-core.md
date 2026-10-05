@@ -915,4 +915,34 @@ division; masks separate absent clocks from index zero. Excess orders reject;
 unused slots are zero. IDs, digests, absolute clocks and symbol index are absent
 from numeric inputs. This sort does not reproduce native ID/capacity priority.
 The encoder reads no runtime source, invents no ages/reserved cash, establishes
-no authenticity/full Markov state and is not yet connected to PPO train/load.
+no authenticity/full Markov state. The opt-in runtime connection is below.
+
+## Allocation observation v2 runtime connection
+
+AllocationTradingEnv accepts `observation_schema=None` for unchanged v1 behavior.
+Explicit v2 requires matching selected features, fixed capital and episode length.
+Only v2 reset refreshes native margin before preparing the decision and admitted
+live snapshot; subsequent observations compose that observer and pure encoder.
+The same action/risk/execution/reward path owns all native account transitions.
+
+Distinct `allocation_ppo_recipe_v2` / `allocation_ppo_inference_bundle_v2` bind
+the complete schema, including F once. Strict reconstruction validates layout,
+capital, horizon, feature order and terminal semantics before deserialization;
+actual loaded model spaces are checked before prediction. Default v1 recipe,
+receipt and bundle bytes are unchanged. True horizon/insolvency termination uses
+an all-zero sentinel with terminated=True/truncated=False, without live reading.
+SB3 autoresets to live state; its done mask excludes terminal critic contribution.
+Only nonterminal rollout boundaries permit bootstrap. Truncation is not generated.
+
+V2 adds an actual-input receipt: actor `obs_tensor` rows, rollout-end `new_obs`
+with done/current/last-transition indices, and separate terminal-info sentinels.
+Each event hashes immutable C-order little-endian float32 bytes framed by 8-byte
+big-endian header/data lengths and canonical phase/index/reset metadata. Actor
+count equals actual timesteps; boundary count equals completed rollouts. Empty
+phases require SHA256(empty). These consistency receipts authenticate neither
+sources nor fitting and do not record RNG/account restart state. Terminal counts
+also agree with sampled reset starts and horizon-ending decisions. Correspondence
+of boundary new_obs to current SB3 critic tensors is checked by independent spies.
+Dataset-source
+receipts keep their existing sampled-row meaning. Ages/reservations, native ID
+priority, fit-only preprocessing and a complete training protocol remain separate.

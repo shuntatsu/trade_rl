@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import gymnasium as gym
@@ -15,6 +16,7 @@ from trade_rl.evaluation.allocation_decision import (
     execute_allocation_action,
     prepare_allocation_decision,
 )
+from trade_rl.evaluation.allocation_snapshot import snapshot_allocation_account
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
 from trade_rl.evaluation.objectives import BoundObjectiveClock, net_equity_increment
 from trade_rl.evaluation.rl_allocation.binding import validate_runtime_binding
@@ -28,12 +30,17 @@ from trade_rl.strategies.allocation_action import (
     AllocationDecision,
 )
 from trade_rl.strategies.forecasts.simple_stream import FrozenSimpleReturnStream
+from trade_rl.strategies.rl.allocation_observation_encoder_v2 import (
+    encode_allocation_observation_v2,
+)
+from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservationSchema
 from trade_rl.strategies.rl.allocation_policy import (
     ALLOCATION_OBSERVATION_FIELDS,
     AllocationRuntimeProfile,
     allocation_recipe_payload,
     encode_allocation_observation,
 )
+from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
 
 
 class AllocationTradingEnv(gym.Env):
@@ -61,12 +68,14 @@ class AllocationTradingEnv(gym.Env):
         stop_index: int,
         account_id: str,
         expected_horizon_seconds: int = 3600,
+        observation_schema: AllocationObservationSchema | None = None,
     ) -> None:
         self.dataset, self.stream, self.bound = dataset, stream, bound
         self._bound_digest = bound.digest
         self.action_contract, self.allocator = action_contract, allocator
         self.execution_cost, self.risk_config = execution_cost, risk_config
         self.feature_indices = tuple(feature_indices)
+        self.observation_schema = observation_schema
         if (
             not self.feature_indices
             or len(set(self.feature_indices)) != len(self.feature_indices)
@@ -122,7 +131,9 @@ class AllocationTradingEnv(gym.Env):
         if set(self._estimates) != expected_times:
             raise ValueError("cost declarations must cover the actual decision clocks")
         self._observation_shape = (
-            len(self.feature_indices) + len(ALLOCATION_OBSERVATION_FIELDS),
+            len(self.feature_indices) + len(ALLOCATION_OBSERVATION_FIELDS)
+            if self.observation_schema is None
+            else len(self.observation_schema.fields),
         )
         self.observation_space = spaces.Box(
             -np.inf,
@@ -136,7 +147,12 @@ class AllocationTradingEnv(gym.Env):
     @property
     def recipe(self) -> dict[str, object]:
         capital, clock = self.bound.objective.capital, self.bound.clock
-        return allocation_recipe_payload(
+        arguments: dict[str, Any] = {}
+        builder: Callable[..., dict[str, object]] = allocation_recipe_payload
+        if self.observation_schema is not None:
+            builder = allocation_recipe_payload_v2
+            arguments["observation_schema"] = self.observation_schema
+        return builder(
             self.action_contract,
             tuple(self.dataset.feature_names[i] for i in self.feature_indices),
             allocator=self.allocator,
@@ -151,6 +167,7 @@ class AllocationTradingEnv(gym.Env):
                 calendar_kind=MarketCalendarKind(self.dataset.calendar_kind).value,
                 execution_bar_hours=self.dataset.bar_hours,
             ),
+            **arguments,
         )
 
     @property
@@ -211,6 +228,22 @@ class AllocationTradingEnv(gym.Env):
 
     def _observation(self) -> np.ndarray:
         self.decision = self._prepare()
+        if self.observation_schema is not None:
+            snapshot = snapshot_allocation_account(
+                self.executor,
+                self.book,
+                self.order_book,
+                account_id=self.account_id,
+                pretrade_risk=self.risk,
+                symbol_index=self.symbol_index,
+                start_index=self.index,
+            )
+            return encode_allocation_observation_v2(
+                snapshot,
+                self.decision,
+                schema=self.observation_schema,
+                episode_steps=self.stop_index - self.start_index,
+            )
         return encode_allocation_observation(
             self.decision, episode_steps=self.stop_index - self.start_index
         )
@@ -238,6 +271,8 @@ class AllocationTradingEnv(gym.Env):
             as_of_index=self.start_index,
             as_of_dataset_id=self.dataset.dataset_id,
         )
+        if self.observation_schema is not None:
+            self.executor._update_margin(self.book)
         self.order_book, self.index = OrderBookState.empty(), self.start_index
         self._terminated = False
         return self._observation(), {"symbol": self.dataset.symbols[self.symbol_index]}

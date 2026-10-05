@@ -15,6 +15,15 @@ from trade_rl.strategies.rl.allocation_training_receipt import (
 )
 
 ALLOCATION_BUNDLE_SCHEMA = "allocation_ppo_inference_bundle_v1"
+ALLOCATION_BUNDLE_SCHEMA_V2 = "allocation_ppo_inference_bundle_v2"
+
+
+def allocation_bundle_schema(recipe: dict[str, Any]) -> str:
+    if recipe.get("schema") == "allocation_ppo_recipe_v1":
+        return ALLOCATION_BUNDLE_SCHEMA
+    if recipe.get("schema") == "allocation_ppo_recipe_v2":
+        return ALLOCATION_BUNDLE_SCHEMA_V2
+    raise ValueError("unsupported allocation recipe version")
 
 
 def _mapping(value: object, keys: set[str], field: str) -> dict[str, Any]:
@@ -37,11 +46,11 @@ def validate_allocation_manifest(
     if require_policy or isinstance(normalized, dict) and "policy_sha256" in normalized:
         keys.add("policy_sha256")
     manifest = _mapping(normalized, keys, "allocation manifest")
-    if manifest["schema"] != ALLOCATION_BUNDLE_SCHEMA:
-        raise ValueError("unsupported allocation inference schema")
     if not isinstance(manifest["recipe"], dict):
         raise ValueError("allocation recipe must be a mapping")
     validate_allocation_recipe(manifest["recipe"])
+    if manifest["schema"] != allocation_bundle_schema(manifest["recipe"]):
+        raise ValueError("unsupported allocation inference/recipe version pairing")
     require_sha256(manifest["recipe_digest"], field="recipe_digest")
     if content_digest(manifest["recipe"]) != manifest["recipe_digest"]:
         raise ValueError("allocation recipe digest differs from its payload")

@@ -1,17 +1,11 @@
-"""Prefix-only Ridge generation and consumption of frozen forecast packets."""
+"""Prefix-only Ridge generation of frozen forecast packets."""
 
 from __future__ import annotations
 
 import math
-from bisect import bisect_right
-
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.forecasts.controller import (
-    CostAwareForecastIntentController,
-    ForecastIntentConfig,
-)
 from trade_rl.strategies.forecasts.ridge import _fit_ridge_training_set
 from trade_rl.strategies.forecasts.stream import (
     ForecastBlock,
@@ -19,13 +13,9 @@ from trade_rl.strategies.forecasts.stream import (
     FrozenForecastStream,
     RidgeForecastVintage,
     _after,
-    _ns,
     _validate_blocks,
 )
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
-from trade_rl.strategies.forecasts.training_trace import _timestamp
-from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.position_intent import PositionIntent
 
 
 def fit_prequential_ridge(
@@ -96,65 +86,4 @@ def fit_prequential_ridge(
     return FrozenForecastStream(dataset.dataset_id, tuple(vintages), tuple(packets))
 
 
-class PacketForecastStrategy:
-    """Consume a frozen causal packet stream through the existing cost proxy."""
-
-    def __init__(
-        self,
-        stream: FrozenForecastStream,
-        *,
-        entry_threshold: float,
-        exit_threshold: float,
-        one_way_switch_cost: float,
-    ) -> None:
-        if not isinstance(stream, FrozenForecastStream):
-            raise ValueError("stream must be a FrozenForecastStream")
-        self.stream = stream
-        self.controller = CostAwareForecastIntentController(
-            ForecastIntentConfig(entry_threshold, exit_threshold),
-            one_way_switch_cost=one_way_switch_cost,
-        )
-        grouped: dict[tuple[str, str], list[ForecastPacket]] = {}
-        for packet in stream.packets:
-            grouped.setdefault((packet.vintage_digest, packet.symbol), []).append(
-                packet
-            )
-        self._packets = {
-            key: tuple(sorted(packets, key=lambda p: p.as_of))
-            for key, packets in grouped.items()
-        }
-        # Within a block readiness is as_of + the fixed inference delay.
-        self._ready_times = {
-            key: tuple(_ns(p.forecast_available_at) for p in packets)
-            for key, packets in self._packets.items()
-        }
-        self._block_starts = tuple(
-            _ns(v.block.prediction_start) for v in stream.vintages
-        )
-
-    def decide(self, observation: StrategyObservation) -> PositionIntent:
-        timestamp = _timestamp(observation.timestamp, field="decision_time")
-        block_index = bisect_right(self._block_starts, _ns(timestamp)) - 1
-        if block_index >= 0:
-            owner = self.stream.vintages[block_index]
-            if timestamp < owner.block.prediction_stop:
-                key = (owner.digest, observation.symbol)
-                ready_index = (
-                    bisect_right(self._ready_times.get(key, ()), _ns(timestamp)) - 1
-                )
-                if ready_index >= 0:
-                    newest = self._packets[key][ready_index]
-                    if timestamp < newest.horizon_end:
-                        return self.controller.decide(
-                            newest.forecast_log_return,
-                            current=observation.current_intent,
-                        )
-        raise ValueError(
-            "no ready unexpired forecast in the active block for this symbol"
-        )
-
-
-__all__ = [
-    "PacketForecastStrategy",
-    "fit_prequential_ridge",
-]
+__all__ = ["fit_prequential_ridge"]

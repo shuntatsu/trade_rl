@@ -870,7 +870,9 @@ than exposing another symbol's unavailable mark. Exact order remainders derive
 from requested quantity minus exact cumulative fills, not reporting floats.
 
 The producer detaches before cache-refreshing account reads and validates orders
-through their existing native reader. IDs/digests are evidence, not numeric
+through their existing native reader. Filled active remainders within native
+completion tolerance are rejected using the canonical order owner's rule.
+IDs/digests are evidence, not numeric
 policy inputs. DTO structural checks do not prove source/account authenticity;
 bootstrap clock and account ID remain caller declarations. This is neither a
 numeric observation encoder nor a terminal reader. Ages, free/reserved cash,

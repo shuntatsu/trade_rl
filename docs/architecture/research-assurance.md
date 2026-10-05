@@ -1104,6 +1104,7 @@ submission / eligibility前のtransition、不可能なactive status / filled pr
 partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
 SUBMITTEDは未処理、LATENCY_WAITは処理済みのtransition clockを要求し、
 待機statusと処理記録が矛盾する宣言も拒否する。
+約定数量ゼロには約定金額ゼロを要求するが、nativeが許す部分約定の金額ゼロは保持する。
 structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
 学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。
 
@@ -1116,6 +1117,8 @@ does not assert complete policy state, historical authenticity or market value.
 G1 fixes live independent-symbol, MARKET/zero-extra-latency scope, a known
 Dataset/index clock, selected-source availability and caller-refreshed margin.
 The producer uses native context/order validation and a detached margin check.
+It reuses native fill-completion tolerance to reject already-completed active
+remainders; the lower DTO separately rejects nonzero notional without fills.
 Selected-only vectors retain the global symbol slot; full native state/history
 binds the source digest. The DTO checks structure, exact signed quantities and
 compatible order clocks. No cash reservation, age, terminal-reader or numerical

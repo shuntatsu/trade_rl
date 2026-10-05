@@ -500,7 +500,7 @@ def test_producer_rejects_completed_triggered_active_order():
         evidence_version=1,
     )
     assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
-    with pytest.raises(ValueError, match="progress"):
+    with pytest.raises(ValueError, match="completion"):
         capture(executor, book, risk, OrderBookState.empty().add(pending))
 
 
@@ -515,3 +515,69 @@ def test_producer_rejects_native_reader_accepted_impossible_waiting_state(status
     assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
     with pytest.raises(ValueError, match="waiting status"):
         capture(executor, book, risk, OrderBookState.empty().add(pending))
+
+
+def native_phase(executor, status):
+    pending = order(executor)
+    if status == OrderStatus.LATENCY_WAIT:
+        return pending.mark_latency_wait(processing_index=0)
+    if status in (OrderStatus.ELIGIBLE, OrderStatus.TRIGGERED):
+        pending = pending.mark_eligible(processing_index=1)
+    if status == OrderStatus.TRIGGERED:
+        pending = pending.mark_triggered(processing_index=1)
+    return pending
+
+
+@pytest.mark.parametrize(
+    "status",
+    (
+        OrderStatus.SUBMITTED,
+        OrderStatus.LATENCY_WAIT,
+        OrderStatus.ELIGIBLE,
+        OrderStatus.TRIGGERED,
+    ),
+)
+def test_producer_rejects_positive_notional_without_any_filled_quantity(status):
+    executor, book, risk = runtime()
+    pending = replace(native_phase(executor, status), cumulative_filled_notional=1.0)
+    assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
+    with pytest.raises(ValueError, match="notional"):
+        capture(executor, book, risk, OrderBookState.empty().add(pending))
+
+
+@pytest.mark.parametrize(
+    "status", (OrderStatus.PARTIALLY_FILLED, OrderStatus.TRIGGERED)
+)
+def test_producer_rejects_active_remainder_that_native_fill_has_already_completed(
+    status,
+):
+    executor, book, risk = runtime()
+    cumulative = Fraction(999999999999999, 1000000000000000)
+    original = native_phase(executor, OrderStatus.TRIGGERED)
+    completed = original.apply_fill(
+        quantity=float(cumulative), notional=1.0, processing_index=1
+    )
+    assert completed.status == OrderStatus.FILLED
+    assert completed.remaining_quantity == 0.0
+    pending = replace(
+        original,
+        status=status,
+        cumulative_filled_quantity=project_quantity(cumulative),
+        remaining_quantity=project_quantity(1 - cumulative),
+        exact_cumulative_filled_quantity=str(cumulative),
+        cumulative_filled_notional=1.0,
+    )
+    assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
+    with pytest.raises(ValueError, match="completion"):
+        capture(executor, book, risk, OrderBookState.empty().add(pending))
+
+
+def test_public_partial_fill_with_zero_notional_remains_observable():
+    executor, book, risk = runtime()
+    pending = native_phase(executor, OrderStatus.TRIGGERED).apply_fill(
+        quantity=0.5, notional=0.0, processing_index=1
+    )
+    assert pending.status == OrderStatus.PARTIALLY_FILLED
+    item = capture(executor, book, risk, OrderBookState.empty().add(pending))
+    assert item.active_orders[0]["exact_cumulative_filled_quantity"] == "1/2"
+    assert item.active_orders[0]["cumulative_filled_notional"] == 0.0

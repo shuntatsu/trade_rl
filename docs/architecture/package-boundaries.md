@@ -669,4 +669,6 @@ order reader and observable tradability API. Canonical margin validation uses a
 detached clone; simulation remains the sole ledger/order-transition owner.
 Neither observer changes source account/order state or execution randomness.
 One-slot vectors retain the global symbol index; full native account/history
-identity remains digest-bound. Existing allocation/PPO APIs are unchanged.
+identity remains digest-bound. Native completion tolerance stays owned by the
+order module and is reused by the observer, not copied into the lower DTO.
+Existing allocation/PPO APIs are unchanged.

@@ -1455,6 +1455,8 @@ active MARKET-order evidence. Selected-only vectors preserve the global symbol
 slot; a source digest retains full account/history identity. It requires a known
 matching clock, currently available selected market source, native order
 validation and already-refreshed canonical margin, including bootstrap setup.
+Impossible waiting clocks and zero-fill/nonzero-notional records are rejected;
+completed active remainders are checked with native completion tolerance.
 Its cloned checks preserve source book/cache, orders and execution randomness.
 
 Pure no-fit tests cover exact fractions, direction/clock/schema counterexamples,

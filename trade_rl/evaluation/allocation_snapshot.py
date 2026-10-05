@@ -13,7 +13,11 @@ from trade_rl.evaluation.allocation import _context
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import MarketExecutor
-from trade_rl.simulation.orders.model import OrderBookState, PendingOrder
+from trade_rl.simulation.orders.model import (
+    OrderBookState,
+    PendingOrder,
+    _quantity_tolerance,
+)
 from trade_rl.simulation.quantities import exact_quantity, parse_quantity
 from trade_rl.strategies.allocation_snapshot import AllocationAccountSnapshot
 
@@ -59,7 +63,20 @@ def snapshot_allocation_account(
     )
     for order in (*order_book.active_orders, *order_book.terminal_orders):
         # Raw dataclass construction does not enforce canonical intent identity.
-        PendingOrder.from_mapping(asdict(order))
+        restored = PendingOrder.from_mapping(asdict(order))
+        if (
+            not restored.terminal
+            and restored.cumulative_filled_quantity != 0
+            and abs(restored.remaining_quantity)
+            <= _quantity_tolerance(
+                restored.intent.requested_quantity,
+                restored.cumulative_filled_quantity,
+                restored.remaining_quantity,
+            )
+        ):
+            raise ValueError(
+                "snapshot active order is within native completion tolerance"
+            )
     # clone()/exact_quantities may refresh BookState's replacement cache.
     detached = deepcopy(book)
     context = _context(

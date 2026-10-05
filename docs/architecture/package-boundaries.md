@@ -251,6 +251,11 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。strategyのa
 
 ### `simulation`
 
+`MarketExecutor` owns the opt-in insolvency valuation policy as part of resolved
+execution identity. Both the historical zero floor and signed marked-debt mode
+use the same `BookState` ledger and terminal quantity/margin transition. Strategy
+and evaluation consumers must not implement a second debt or profit ledger.
+
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and

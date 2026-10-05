@@ -5,8 +5,10 @@ on:
     branches-ignore:
       - provenance/branch-retention
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
+      - 'codex/**'
   pull_request_review:
     types: [submitted, edited, dismissed]
 
@@ -17,7 +19,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -93,8 +95,11 @@ jobs:
           fi
 
   core:
-    name: Lean Core
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: Lean Core${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -200,8 +205,11 @@ jobs:
 
 
   ppo-runtime:
-    name: PPO Runtime
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: PPO Runtime${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -223,8 +231,11 @@ jobs:
         run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py
 
   guide:
-    name: Human Guide
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    name: Human Guide${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.pull_request.base.ref == 'main' || startsWith(github.event.pull_request.base.ref, 'codex/'))
     runs-on: ubuntu-latest
     env:
       GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -286,11 +297,12 @@ jobs:
           retention-days: 14
 
   independent-review:
-    name: Generic Independent Research Review
+    name: Generic Independent Research Review${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
       github.event.pull_request.head.ref != 'research/ppo-4h-indicator-smoke'
     runs-on: ubuntu-latest
     permissions:
@@ -304,12 +316,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$CORE_RESULT" = "success"
-          if [ -n "$PPO_RESULT" ] && [ "$PPO_RESULT" != "skipped" ]; then
-            test "$PPO_RESULT" = "success"
-          fi
-          if [ -n "$GUIDE_RESULT" ] && [ "$GUIDE_RESULT" != "skipped" ]; then
-            test "$GUIDE_RESULT" = "success"
-          fi
+          test "$PPO_RESULT" = "success"
+          test "$GUIDE_RESULT" = "success"
 
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -372,11 +380,12 @@ jobs:
           fi
 
   ppo-4h-independent-review:
-    name: Independent Research Review
+    name: Independent Research Review${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}
     needs: [core, ppo-runtime, guide]
     if: >-
       always() &&
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      (github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base) &&
       github.event.pull_request.head.ref == 'research/ppo-4h-indicator-smoke'
     runs-on: ubuntu-latest
     steps:

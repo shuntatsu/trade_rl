@@ -877,3 +877,20 @@ policy inputs. DTO structural checks do not prove source/account authenticity;
 bootstrap clock and account ID remain caller declarations. This is neither a
 numeric observation encoder nor a terminal reader. Ages, free/reserved cash,
 shared accounts, account restart and research/execution authorization are absent.
+
+## Allocation observation v2 layout declaration
+
+`strategies/rl/allocation_observation_v2.py` defines the immutable
+`allocation_account_observation_v2` layout. Its required constructor fields are
+ordered feature names, order-slot limit K (1..64), fixed initial capital and
+normalization episode steps. Capital normalizes to the same positive finite
+native float used by AllocationDecision. Detached payload/digest bind these
+four declarations and the complete `F+9+13+24K` ordered field names.
+
+The nine forecast/baseline, thirteen account and twenty-four per-order fields
+separate current/historical drawdown, signed quantity notionals, margin facts,
+TIF/status and optional-clock masks. The payload declares conservative economic
+float32 projection, guarded raw features, exact economic sorting, rejected slot
+overflow and zero padding. These are requirements for a subsequent encoder;
+this module currently generates no numeric observation and reads no snapshot.
+Existing allocation v1 recipes/tensors and policy consumers are unchanged.

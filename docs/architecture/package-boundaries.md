@@ -672,3 +672,15 @@ One-slot vectors retain the global symbol index; full native account/history
 identity remains digest-bound. Native completion tolerance stays owned by the
 order module and is reused by the observer, not copied into the lower DTO.
 Existing allocation/PPO APIs are unchanged.
+
+## Allocation observation v2 declaration ownership
+
+`strategies/rl/allocation_observation_v2.py` owns only the frozen typed schema,
+ordered layout, detached payload and digest. Its public export is
+`AllocationObservationSchema`; no numeric encoder is exported. Its direct
+imports contain no NumPy, account/decision reader, evaluation, simulation, risk
+or optional trainer. The existing `strategies.rl` package initializer retains
+its current imports; this check does not claim transitive runtime independence.
+The declaration introduces no schema dispatch or v1 recipe migration. A later
+pure encoder can implement this same declaration using the lower snapshot and
+AllocationDecision; runtime source admission and PPO integration remain above it.

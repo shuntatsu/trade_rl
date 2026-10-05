@@ -1466,3 +1466,12 @@ Common policy-state integration, train-only preprocessing, sampling, continuous
 walk-forward and complete trial registration remain separate work. No market
 result, G4/G5 approval, unused-future opening or live eligibility is established;
 integration still requires final-head full CI and formal independent approval.
+
+## Issue #810: allocation observation v2 declaration candidate
+
+The lower immutable schema now declares ordered `F+9+13+24K` field names and
+binds feature names, bounded order slots, fixed capital and episode normalization
+length. Software tests cover layout/identity, detachment and constructor failures.
+The numeric encoder, snapshot-to-policy binding and PPO consumer are not
+implemented in this stage. Allocation v1 recipes/tensors remain unchanged.
+There is no new fit/replay, market result, research approval or live eligibility.

@@ -1132,3 +1132,21 @@ margin, unavailable marks and future-suffix invariance at fixed declared identit
 These no-fit fixtures do not independently establish account/source provenance.
 Full exact-head verification, formal independent research approval and a
 preregistered G4 contract remain required before new economic evidence.
+
+## Allocation observation v2 declaration assurance
+
+G0 asks whether an immutable, versioned layout can fix future input meaning
+without changing the allocation v1 recipe or tensor. This stage defines a
+contract; it does not demonstrate numerical account/order encoding.
+
+G1 requires unique ordered feature names, K in 1..64, positive finite native
+capital and positive episode steps. The digest binds all four fields, the
+`F+9+13+24K` layout and declared projection/sorting/padding/overflow semantics.
+Those algorithm identifiers are obligations for the subsequent encoder, not
+evidence that arithmetic, causal offsets or native order priority were executed.
+
+G2 no-fit tests check strict types/bounds, field order/namespaces, required
+identity fields, detached payloads and native capital overflow/underflow.
+Architecture tests reject direct runtime/numeric imports and encoder publication.
+Snapshot binding, arithmetic/mask oracles, PPO train/load parity, formal research
+approval and preregistered G4/G5 economic evidence remain separate requirements.

@@ -28,7 +28,9 @@
     "AllocationAccountSnapshot",
     "口座スナップショット",
     "未約定注文",
-    "snapshot_allocation_account"
+    "snapshot_allocation_account",
+    "AllocationObservationSchema",
+    "allocation_account_observation_v2"
   ],
   "source_sections": [
     {
@@ -65,6 +67,16 @@
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: pure allocation observation v2 encoder candidate",
       "sha256": "4fe8a476aefc4d9cb6672296c6b9005e314f726f45eccc21d59bf778f5566f90"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 layout declaration",
+      "sha256": "8a5f521133982db0981d9696d196385ae00d08c16551c8731c4414d1ccddeb63"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: allocation observation v2 declaration candidate",
+      "sha256": "d1ecf0905e62a9e19e4f16fc6eeaa0784aba8367f4f39e5dd0230642a6e82d5e"
     }
   ],
   "code_references": [
@@ -330,6 +342,31 @@
       "tests": [
         "tests/strategies/test_allocation_observation_encoder_v2.py",
         "tests/architecture/test_allocation_observation_encoder_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-schema",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2.AllocationObservationSchema",
+      "kind": "class",
+      "source_sha256": "55ffa21952bb771f17fea57ec5e63b53c6326f7c6d8c911805a6c71efd517340",
+      "label_ja": "配分口座の数値列を宣言する",
+      "description_ja": "入力特徴順序・注文枠・固定初期資本・episode長を必須にし、列名とencoderの意味を不変のpayloadに固定します。宣言自体は数値配列を生成せず、既存v1 recipeも変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py",
+        "tests/architecture/test_allocation_observation_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-native-capital",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2._native_capital",
+      "kind": "function",
+      "source_sha256": "4e413559aeee56bbd249849b265902f49a41c4ea770dd174bc8d0150b14dd919",
+      "label_ja": "固定初期資本の表現を揃える",
+      "description_ja": "資本を正の有限なnative floatへ揃え、bool・非数値・overflow・ゼロに潰れる値を拒否します。市場データの正規化や学習用fitを行う機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py"
       ]
     }
   ]

@@ -289,7 +289,7 @@
       "id": "allocation-snapshot-observer",
       "symbol": "trade_rl.evaluation.allocation_snapshot.snapshot_allocation_account",
       "kind": "function",
-      "source_sha256": "dcaf4c61cb1763083a624931ebf99f38d4562a0c14cd6466b930d33b4a740c0e",
+      "source_sha256": "241b493136a3e96115e5b87013b6ea8b3dd7568e3a0dae947e841a051f849e9b",
       "label_ja": "実口座から現在の状態を読み出す",
       "description_ja": "生存中の独立口座をコピーして、既知の処理時刻・公開済み選択銘柄・既存注文・更新済みmarginを検査します。元の口座や注文・実行乱数を修復・変更しません。PPO用数値符号化は別段階です。",
       "variables": [],

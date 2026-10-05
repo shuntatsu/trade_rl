@@ -586,7 +586,9 @@ def test_public_partial_fill_with_zero_notional_remains_observable():
 @pytest.mark.parametrize(
     "status", (OrderStatus.PARTIALLY_FILLED, OrderStatus.TRIGGERED)
 )
-@pytest.mark.parametrize("cumulative", (Fraction(1, 10**15), Fraction(1, 10**12)))
+@pytest.mark.parametrize(
+    "cumulative", (Fraction(1, 10**325), Fraction(1, 10**15), Fraction(1, 10**12))
+)
 def test_producer_rejects_progress_below_native_minimum_fill(status, cumulative):
     executor, book, risk = runtime()
     original = native_phase(executor, OrderStatus.TRIGGERED)

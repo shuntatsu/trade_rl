@@ -707,3 +707,13 @@ recipe reconstruction and receipt consistency. Existing manifest/training/model
 validators dispatch the two supported versions; generic verified-file save/load
 is reused. No lower owner imports runtime or optional learners; no second ledger,
 Run/Study registration, default switch or new preprocessing layer is introduced.
+
+## Allocation PPO training protocol declaration ownership
+
+`strategies/rl/allocation_training_protocol.py` exports only
+`AllocationPPOTrainingProtocol`, its closed payload/reader and content digest.
+Direct dependencies are stdlib and existing stdlib canonical artifact helpers;
+there is no numerical, account, risk, evaluation or optional learner import.
+Existing package initializers are unchanged; transitive independence is not claimed.
+Class identifiers are fixed data, never arbitrary import/constructor requests.
+No protocol consumer, receipt dispatch, fit, model or facade change is added.

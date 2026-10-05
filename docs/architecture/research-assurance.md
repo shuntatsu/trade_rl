@@ -1198,3 +1198,18 @@ zero-count phase/digest inconsistencies fail before loading. Receipt integrity
 does not establish historical authenticity or a complete learning protocol.
 No market selection is performed; G4/G5, calibrated forecasts, train-only
 preprocessing/sampling and continuous-account walk-forward remain open.
+
+## Allocation PPO training declaration software prerequisite
+
+G0 asks whether a lower declaration can expose all intended pinned learning
+choices without changing existing training or implying economic improvement.
+G1 requires explicit immutable values, fixed categorical CPU identifiers,
+constant schedules, gamma 1 and exact single-account minibatches. Version tokens
+declare intended semantics; they do not verify an installed runtime or bind a clock.
+G2 independent literal payload/stdlib digest oracles cover all variable identity,
+detachment, required settings, nested closure, bool/numeric collisions, mutable
+tuple subclasses, non-JSON conversions and invalid numeric/schedule/architecture
+inputs. Import checks exclude optional learners.
+No model is constructed or trained here. Actual optimizer calls, persisted raw
+action/logprob traces and delayed-payoff learning still need connected oracles.
+These software checks provide neither formal independent approval nor G4/G5 authority.

@@ -502,3 +502,16 @@ def test_producer_rejects_completed_triggered_active_order():
     assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
     with pytest.raises(ValueError, match="progress"):
         capture(executor, book, risk, OrderBookState.empty().add(pending))
+
+
+@pytest.mark.parametrize(
+    "status, last", ((OrderStatus.SUBMITTED, 1), (OrderStatus.LATENCY_WAIT, None))
+)
+def test_producer_rejects_native_reader_accepted_impossible_waiting_state(status, last):
+    executor, book, risk = runtime()
+    pending = replace(
+        order(executor), status=status, last_processed_index=last, evidence_version=1
+    )
+    assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
+    with pytest.raises(ValueError, match="waiting status"):
+        capture(executor, book, risk, OrderBookState.empty().add(pending))

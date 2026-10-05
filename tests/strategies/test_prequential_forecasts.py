@@ -11,8 +11,6 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies import forecasts
-from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.position_intent import PositionIntent
 
 
 def time(hour: float) -> np.datetime64:
@@ -47,20 +45,6 @@ def market(*, n_bars: int = 20, quadratic: bool = False) -> MarketDataset:
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
-    )
-
-
-def observation(hour: float, *, symbol: str = "BTCUSDT") -> StrategyObservation:
-    return StrategyObservation(
-        index=int(hour),
-        timestamp=time(hour),
-        symbol=symbol,
-        features=np.asarray([999.0]),
-        feature_available=np.asarray([True]),
-        global_features=np.asarray([0.0]),
-        global_feature_available=np.asarray([True]),
-        current_intent=PositionIntent.FLAT,
-        current_weight=0.0,
     )
 
 
@@ -124,53 +108,6 @@ def test_two_real_fits_produce_next_block_log_forecasts_without_future_labels() 
         assert packet.horizon_end == packet.as_of + np.timedelta64(2, "h")
         assert packet.symbol == "BTCUSDT"
     assert stream.packets[-1].horizon_end == time(21)  # Dataset ends at hour 19.
-    strategy = api.PacketForecastStrategy(
-        stream, entry_threshold=0.001, exit_threshold=0.0002, one_way_switch_cost=0.001
-    )
-    assert strategy.decide(observation(9.5)) is PositionIntent.LONG
-    assert strategy.decide(observation(15)) is PositionIntent.SHORT
-    expensive = api.PacketForecastStrategy(
-        stream, entry_threshold=0.001, exit_threshold=0.0002, one_way_switch_cost=0.03
-    )
-    assert expensive.decide(observation(9.5)) is PositionIntent.FLAT
-    assert expensive.decide(observation(15)) is PositionIntent.FLAT
-
-
-def test_strategy_uses_newest_ready_packet_instead_of_current_observation_features() -> (
-    None
-):
-    api = load_api()
-    stream = fit(api, market(quadratic=True))
-    # For x=0..5, y=.004*(x+1), Ridge alpha=1 gives slope .024/7.
-    by_time = {packet.as_of: packet for packet in stream.packets}
-    assert by_time[time(9)].forecast_log_return == pytest.approx(
-        0.014 + (9 - 2.5) * 0.024 / 7
-    )
-    assert by_time[time(10)].forecast_log_return == pytest.approx(
-        0.014 + (10 - 2.5) * 0.024 / 7
-    )
-    strategy = api.PacketForecastStrategy(
-        stream, entry_threshold=0.038, exit_threshold=0.001, one_way_switch_cost=0.0001
-    )
-    assert strategy.decide(observation(10.25)) is PositionIntent.FLAT
-    assert strategy.decide(observation(10.5)) is PositionIntent.LONG
-
-
-@pytest.mark.parametrize("hour", (8.0, 9.25, 14.0, 20.0))
-def test_missing_not_ready_or_previous_block_packet_is_rejected(
-    hour: float,
-) -> None:
-    api = load_api()
-    strategy = api.PacketForecastStrategy(
-        fit(api),
-        entry_threshold=0.001,
-        exit_threshold=0.0002,
-        one_way_switch_cost=0.001,
-    )
-    with pytest.raises(ValueError):
-        strategy.decide(observation(hour))
-    with pytest.raises(ValueError):
-        strategy.decide(observation(15, symbol="ETHUSDT"))
 
 
 def test_future_only_suffix_cannot_change_causal_stream() -> None:
@@ -204,7 +141,7 @@ def test_future_only_suffix_cannot_change_causal_stream() -> None:
     assert baseline.payload()["dataset_id"] != mutated.payload()["dataset_id"]
 
 
-def test_artifact_roundtrip_preserves_real_forecasts_and_controller() -> None:
+def test_artifact_roundtrip_preserves_real_forecasts() -> None:
     api = load_api()
     original = fit(api)
     payload = json.loads(json.dumps(original.payload(), allow_nan=False))
@@ -219,17 +156,9 @@ def test_artifact_roundtrip_preserves_real_forecasts_and_controller() -> None:
     for exported in (
         "ForecastBlock",
         "FrozenForecastStream",
-        "PacketForecastStrategy",
         "fit_prequential_ridge",
     ):
         assert getattr(forecasts, exported) is getattr(api, exported)
-    strategy = api.PacketForecastStrategy(
-        restored,
-        entry_threshold=0.001,
-        exit_threshold=0.0002,
-        one_way_switch_cost=0.001,
-    )
-    assert strategy.decide(observation(15)) is PositionIntent.SHORT
     for vintage in restored.vintages:
         for array in (vintage.model.coefficients, vintage.training.features):
             with pytest.raises(ValueError):
@@ -300,27 +229,6 @@ def test_schedule_rejects_overlapping_prediction_blocks() -> None:
             feature_indices=(0,),
             horizon_hours=2,
         )
-
-
-def test_repeated_decisions_do_not_hash_the_training_matrix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    api = load_api()
-    strategy = api.PacketForecastStrategy(
-        fit(api),
-        entry_threshold=0.001,
-        exit_threshold=0.0002,
-        one_way_switch_cost=0.001,
-    )
-
-    def unexpected_hash(_: object) -> str:
-        pytest.fail("decision path must use the already frozen identities")
-
-    stream_module = importlib.import_module("trade_rl.strategies.forecasts.stream")
-    monkeypatch.setattr(stream_module, "content_digest", unexpected_hash)
-    for hour, expected in ((9.5, PositionIntent.LONG), (15, PositionIntent.SHORT)):
-        for _ in range(5):
-            assert strategy.decide(observation(hour)) is expected
 
 
 def test_vintage_roster_and_feature_names_are_frozen_from_caller_lists() -> None:

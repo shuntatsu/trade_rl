@@ -696,3 +696,13 @@ Its direct imports exclude evaluation, simulation, risk and optional learners.
 Runtime admission stays with the observer; canonical accounting/order rules are
 not reimplemented here. Exact slot sorting is a representation choice, not
 native ID-based execution priority. There is no v1 recipe change or dispatch.
+
+## Allocation PPO training protocol declaration ownership
+
+`strategies/rl/allocation_training_protocol.py` exports only
+`AllocationPPOTrainingProtocol`, its closed payload/reader and content digest.
+Direct dependencies are stdlib and existing stdlib canonical artifact helpers;
+there is no numerical, account, risk, evaluation or optional learner import.
+Existing package initializers are unchanged; transitive independence is not claimed.
+Class identifiers are fixed data, never arbitrary import/constructor requests.
+No protocol consumer, receipt dispatch, fit, model or facade change is added.

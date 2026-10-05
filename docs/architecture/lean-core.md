@@ -916,3 +916,19 @@ unused slots are zero. IDs, digests, absolute clocks and symbol index are absent
 from numeric inputs. This sort does not reproduce native ID/capacity priority.
 The encoder reads no runtime source, invents no ages/reserved cash, establishes
 no authenticity/full Markov state and is not yet connected to PPO train/load.
+
+## Explicit allocation PPO training protocol declaration
+
+`AllocationPPOTrainingProtocol` is a separate immutable declaration with all 19
+learning settings required. Its closed resolved payload binds constant schedules,
+gamma 1, complete single-account minibatches, pi/vf tuples and explicit Adam
+settings to SB3 2.3.2 / Torch 2.4.1 categorical CPU identifiers. Tanh, orthogonal
+initialization, shared FlattenExtractor, and Adam foreach/fused false are fixed.
+Epsilon must be explicitly positive; the equivalent initial fixture uses 1e-5.
+Dormant Gaussian/image flags are declared, not categorical tuning factors.
+The reader accepts only native JSON values and rejects unknown/missing fields,
+changed fixed flags and bool/numeric collisions. Network/beta tuples must be plain
+immutable tuples. Detached payloads and normalized scalars have canonical digests.
+No learner consumes this declaration yet. Runtime clock/version validation,
+constructor, optimizer-call counters and new receipts remain separate work;
+existing recipes, defaults and v1/v2 contracts are unchanged.

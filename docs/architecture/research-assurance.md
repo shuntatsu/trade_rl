@@ -1174,3 +1174,18 @@ large intermediate products, equal projections with unequal exact order facts,
 ID/permutation invariance, absent/index-zero clocks and input nonmutation.
 V1 numeric/recipe behavior stays fixed. These fixtures are not native order
 admission or market evidence; train/load integration and G4/G5 remain unverified.
+
+## Allocation PPO training declaration software prerequisite
+
+G0 asks whether a lower declaration can expose all intended pinned learning
+choices without changing existing training or implying economic improvement.
+G1 requires explicit immutable values, fixed categorical CPU identifiers,
+constant schedules, gamma 1 and exact single-account minibatches. Version tokens
+declare intended semantics; they do not verify an installed runtime or bind a clock.
+G2 independent literal payload/stdlib digest oracles cover all variable identity,
+detachment, required settings, nested closure, bool/numeric collisions, mutable
+tuple subclasses, non-JSON conversions and invalid numeric/schedule/architecture
+inputs. Import checks exclude optional learners.
+No model is constructed or trained here. Actual optimizer calls, persisted raw
+action/logprob traces and delayed-payoff learning still need connected oracles.
+These software checks provide neither formal independent approval nor G4/G5 authority.

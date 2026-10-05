@@ -1488,3 +1488,15 @@ meaning; ID-based execution priority, ages/reservations and source authenticity
 are outside its scope. No-fit arithmetic/failure oracles and v1 behavior checks
 cover this software stage. PPO train/load/source-receipt integration, train-only
 preprocessing, continuous walk-forward and economic comparison remain open.
+
+## Issue #810: explicit allocation training protocol declaration candidate
+
+The candidate adds a pure immutable declaration with 19 required learning values
+and closed fixed SB3/Torch categorical CPU construction identifiers. A supplied
+positive Adam epsilon is always recorded; the literal initial fixture uses 1e-5.
+No-fit literal/digest and rejection oracles validate the declaration, not training.
+The current constructor, v1/v2 recipes, receipts and defaults do not consume it.
+Explicit runtime construction, actual optimizer-call receipts, durable raw-action
+evidence and delayed-payoff learnability remain next stages. Preprocessing/sampling,
+actual continuous-account handover, formal review and economic comparison remain open.
+No new market fit/replay, profitability, G4/G5 approval or live eligibility is established.

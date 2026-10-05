@@ -30,9 +30,20 @@
     "未約定注文",
     "snapshot_allocation_account",
     "AllocationObservationSchema",
-    "allocation_account_observation_v2"
+    "allocation_account_observation_v2",
+    "AllocationPPOTrainingProtocol"
   ],
   "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Explicit allocation PPO training protocol declaration",
+      "sha256": "4705a09c4f1df9796f77f9ae09da05678f18bab69b9ce91969e2935121c27e89"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: explicit allocation training protocol declaration candidate",
+      "sha256": "e7b9be3120e4299953d500893e512f5aa423ecaddafd3ae397cc497dc9212b01"
+    },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Opt-in allocation PPO account transition",
@@ -80,6 +91,19 @@
     }
   ],
   "code_references": [
+    {
+      "id": "allocation-training-protocol",
+      "symbol": "trade_rl.strategies.rl.allocation_training_protocol.AllocationPPOTrainingProtocol",
+      "kind": "class",
+      "source_sha256": "4ab0dede1f4eb65c476c137b8cc941f73aed0334b3c87027c152ce951faeade1",
+      "label_ja": "配分PPOの不変な学習設定宣言",
+      "description_ja": "19の学習設定を必須にし、固定したcategorical CPU識別子と全フラグを閉じたpayloadへ保持します。既存の学習・receiptへは未接続で、モデルを構築しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_training_protocol.py",
+        "tests/architecture/test_allocation_training_protocol_boundary.py"
+      ]
+    },
     {
       "id": "allocation-environment",
       "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",

@@ -740,3 +740,22 @@ reader/digest and feature-only transform, composing existing numerical statistic
 Neither owner imports account/risk processing or optional learners; the lower
 owner does not import the upper fitter. There is no runtime consumer, new facade,
 online normalization or sampler; existing legacy preprocessing remains unchanged.
+
+## Stacked PR verification routing
+
+`.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through
+Lean Core, PPO Runtime and Human Guide at the PR's exact head SHA. PR opened,
+synchronize and reopened events run these jobs; PR edited runs them only when
+the payload contains `changes.base`. Body/title edits skip the same software
+and review jobs, while submitted/edited/dismissed review events remain eligible.
+Metadata-only PR edits use a separate concurrency group and suffixed job names,
+so they neither cancel full verification nor replace its named checks with skips.
+All other events retain the existing group, check names and cancellation policy.
+Both generic and 4h review gates require all three software jobs to succeed;
+empty, skipped, pending and failed results cannot satisfy that prerequisite.
+Review events on an unsupported base still run the appropriate review gate,
+which rejects the skipped software jobs instead of reporting a skipped gate.
+The existing head-based choice of review checker remains unchanged. Routing
+does not grant formal approval or relax the integration requirement that the
+tested final head contains current `main`; live exact-head checks are still
+required before merge. Push and one-shot research execution routing is unchanged.

@@ -21,9 +21,23 @@
     "training_layout",
     "sequential",
     "interleaved",
-    "DummyVecEnv"
+    "DummyVecEnv",
+    "配分PPO",
+    "固定初期資本",
+    "残差配分",
+    "AllocationAccountSnapshot",
+    "口座スナップショット",
+    "未約定注文",
+    "snapshot_allocation_account",
+    "AllocationObservationSchema",
+    "allocation_account_observation_v2"
   ],
   "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Opt-in allocation PPO account transition",
+      "sha256": "cd950771b3ffd6890b82c920778b38a2f8a6933d3ab270666e00abe088644565"
+    },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "PPO Observation v2",
@@ -33,9 +47,63 @@
       "path": "docs/research/current-status.md",
       "heading": "PPO",
       "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Immutable allocation account snapshot contract",
+      "sha256": "307448f0caf7435c5d2ea6b33786197fdd0b142c35a9850b5da2b732b4162429"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Independent account snapshot observer",
+      "sha256": "b2ff80ce198fd8a2dec1bf12295531c253b1e271fcabf556de42a9a98c6f759b"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 pure encoder",
+      "sha256": "13b809b923cdb1f9b40b11429e6ea655d3d6b376db339dace8f0485e42aee714"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: pure allocation observation v2 encoder candidate",
+      "sha256": "7a50166c9cf9a077c1a045e4bbf662386094427270cbe822803a839376ff359b"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 layout declaration",
+      "sha256": "8a5f521133982db0981d9696d196385ae00d08c16551c8731c4414d1ccddeb63"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: allocation observation v2 declaration candidate",
+      "sha256": "0d94893d6aa1add1b0b50404ad9db400737d0a667ad2f077ec36676fafc5b643"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 runtime connection",
+      "sha256": "cbec0f1856fddbb62c1558a7f5c3340156a46d084da2831cde3d0e9d32c7cfa9"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: allocation observation v2 runtime candidate",
+      "sha256": "e528c53795631bda6257a8f6a52b18efc7fd0909b824667b94d0e5ed9363e4c2"
     }
   ],
   "code_references": [
+    {
+      "id": "allocation-environment",
+      "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
+      "kind": "class",
+      "source_sha256": "d50952fdcc2fd31a697ae259a40491df6404740ec5f7a50c2c70df1529f0c759",
+      "label_ja": "独立口座の配分PPO環境",
+      "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。既定v1を保ち、明示v2では更新済みmarginと生存口座のsnapshotを読みます。真の終了は全0通知になり、truncationは生成しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_rl_env.py",
+        "tests/evaluation/test_allocation_rl_observation_v2.py",
+        "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
     {
       "id": "encode-observation",
       "symbol": "trade_rl.strategies.rl.intent._encode_observation",
@@ -223,6 +291,130 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "allocation-account-snapshot",
+      "symbol": "trade_rl.strategies.allocation_snapshot.AllocationAccountSnapshot",
+      "kind": "class",
+      "source_sha256": "0694fd0336798c43ec54de29a8f5e9b138aa2c91a1392941f0b26aa6f6af1522",
+      "label_ja": "不変の口座・注文スナップショット",
+      "description_ja": "申告された生存中の独立口座について、選択銘柄の事実と未約定注文を深く不変化します。口座からの読み出しやPPO用数値符号化はこの段階に含みません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py",
+        "tests/architecture/test_allocation_snapshot_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-order-snapshot-shape",
+      "symbol": "trade_rl.strategies.allocation_snapshot._order_shape",
+      "kind": "function",
+      "source_sha256": "6e3bd5819faffcb8525b60e2b2510bcc69c20bca2badb7a54541cb8ac3f482a3",
+      "label_ja": "未約定注文の数量と時刻を検査する",
+      "description_ja": "MARKET注文の申告時刻・処理時刻・状態と正確な約定進捗の整合性を確認します。注文履歴の真正性や経済的な採用資格を判定する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py"
+      ]
+    },
+    {
+      "id": "allocation-snapshot-observer",
+      "symbol": "trade_rl.evaluation.allocation_snapshot.snapshot_allocation_account",
+      "kind": "function",
+      "source_sha256": "241b493136a3e96115e5b87013b6ea8b3dd7568e3a0dae947e841a051f849e9b",
+      "label_ja": "実口座から現在の状態を読み出す",
+      "description_ja": "生存中の独立口座をコピーして、既知の処理時刻・公開済み選択銘柄・既存注文・更新済みmarginを検査します。元の口座や注文・実行乱数を修復・変更しません。PPO用数値符号化は別段階です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_snapshot.py",
+        "tests/architecture/test_allocation_snapshot_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-encoder",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_encoder_v2.encode_allocation_observation_v2",
+      "kind": "function",
+      "source_sha256": "ea5b2707168b8c2f79b25425465b815c7c53af6238346adbbd0ef94793b6fe02",
+      "label_ja": "配分口座・未約定注文を数値化",
+      "description_ja": "一致する口座スナップショットと配分判断を、固定初期資本・期間・特徴量順・注文枠に対応する新しいfloat32配列へ写します。正確な経済値を丸める前に注文を並べます。上位の明示v2環境が同じencoderを使います。",
+      "variables": [
+        {
+          "name": "values",
+          "label_ja": "正確な経済比率",
+          "description_ja": "予測・基準配分と口座状態、注文スロットを宣言の順序で保持し、経済値の絶対値を増やさないfloat32射影へ渡します。"
+        },
+        {
+          "name": "rows",
+          "label_ja": "未約定注文の数値列",
+          "description_ja": "正確な数量・金額比率・相対時刻などで並べます。注文IDは数値に含めず、この並びは実際の約定処理の優先順位を表しません。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_allocation_observation_encoder_v2.py",
+        "tests/architecture/test_allocation_observation_encoder_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-schema",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2.AllocationObservationSchema",
+      "kind": "class",
+      "source_sha256": "55ffa21952bb771f17fea57ec5e63b53c6326f7c6d8c911805a6c71efd517340",
+      "label_ja": "配分口座の数値列を宣言する",
+      "description_ja": "入力特徴順序・注文枠・固定初期資本・episode長を必須にし、列名とencoderの意味を不変のpayloadに固定します。宣言自体は数値配列を生成せず、既存v1 recipeも変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py",
+        "tests/architecture/test_allocation_observation_v2_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-native-capital",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_v2._native_capital",
+      "kind": "function",
+      "source_sha256": "4e413559aeee56bbd249849b265902f49a41c4ea770dd174bc8d0150b14dd919",
+      "label_ja": "固定初期資本の表現を揃える",
+      "description_ja": "資本を正の有限なnative floatへ揃え、bool・非数値・overflow・ゼロに潰れる値を拒否します。市場データの正規化や学習用fitを行う機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_observation_v2.py"
+      ]
+    },
+    {
+      "id": "allocation-recipe-v2",
+      "symbol": "trade_rl.strategies.rl.allocation_recipe_v2.allocation_recipe_payload_v2",
+      "kind": "function",
+      "source_sha256": "2070189503bbaac18d058d23741ed100fff2a7d11cbd4dea77de50542785f119",
+      "label_ja": "配分観測v2の保存契約",
+      "description_ja": "特徴順・資本・期間をruntimeと一致させ、全列と真の終了・bootstrapの意味を別versionのrecipeへ固定します。既存v1のpayloadを変更しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_recipe_v2.py"
+      ]
+    },
+    {
+      "id": "allocation-consumed-inputs",
+      "symbol": "trade_rl.evaluation.rl_allocation.input_receipt.AllocationInputRecorder",
+      "kind": "class",
+      "source_sha256": "96e2e81bd24e25dce67e0f1dcc816def615e8aef2fd2171e8a0ca9cfedfd80b6",
+      "label_ja": "実際のactor入力と境界入力を記録する",
+      "description_ja": "actorのobs_tensor、rollout末尾のnew_obsと終了状態、別の終了通知をphaseごとにhashと件数へ写します。各イベントのfloat32 bytesと時刻・resetの意味を固定し、環境が生成しただけの行と区別します。真正性やRNG再開の証明ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_recipe_v2.py"
+      ]
+    },
+    {
+      "id": "fit-allocation-ppo",
+      "symbol": "trade_rl.evaluation.rl_allocation.training.fit_allocation_ppo",
+      "kind": "function",
+      "source_sha256": "ec3c86f2555d1e36f141bda3ce74d6b52cbeae2103561a325562795daee27a6c",
+      "label_ja": "明示した独立口座だけで配分PPOを学習する",
+      "description_ja": "既存の学習手順を保ち、供給されたepisodeの実budgetとsourceを記録します。v2では消費入力記録を加え、recipeに合うbundle versionを使います。市場の研究承認や完全な学習設定の契約を新設する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py"
       ]
     }
   ]

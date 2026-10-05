@@ -47,6 +47,36 @@ Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.n
 
 このportable contractは、同一code・config・sealed sourceから構築した完全Datasetについて、現行のUbuntu x86_64 hosted runner上の複数AMD EPYC系と複数Intel Xeon系で `features`、`global_features`、normalization digest、Dataset IDのbit-exact一致を実証済みである。一方、任意のARM、任意libm、任意platformまでの普遍的なbit-identical保証は主張しない。historical `market_build_v2` artifactは書き換えず、current readerでそのidentityのまま読み取れる互換を維持する。
 
+## Frozen prequential Ridge stream
+
+The optional forecast producer fits the existing symbol-balanced Ridge on each
+declared prefix exactly once and stores predictions only in its following,
+non-overlapping block. Both label endpoints and their recorded source publication
+must precede the cutoff. The training trace records symbols, endpoint prices and
+publication clocks; the training object and vintage bind selected features,
+sample weights and fit-only scaling/model parameters. Unused Dataset suffixes
+are excluded from causal identities.
+
+`ForecastBlock` declares historical model-completion and inference-delay
+assumptions. The stream identifies these as `declared_simulation_v1`, never as
+observed runtime receipts. Each packet binds a symbol, decision snapshot, selected
+inputs, source and forecast availability, exact horizon, conditional mean **log**
+return and model vintage. Only the newest ready, unexpired packet from the active
+block may reach the existing cost-aware intent controller. A gap, unavailable
+selected input, missing symbol or stale packet is an error, not a zero forecast.
+
+Whole-Dataset ID is stored as lineage; the separate causal scope identity covers
+only consumed fit and prediction inputs. The JSON reader requires an externally
+pinned expected content digest, checks nested identities and recipe consistency,
+and recalculates each prediction from the frozen selected input and model. It
+does not refit or authenticate the original fitting process, inspect the source
+Dataset, prove historical point-in-time availability or attest runtime latency.
+
+The existing controller's switching-cost gate is a declared log-return proxy.
+It does not estimate expected simple return, uncertainty or optimal portfolio
+allocation. There is no new ledger, candidate Run/Study integration, joint RL
+training, live execution or profitability evidence in this capability.
+
 ## Strategy contract
 
 Strategyが返すlogical intentは小さく保つ。
@@ -269,6 +299,26 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 ## Execution / accounting authority
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
+
+The opt-in `MarketExecutor.insolvency_valuation="retain_debt"` policy preserves
+signed marked equity as cash when an economic termination flattens quantity and
+margin. A short gap can therefore leave a negative terminal cash balance. The
+default `floor_zero` policy retains the historical zero floor and its existing
+execution-policy digest. The debt policy wraps the resolved economics digest
+with a distinct versioned identity; orders from the other policy are rejected.
+Validated policy assignment participates in digest-cache invalidation.
+
+In debt mode, processing stops at the first economic termination phase, including
+open marking, fills, dividends and carry. The terminating mark and diagnostics
+remain recorded, but later carry, fills and bars are not consumed. Multi-bar
+results report the actual `bars_advanced` and matching `next_index`; the legacy
+zero-floor mode keeps its historical full-interval processing.
+
+This is an absorbing marked-debt valuation, not a new liquidation execution
+model: it adds no liquidation fill, extra liquidation fee or later debt interest.
+Legacy interval net/log-return diagnostics keep their bounded semantics. New
+fixed-capital profit consumers must use signed book equity rather than those
+legacy ratios; the flag alone does not change a reward or authorize research.
 
 Weight-to-quantity sizing uses the current book's mark prices, the same valuation
 basis as its equity and weights. An entirely cash book uses the current dataset
@@ -606,3 +656,244 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Optional after-cost scalar allocation
+
+`strategies/allocation.py` owns a pure, independent-symbol allocator. Its input
+is a declared expected **simple** return from the current decision valuation to
+one explicit `horizon_end`; variance, asymmetric buy/sell costs, future exit,
+signed funding, short borrow and cash return use that same horizon. Mean log
+return cannot be converted to expected simple return by `expm1(mean_log)`.
+`source_identity` and aggregate `available_at` bind declared estimate provenance
+and availability; this software does not verify estimator receipts or calibrate
+costs. Older forecasts starting at an earlier valuation are rejected rather
+than reused as expected remaining return.
+
+For actual weight `w0`, the bounded scalar surrogate is:
+
+```text
+U(w) = cash_return * (1-w) + expected_simple_return * w
+       - risk_aversion * return_variance * w*w
+       - buy_cost * max(w-w0, 0) - sell_cost * max(w0-w, 0)
+       - exit_cost * abs(w) - funding_return * w
+       - borrow_return * max(-w, 0)
+```
+
+This is a concave piecewise quadratic with fixed exposure/optional turnover
+bounds. Endpoints, feasible kinks at zero/actual weight, and smooth stationary
+points determine its maximum. Exact ties choose actual HOLD, then minimum
+turnover, smaller absolute exposure, then signed weight; exact rational
+comparisons of the supplied IEEE coefficients prevent rounded endpoint scores
+from inventing gains on flat segments. Stationary points are represented as
+floating weights. No epsilon hides a small positive improvement. Current exposure outside the feasible interval is
+not a valid HOLD. Empty bounds and nonfinite arithmetic fail rather than pass.
+
+`evaluation/allocation.py` composes this optimizer with canonical `PreTradeRisk`
+and `MarketExecutor`. `propose_nonrl_target` builds a detached context from the
+actual `BookState`, accepted exact quantities and entire `OrderBookState`.
+The caller supplies a stable account ID; BookState itself has no account-ID
+registry. Context identity includes cash, marks, peak/latched drawdown, margin,
+termination, active and terminal orders, decision revision, dataset identity,
+execution policy and risk config. Proposal identity additionally includes every
+estimate, horizon, resolved allocator config, proposed weight and objective.
+`execute_nonrl_proposal` rejects changed or altered inputs before admission,
+recomputes the scalar proposal, and applies hard risk once. The returned
+`NonRLExecutionResult` keeps the proposal, risk target and canonical execution
+result so requested, approved and filled exposures remain distinguishable.
+
+V1 accepts only an independent-symbol account, MARKET orders, zero additional
+latency and one processing bar per call. Other-symbol positions/orders,
+nonmarket/protective orders, stale valuation marks and terminated accounts are
+rejected. Pending clocks must permit the next processing bar; already-expired
+or later-eligible residuals and future active/terminal transitions are rejected.
+The horizon must cover at least that first processing bar. Canonical margin and
+drawdown refresh on a detached BookState copy reject already-dead margin states
+and missing latched drawdown evidence; the original book is not mutated.
+Risk requires `drawdown_start < drawdown_stop <= 20%`; the canonical latched maximum
+drawdown is used. This guardrail cannot cap losses across gaps or missed fills.
+Static exposure limits are intersected before optimization; subsequent risk,
+quantization, order rejection, capacity and margin may change the submitted or
+realized allocation. Thus this is a scalar surrogate optimum **before final
+hard-risk projection**, not an executable or globally optimal net-profit claim.
+
+If final approved weights equal actual weights exactly, the execution-owned
+`execute_quantity_hold_statefully` cancels all selected-symbol pending MARKET
+orders, including reduce-only residuals, and advances without new intents or
+weight-to-quantity sizing. Canonical split/carry/mark processing still runs;
+splits change quantity units. Hard-risk reductions use the normal target path.
+Holding actual quantity differs from retaining an old partially filled target.
+The caller continues with both returned book and order book; no second ledger,
+free-cash reservation balance or execution compatibility cache is introduced.
+
+Current-close estimates remain a declared proxy because first eligible fills
+occur on the next processing bar. Future exit and carry estimates are charged
+on initial exposure in the surrogate, whereas realized costs/carry use canonical
+fills and marks. The signed self-financing cash term reflects this ledger's
+cash, including short proceeds or negative cash; it is not a universal futures
+collateral model. Existing intent replay, PPO defaults and historical artifacts
+retain their meanings. This family supplies no fit, Study, terminal-liquidation
+protocol, shared-capital solver, RL environment or live execution authorization.
+
+## Net-profit objective declarations
+
+Issue #810の新規研究向けに `evaluation/objectives` が事業目的と金融時計を宣言する。既存の独立銘柄口座、PPO log報酬、Run/Study schema、過去の選定基準は変更しない。
+
+`CapitalContract` は独立口座ごとの初期資本、または共有口座1つの初期資本を保持する。`ObjectiveContract.net_profit_rate` は `sum(terminal_equity - initial_equity - signed_net_deposits) / sum(initial_equity)` を計算する。独立口座の単純なリターン平均を共有資金の利益へ変換せず、不等資本では資本加重になる。負の終端equityも残債を含む損失として保持する。金額は同じaccount currencyのcanonical ledgerから渡す。費用をこの計算でもう一度控除しない。
+
+`net_profit_objective_v1` は期間のaware UTC境界、期末決済/継続mark評価、economics/risk/deployment recipeのSHA-256参照、20%以下の研究DD基準、税引前・固定インフラ費別報告・符号付き入出金の意味をidentityへbindする。digest参照はprofile内容の検証や執行の適合性の証明ではない。20%はgapや執行不能時にも守られる損失保証ではない。
+
+`FinancialClockContract` はregular clockのdecision/execution/reward間隔、有限horizon、rollout長、gamma、GAE lambda、reward schemaを明示する。初期契約は1 decisionにつき1 reward、execution刻みへの整合、horizonのdecision刻みへの整合を要求する。時間を揃えたdiscountを比較できるが、rollout切断と経済終端のruntime処理は実装しない。固定初期資本を分母とするequity増分の総和はgamma=1で終端純利益へ一致し、log報酬とは異なる。`terminal_profit_aligned` はこの代数的関係だけを表す。
+
+`BoundObjectiveClock` はUTC評価期間の正確な整数秒数と金融時計のeconomic horizonが一致することを要求し、両宣言のdigestを `bound_objective_clock_v1` に結び付ける。この有限評価期間はfitデータ区間や最大保有期間とは別の意味である。小数秒は丸めず拒否する。これは任意の新規bindingであり、個別宣言のconstructorを変更しない。
+
+これらは独立した宣言・算術capabilityであり、既存runner/env/Studyへ接続されていない。共有口座訓練、費用校正、最終評価、研究実行の認可、利益性は証明しない。
+
+## Direct-simple forecast allocation
+
+The separate `simple_return_ridge_stream_v1` calls the existing mature-row
+selector once per prefix, preserves row order and absolute symbol-balanced
+weights, and derives realized labels as `end_close / start_close - 1`.
+`expm1(mean_log)` does not supply an expected simple return. The shared
+numeric-only Ridge solver preserves old log model/payload arithmetic, covered
+by fixed and same-runtime regression oracles.
+
+The new model is an **uncalibrated regularized linear projection** of raw
+same-close price returns. Its expected-simple unit describes the quantity being
+estimated, not a verified conditional expectation. Its frozen
+`fit_prefix_marginal_variance` is the weighted population variance of those same
+mature labels, unannualized and in squared simple-return units. It is pooled
+across fit symbols, not conditional uncertainty, confidence, a covariance matrix
+or a loss guarantee. Absolute weights remain unchanged because rescaling them
+changes Ridge regularization.
+
+Vintages bind selected inputs, actual traced endpoints/maturity, fit-only model
+parameters and marginal variance. Packets bind decision close, selected snapshot,
+availability and exact horizon. Delayed simulation packets can be recorded;
+allocation v1 consumes only the exact current packet with completion at that
+decision and zero inference delay, without stale fallback. Nonfinite arithmetic
+or predictions below -1 fail without clipping. The reader pins an external
+content digest and checks reconstructed nested schemas, labels, variance, recipe
+and predictions; it neither refits nor independently authenticates the original
+fit or historical source availability.
+
+`evaluation.forecast_allocation` checks Dataset lineage, symbol, selected feature
+names/values/availability and exact clocks. Packet close, Dataset close/mark and
+actual BookState mark must agree. Separate `HorizonCostEstimates` bind source,
+availability, horizon and initial-notional rate basis. Aggregate availability is
+the later model/cost time. `execute_forecast_proposal` rebinds these inputs and
+actual account state before existing risk and canonical execution; changed
+inputs fail. The caller continues with the returned book, order book and
+`next_index` together.
+
+This consumer requires an explicit BookState processing clock: Dataset digest
+and last completed index. Canonical stateful execution validates it before
+admission, preserves it through cloning and advances it after each completed
+bar. Reusing a returned account at an earlier index fails even when marks are
+unchanged, preventing repeated dividend/carry processing. Initial clock values
+are caller declarations, not authenticated historical receipts. Existing
+unmarked books retain their default behavior; old artifacts are not migrated.
+
+The label is a **price-return surrogate**, not held-quantity wealth or net
+profit. It excludes dividends, split-adjusted wealth, funding, borrow and cash
+carry; their realized events belong to the executor. No future split/dividend
+scan admits or suppresses present predictions. A later split can change raw
+price units while canonical quantity adjustment preserves wealth. Next-open
+gaps also separate realized fills from same-close predictions. These mismatches
+need a prospective instrument/label/economics contract and empirical calibration
+before market utility can be claimed; recorded prices alone cannot establish an
+event-free future horizon. No Study, RL consumer or economic authorization is
+introduced here.
+
+## Opt-in allocation PPO account transition
+
+The allocation PPO path uses the same account-bound proposal, final hard risk
+and MarketExecutor/BookState transition as the non-RL allocator. Discrete4
+records the raw categorical action before projection: quantity HOLD, negative
+request, direct FLAT request/residual baseline, positive request. Direct targets
+are bounded weights; residual actions move from the exact optimizer target
+toward a feasible endpoint. The residual center retains the existing baseline
+order identity. Final hard risk runs once and can override HOLD.
+
+Its finite independent account uses regular one-bar decisions, gamma=1 and
+after-cost equity differences divided by fixed initial capital. Reward sums
+equal the canonical signed terminal equity difference. GAE remains a surrogate;
+this does not prove an unbiased terminal-profit gradient. A rollout cut continues
+the account and bootstraps. The declared finite endpoint terminates without
+another market bar or free liquidation, retaining marked positions/orders.
+Economic termination is absorbing in this episode; retain_debt keeps signed
+Book equity as terminal cash. Legacy floor_zero and interval/log arithmetic
+retain their meanings. This is not a realistic liquidation-fee/debt-interest
+model or a 20% loss guarantee.
+
+The versioned observation contains available raw selected features and ordered
+forecast/cost/account projections. Pending gross/count and maximum drawdown
+are partial state, not complete order history or a Markov-state claim.
+The recipe freezes this layout, action mapping, capital, horizon, actual
+risk/economics, calendar kind and effective processing-bar duration. A SESSION
+calendar's nominal bar duration changes carry timing even with regular decision
+timestamps, so it cannot silently share a continuous-calendar recipe. Runtime
+declarations are recomputed, not cached assertions.
+Execution RNG uses its declared cost seed independently of the policy seed.
+The inference bundle pins canonical manifest and policy bytes before loading a
+verified private copy. It does not resume an account, optimizer or execution RNG.
+
+## Immutable allocation account snapshot contract
+
+`strategies/allocation_snapshot.py` は、独立した1口座のdecision前factsを
+`independent_allocation_account_snapshot_v1` として深くfreezeする下位DTOである。
+global symbol indexを保持し、quantity・mark・multiplierのvectorは選択symbolの1要素だけを受け取る。
+正のequityを持つlive口座を対象とし、負のcashは許す。terminal口座は対象外とする。
+canonical nanosecond clock、source Dataset、processing index、利用可能時刻を整合させる。
+active native MARKET orderのdirection、exact requested / cumulative / remaining quantity、
+TIF・expiry・reduce-only・statusと因果的なtransition clockを保持する。
+報告用quantityはexact rationalから同方向へ保守的に丸めた1 ULP以内の値を許す。
+受け取った完全contextの`source_state_digest`と射影factsのdigestは別のidentityである。
+このDTOは口座を読み出さず、ledgerの再計算、source・order IDの真正性、予約cash、
+position age、numeric PPO observation、policyへの接続を保証しない。
+
+## Independent account snapshot observer
+
+`evaluation.allocation_snapshot.snapshot_allocation_account` is an opt-in,
+observer-only reader for a live independent-symbol account with MARKET orders
+and zero extra latency. It requires the known matching Dataset/index clock,
+current selected-source availability and the existing allocation context checks.
+The caller must refresh canonical margin before reading, including bootstrap
+accounts whose stored maintenance rate may otherwise retain its default value.
+Margin is checked on a detached clone; the reader never repairs the source book.
+
+`independent_allocation_account_snapshot_v1` freezes account facts and full active
+order details. Quantity, exact-quantity, mark and multiplier vectors contain one
+selected coordinate; `symbol_index` retains its global Dataset slot. Signed cash,
+equity, peak/current/max drawdown and margin facts come from BookState. The full
+native account and order history remain bound by `source_state_digest`, rather
+than exposing another symbol's unavailable mark. Exact order remainders derive
+from requested quantity minus exact cumulative fills, not reporting floats.
+
+The producer detaches before cache-refreshing account reads and validates orders
+through their existing native reader. Filled active remainders within native
+completion tolerance are rejected using the canonical order owner's rule.
+Nonzero active filled progress at or below the native absolute minimum fill
+quantity is also rejected. Legal small fills above that minimum remain visible,
+even when they are below the request-scaled completion tolerance.
+IDs/digests are evidence, not numeric
+policy inputs. DTO structural checks do not prove source/account authenticity;
+bootstrap clock and account ID remain caller declarations. This is neither a
+numeric observation encoder nor a terminal reader. Ages, free/reserved cash,
+shared accounts, account restart and research/execution authorization are absent.
+
+## Allocation observation v2 layout declaration
+
+`strategies/rl/allocation_observation_v2.py` defines the immutable
+`allocation_account_observation_v2` layout. Its required constructor fields are
+ordered feature names, order-slot limit K (1..64), fixed initial capital and
+normalization episode steps. Capital normalizes to the same positive finite
+native float used by AllocationDecision. Detached payload/digest bind these
+four declarations and the complete `F+9+13+24K` ordered field names.
+
+The nine forecast/baseline, thirteen account and twenty-four per-order fields
+separate current/historical drawdown, signed quantity notionals, margin facts,
+TIF/status and optional-clock masks. The payload declares conservative economic
+float32 projection, guarded raw features, exact economic sorting, rejected slot
+overflow and zero padding. These are requirements for a subsequent encoder;
+this module currently generates no numeric observation and reads no snapshot.
+Existing allocation v1 recipes/tensors and policy consumers are unchanged.

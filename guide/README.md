@@ -53,6 +53,8 @@ GuideはPython sourceをimport/executeせず、`tools/code_symbols.py`がASTか�
 
 両indexはcommitしません。各entryは完全修飾symbol、kind、source path/line、signature、source SHA-256、主要local名、**exact revision**を保持します。runtime indexはfull indexを置き換えず、full indexから参照集合へ射影します。unknown symbolなら生成時にfail closedです。
 
+連続する正規のproperty getterと同名のsetter/deleterは一つのsymbolとして扱います。source範囲・SHA-256・local名には全accessorを含め、setterだけの変更も検出します。通常の重複メソッド、重複accessorや曖昧なdecoratorは重複エラーを維持します。
+
 `tools/content_contract.py --check`は次をfail closedで検証します。
 
 - `pages/*.md` と `meta/*.json` の1対1対応、orphan/missing。

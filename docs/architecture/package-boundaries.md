@@ -738,9 +738,11 @@ Lean Core, PPO Runtime and Human Guide at the PR's exact head SHA. PR opened,
 synchronize and reopened events run these jobs; PR edited runs them only when
 the payload contains `changes.base`. Body/title edits skip the same software
 and review jobs, while submitted/edited/dismissed review events remain eligible.
-Metadata-only PR edits use a separate concurrency group and suffixed job names,
-so they neither cancel full verification nor replace its named checks with skips.
-All other events retain the existing group, check names and cancellation policy.
+Metadata-only PR edits use a separate concurrency group and conditional job-name
+expressions. Executed eligible jobs retain the existing verification names.
+GitHub may display an unevaluated name expression for skipped jobs; such labels
+are distinct from the exact verification names and do not prove verification ran.
+Non-metadata events retain the existing concurrency group and cancellation policy.
 Both generic and 4h review gates require all three software jobs to succeed;
 empty, skipped, pending and failed results cannot satisfy that prerequisite.
 Review events on an unsupported base still run the appropriate review gate,

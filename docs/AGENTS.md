@@ -117,6 +117,8 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 
 PR baseが `main` または `codex/**` の場合、同じexact-head Core / PPO Runtime / Guide / 独立レビューゲートを適用する。PRのbase変更は `edited` payloadの `changes.base` で検証を再実行し、本文・title編集だけでは実行しない。その編集だけはconcurrency groupとcheck名を分離し、進行中の検証の取消しや同名checkのskipped置換を防ぐ。レビューのsubmitted / edited / dismissedでは再実行する。未対応baseのレビューでもゲートは実行し、skippedになったsoftware jobを拒否する。3つのsoftware jobはすべてsuccessが必須で、skippedや空の結果を成功扱いしない。積み重ねたPRでも上記current `main`包含・final HEAD検証契約は維持する。
 
+GitHubはskipされたjob名の式を未評価のまま表示する場合がある。その別名は実行済みcheckの正規名と区別し、skipされた表示名から検証実行を推定しない。ローカルの式評価oracleはGitHub上の表示・実行確認の代替ではない。
+
 PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
 
 1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。

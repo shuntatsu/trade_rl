@@ -581,3 +581,40 @@ def test_public_partial_fill_with_zero_notional_remains_observable():
     item = capture(executor, book, risk, OrderBookState.empty().add(pending))
     assert item.active_orders[0]["exact_cumulative_filled_quantity"] == "1/2"
     assert item.active_orders[0]["cumulative_filled_notional"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "status", (OrderStatus.PARTIALLY_FILLED, OrderStatus.TRIGGERED)
+)
+@pytest.mark.parametrize("cumulative", (Fraction(1, 10**15), Fraction(1, 10**12)))
+def test_producer_rejects_progress_below_native_minimum_fill(status, cumulative):
+    executor, book, risk = runtime()
+    original = native_phase(executor, OrderStatus.TRIGGERED)
+    with pytest.raises(ValueError, match="fill quantity"):
+        original.apply_fill(
+            quantity=float(cumulative), notional=0.0, processing_index=1
+        )
+    pending = replace(
+        original,
+        status=status,
+        cumulative_filled_quantity=project_quantity(cumulative),
+        remaining_quantity=project_quantity(1 - cumulative),
+        exact_cumulative_filled_quantity=str(cumulative),
+    )
+    assert PendingOrder.from_mapping(asdict(pending)).order_id == pending.order_id
+    with pytest.raises(ValueError, match="minimum fill"):
+        capture(executor, book, risk, OrderBookState.empty().add(pending))
+
+
+@pytest.mark.parametrize("requested", (1.0, 1e20))
+def test_public_progress_above_native_minimum_fill_remains_observable(requested):
+    executor, book, risk = runtime()
+    pending = order(executor, quantity=requested).mark_eligible(processing_index=1)
+    pending = pending.mark_triggered(processing_index=1).apply_fill(
+        quantity=1.1e-12, notional=0.0, processing_index=1
+    )
+    assert pending.status == OrderStatus.PARTIALLY_FILLED
+    item = capture(executor, book, risk, OrderBookState.empty().add(pending))
+    assert item.active_orders[0]["exact_cumulative_filled_quantity"] == str(
+        Fraction("1.1e-12")
+    )

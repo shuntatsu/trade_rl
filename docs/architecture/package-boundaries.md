@@ -671,4 +671,6 @@ Neither observer changes source account/order state or execution randomness.
 One-slot vectors retain the global symbol index; full native account/history
 identity remains digest-bound. Native completion tolerance stays owned by the
 order module and is reused by the observer, not copied into the lower DTO.
+The observer also reuses the native absolute minimum fill quantity for nonzero
+active progress; it does not substitute the request-scaled completion threshold.
 Existing allocation/PPO APIs are unchanged.

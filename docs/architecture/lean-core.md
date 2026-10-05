@@ -990,3 +990,27 @@ phases require SHA256(empty); whole-budget/no-KL exact counts and KL-enabled bou
 are validated before deserialization. Existing source/input receipts retain their
 meaning. Returned calls may be no-ops; neither receipts nor source pins establish
 parameter improvement, fitting authenticity, restart state or market profitability.
+
+## Causal allocation feature preprocessing prefix
+
+`fit_allocation_feature_preprocessing` fits a declared prefix ending before the
+first policy decision: last prefix event < fit-as-of <= first decision. Each
+symbol admits a row only when every selected feature is available and finite,
+and its source publication is no later than that row's own event time. Later
+publication cannot retroactively admit a row. Empty admitted symbol scopes reject.
+Means and population variances weight symbols equally, using the common global
+mean; scale <= 1e-12 falls back to 1.0. Existing PPOFeatureNormalizer is unchanged.
+
+The immutable declaration binds ordered features, fit symbols/window/rows,
+coefficients/counts, clocks and supplied feature-build/upstream-normalization
+digests. Fit consumption hashes all selected-prefix clocks, availability and finite
+masks, but numerical values only on jointly admitted rows. Full fit Dataset ID is
+separate provenance and may change with unused future cells. Frozen float64
+standardization returns finite float32 features without refitting or imputation;
+application checks names/order/build/normalization/time, not a future Dataset ID.
+Its time guard is fit-as-of, not enforcement of the declared policy start/window.
+Ordinary float32 casting may round tiny feature residuals to zero.
+It accepts feature values only, not an account observation or terminal sentinel.
+No allocation env, recipe or bundle consumes this declaration yet. Causality is
+limited to the supplied arrays/publication contract; digests do not prove upstream
+feature construction, data authenticity or market learning success.

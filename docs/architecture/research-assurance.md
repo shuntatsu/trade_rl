@@ -1238,3 +1238,17 @@ Post-load optimizer, built activation and backend-release mismatches reject;
 None v1/v2 canonical bytes, source fields and action traces match omitted mode.
 These bounded observations do not authenticate historical fitting or constitute
 a complete preprocessing/sampling, restart or market learning protocol.
+
+## Allocation causal prefix preprocessing assurance
+
+G0 asks whether frozen selected-feature statistics exclude information unavailable
+at each original decision. G1 fixes joint admission, strict prefix clocks,
+equal-symbol population variance, scope guards and feature-only frozen transform.
+G2 literal oracles exclude a delayed middle value 1000 from [0,1000,2], yielding
+mean/scale 1/1; unequal admitted row counts yield symbol-weighted mean 5 rather
+than pooled mean 2.5. Future/outsider cells and excluded magnitudes do not change
+fit consumption or coefficients; recorded masks/clocks remain bound. Nonmutation,
+closed-reader, clock, dependency and finite-reporting oracles are software evidence.
+Feature casting does not promise nonzero preservation or enforce a policy window.
+They establish neither upstream feature causality/authenticity nor actual PPO
+consumption, delayed-payoff learnability, sampling coverage or G4/G5 authorization.

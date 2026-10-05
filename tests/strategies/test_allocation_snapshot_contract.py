@@ -123,6 +123,7 @@ def test_waiting_before_eligibility_and_older_valid_transition_remain_allowed(
     order.update(status=status, last_processed_index=last, trigger_index=None)
     order.update(cumulative_filled_quantity=0.0, exact_cumulative_filled_quantity="0")
     order.update(remaining_quantity=1.0, exact_remaining_quantity="1")
+    order["cumulative_filled_notional"] = 0.0
     assert snapshot(orders=(order,)).active_orders[0]["status"] == status
     assert snapshot().active_orders[0]["last_processed_index"] == 3
 
@@ -171,8 +172,27 @@ def test_waiting_status_matches_whether_a_native_transition_was_processed(status
         "exact_cumulative_filled_quantity": "0",
         "remaining_quantity": 1.0,
         "exact_remaining_quantity": "1",
+        "cumulative_filled_notional": 0.0,
     }
     with pytest.raises(ValueError, match="waiting status"):
+        snapshot(orders=(order,))
+
+
+@pytest.mark.parametrize(
+    "status", ("submitted", "latency_wait", "eligible", "triggered")
+)
+def test_zero_filled_quantity_cannot_have_positive_filled_notional(status):
+    order = declared_order() | {
+        "status": status,
+        "last_processed_index": None if status == "submitted" else 2,
+        "trigger_index": 2 if status == "triggered" else None,
+        "cumulative_filled_quantity": 0.0,
+        "exact_cumulative_filled_quantity": "0",
+        "remaining_quantity": 1.0,
+        "exact_remaining_quantity": "1",
+        "cumulative_filled_notional": 1.0,
+    }
+    with pytest.raises(ValueError, match="notional"):
         snapshot(orders=(order,))
 
 

@@ -250,7 +250,7 @@
       "id": "allocation-order-snapshot-shape",
       "symbol": "trade_rl.strategies.allocation_snapshot._order_shape",
       "kind": "function",
-      "source_sha256": "abf811fce91b44327ca7b2b2e72170f9a39ab91141f0495adf9eba437f6a5a86",
+      "source_sha256": "6e3bd5819faffcb8525b60e2b2510bcc69c20bca2badb7a54541cb8ac3f482a3",
       "label_ja": "未約定注文の数量と時刻を検査する",
       "description_ja": "MARKET注文の申告時刻・処理時刻・状態と正確な約定進捗の整合性を確認します。注文履歴の真正性や経済的な採用資格を判定する機能ではありません。",
       "variables": [],

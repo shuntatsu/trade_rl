@@ -862,5 +862,6 @@ submission / eligibility前のtransition、不可能なactive status / filled pr
 partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
 SUBMITTEDは未処理、LATENCY_WAITは処理済みのtransition clockを要求し、
 待機statusと処理記録が矛盾する宣言も拒否する。
+約定数量ゼロには約定金額ゼロを要求するが、nativeが許す部分約定の金額ゼロは保持する。
 structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
 学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。

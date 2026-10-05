@@ -157,7 +157,8 @@ def _order_shape(order: Mapping[str, Any], decision_index: int) -> None:
     _index(order["evidence_version"], "evidence_version")
     for name in ("submission_reference_price", "decision_equity"):
         _number(intent[name], positive=True)
-    if _number(order["cumulative_filled_notional"]) < 0:
+    filled_notional = _number(order["cumulative_filled_notional"])
+    if filled_notional < 0:
         raise ValueError("snapshot filled notional must be nonnegative")
     for name in ("submit_index", "eligible_index"):
         _index(intent[name], name)
@@ -199,6 +200,8 @@ def _order_shape(order: Mapping[str, Any], decision_index: int) -> None:
     requested = _fraction(order["exact_requested_quantity"])
     cumulative = _fraction(order["exact_cumulative_filled_quantity"])
     remaining = _fraction(order["exact_remaining_quantity"])
+    if cumulative == 0 and filled_notional != 0:
+        raise ValueError("snapshot filled notional requires filled quantity progress")
     if (
         requested != Fraction(str(_number(intent["requested_quantity"])))
         or requested != cumulative + remaining

@@ -16,6 +16,9 @@ from trade_rl.evaluation.rl_allocation.training_protocol import (
     validate_protocol_clock,
 )
 from trade_rl.evaluation.rl_allocation.training_source import allocation_training_source
+from trade_rl.evaluation.rl_allocation.transition_trace import (
+    AllocationTransitionRecorder,
+)
 from trade_rl.strategies.rl.allocation_manifest import allocation_bundle_schema
 from trade_rl.strategies.rl.allocation_model import (
     AllocationPPOPolicy,
@@ -87,6 +90,7 @@ def fit_allocation_ppo(
     total_timesteps: int,
     seed: int = 0,
     training_protocol: AllocationPPOTrainingProtocol | None = None,
+    transition_trace: AllocationTransitionRecorder | None = None,
 ) -> AllocationPPOPolicy:
     """Fit only the supplied episode; publish actual budget and consumed sources.
 
@@ -101,6 +105,12 @@ def fit_allocation_ppo(
     ):
         raise ValueError("training budget must be a positive exact rollout multiple")
     env.validate_binding()
+    if transition_trace is not None:
+        if training_protocol is None:
+            raise ValueError("transition trace requires an explicit training protocol")
+        if not isinstance(transition_trace, AllocationTransitionRecorder):
+            raise ValueError("transition_trace must be an allocation recorder")
+        transition_trace.validate_fit(env)
     envelope = allocation_training_source(env)
     preprocessing_fit = _preprocessing_fit(env, training_protocol)
     recipe, recipe_digest = env.recipe, env.recipe_digest
@@ -142,9 +152,11 @@ def fit_allocation_ppo(
     else:
         updates = AllocationUpdateRecorder(model)
         try:
-            callback = callbacks.CallbackList(
-                [callback, updates.callback(callbacks.BaseCallback)]
-            )
+            children = [callback, updates.callback(callbacks.BaseCallback)]
+            if transition_trace is not None:
+                transition_trace.attach()
+                children.append(transition_trace.callback(callbacks.BaseCallback))
+            callback = callbacks.CallbackList(children)
             model.learn(
                 total_timesteps=total_timesteps,
                 callback=callback,
@@ -155,6 +167,8 @@ def fit_allocation_ppo(
             )
         finally:
             updates.close()
+            if transition_trace is not None:
+                transition_trace.detach()
         validate_allocation_protocol_model(model, training_protocol)
     env.validate_binding()
     if (
@@ -207,4 +221,7 @@ def fit_allocation_ppo(
                 schema="allocation_ppo_training_receipt_v4",
                 preprocessing_fit=preprocessing_fit,
             )
-    return AllocationPPOPolicy(model, manifest)
+    policy = AllocationPPOPolicy(model, manifest)
+    if transition_trace is not None:
+        transition_trace.finish(policy)
+    return policy

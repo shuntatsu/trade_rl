@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import gymnasium as gym
 import numpy as np
@@ -40,6 +40,11 @@ from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservati
 from trade_rl.strategies.rl.allocation_observation_v3 import (
     encode_allocation_observation_v3,
 )
+
+if TYPE_CHECKING:
+    from trade_rl.evaluation.rl_allocation.transition_trace import (
+        AllocationTransitionRecorder,
+    )
 from trade_rl.strategies.rl.allocation_policy import (
     ALLOCATION_OBSERVATION_FIELDS,
     AllocationRuntimeProfile,
@@ -82,6 +87,7 @@ class AllocationTradingEnv(gym.Env):
         feature_preprocessing: AllocationFeaturePreprocessing | None = None,
     ) -> None:
         self.dataset, self.stream, self.bound = dataset, stream, bound
+        self._transition_recorder: AllocationTransitionRecorder | None = None
         self._bound_digest = bound.digest
         self.action_contract, self.allocator = action_contract, allocator
         self.execution_cost, self.risk_config = execution_cost, risk_config
@@ -332,6 +338,13 @@ class AllocationTradingEnv(gym.Env):
             action,
             **self._arguments(),
         )
+        trace = (
+            {}
+            if self._transition_recorder is None
+            else {
+                "transition_trace": self._transition_recorder.freeze_execution(result)
+            }
+        )
         self.book, self.order_book, self.index = (
             result.execution.book,
             result.execution.order_book,
@@ -354,6 +367,7 @@ class AllocationTradingEnv(gym.Env):
             self._terminated,
             False,
             {
+                **trace,
                 "execution": result.execution,
                 "action_proposal": result.proposal,
                 "risk_target": result.risk_target,

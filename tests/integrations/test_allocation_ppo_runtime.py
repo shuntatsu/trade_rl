@@ -38,6 +38,361 @@ pytest.importorskip("stable_baselines3")
 pytest.importorskip("torch")
 
 
+@pytest.mark.parametrize("lane", [3, 4])
+@pytest.mark.parametrize("horizon,budget", [(3, 2), (2, 2), (2, 4)])
+def test_actual_transition_trace_binds_native_actor_and_completes_only_after_fit(
+    monkeypatch,
+    tmp_path,
+    lane,
+    horizon,
+    budget,
+):
+    import json
+
+    from tests.evaluation.test_allocation_preprocessing_runtime import (
+        frozen_args,
+        raw_args,
+    )
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.evaluation.rl_allocation.transition_trace import (
+        AllocationTransitionRecorder,
+    )
+
+    args = frozen_args(stop=6 + horizon)
+    env = AllocationTradingEnv(**(raw_args(args) if lane == 3 else args))
+    trace = AllocationTransitionRecorder(env)
+    module, build, actual = trainer(), trainer().build_allocation_ppo, []
+
+    def instrument(*a, **k):
+        model = build(*a, **k)
+        forward = model.policy.forward
+
+        def actor(obs, *args, **kwargs):
+            result = forward(obs, *args, **kwargs)
+            actual.append(
+                tuple(x.detach().cpu().numpy().copy() for x in (obs, *result))
+            )
+            return result
+
+        model.policy.forward = actor
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", instrument)
+    policy = module.fit_allocation_ppo(
+        env,
+        total_timesteps=budget,
+        seed=0,
+        training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=1),
+        transition_trace=trace,
+    )
+    rows = [json.loads(raw) for raw in trace.events]
+    transitions = [row for row in rows if row["kind"] == "transition"]
+    boundaries = [row for row in rows if row["kind"] == "rollout"]
+    for row, tensors in zip(transitions, actual):
+        for key, values, dtype in zip(
+            ("observation", "action", "value", "log_prob"),
+            tensors,
+            ("<f4", "<i8", "<f4", "<f4"),
+        ):
+            assert row["actor"][key] == values.astype(dtype).tobytes().hex()
+    assert np.frombuffer(bytes.fromhex(rows[0]["actor"]["observation"]), "<f4")[0] == (
+        4 if lane == 3 else 3
+    )
+    assert rows[0]["facts"]["proposal"]["decision"]["feature_values"] == [4.0]
+    assert transitions[1]["done"] == (horizon == 2)
+    if horizon == 2:
+        assert not np.frombuffer(bytes.fromhex(transitions[1]["terminal"]), "<f4").any()
+    assert np.frombuffer(bytes.fromhex(boundaries[0]["new_observation"]), "<f4")[0] == (
+        (4 if lane == 3 else 3) if horizon == 2 else (8 if lane == 3 else 7)
+    )
+    assert (
+        boundaries[0]["index"] == (6 if horizon == 2 else 8)
+        and boundaries[0]["last_transition_index"] == 8
+    )
+    assert [r["sequence"] for r in transitions] == list(range(budget))
+    assert [r["episode"] for r in transitions] == (
+        [0, 0, 1, 1] if budget == 4 else [0, 0]
+    )
+    assert [r["rollout"] for r in boundaries] == list(range(budget // 2))
+    assert trace.complete and trace.training_manifest == policy.manifest
+    assert env._transition_recorder is None
+    from trade_rl.evaluation.rl_allocation.transition_trace_io import (
+        publish_allocation_transition_trace,
+        read_allocation_transition_trace,
+    )
+    from trade_rl.strategies.rl.allocation_artifact import save_allocation_policy
+
+    bundle_root, trace_root = tmp_path / "bundle", tmp_path / "separate" / "trace"
+    bundle_pin = save_allocation_policy(bundle_root, policy)
+    bundle_bytes = {p.name: p.read_bytes() for p in bundle_root.iterdir()}
+    with pytest.raises(ValueError, match="separate|bundle"):
+        publish_allocation_transition_trace(
+            trace,
+            bundle_root / "trace",
+            bundle_root=bundle_root,
+            expected_bundle_digest=bundle_pin,
+        )
+    assert {p.name: p.read_bytes() for p in bundle_root.iterdir()} == bundle_bytes
+    assert not (bundle_root / "trace").exists()
+    assert not list(bundle_root.glob(".*.staging-*"))
+    detour = bundle_root / "unused" / ".." / ".." / "outside"
+    detour_pin = publish_allocation_transition_trace(
+        trace, detour, bundle_root=bundle_root, expected_bundle_digest=bundle_pin
+    )
+    assert set(p.name for p in bundle_root.iterdir()) == set(bundle_bytes)
+    assert {p.name: p.read_bytes() for p in bundle_root.iterdir()} == bundle_bytes
+    assert not (bundle_root / "unused").exists()
+    assert (
+        read_allocation_transition_trace(
+            detour.resolve(),
+            expected_digest=detour_pin,
+            bundle_root=bundle_root,
+            expected_bundle_digest=bundle_pin,
+        )["status"]
+        == "COMPLETE"
+    )
+    pin = publish_allocation_transition_trace(
+        trace, trace_root, bundle_root=bundle_root, expected_bundle_digest=bundle_pin
+    )
+    receipt = read_allocation_transition_trace(
+        trace_root,
+        expected_digest=pin,
+        bundle_root=bundle_root,
+        expected_bundle_digest=bundle_pin,
+    )
+    assert receipt["status"] == "COMPLETE" and receipt["transition_count"] == budget
+    assert set(p.name for p in bundle_root.iterdir()) == {"manifest.json", "policy.zip"}
+    from copy import deepcopy
+    from hashlib import sha256
+
+    from trade_rl.artifacts import canonical_json_bytes
+
+    original_lines = (trace_root / "transitions.jsonl").read_bytes()
+    for change in (
+        "ordinal",
+        "bool",
+        "action",
+        "reward",
+        "feature",
+        "book",
+        "vector",
+        "extra",
+        "terminal",
+        "boundary",
+        "missing_admission",
+    ):
+        bad = deepcopy(rows)
+        first = bad[0]
+        if change == "ordinal":
+            first["sequence"] = 1
+        elif change == "bool":
+            first["sequence"] = False
+        elif change == "action":
+            first["actor"]["action_code"] = (first["actor"]["action_code"] + 1) % 4
+        elif change == "reward":
+            first["actor"]["reward"] = np.array([1], "<f4").tobytes().hex()
+        elif change == "feature":
+            first["actor"]["observation"] = (
+                np.ones((1, receipt["width"]), "<f4").tobytes().hex()
+            )
+        elif change == "book":
+            first["facts"]["book"]["cash"] += 1
+        elif change == "vector":
+            first["facts"]["execution"]["cost_by_symbol"] = [[0.0]]
+        elif change == "extra":
+            first["facts"]["execution"]["extra"] = 0
+        elif change == "terminal":
+            bad[1]["terminal"] = np.ones(receipt["width"], "<f4").tobytes().hex()
+        elif change == "boundary":
+            bad[2]["buffer_digest"] = "0" * 64
+        else:
+            bad.pop()
+        raw = b"".join(canonical_json_bytes(row) + b"\n" for row in bad)
+        changed = receipt | {"transitions_sha256": sha256(raw).hexdigest()}
+        (trace_root / "transitions.jsonl").write_bytes(raw)
+        (trace_root / "manifest.json").write_bytes(canonical_json_bytes(changed))
+        with pytest.raises(ValueError):
+            read_allocation_transition_trace(
+                trace_root,
+                expected_digest=content_digest(changed),
+                bundle_root=bundle_root,
+                expected_bundle_digest=bundle_pin,
+            )
+    (trace_root / "transitions.jsonl").write_bytes(original_lines)
+    (trace_root / "manifest.json").write_bytes(canonical_json_bytes(receipt))
+    with pytest.raises(FileExistsError):
+        publish_allocation_transition_trace(
+            trace,
+            trace_root,
+            bundle_root=bundle_root,
+            expected_bundle_digest=bundle_pin,
+        )
+    import os
+    import shutil
+    from pathlib import Path
+
+    export = os.environ.get("ALLOCATION_TRACE_EXPORT_ROOT")
+    if export and horizon == 2 and budget == 2:
+        destination = Path(export) / f"bundle-v{lane}"
+        destination.mkdir(parents=True)
+        shutil.copytree(bundle_root, destination / "bundle")
+        shutil.copytree(trace_root, destination / "trace")
+        (destination / "pins.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    "bundle_digest": bundle_pin,
+                    "trace_digest": pin,
+                    "finite_protocol": "synthetic_T2_no_market_v1",
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["last_callback", "optimizer", "post_source", "post_protocol"]
+)
+def test_transition_trace_never_completes_stopped_or_invalid_fit(monkeypatch, failure):
+    from tests.evaluation.test_allocation_preprocessing_runtime import frozen_args
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.evaluation.rl_allocation.transition_trace import (
+        AllocationTransitionRecorder,
+    )
+
+    env = AllocationTradingEnv(**frozen_args(stop=8))
+    trace = AllocationTransitionRecorder(env)
+    module, build, models = trainer(), trainer().build_allocation_ppo, []
+    if failure == "last_callback":
+        factory = trace.callback
+
+        def stopping(base):
+            child = factory(base)
+            step = child._on_step
+
+            def reject():
+                result = step()
+                return result and child.model.num_timesteps != 2
+
+            child._on_step = reject
+            return child
+
+        monkeypatch.setattr(trace, "callback", stopping)
+
+    def instrument(*a, **k):
+        model = build(*a, **k)
+        models.append(model)
+        if failure == "optimizer":
+
+            def explode(*a, **k):
+                raise RuntimeError("optimizer after admission")
+
+            model.policy.optimizer.step = explode
+        elif failure.startswith("post_"):
+            learn = model.learn
+
+            def changed(**kwargs):
+                result = learn(**kwargs)
+                if failure == "post_source":
+                    features = env.dataset.features.copy()
+                    features[0, 0, 0] = 9
+                    env.dataset = env.executor.dataset = replace(
+                        env.dataset, features=features
+                    )
+                else:
+                    model.gamma = 0.5
+                return result
+
+            model.learn = changed
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", instrument)
+    with pytest.raises((ValueError, RuntimeError)):
+        module.fit_allocation_ppo(
+            env,
+            total_timesteps=2,
+            training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=1),
+            transition_trace=trace,
+        )
+    assert not trace.complete and env._transition_recorder is None
+    assert not models[0].policy.optimizer._optimizer_step_post_hooks
+    with pytest.raises(ValueError, match="successful final"):
+        _ = trace.training_manifest
+    if failure == "last_callback":
+        assert models[0].num_timesteps == 2 and models[0].rollout_buffer.pos == 1
+
+
+def test_optional_trace_preserves_actual_training_bytes_native_economics_and_rng(
+    monkeypatch,
+):
+    import json
+    import random
+    from types import SimpleNamespace
+
+    import torch
+
+    from tests.evaluation.test_allocation_preprocessing_runtime import frozen_args
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.artifacts import canonical_json_bytes
+    from trade_rl.evaluation.rl_allocation.transition_trace import (
+        AllocationTransitionRecorder,
+    )
+
+    args = frozen_args(stop=8)
+    declaration = protocol(n_steps=2, batch_size=2, n_epochs=1)
+    first = AllocationTradingEnv(**args)
+    ordinary = trainer().fit_allocation_ppo(
+        first,
+        total_timesteps=2,
+        seed=7,
+        training_protocol=declaration,
+        transition_trace=None,
+    )
+    rng = (torch.get_rng_state().clone(), np.random.get_state(), random.getstate())
+    second = AllocationTradingEnv(**args)
+    trace = AllocationTransitionRecorder(second)
+    observed = trainer().fit_allocation_ppo(
+        second,
+        total_timesteps=2,
+        seed=7,
+        training_protocol=declaration,
+        transition_trace=trace,
+    )
+    assert canonical_json_bytes(ordinary.manifest) == canonical_json_bytes(
+        observed.manifest
+    )
+    assert torch.equal(rng[0], torch.get_rng_state())
+    current = np.random.get_state()
+    assert (
+        rng[1][0] == current[0]
+        and np.array_equal(rng[1][1], current[1])
+        and rng[1][2:] == current[2:]
+    )
+    assert rng[2] == random.getstate()
+    assert all(
+        torch.equal(a, b)
+        for a, b in zip(
+            ordinary.model.policy.parameters(), observed.model.policy.parameters()
+        )
+    )
+    raw = json.loads(trace.events[0])
+    assert raw["facts"]["proposal"]["raw_action"] == raw["actor"]["action_code"]
+    # Fixed identical actions compare the whole native execution/book/order trace.
+    left, right = AllocationTradingEnv(**args), AllocationTradingEnv(**args)
+    left.reset()
+    right.reset()
+    # Use the pure freeze helper without installing a collector for replay.
+    from trade_rl.evaluation.rl_allocation.transition_facts import (
+        freeze_allocation_execution,
+    )
+
+    right._transition_recorder = SimpleNamespace(
+        freeze_execution=lambda result: freeze_allocation_execution(right, result)
+    )
+    for action in (3, 0):
+        a, b = left.step(action), right.step(action)
+        b[4].pop("transition_trace")
+        assert _normalize(a) == _normalize(b)
+
+
 @pytest.mark.parametrize("horizon,budget", [(3, 2), (2, 2), (2, 4)])
 def test_actual_frozen_features_reach_actor_critic_autoreset_and_v4_bundle(
     tmp_path, monkeypatch, horizon, budget

@@ -1534,8 +1534,9 @@ Fit Dataset lineage and selected-prefix consumption have distinct digests; suppl
 build/normalization hashes do not authenticate upstream causal feature construction.
 Existing raw-feature allocation environments, v1/v2 recipes and v1/v2/v3 bundles
 do not consume this
-declaration; the explicit v3/v4 runtime below composes it. Sampling, action
-evidence, delayed learning and continuous handover remain subsequent stages.
+declaration; the explicit v3/v4 runtime below composes it. Sampling,
+delayed learning and continuous handover remain subsequent stages; action
+observability is the optional sidecar below.
 No market fit/replay, profitability result or G4/G5/live eligibility is added.
 
 ## Issue #810: pure allocation observation v3 candidate
@@ -1559,3 +1560,15 @@ zero terminal bypass, reset behavior and raw economic isolation. None preserves
 valid old lanes; malformed manifest root/tag aliases now reject. No online fit,
 sampler, Run/Study wiring, delayed-payoff result, continuous handover, market
 fit/replay, profitability evidence or G4/G5/live eligibility is added.
+
+## Issue #810: chronological allocation action sidecar candidate
+
+An optional separate transition_trace_v1 now joins actual PPO actor tensor bits,
+sampled action/logpi/value, chronological buffer admission and raw native
+mapper/risk/book/order/cost/reward facts. Explicit bundle3/input2 and bundle4/input3
+identities remain unchanged and receive only an externally pinned separate sidecar.
+Finite native T2/T4 software oracles cover terminal/reset/rollout boundaries,
+failure-to-complete, closed reader links and None model/economics/RNG parity.
+This improves observability; delayed-payoff learnability, multiwindow/multisymbol
+sampling, continuous handover, Run/Study consumption and economic evaluation
+remain open. No market fit/replay, profitability claim or G4/G5/live eligibility is added.

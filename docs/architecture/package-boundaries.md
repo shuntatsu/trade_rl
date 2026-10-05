@@ -783,3 +783,14 @@ The existing head-based choice of review checker remains unchanged. Routing
 does not grant formal approval or relax the integration requirement that the
 tested final head contains current `main`; live exact-head checks are still
 required before merge. Push and one-shot research execution routing is unchanged.
+
+## Allocation transition sidecar ownership
+
+Five upper owners contain optional observation only: transition_facts detaches and
+checks native economics, transition_arrays fixes tensor bytes, transition_trace
+joins actual callback outputs to admitted chronological buffers,
+transition_validation closes row/receipt links, and transition_trace_io publishes
+verified external sidecar files without model deserialization. Env has one optional
+pre-overwrite hook; fit owns attachment, cleanup and successful-final-policy
+completion. Lower recipes/bundle/training/input owners remain unchanged. These
+owners never execute another ledger, sample a policy, call buffer.get or alter RNG.

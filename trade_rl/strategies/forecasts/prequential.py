@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+
 import numpy as np
 
 from trade_rl.data.market import MarketDataset

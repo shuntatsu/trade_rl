@@ -21,7 +21,10 @@
     "training_layout",
     "sequential",
     "interleaved",
-    "DummyVecEnv"
+    "DummyVecEnv",
+    "AllocationAccountSnapshot",
+    "口座スナップショット",
+    "未約定注文"
   ],
   "source_sections": [
     {
@@ -33,6 +36,11 @@
       "path": "docs/research/current-status.md",
       "heading": "PPO",
       "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Immutable allocation account snapshot contract",
+      "sha256": "e5bbad38ad935790bda4afb52235bcfa0d68693624c30c2007274c399c0e5cc5"
     }
   ],
   "code_references": [
@@ -223,6 +231,31 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "allocation-account-snapshot",
+      "symbol": "trade_rl.strategies.allocation_snapshot.AllocationAccountSnapshot",
+      "kind": "class",
+      "source_sha256": "0694fd0336798c43ec54de29a8f5e9b138aa2c91a1392941f0b26aa6f6af1522",
+      "label_ja": "不変の口座・注文スナップショット",
+      "description_ja": "申告された生存中の独立口座について、選択銘柄の事実と未約定注文を深く不変化します。口座からの読み出しやPPO用数値符号化はこの段階に含みません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py",
+        "tests/architecture/test_allocation_snapshot_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-order-snapshot-shape",
+      "symbol": "trade_rl.strategies.allocation_snapshot._order_shape",
+      "kind": "function",
+      "source_sha256": "6e3bd5819faffcb8525b60e2b2510bcc69c20bca2badb7a54541cb8ac3f482a3",
+      "label_ja": "未約定注文の数量と時刻を検査する",
+      "description_ja": "MARKET注文の申告時刻・処理時刻・状態と正確な約定進捗の整合性を確認します。注文履歴の真正性や経済的な採用資格を判定する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py"
       ]
     }
   ]

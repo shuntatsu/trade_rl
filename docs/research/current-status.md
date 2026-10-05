@@ -1307,3 +1307,13 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Issue #810: allocation snapshot contract stage
+
+現在の候補には、liveな独立口座のaccount/order factsを受け取るimmutable下位DTOを追加した。
+宣言mappingのsoftware testでclock、active-order status、exact quantity、
+deep immutabilityとdigest scopeを検証する。既存PPO v1はこのDTOを消費しない。
+このstageにproducer、numeric policy encoder、予約cash・position ageのモデル、
+allocation RL training / execution adapterは含まれない。
+予測・配分・RL・執行への接続、source-bound oracleと全体検証は後続作業である。
+実市場fit / replay、経済比較、formal independent approvalやprofitabilityを達成した状態ではない。

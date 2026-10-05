@@ -172,6 +172,10 @@ def _order_shape(order: Mapping[str, Any], decision_index: int) -> None:
                 raise ValueError("snapshot order transition precedes submission")
     last = order["last_processed_index"]
     trigger = order["trigger_index"]
+    if (order["status"] == "submitted" and last is not None) or (
+        order["status"] == "latency_wait" and last is None
+    ):
+        raise ValueError("snapshot waiting status differs from its transition progress")
     if order["status"] in ("eligible", "triggered", "partially_filled") and (
         last is None or last < intent["eligible_index"]
     ):

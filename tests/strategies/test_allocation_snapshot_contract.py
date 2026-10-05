@@ -161,6 +161,21 @@ def test_partial_fill_without_trigger_and_retriggered_partial_order_remain_allow
     assert snapshot(orders=(declared_order() | {"status": "triggered"},)).digest
 
 
+@pytest.mark.parametrize("status, last", [("submitted", 1), ("latency_wait", None)])
+def test_waiting_status_matches_whether_a_native_transition_was_processed(status, last):
+    order = declared_order() | {
+        "status": status,
+        "last_processed_index": last,
+        "trigger_index": None,
+        "cumulative_filled_quantity": 0.0,
+        "exact_cumulative_filled_quantity": "0",
+        "remaining_quantity": 1.0,
+        "exact_remaining_quantity": "1",
+    }
+    with pytest.raises(ValueError, match="waiting status"):
+        snapshot(orders=(order,))
+
+
 @pytest.mark.parametrize("status", ["submitted", "latency_wait", "eligible"])
 def test_prefill_state_cannot_retain_a_recorded_trigger(status):
     order = declared_order() | dict(

@@ -860,5 +860,7 @@ selected-vector scope、因果clock、live-only、exact rationalの保守的proj
 submission / eligibility前のtransition、不可能なactive status / filled progress、
 未知のnested key、DAY expiry不足、MARKETのlimit / stop指定を拒否する。
 partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
+SUBMITTEDは未処理、LATENCY_WAITは処理済みのtransition clockを要求し、
+待機statusと処理記録が矛盾する宣言も拒否する。
 structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
 学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。

@@ -606,3 +606,17 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Immutable allocation account snapshot contract
+
+`strategies/allocation_snapshot.py` は、独立した1口座のdecision前factsを
+`independent_allocation_account_snapshot_v1` として深くfreezeする下位DTOである。
+global symbol indexを保持し、quantity・mark・multiplierのvectorは選択symbolの1要素だけを受け取る。
+正のequityを持つlive口座を対象とし、負のcashは許す。terminal口座は対象外とする。
+canonical nanosecond clock、source Dataset、processing index、利用可能時刻を整合させる。
+active native MARKET orderのdirection、exact requested / cumulative / remaining quantity、
+TIF・expiry・reduce-only・statusと因果的なtransition clockを保持する。
+報告用quantityはexact rationalから同方向へ保守的に丸めた1 ULP以内の値を許す。
+受け取った完全contextの`source_state_digest`と射影factsのdigestは別のidentityである。
+このstageにはproducerがなく、ledgerの再計算、source・order IDの真正性、予約cash、
+position age、numeric PPO observation、policyへの接続を保証しない。

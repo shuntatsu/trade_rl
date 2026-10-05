@@ -850,3 +850,15 @@ Production eligibility: NOT ESTABLISHED
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。
 
 問題をその場で修正できる場合は、反例をpermanent regression/property testとして残し、最小修正、再テスト、独立oracle、final diff/CIまで再確認する。
+
+## Allocation snapshot DTO assurance
+
+Issue #810のaccount-state整備の最初のstageは、immutable DTOのsoftware contractである。
+G2 oracleはproducerやcanonical ledgerを呼ばない明示的な宣言mappingで、deep immutability、
+selected-vector scope、因果clock、live-only、exact rationalの保守的projectionを反証する。
+同じunsigned pending grossでも反対directionを持つorderは異なる射影digestになる。
+submission / eligibility前のtransition、不可能なactive status / filled progress、
+未知のnested key、DAY expiry不足、MARKETのlimit / stop指定を拒否する。
+partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
+structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
+学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。

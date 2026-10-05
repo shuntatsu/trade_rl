@@ -5,6 +5,9 @@ from pathlib import Path
 
 import trade_rl.strategies as strategies
 import trade_rl.strategies.dataset_scope as shared_dataset_scope
+import trade_rl.strategies.forecasts as forecasts
+from trade_rl.strategies.forecasts import prequential as prequential_forecasts
+from trade_rl.strategies.forecasts import stream as forecast_stream
 from trade_rl.strategies.forecasts import supervised as supervised_forecasts
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,8 +64,15 @@ def test_strategy_family_packages_exist() -> None:
         "rules/channel_breakout.py",
         "forecasts/__init__.py",
         "forecasts/controller.py",
+        "forecasts/prequential.py",
+        "forecasts/stream.py",
         "forecasts/supervised.py",
+        "forecasts/training_trace.py",
         "forecasts/ridge.py",
+        "forecasts/_ridge_math.py",
+        "forecasts/simple_return.py",
+        "forecasts/simple_stream.py",
+        "forecasts/simple_prequential.py",
         "forecasts/lightgbm.py",
         "rl/__init__.py",
         "rl/intent.py",
@@ -92,6 +102,65 @@ def test_strategy_package_preserves_public_api() -> None:
     assert set(strategies.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(strategies, name), name
+
+
+def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> None:
+    prequential_names = {
+        "ForecastBlock",
+        "FrozenForecastStream",
+        "PacketForecastStrategy",
+        "fit_prequential_ridge",
+        "FrozenSimpleReturnStream",
+        "SimpleReturnPacket",
+        "SimpleReturnRidgeModel",
+        "SimpleReturnTrainingSet",
+        "SimpleReturnVintage",
+        "fit_prequential_simple_ridge",
+    }
+    assert set(forecasts.__all__) == prequential_names | {
+        "CausalForecastTrainingSet",
+        "ForecastIntentConfig",
+        "ForecastIntentController",
+        "LightGBMForecastModel",
+        "LightGBMForecastStrategy",
+        "RidgeForecastModel",
+        "RidgeForecastStrategy",
+        "build_causal_forecast_training_set",
+        "fit_lightgbm_forecast",
+        "fit_ridge_forecast",
+    }
+    assert prequential_names.isdisjoint(strategies.__all__)
+    for owner, names in (
+        (forecast_stream, {"ForecastBlock", "FrozenForecastStream"}),
+        (prequential_forecasts, {"PacketForecastStrategy", "fit_prequential_ridge"}),
+    ):
+        for name in names:
+            assert getattr(forecasts, name) is getattr(owner, name), name
+        assert (
+            _imported_names(STRATEGIES / "forecasts" / "__init__.py", owner.__name__)
+            == names
+        )
+
+    from trade_rl.strategies.forecasts import (
+        simple_prequential,
+        simple_return,
+        simple_stream,
+    )
+
+    for owner, names in (
+        (
+            simple_stream,
+            {"FrozenSimpleReturnStream", "SimpleReturnPacket", "SimpleReturnVintage"},
+        ),
+        (simple_return, {"SimpleReturnTrainingSet", "SimpleReturnRidgeModel"}),
+        (simple_prequential, {"fit_prequential_simple_ridge"}),
+    ):
+        for name in names:
+            assert getattr(forecasts, name) is getattr(owner, name), name
+        assert (
+            _imported_names(STRATEGIES / "forecasts" / "__init__.py", owner.__name__)
+            == names
+        )
 
 
 def test_ppo_and_a2c_use_the_shared_three_action_intent_adapter() -> None:

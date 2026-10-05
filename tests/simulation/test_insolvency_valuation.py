@@ -370,3 +370,64 @@ def test_fee_termination_prevents_later_admitted_fills_only_for_retained_mode(
             order.terminal_reason == "economic_termination"
             for order in result.order_book.terminal_orders
         )
+
+
+def test_close_mark_termination_cancels_pending_orders_and_clears_margin():
+    marks = np.array([100.0, 100.0, 400.0, 900.0])[:, None]
+    opens = np.full((4, 1), 100.0)
+    original = market()
+    volume = original.volume.copy()
+    volume[2:] = 0.0
+    data = replace(
+        original,
+        open=opens,
+        high=marks,
+        low=opens,
+        close=marks,
+        mark_price=marks,
+        index_price=marks,
+        volume=volume,
+    )
+    executor = MarketExecutor(
+        data,
+        replace(cost(), processing_bar_volume_capacity=True),
+        insolvency_valuation="retain_debt",
+    )
+    entry = short_entry(executor)
+    pending = OrderIntent.create(
+        dataset_id=data.dataset_id,
+        target_identity="close-only-termination",
+        execution_policy_digest=executor.execution_policy_digest,
+        symbol_index=0,
+        requested_quantity=2.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=1,
+        eligible_index=2,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=entry.book.portfolio_value,
+    )
+    result = executor.execute_orders(
+        entry.book,
+        entry.order_book,
+        (pending,),
+        start_index=1,
+        bars=2,
+    )
+    terminal = tuple(
+        order
+        for order in result.order_book.terminal_orders
+        if order.order_id == pending.order_id
+    )
+    assert result.book.cash == result.book.portfolio_value == -501.0
+    assert result.next_index == 2 and result.bars_advanced == 1
+    assert result.book.exact_quantities == (Fraction(0),)
+    assert result.book.margin_used == result.book.maintenance_margin == 0.0
+    assert result.book.maintenance_requirement == 0.0
+    assert result.order_book.active_orders == ()
+    assert len(terminal) == 1
+    assert terminal[0].terminal_reason == "economic_termination"
+    assert result.fill_count == 0 and result.book.fill_count == 1

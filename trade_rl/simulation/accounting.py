@@ -9,6 +9,7 @@ from fractions import Fraction
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.simulation.quantities import (
     accepted_fill_quantity,
     exact_quantity,
@@ -62,8 +63,11 @@ class BookState:
     insolvent: bool = False
     termination_reason: EconomicTerminationReason | str | None = None
     _exact_quantities: tuple[str, ...] | None = field(default=None, repr=False)
+    as_of_index: int | None = None
+    as_of_dataset_id: str | None = None
 
     def __post_init__(self) -> None:
+        self._validate_processing_clock()
         quantities = _finite_vector(self.quantities, field_name="quantities")
         marks = _finite_vector(self.mark_prices, field_name="mark_prices")
         if quantities.shape != marks.shape:
@@ -271,6 +275,30 @@ class BookState:
         """Read accepted quantity evidence without a reporting-float round trip."""
         return self._quantity_values()
 
+    def _validate_processing_clock(self) -> None:
+        if self.as_of_index is None and self.as_of_dataset_id is None:
+            return
+        if (
+            isinstance(self.as_of_index, bool)
+            or not isinstance(self.as_of_index, int)
+            or self.as_of_index < 0
+            or self.as_of_dataset_id is None
+        ):
+            raise ValueError("account processing clock must bind an index and Dataset")
+        require_sha256(self.as_of_dataset_id, field="as_of_dataset_id")
+
+    def validate_processing_clock(
+        self, *, dataset_id: str, index: int, require_known: bool = False
+    ) -> None:
+        """Check opt-in continuation consistency; bootstrap is caller-declared."""
+        self._validate_processing_clock()
+        if self.as_of_index is None:
+            if require_known:
+                raise ValueError("account processing clock is required")
+            return
+        if self.as_of_index != index or self.as_of_dataset_id != dataset_id:
+            raise ValueError("account processing clock does not match this decision")
+
     def clone(self) -> BookState:
         self._quantity_values()
         return BookState(
@@ -294,6 +322,8 @@ class BookState:
             insolvent=self.insolvent,
             termination_reason=self.termination_reason,
             _exact_quantities=self._exact_quantities,
+            as_of_index=self.as_of_index,
+            as_of_dataset_id=self.as_of_dataset_id,
         )
 
     def _quantity_values(self) -> tuple[Fraction, ...]:

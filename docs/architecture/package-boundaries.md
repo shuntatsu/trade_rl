@@ -731,6 +731,16 @@ allocation_manifest dispatches v3 only with recipe_v2; verified-file save/load
 and recipe/env/encoder ownership stay unchanged. No new facade, Run/Study,
 learner subclass, ledger, normalization or sampler is introduced.
 
+## Allocation causal preprocessing ownership
+
+`evaluation/rl_allocation/preprocessing.py` owns actual prefix row admission and
+equal-symbol fitting, preserving the selected-feature dependency-scope guard.
+`strategies/rl/allocation_preprocessing.py` owns the frozen closed declaration,
+reader/digest and feature-only transform, composing existing numerical statistics.
+Neither owner imports account/risk processing or optional learners; the lower
+owner does not import the upper fitter. There is no runtime consumer, new facade,
+online normalization or sampler; existing legacy preprocessing remains unchanged.
+
 ## Stacked PR verification routing
 
 `.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through

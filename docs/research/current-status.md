@@ -1525,3 +1525,14 @@ This is G0-G2 software evidence, not parameter-improvement or fit authenticity.
 Raw-action evidence, delayed-payoff learning, fit-only preprocessing/sampling,
 continuous-account handover/walk-forward, market calibration/Study and formal
 G4/G5 approval remain open; existing sealed outcomes and eligibility are unchanged.
+
+## Issue #810: causal allocation preprocessing declaration candidate
+
+A standalone prefix fitter, immutable declaration and feature-only transform now
+have joint availability, equal-symbol arithmetic and closed-identity oracles.
+Fit Dataset lineage and selected-prefix consumption have distinct digests; supplied
+build/normalization hashes do not authenticate upstream causal feature construction.
+Allocation environments, v1/v2 recipes and v1/v2/v3 bundles do not consume this
+declaration. Frozen preprocessing runtime/receipt integration, sampling, action
+evidence, delayed learning and continuous handover remain subsequent stages.
+No market fit/replay, profitability result or G4/G5/live eligibility is added.

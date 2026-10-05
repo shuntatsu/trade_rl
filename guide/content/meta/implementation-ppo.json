@@ -33,9 +33,21 @@
     "allocation_account_observation_v2",
     "AllocationPPOTrainingProtocol",
     "明示学習設定",
-    "Adam完了回数"
+    "Adam完了回数",
+    "AllocationFeaturePreprocessing",
+    "因果的な特徴前処理"
   ],
   "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Causal allocation feature preprocessing prefix",
+      "sha256": "4c16d00155d8e0995f2e94510aa00fe28d29fcfb38d7a9fcca4bc0f9094b5dcf"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: causal allocation preprocessing declaration candidate",
+      "sha256": "90c2908c3e0245c68a3acac4de4e5b503b7e5ee480e7c67bc25e1dbe826719e7"
+    },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Explicit allocation PPO training protocol declaration",
@@ -493,6 +505,31 @@
         "tests/integrations/test_allocation_ppo_runtime.py",
         "tests/strategies/test_allocation_protocol_receipt.py",
         "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-feature-preprocessing",
+      "symbol": "trade_rl.strategies.rl.allocation_preprocessing.AllocationFeaturePreprocessing",
+      "kind": "class",
+      "source_sha256": "3bff87177611facd454d44c9d16d9332cad28a9a94629ed259123eaf52ef8bfc",
+      "label_ja": "前処理の係数と適用条件を凍結する",
+      "description_ja": "特徴順・fit範囲・有効行・係数・時刻・生成設定を閉じた宣言に保持し、特徴値だけを変換します。未来のDataset IDを固定せず、元データの真正性やPPO消費を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_preprocessing.py"
+      ]
+    },
+    {
+      "id": "fit-allocation-feature-preprocessing",
+      "symbol": "trade_rl.evaluation.rl_allocation.preprocessing.fit_allocation_feature_preprocessing",
+      "kind": "function",
+      "source_sha256": "a715e7a346e31a74f00815538bca064943b0f2d32e4a16e2cf9cc4ee57fbccdc",
+      "label_ja": "判断時点に公開済みのprefixだけを使う",
+      "description_ja": "選択特徴が共同で有限かつ利用可能で、その行の時刻に公開済みの値だけをfitへ入れ、銘柄を等重みで集計します。上流特徴生成の因果性の証明や市場学習は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_preprocessing.py",
+        "tests/architecture/test_allocation_preprocessing_boundary.py"
       ]
     }
   ]

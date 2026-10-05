@@ -836,3 +836,42 @@ declarations are recomputed, not cached assertions.
 Execution RNG uses its declared cost seed independently of the policy seed.
 The inference bundle pins canonical manifest and policy bytes before loading a
 verified private copy. It does not resume an account, optimizer or execution RNG.
+
+## Immutable allocation account snapshot contract
+
+`strategies/allocation_snapshot.py` は、独立した1口座のdecision前factsを
+`independent_allocation_account_snapshot_v1` として深くfreezeする下位DTOである。
+global symbol indexを保持し、quantity・mark・multiplierのvectorは選択symbolの1要素だけを受け取る。
+正のequityを持つlive口座を対象とし、負のcashは許す。terminal口座は対象外とする。
+canonical nanosecond clock、source Dataset、processing index、利用可能時刻を整合させる。
+active native MARKET orderのdirection、exact requested / cumulative / remaining quantity、
+TIF・expiry・reduce-only・statusと因果的なtransition clockを保持する。
+報告用quantityはexact rationalから同方向へ保守的に丸めた1 ULP以内の値を許す。
+受け取った完全contextの`source_state_digest`と射影factsのdigestは別のidentityである。
+このDTOは口座を読み出さず、ledgerの再計算、source・order IDの真正性、予約cash、
+position age、numeric PPO observation、policyへの接続を保証しない。
+
+## Independent account snapshot observer
+
+`evaluation.allocation_snapshot.snapshot_allocation_account` is an opt-in,
+observer-only reader for a live independent-symbol account with MARKET orders
+and zero extra latency. It requires the known matching Dataset/index clock,
+current selected-source availability and the existing allocation context checks.
+The caller must refresh canonical margin before reading, including bootstrap
+accounts whose stored maintenance rate may otherwise retain its default value.
+Margin is checked on a detached clone; the reader never repairs the source book.
+
+`independent_allocation_account_snapshot_v1` freezes account facts and full active
+order details. Quantity, exact-quantity, mark and multiplier vectors contain one
+selected coordinate; `symbol_index` retains its global Dataset slot. Signed cash,
+equity, peak/current/max drawdown and margin facts come from BookState. The full
+native account and order history remain bound by `source_state_digest`, rather
+than exposing another symbol's unavailable mark. Exact order remainders derive
+from requested quantity minus exact cumulative fills, not reporting floats.
+
+The producer detaches before cache-refreshing account reads and validates orders
+through their existing native reader. IDs/digests are evidence, not numeric
+policy inputs. DTO structural checks do not prove source/account authenticity;
+bootstrap clock and account ID remain caller declarations. This is neither a
+numeric observation encoder nor a terminal reader. Ages, free/reserved cash,
+shared accounts, account restart and research/execution authorization are absent.

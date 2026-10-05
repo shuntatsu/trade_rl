@@ -645,3 +645,28 @@ or critic-bootstrap rows. Feature, forecast and cost receipts include bootstrap
 inputs; execution receipts bind actual processing bars, profile-selected capacity
 reference rows and the effective
 calendar/bar duration. Explicit execution fields exclude unused global features.
+
+## Allocation snapshot contract ownership
+
+`strategies/allocation_snapshot.py` はimmutableなaccount/order evidenceのschemaと
+structural clock / exact-quantity validation、canonical bytes / digestだけを所有する。
+evaluation・simulation・risk・trainerへ依存せず、MarketExecutorやBookStateを再実装しない。
+宣言mappingを使う独立テストとarchitecture import contractでこの境界を確認する。
+既存strategy facadeとPPO v1のobservation / artifact契約は変更しない。
+source factsを読むproducerとcomplete contextの検証は下記の上位observer ownerが担当する。
+下位DTOにnumeric encodingやtraining consumerは含まれない。
+
+## Independent account snapshot ownership
+
+`strategies/allocation_snapshot.py` owns the immutable snapshot DTO, its closed
+fact schemas, structural consistency and canonical serialization/digest. It
+imports no evaluation, simulation, risk or learning code and supplies no numeric
+policy encoding. Its source digest is a binding, not independent authenticity.
+
+`evaluation/allocation_snapshot.py` owns source admission and selected-symbol
+projection through the existing allocation context, BookState clock, native
+order reader and observable tradability API. Canonical margin validation uses a
+detached clone; simulation remains the sole ledger/order-transition owner.
+Neither observer changes source account/order state or execution randomness.
+One-slot vectors retain the global symbol index; full native account/history
+identity remains digest-bound. Existing allocation/PPO APIs are unchanged.

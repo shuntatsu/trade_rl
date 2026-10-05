@@ -24,7 +24,11 @@
     "DummyVecEnv",
     "配分PPO",
     "固定初期資本",
-    "残差配分"
+    "残差配分",
+    "AllocationAccountSnapshot",
+    "口座スナップショット",
+    "未約定注文",
+    "snapshot_allocation_account"
   ],
   "source_sections": [
     {
@@ -41,6 +45,16 @@
       "path": "docs/research/current-status.md",
       "heading": "PPO",
       "sha256": "6b86c258f72be6ee0fc768db8f3a84f30a82a12062e860a03225ca01cca7af56"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Immutable allocation account snapshot contract",
+      "sha256": "307448f0caf7435c5d2ea6b33786197fdd0b142c35a9850b5da2b732b4162429"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Independent account snapshot observer",
+      "sha256": "897f4a002e3e93a68538b7d0b153d60abb08a4c2db1d511ad5d584332350ab8c"
     }
   ],
   "code_references": [
@@ -244,6 +258,44 @@
       ],
       "tests": [
         "tests/strategies/test_ppo_intent.py"
+      ]
+    },
+    {
+      "id": "allocation-account-snapshot",
+      "symbol": "trade_rl.strategies.allocation_snapshot.AllocationAccountSnapshot",
+      "kind": "class",
+      "source_sha256": "0694fd0336798c43ec54de29a8f5e9b138aa2c91a1392941f0b26aa6f6af1522",
+      "label_ja": "不変の口座・注文スナップショット",
+      "description_ja": "申告された生存中の独立口座について、選択銘柄の事実と未約定注文を深く不変化します。口座からの読み出しやPPO用数値符号化はこの段階に含みません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py",
+        "tests/architecture/test_allocation_snapshot_contract_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-order-snapshot-shape",
+      "symbol": "trade_rl.strategies.allocation_snapshot._order_shape",
+      "kind": "function",
+      "source_sha256": "86380805100fcddf1b5c26b14a3e3e5f93e1ddb062e79209bd8b53ab4b18efc9",
+      "label_ja": "未約定注文の数量と時刻を検査する",
+      "description_ja": "MARKET注文の申告時刻・処理時刻・状態と正確な約定進捗の整合性を確認します。注文履歴の真正性や経済的な採用資格を判定する機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/strategies/test_allocation_snapshot_contract.py"
+      ]
+    },
+    {
+      "id": "allocation-snapshot-observer",
+      "symbol": "trade_rl.evaluation.allocation_snapshot.snapshot_allocation_account",
+      "kind": "function",
+      "source_sha256": "6ea66909efb61ae709d65f963b344c33d0d35e1ea467a6fb0033b5b26ea463f2",
+      "label_ja": "実口座から現在の状態を読み出す",
+      "description_ja": "生存中の独立口座をコピーして、既知の処理時刻・公開済み選択銘柄・既存注文・更新済みmarginを検査します。元の口座や注文・実行乱数を修復・変更しません。PPO用数値符号化は別段階です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_snapshot.py",
+        "tests/architecture/test_allocation_snapshot_boundary.py"
       ]
     }
   ]

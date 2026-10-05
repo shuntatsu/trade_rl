@@ -1092,3 +1092,38 @@ their digests exclude unused global inputs and unvisited processing rows.
 Receipts remain consistency statements, not fitting/source authenticity or
 economic calibration. Formal independent approval, exact-head full CI and
 preregistered G4/G5 authorization remain required before market results.
+
+## Allocation snapshot DTO assurance
+
+Issue #810のaccount-state整備の最初のstageは、immutable DTOのsoftware contractである。
+G2 oracleはproducerやcanonical ledgerを呼ばない明示的な宣言mappingで、deep immutability、
+selected-vector scope、因果clock、live-only、exact rationalの保守的projectionを反証する。
+同じunsigned pending grossでも反対directionを持つorderは異なる射影digestになる。
+submission / eligibility前のtransition、不可能なactive status / filled progress、
+未知のnested key、DAY expiry不足、MARKETのlimit / stop指定を拒否する。
+partial fillのtrigger省略と、partial orderの再triggerというnativeに可能な状態は保持する。
+structural consistencyはsource authenticity、ledger closure、完全なMarkov observation、
+学習可能性、費用後利益の証拠ではない。このstageはG4結果生成を許可しない。
+
+## Independent account observer mechanism (Issue #810)
+
+G0 asks whether a detached predecision record preserves observable canonical
+account/order facts without source mutation or unavailable-price exposure. It
+does not assert complete policy state, historical authenticity or market value.
+
+G1 fixes live independent-symbol, MARKET/zero-extra-latency scope, a known
+Dataset/index clock, selected-source availability and caller-refreshed margin.
+The producer uses native context/order validation and a detached margin check.
+Selected-only vectors retain the global symbol slot; full native state/history
+binds the source digest. The DTO checks structure, exact signed quantities and
+compatible order clocks. No cash reservation, age, terminal-reader or numerical
+observation semantics are invented. The existing 20% research risk guardrail
+retains its meaning and is not a loss guarantee.
+
+G2 software tests cover source/cache/RNG nonmutation, deep immutability, equal
+gross/count but opposite pending directions, exact 1/3 and 2/3, conservative
+reporting, native order identity/TIF/status, malformed schemas/clocks, stale
+margin, unavailable marks and future-suffix invariance at fixed declared identity.
+These no-fit fixtures do not independently establish account/source provenance.
+Full exact-head verification, formal independent research approval and a
+preregistered G4 contract remain required before new economic evidence.

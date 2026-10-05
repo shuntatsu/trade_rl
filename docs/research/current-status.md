@@ -1437,3 +1437,30 @@ capacity sensitivity, complete market trial registration, formal independent
 approval and authorized economic comparison remain open. Existing log/PPO/A2C,
 Run/Study and sealed outcomes are unchanged. No new WINNER/NO_WINNER/INVALID
 economic result, unused-future opening or live eligibility is established.
+
+## Issue #810: allocation snapshot contract stage
+
+現在の候補には、liveな独立口座のaccount/order factsを受け取るimmutable下位DTOを追加した。
+宣言mappingのsoftware testでclock、active-order status、exact quantity、
+deep immutabilityとdigest scopeを検証する。既存PPO v1はこのDTOを消費しない。
+source factsの読み出しは下記observerで追加した。numeric policy encoder、予約cash・
+position ageのモデル、このsnapshotを消費するallocation RL adapterは未実装である。
+方策への接続、continuous walk-forward、正式な経済比較は後続作業である。
+実市場fit / replay、経済比較、formal independent approvalやprofitabilityを達成した状態ではない。
+
+## Issue #810: live independent-account observer candidate
+
+A separate opt-in software observer now freezes live canonical account facts and
+active MARKET-order evidence. Selected-only vectors preserve the global symbol
+slot; a source digest retains full account/history identity. It requires a known
+matching clock, currently available selected market source, native order
+validation and already-refreshed canonical margin, including bootstrap setup.
+Its cloned checks preserve source book/cache, orders and execution randomness.
+
+Pure no-fit tests cover exact fractions, direction/clock/schema counterexamples,
+detachment and unavailable-price exposure. This DTO is not a numeric RL
+observation, terminal reader, holding-age/reservation model or provenance proof.
+Common policy-state integration, train-only preprocessing, sampling, continuous
+walk-forward and complete trial registration remain separate work. No market
+result, G4/G5 approval, unused-future opening or live eligibility is established;
+integration still requires final-head full CI and formal independent approval.

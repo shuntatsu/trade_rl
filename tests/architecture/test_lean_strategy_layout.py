@@ -108,7 +108,6 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
     prequential_names = {
         "ForecastBlock",
         "FrozenForecastStream",
-        "PacketForecastStrategy",
         "fit_prequential_ridge",
         "FrozenSimpleReturnStream",
         "SimpleReturnPacket",
@@ -132,7 +131,7 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
     assert prequential_names.isdisjoint(strategies.__all__)
     for owner, names in (
         (forecast_stream, {"ForecastBlock", "FrozenForecastStream"}),
-        (prequential_forecasts, {"PacketForecastStrategy", "fit_prequential_ridge"}),
+        (prequential_forecasts, {"fit_prequential_ridge"}),
     ):
         for name in names:
             assert getattr(forecasts, name) is getattr(owner, name), name
@@ -161,6 +160,14 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
             _imported_names(STRATEGIES / "forecasts" / "__init__.py", owner.__name__)
             == names
         )
+
+
+def test_prequential_owner_does_not_reintroduce_an_intent_adapter() -> None:
+    imports = _imports(STRATEGIES / "forecasts" / "prequential.py")
+    assert "trade_rl.strategies.forecasts.controller" not in imports
+    assert "trade_rl.strategies.interface" not in imports
+    assert "trade_rl.strategies.position_intent" not in imports
+    assert not hasattr(prequential_forecasts, "PacketForecastStrategy")
 
 
 def test_ppo_and_a2c_use_the_shared_three_action_intent_adapter() -> None:

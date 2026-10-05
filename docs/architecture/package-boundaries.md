@@ -750,3 +750,24 @@ recipe validator has an explicit v3 reconstruction lane and native root/tag disp
 Neither lower owner imports environments, fitting, risk/account execution or optional
 learners. There is no new public facade, runtime consumer, bundle, online fit or
 sampler. Upper source admission and actual actor consumption remain future work.
+
+## Stacked PR verification routing
+
+`.github/workflows/ci.yml` routes PRs targeting `main` or `codex/**` through
+Lean Core, PPO Runtime and Human Guide at the PR's exact head SHA. PR opened,
+synchronize and reopened events run these jobs; PR edited runs them only when
+the payload contains `changes.base`. Body/title edits skip the same software
+and review jobs, while submitted/edited/dismissed review events remain eligible.
+Metadata-only PR edits use a separate concurrency group and conditional job-name
+expressions. Executed eligible jobs retain the existing verification names.
+GitHub may display an unevaluated name expression for skipped jobs; such labels
+are distinct from the exact verification names and do not prove verification ran.
+Non-metadata events retain the existing concurrency group and cancellation policy.
+Both generic and 4h review gates require all three software jobs to succeed;
+empty, skipped, pending and failed results cannot satisfy that prerequisite.
+Review events on an unsupported base still run the appropriate review gate,
+which rejects the skipped software jobs instead of reporting a skipped gate.
+The existing head-based choice of review checker remains unchanged. Routing
+does not grant formal approval or relax the integration requirement that the
+tested final head contains current `main`; live exact-head checks are still
+required before merge. Push and one-shot research execution routing is unchanged.

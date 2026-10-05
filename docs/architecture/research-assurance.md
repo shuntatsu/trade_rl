@@ -1283,3 +1283,19 @@ ID/column/index changes admit under semantic bindings. Repinned bad receipt link
 reject before deserialization; v4 save/load and actual optimizer/epoch guards hold.
 These finite mechanics do not prove delayed-payoff learning, sampling coverage,
 historical source/fitting authenticity, continuous handover or G4/G5 profitability.
+
+## Chronological action trace assurance
+
+G0 separates sampled action, mapper target, hard-risk approval and native fills.
+G1 fixes actual tensor capture, pre-overwrite detachment, admitted full rollouts,
+independent episode/rollout ordinals and completion after ordinary fit validation.
+G2 literal C1024, price128→144, fee1/512 maps action3 to quantity4, cash511,
+equity1087 and cost1; zero/partial capacity yields quantities0/1. Raw1 and raw3
+can share approved0; HOLD preserves quantity while cancelling residuals and
+recording cash interest. Native T2/T4 fits bind actual normalized/raw inputs,
+logpi/value, resets, buffers, saved bundles and public reader output. Rehashed
+row/scalar/order/terminal mismatches reject. Last callback False, optimizer error
+and post-fit source/protocol failure refuse completion. None preserves model,
+manifest, full fixed-action economic traces and Python/NumPy/Torch RNG.
+These finite observability checks do not establish delayed learning, sampler
+coverage, continuous handover, source authenticity, market profits or G4/G5 approval.

@@ -36,7 +36,10 @@
     "Adam完了回数",
     "AllocationFeaturePreprocessing",
     "因果的な特徴前処理",
-    "配分観測v3"
+    "配分観測v3",
+    "transition_trace_v1",
+    "実行動と約定",
+    "buffer admission"
   ],
   "source_sections": [
     {
@@ -57,7 +60,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: causal allocation preprocessing declaration candidate",
-      "sha256": "6ade283e2104ab20a7c7b2a0cd978d99492ee022d91e8331bac2e1ca6e4233ae"
+      "sha256": "e247013b8eff4f2182e3e1bf79b467c88787042c574e4735c9cefb377e1828fd"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -143,6 +146,16 @@
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: frozen preprocessing runtime candidate",
       "sha256": "dc0a9780c32511f87fe37a3f36ec861bbbc55ace9d4102fe7f6bf1bc808c7918"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Optional chronological allocation transition trace",
+      "sha256": "c2e80f30bb7fbea263d9e714993db6a7e170534651d382374a4f38538ef7bcde"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: chronological allocation action sidecar candidate",
+      "sha256": "8e0aab3e5f5a19e98eb4779eb11f4f78acc2fc56c16fbd07cc047e472864e031"
     }
   ],
   "code_references": [
@@ -163,7 +176,7 @@
       "id": "allocation-environment",
       "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
       "kind": "class",
-      "source_sha256": "6bb7817979d089ae0de7d7448560a32f6f98573b74869cdd436e2e42a86710ff",
+      "source_sha256": "88157711e2d8f2aa861817555424df6e8322ffc6bfaedd7ee153419fe54548a6",
       "label_ja": "独立口座の配分PPO環境",
       "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。既定v1と明示v2を保ち、凍結前処理の明示v3では先頭の特徴だけを変換します。真の終了は変換を迂回した全0通知で、truncationは生成しません。",
       "variables": [],
@@ -479,7 +492,7 @@
       "id": "fit-allocation-ppo",
       "symbol": "trade_rl.evaluation.rl_allocation.training.fit_allocation_ppo",
       "kind": "function",
-      "source_sha256": "77be4a86d49310af7286221b40158c036fb92eecaa283b132e5536fc5af8c443",
+      "source_sha256": "7280df8f1b10c412008d5cdd75983dc7ddd7ae709323e3ff37ceae64736ca2aa",
       "label_ja": "明示した独立口座だけで配分PPOを学習する",
       "description_ja": "省略・Noneでは既存v1/v2のbudgetとsource記録を維持します。明示設定ではv3 bundle、凍結前処理では実Datasetのprefixを構築前・学習後に照合してv4 bundleへ接続します。市場承認や学習成功の証明ではありません。",
       "variables": [],
@@ -630,6 +643,48 @@
       "tests": [
         "tests/strategies/test_allocation_preprocessing_receipt.py",
         "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-recorder",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_trace.AllocationTransitionRecorder",
+      "kind": "class",
+      "source_sha256": "b636b4553513259bf125b4af25e7ba9906c0b52c9d7c9a5b16c351c3164559d6",
+      "label_ja": "実actorと採用済みbufferを結ぶ",
+      "description_ja": "実tensor・action・logpi・valueと上書き前の経済factを凍結し、buffer全体を照合します。終了通知だけで完了にせず、通常の最終学習検証が必要です。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-validation",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_validation.validate_transition_events",
+      "kind": "function",
+      "source_sha256": "010e42f5db9f6a515bbf2aff47c209838d0f0777617701bb9ead85647df70ff3",
+      "label_ja": "行の順序・時計・経済関係を検査する",
+      "description_ja": "全体ordinalとnative event sequenceを分け、actual inputreceipt、signed reward、mapper・risk・order関係を検査します。再学習・再約定や履歴の真正性の証明は行いません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-transition-reader",
+      "symbol": "trade_rl.evaluation.rl_allocation.transition_trace_io.read_allocation_transition_trace",
+      "kind": "function",
+      "source_sha256": "dbddb8488cb2b9571cfcda58ffad06d79ec0015df8436f6f90d09cc98044fee9",
+      "label_ja": "別sidecarをPPOの読込なしで検証する",
+      "description_ja": "保存済みbundleと別pinを持つwrite-once記録を照合し、rehashedな関係不整合も拒否します。既存bundle/recipe/receiptは変えず、利益や研究承認も示しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_transition_trace.py",
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/architecture/test_allocation_rl_boundary.py"
       ]
     }
   ]

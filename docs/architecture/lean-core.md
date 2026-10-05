@@ -1065,3 +1065,40 @@ the complete fields once; post-load protocol/epoch guards apply. New v4 native
 JSON is checked before coercion; manifest dispatch rejects non-native root/tag
 aliases in every version while retaining valid old JSON bytes. Neither receipts
 nor supplied source hashes prove historical fitting/upstream authenticity or profit.
+
+## Optional chronological allocation transition trace
+
+`AllocationTransitionRecorder` is a fresh single-fit observer passed explicitly to
+`fit_allocation_ppo(transition_trace=...)`, requiring an explicit PPO protocol.
+None preserves valid old manifest bytes, model parameters, native fixed-action
+economics and RNG states. It adds no fields to existing recipes, bundles or receipts.
+Pre-overwrite capture detaches full-symbol economic book fields/vectors and interval-local order
+events; exact-quantity reads touch only deep copies. Raw action/logpi/value and
+actor tensor bits are copied from the actual collector, alongside raw decisions.
+Returns history/private caches and untouched terminal archives are excluded.
+The separate `current_weights` means the actual prebook weights; native
+`RiskConstrainedTarget.pretrade_weights` retains its existing approved-weight meaning.
+
+At each rollout boundary, the observer checks full/pos/generator state and exact
+chronological arrays before `buffer.get()`. Global, rollout and episode ordinals
+remain distinct from native invocation-local event sequences. Terminal zero,
+normalized autoreset and live critic boundary remain separate inputs. A last-step
+callback rejection can reach the requested step count without buffer admission.
+Only admitted rollouts plus ordinary post-fit source/protocol/model validation
+permit COMPLETE; failure detaches the slot/hooks and publishes no complete trace.
+
+The write-once external sidecar `allocation_ppo_transition_trace_v1` pairs only
+bundle3/input2 or bundle4/input3, pinning saved model bytes and existing training,
+source, recipe, observation, protocol, input and optimizer identities.
+Publication rejects destinations inside the bundle before any write; separate
+independent directories are allowed and leave the bundle's two-file roster intact.
+Its closed reader needs no optional learner, checks tensor/coverage/buffer/clock relations,
+pure mapper/risk projection, native book/reward/order facts and frozen feature
+prefixes. Selected coordinates stay fixed across episodes; active intents are
+MARKET only and cannot enter the stop-trigger phase. Native event kinds/statuses, unsigned notionals, fill-ratio and
+liquidity input bounds reject structural contradictions without constraining
+signed fees/funding. Economic suffix bits link to the actual input receipt; the reader does
+not reconstruct them with another encoder or rerun execution. HOLD may cancel
+residuals and incur carry. Native clipped interval returns are separate from the
+signed fixed-capital reward. Consistent repinning is a different artifact, not
+proof of authenticity, source history, exact restart or learned profitability.

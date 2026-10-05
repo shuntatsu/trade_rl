@@ -333,9 +333,8 @@ object through one solver; it does not select rows a second time.
 
 `strategies.forecasts.stream` owns the simulated availability block, Ridge
 vintage, packet and immutable stream JSON contracts. `prequential` fits each
-declared prefix and produces only its following prediction block. Its packet
-strategy uses the existing cost-aware controller and a per-vintage/symbol index;
-it owns no cash book, execution, portfolio risk or RL environment.
+declared prefix and produces only its following prediction block. It owns no
+intent selection, cash book, execution, portfolio risk or RL environment.
 
 The family facade directly exports `ForecastBlock` and `FrozenForecastStream`
 from `stream`, and `fit_prequential_ridge` from `prequential`. The

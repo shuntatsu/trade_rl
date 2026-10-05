@@ -1264,6 +1264,22 @@ Binding, nested aliases, version mixing and dispatch-subclass oracles reject; va
 legacy JSON identities are unchanged, while non-native root/tag aliases now reject.
 Raw feature zero maps to -1, so an economic terminal zero vector must bypass this
 live-input encoder. Tiny normalized residuals may round to zero. These are pure
-software oracles; no runtime actor/boundary receipt, actual training-prefix or
-policy-window proof, terminal integration, upstream authenticity or G4/G5 approval
-is established. Current bundles intentionally reject the unconnected v3 recipe.
+software projection oracles. Actual runtime source/consumption checks are separate
+below; they do not establish upstream authenticity or G4/G5 approval.
+
+## Frozen preprocessing runtime assurance
+
+G0 asks whether causal prefix statistics reach PPO without altering raw economics.
+G1 fixes separate train/inference admission, frozen coefficients across resets,
+first-F-only projection, zero terminal bypass and the v3/v4 version pairing.
+G2 excludes delayed 1000 from [0,1000,2], yielding mean/scale1/1. Actual SB3 actor
+inputs [4,6] become [3,5]; nonterminal critic sees 7 and done/autoreset critic sees
+3, separately from terminal 0. Independent framed hashes bind actual tensors.
+Fixed actions preserve full native books/orders/rewards including partial fills
+and signed insolvency. Actual prefix, scope and policy clock mismatch rejects
+before backend construction; changed admitted prefix values unseen by the actor
+reject after learning. Excluded values' magnitudes are outside the fit digest. Future
+ID/column/index changes admit under semantic bindings. Repinned bad receipt links
+reject before deserialization; v4 save/load and actual optimizer/epoch guards hold.
+These finite mechanics do not prove delayed-payoff learning, sampling coverage,
+historical source/fitting authenticity, continuous handover or G4/G5 profitability.

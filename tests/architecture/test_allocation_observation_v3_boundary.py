@@ -1,4 +1,4 @@
-"""Pure v3 projection has no environment, fit, learner or bundle consumer."""
+"""Pure v3 owners stay below explicit runtime admission and receipt consumers."""
 
 import subprocess
 import sys
@@ -19,13 +19,19 @@ def test_v3_lower_owners_have_no_direct_runtime_or_optional_learner_dependency()
             for name in imports
             for prefix in "trade_rl.evaluation trade_rl.simulation trade_rl.risk torch stable_baselines3 gymnasium".split()
         )
-    for path in ("env.py", "training.py", "input_receipt.py"):
+    env_imports = collector.collect(ROOT / "trade_rl/evaluation/rl_allocation/env.py")
+    assert all(f"trade_rl.strategies.rl.{module}" in env_imports for module in MODULES)
+    for path in ("training.py", "input_receipt.py"):
         imports = collector.collect(ROOT / f"trade_rl/evaluation/rl_allocation/{path}")
         assert not any(
             within_module(name, f"trade_rl.strategies.rl.{module}")
             for name in imports
             for module in MODULES
         )
+    lower = collector.collect(
+        ROOT / "trade_rl/strategies/rl/allocation_preprocessing_receipt.py"
+    )
+    assert not any(within_module(name, "trade_rl.evaluation") for name in lower)
 
 
 def test_pure_v3_import_does_not_require_optional_learners():

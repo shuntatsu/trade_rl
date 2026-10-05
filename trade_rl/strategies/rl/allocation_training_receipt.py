@@ -38,7 +38,7 @@ def validate_allocation_training(
 ) -> None:
     input_keys = (
         {"observation_consumption"}
-        if recipe["schema"] == "allocation_ppo_recipe_v2"
+        if recipe["schema"] in ("allocation_ppo_recipe_v2", "allocation_ppo_recipe_v3")
         else set()
     )
     values = _mapping(

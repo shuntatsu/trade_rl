@@ -7,6 +7,9 @@ from typing import Any
 
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.rl_allocation.input_receipt import AllocationInputRecorder
+from trade_rl.evaluation.rl_allocation.preprocessing import (
+    validate_training_preprocessing,
+)
 from trade_rl.evaluation.rl_allocation.training_protocol import (
     AllocationUpdateRecorder,
     construct_protocol_ppo,
@@ -23,6 +26,22 @@ from trade_rl.strategies.rl.allocation_training_protocol import (
 )
 
 
+def _preprocessing_fit(
+    env: AllocationTradingEnv, protocol: AllocationPPOTrainingProtocol | None
+) -> dict[str, object] | None:
+    if env.feature_preprocessing is None:
+        return None
+    if protocol is None:
+        raise ValueError("frozen preprocessing requires an explicit training protocol")
+    return validate_training_preprocessing(
+        env.dataset,
+        env.feature_preprocessing,
+        feature_indices=env.feature_indices,
+        symbol_index=env.symbol_index,
+        first_decision_index=env.start_index,
+    )
+
+
 def build_allocation_ppo(
     env: AllocationTradingEnv,
     *,
@@ -33,6 +52,7 @@ def build_allocation_ppo(
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("policy seed must be a nonnegative integer")
     env.validate_binding()
+    _preprocessing_fit(env, training_protocol)
     clock = env.bound.clock
     if training_protocol is not None:
         validate_protocol_clock(env, training_protocol)
@@ -82,6 +102,7 @@ def fit_allocation_ppo(
         raise ValueError("training budget must be a positive exact rollout multiple")
     env.validate_binding()
     envelope = allocation_training_source(env)
+    preprocessing_fit = _preprocessing_fit(env, training_protocol)
     recipe, recipe_digest = env.recipe, env.recipe_digest
     if training_protocol is None:
         model = build_allocation_ppo(env, seed=seed)
@@ -141,6 +162,7 @@ def fit_allocation_ppo(
         or sum(counts.values()) != total_timesteps
         or allocation_training_source(env) != envelope
         or env.recipe_digest != recipe_digest
+        or _preprocessing_fit(env, training_protocol) != preprocessing_fit
     ):
         raise ValueError("realized training budget, recipe or consumed sources changed")
     source = allocation_training_source(
@@ -179,4 +201,10 @@ def fit_allocation_ppo(
             protocol_digest=training_protocol.digest,
             optimization=updates.payload(),
         )
+        if preprocessing_fit is not None:
+            manifest["schema"] = "allocation_ppo_inference_bundle_v4"
+            manifest["training"].update(
+                schema="allocation_ppo_training_receipt_v4",
+                preprocessing_fit=preprocessing_fit,
+            )
     return AllocationPPOPolicy(model, manifest)

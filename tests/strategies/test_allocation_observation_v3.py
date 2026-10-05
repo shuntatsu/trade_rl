@@ -275,12 +275,15 @@ def test_closed_v3_recipe_rejects_aliases_and_fixed_or_variable_crosslinks(path,
         "allocation_ppo_inference_bundle_v4",
     ],
 )
-def test_no_bundle_version_accepts_unconnected_v3_recipe(bundle):
+def test_old_receipts_cannot_make_a_v3_recipe_bundle_valid(bundle):
     raw = manifest_v2()
     raw.update(schema=bundle, recipe=recipe())
     raw["recipe_digest"] = content_digest(raw["recipe"])
     raw["training"]["objective"]["deployment_recipe_digest"] = raw["recipe_digest"]
-    with pytest.raises(ValueError, match="unsupported allocation"):
+    error = (
+        "v4 training requires" if bundle.endswith("v4") else "unsupported allocation"
+    )
+    with pytest.raises(ValueError, match=error):
         validate_allocation_manifest(raw)
 
 

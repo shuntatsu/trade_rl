@@ -38,6 +38,160 @@ pytest.importorskip("stable_baselines3")
 pytest.importorskip("torch")
 
 
+@pytest.mark.parametrize("horizon,budget", [(3, 2), (2, 2), (2, 4)])
+def test_actual_frozen_features_reach_actor_critic_autoreset_and_v4_bundle(
+    tmp_path, monkeypatch, horizon, budget
+):
+    import hashlib
+    import json
+
+    from tests.evaluation.test_allocation_preprocessing_runtime import (
+        bind_frozen,
+        frozen_args,
+    )
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.strategies.rl.allocation_artifact import (
+        load_allocation_policy,
+        save_allocation_policy,
+    )
+
+    args = frozen_args(stop=6 + horizon)
+    args["observation_schema"] = replace(
+        args["observation_schema"], max_active_orders=1
+    )
+    args = bind_frozen(args, args["feature_preprocessing"])
+    env = AllocationTradingEnv(**args)
+    module, actors, boundaries = trainer(), [], []
+    build = module.build_allocation_ppo
+
+    def traced(*a, **k):
+        model = build(*a, **k)
+        forward, critic = model.policy.forward, model.policy.predict_values
+
+        def actor(obs, *a, **k):
+            assert obs[0, 0].item() == 3 + 2 * (env.index - 6)
+            actors.append(
+                (
+                    dict(
+                        phase="actor",
+                        index=env.index,
+                        episode_start=bool(model._last_episode_starts[0]),
+                    ),
+                    obs.detach().cpu().numpy().astype("<f4").tobytes(),
+                )
+            )
+            return forward(obs, *a, **k)
+
+        def boundary(obs):
+            done = bool(model._last_episode_starts[0])
+            assert obs[0, 0].item() == (3 if done else 7)
+            boundaries.append(
+                (
+                    dict(
+                        phase="rollout_boundary",
+                        index=env.index,
+                        last_transition_index=8,
+                        done=done,
+                    ),
+                    obs.detach().cpu().numpy().astype("<f4").tobytes(),
+                )
+            )
+            return critic(obs)
+
+        model.policy.forward, model.policy.predict_values = actor, boundary
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", traced)
+    policy = module.fit_allocation_ppo(
+        env,
+        total_timesteps=budget,
+        seed=0,
+        training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=2),
+    )
+    raw = policy.manifest
+    receipt = raw["training"]["observation_consumption"]
+    assert raw["schema"] == "allocation_ppo_inference_bundle_v4"
+    assert raw["training"]["schema"] == "allocation_ppo_training_receipt_v4"
+    assert receipt["schema"] == "allocation_ppo_observation_consumption_v3"
+    assert receipt["preprocessing_digest"] == args["feature_preprocessing"].digest
+
+    def digest(events):
+        result = hashlib.sha256()
+        for facts, values in events:
+            header = json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()
+            result.update(
+                len(header).to_bytes(8, "big")
+                + header
+                + len(values).to_bytes(8, "big")
+                + values
+            )
+        return result.hexdigest()
+
+    terminal = [
+        (dict(phase="terminal_sentinel", index=8), np.zeros(47, "<f4").tobytes())
+    ] * (budget // 2 if horizon == 2 else 0)
+    assert (
+        receipt["actor_digest"] == digest(actors) and receipt["actor_count"] == budget
+    )
+    assert receipt["rollout_boundary_digest"] == digest(boundaries)
+    assert receipt["terminal_digest"] == digest(terminal) and receipt[
+        "terminal_count"
+    ] == len(terminal)
+    pin = save_allocation_policy(tmp_path / "v4", policy)
+    loaded = load_allocation_policy(
+        tmp_path / "v4", expected_digest=pin, expected_recipe_digest=env.recipe_digest
+    )
+    assert loaded.manifest == policy.manifest | {
+        "policy_sha256": hashlib.sha256(
+            (tmp_path / "v4" / "policy.zip").read_bytes()
+        ).hexdigest()
+    }
+    assert rollout(
+        AllocationTradingEnv(**args),
+        lambda o: policy.action(o, runtime_recipe_digest=env.recipe_digest),
+    ) == rollout(
+        AllocationTradingEnv(**args),
+        lambda o: loaded.action(o, runtime_recipe_digest=env.recipe_digest),
+    )
+    loaded.model.policy.optimizer.param_groups[0]["eps"] = 1e-8
+    with pytest.raises(ValueError, match="protocol"):
+        loaded.action(env.reset()[0], runtime_recipe_digest=env.recipe_digest)
+    loaded.model.policy.optimizer.param_groups[0]["eps"] = 1e-5
+    loaded.model._n_updates += 1
+    with pytest.raises(ValueError, match="epoch iterations"):
+        loaded.action(env.reset()[0], runtime_recipe_digest=env.recipe_digest)
+
+
+def test_actual_training_detects_changed_unseen_prefix_after_learning(monkeypatch):
+    from tests.evaluation.test_allocation_preprocessing_runtime import frozen_args
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+
+    env = AllocationTradingEnv(**frozen_args())
+    module, build = trainer(), trainer().build_allocation_ppo
+
+    def altered(*a, **k):
+        model = build(*a, **k)
+        learn = model.learn
+
+        def learns(**kwargs):
+            result = learn(**kwargs)
+            changed = env.dataset.features.copy()
+            changed[0, 0, 0] = 9
+            env.dataset = env.executor.dataset = replace(env.dataset, features=changed)
+            return result
+
+        model.learn = learns
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", altered)
+    with pytest.raises(ValueError, match="prefix"):
+        module.fit_allocation_ppo(
+            env,
+            total_timesteps=2,
+            training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=2),
+        )
+
+
 @pytest.mark.parametrize("steps,budget,expected", [(2, 2, 2), (2, 4, 4), (4, 4, 4)])
 def test_explicit_protocol_counts_actual_adam_calls_and_final_update(
     tmp_path, monkeypatch, steps, budget, expected

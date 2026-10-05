@@ -20,6 +20,9 @@ from trade_rl.evaluation.allocation_snapshot import snapshot_allocation_account
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
 from trade_rl.evaluation.objectives import BoundObjectiveClock, net_equity_increment
 from trade_rl.evaluation.rl_allocation.binding import validate_runtime_binding
+from trade_rl.evaluation.rl_allocation.preprocessing import (
+    validate_preprocessing_application,
+)
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import BookState, MarketExecutor
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -34,13 +37,20 @@ from trade_rl.strategies.rl.allocation_observation_encoder_v2 import (
     encode_allocation_observation_v2,
 )
 from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservationSchema
+from trade_rl.strategies.rl.allocation_observation_v3 import (
+    encode_allocation_observation_v3,
+)
 from trade_rl.strategies.rl.allocation_policy import (
     ALLOCATION_OBSERVATION_FIELDS,
     AllocationRuntimeProfile,
     allocation_recipe_payload,
     encode_allocation_observation,
 )
+from trade_rl.strategies.rl.allocation_preprocessing import (
+    AllocationFeaturePreprocessing,
+)
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
+from trade_rl.strategies.rl.allocation_recipe_v3 import allocation_recipe_payload_v3
 
 
 class AllocationTradingEnv(gym.Env):
@@ -69,6 +79,7 @@ class AllocationTradingEnv(gym.Env):
         account_id: str,
         expected_horizon_seconds: int = 3600,
         observation_schema: AllocationObservationSchema | None = None,
+        feature_preprocessing: AllocationFeaturePreprocessing | None = None,
     ) -> None:
         self.dataset, self.stream, self.bound = dataset, stream, bound
         self._bound_digest = bound.digest
@@ -76,6 +87,11 @@ class AllocationTradingEnv(gym.Env):
         self.execution_cost, self.risk_config = execution_cost, risk_config
         self.feature_indices = tuple(feature_indices)
         self.observation_schema = observation_schema
+        self.feature_preprocessing = feature_preprocessing
+        if feature_preprocessing is not None and observation_schema is None:
+            raise ValueError(
+                "frozen preprocessing requires an explicit observation schema"
+            )
         if (
             not self.feature_indices
             or len(set(self.feature_indices)) != len(self.feature_indices)
@@ -118,6 +134,13 @@ class AllocationTradingEnv(gym.Env):
             stop_index=stop_index,
         )
         self.initial_capital = bound.objective.capital.initial_equities[0]
+        if feature_preprocessing is not None:
+            validate_preprocessing_application(
+                dataset,
+                feature_preprocessing,
+                feature_indices=self.feature_indices,
+                decision_time=dataset.timestamps[start_index],
+            )
         self._estimates = {int(c.decision_time.astype(np.int64)): c for c in estimates}
         if (
             len(self._estimates) != len(estimates)
@@ -152,6 +175,9 @@ class AllocationTradingEnv(gym.Env):
         if self.observation_schema is not None:
             builder = allocation_recipe_payload_v2
             arguments["observation_schema"] = self.observation_schema
+        if self.feature_preprocessing is not None:
+            builder = allocation_recipe_payload_v3
+            arguments["feature_preprocessing"] = self.feature_preprocessing
         return builder(
             self.action_contract,
             tuple(self.dataset.feature_names[i] for i in self.feature_indices),
@@ -238,6 +264,22 @@ class AllocationTradingEnv(gym.Env):
                 symbol_index=self.symbol_index,
                 start_index=self.index,
             )
+            if self.feature_preprocessing is not None:
+                validate_preprocessing_application(
+                    self.dataset,
+                    self.feature_preprocessing,
+                    feature_indices=self.feature_indices,
+                    decision_time=self.dataset.timestamps[self.index],
+                )
+                return encode_allocation_observation_v3(
+                    snapshot,
+                    self.decision,
+                    schema=self.observation_schema,
+                    preprocessing=self.feature_preprocessing,
+                    feature_config_digest=self.dataset.feature_config_digest,
+                    source_normalization_digest=self.dataset.normalization_digest,
+                    episode_steps=self.stop_index - self.start_index,
+                )
             return encode_allocation_observation_v2(
                 snapshot,
                 self.decision,

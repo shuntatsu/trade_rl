@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from trade_rl.artifacts import content_digest
+from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.dataset_scope import validated_training_scope
 from trade_rl.strategies.forecasts.training_trace import _timestamp
 from trade_rl.strategies.rl.allocation_preprocessing import (
     AllocationFeaturePreprocessing,
+)
+from trade_rl.strategies.rl.allocation_preprocessing_receipt import (
+    preprocessing_fit_payload,
 )
 from trade_rl.strategies.rl.ppo_normalization import PPOFeatureNormalizer
 
@@ -120,4 +123,78 @@ def fit_allocation_feature_preprocessing(
     )
 
 
-__all__ = ["fit_allocation_feature_preprocessing"]
+def validate_preprocessing_application(
+    dataset: MarketDataset,
+    declaration: AllocationFeaturePreprocessing,
+    *,
+    feature_indices: tuple[int, ...],
+    decision_time: np.datetime64,
+) -> None:
+    """Actual inference semantics/time; fit Dataset ID and indices are provenance."""
+    if type(declaration) is not AllocationFeaturePreprocessing or any(
+        type(i) is not int or not 0 <= i < dataset.n_features for i in feature_indices
+    ):
+        raise ValueError("application requires a frozen preprocessing declaration")
+    stamp = int(
+        _timestamp(decision_time, field="application decision").astype(np.int64)
+    )
+    if (
+        tuple(dataset.feature_names[i] for i in feature_indices)
+        != declaration.normalizer.feature_names
+        or dataset.feature_config_digest != declaration.feature_config_digest
+        or dataset.normalization_digest != declaration.source_normalization_digest
+        or stamp < max(declaration.fit_as_of_ns, declaration.policy_start_time_ns)
+    ):
+        raise ValueError("actual preprocessing application features/build/clock differ")
+
+
+def validate_training_preprocessing(
+    dataset: MarketDataset,
+    declaration: AllocationFeaturePreprocessing,
+    *,
+    feature_indices: tuple[int, ...],
+    symbol_index: int,
+    first_decision_index: int,
+) -> dict[str, object]:
+    """Reconstruct the supplied frozen prefix; never replace its coefficients."""
+    if (
+        type(first_decision_index) is not int
+        or not 0 <= first_decision_index < dataset.n_bars
+    ):
+        raise ValueError("preprocessing requires a valid first policy index")
+    validate_preprocessing_application(
+        dataset,
+        declaration,
+        feature_indices=feature_indices,
+        decision_time=dataset.timestamps[first_decision_index],
+    )
+    fit = declaration.normalizer
+    if (
+        dataset.dataset_id != fit.source_dataset_id
+        or feature_indices != fit.feature_indices
+        or type(symbol_index) is not int
+        or symbol_index not in fit.fit_symbol_indices
+        or first_decision_index != declaration.policy_start_index
+    ):
+        raise ValueError("actual training preprocessing prefix/source scope differs")
+    rebuilt = fit_allocation_feature_preprocessing(
+        dataset,
+        feature_indices=fit.feature_indices,
+        fit_symbol_indices=fit.fit_symbol_indices,
+        fit_start=fit.start_index,
+        fit_stop=fit.stop_index,
+        fit_as_of=np.datetime64(declaration.fit_as_of_ns, "ns"),
+        first_decision_index=first_decision_index,
+    )
+    if canonical_json_bytes(rebuilt.payload()) != canonical_json_bytes(
+        declaration.payload()
+    ):
+        raise ValueError("actual training preprocessing prefix differs from frozen fit")
+    return preprocessing_fit_payload(rebuilt)
+
+
+__all__ = [
+    "fit_allocation_feature_preprocessing",
+    "validate_preprocessing_application",
+    "validate_training_preprocessing",
+]

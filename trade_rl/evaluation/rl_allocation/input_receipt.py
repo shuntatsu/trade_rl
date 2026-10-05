@@ -81,7 +81,7 @@ class AllocationInputRecorder:
         )()
 
     def payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema": "allocation_ppo_observation_consumption_v2",
             "observation_schema_digest": self.schema_digest,
             "width": self.width,
@@ -93,3 +93,9 @@ class AllocationInputRecorder:
             "rollout_boundary_digest": self.digests["rollout_boundary"].hexdigest(),
             "terminal_digest": self.digests["terminal_sentinel"].hexdigest(),
         }
+        if self.env.feature_preprocessing is not None:
+            payload.update(
+                schema="allocation_ppo_observation_consumption_v3",
+                preprocessing_digest=self.env.feature_preprocessing.digest,
+            )
+        return payload

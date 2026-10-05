@@ -1532,8 +1532,9 @@ A standalone prefix fitter, immutable declaration and feature-only transform now
 have joint availability, equal-symbol arithmetic and closed-identity oracles.
 Fit Dataset lineage and selected-prefix consumption have distinct digests; supplied
 build/normalization hashes do not authenticate upstream causal feature construction.
-Allocation environments, v1/v2 recipes and v1/v2/v3 bundles do not consume this
-declaration. Frozen preprocessing runtime/receipt integration, sampling, action
+Existing raw-feature allocation environments, v1/v2 recipes and v1/v2/v3 bundles
+do not consume this
+declaration; the explicit v3/v4 runtime below composes it. Sampling, action
 evidence, delayed learning and continuous handover remain subsequent stages.
 No market fit/replay, profitability result or G4/G5/live eligibility is added.
 
@@ -1543,8 +1544,18 @@ The pure observation/recipe v3 owners compose frozen preprocessing with the exis
 economic layout. Literal normalized feature values, suffix-byte parity, raw-input
 nonmutation and closed-reader rejection are verified. Root/tag dispatch now rejects
 non-native aliases; valid legacy JSON identities and defaults remain unchanged.
-Environments, learners, input receipts and bundles remain unconnected; current
-bundles reject this recipe. Actual source/time admission, zero-terminal bypass and
-normalized actor/boundary records need a subsequent runtime/bundle stage. Sampling,
-delayed learning and continuous handover remain open. No market fit/replay,
+Explicit environments, learners and receipts now compose this pure projection in
+the separate runtime below. Sampling, delayed learning and continuous handover
+remain open. No market fit/replay,
 profitability evidence or G4/G5/live eligibility is added.
+
+## Issue #810: frozen preprocessing runtime candidate
+
+Opt-in observation/recipe v3 now uses frozen prefix statistics and separate actual
+training/inference admission. Explicit-protocol fits produce bundle/training v4,
+closed prefix source links and actual normalized actor/boundary v3 receipts.
+Finite native SB3/source/pre-loader/post-load oracles verify software consumption,
+zero terminal bypass, reset behavior and raw economic isolation. None preserves
+valid old lanes; malformed manifest root/tag aliases now reject. No online fit,
+sampler, Run/Study wiring, delayed-payoff result, continuous handover, market
+fit/replay, profitability evidence or G4/G5/live eligibility is added.

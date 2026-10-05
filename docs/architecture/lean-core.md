@@ -1011,7 +1011,7 @@ application checks names/order/build/normalization/time, not a future Dataset ID
 Its time guard is fit-as-of, not enforcement of the declared policy start/window.
 Ordinary float32 casting may round tiny feature residuals to zero.
 It accepts feature values only, not an account observation or terminal sentinel.
-No allocation env or bundle consumes this declaration yet. Causality is
+Opt-in allocation consumers apply this declaration without changing its coefficients. Causality is
 limited to the supplied arrays/publication contract; digests do not prove upstream
 feature construction, data authenticity or market learning success.
 
@@ -1031,13 +1031,37 @@ float32 casting can round tiny residuals to zero.
 action/runtime/terminal semantics. The v3 reader requires native finite JSON and
 exact canonical reconstruction. Dispatch now rejects non-native root mappings or
 schema strings in all versions; valid legacy JSON and recipe bytes are unchanged.
-Existing environments, learners, input receipts and bundles do not consume recipe
-v3. Current bundle readers reject every recipe-v3 pairing.
+Explicit environment/learner consumers compose recipe v3 below. Bundle readers
+accept it only with bundle v4 and training v4; existing lanes remain separate.
 
-The live encoder does not accept terminal arrays. A later runtime must bypass the
+The live encoder does not accept terminal arrays. The runtime bypasses the
 transform for the true all-zero terminal sentinel. Supplied names/order/build,
 upstream normalization and fit-as-of time are application checks, not proof of
 actual Dataset consumption or upstream causality. Training prefix provenance and
 the first policy decision require separate upper validation; future inference must
 bind actual feature semantics/time without requiring the full fit Dataset ID or
-fit-local indices. No runtime policy-window authorization or market fit is added.
+fit-local indices. These source checks grant no research authorization or market fit.
+
+## Frozen allocation preprocessing runtime and receipts
+
+`feature_preprocessing=None` preserves valid legacy environments, recipes and
+bundles. Explicit frozen features require the existing observation schema and,
+for build/fit, an explicit PPO training protocol before optional learner imports.
+Actual application checks feature names/order/build/upstream normalization and
+time >= fit-as-of and policy start. Future inference permits a new Dataset ID,
+selected-column coordinates and decision window with the same semantic bindings.
+Training separately reconstructs the frozen prefix from actual Dataset arrays,
+fit symbols/indices/clocks and exact first policy index/time. Pre/post learning
+checks detect changed prefix admission facts or admitted values, including rows
+unseen by the actor, but not excluded values' magnitudes. Reset/actor steps never
+fit or update statistics.
+
+Only first-F actor values change. Forecasts, allocation decisions, source-feature
+receipts and canonical account transitions remain raw. True termination returns
+zero without a live read/transform; done boundary new_obs is normalized reset state.
+Bundle/training v4 binds recipe v3, explicit protocol/optimizer receipt, closed
+preprocessing_fit source links and actual observation consumption v3. Width uses
+the complete fields once; post-load protocol/epoch guards apply. New v4 native
+JSON is checked before coercion; manifest dispatch rejects non-native root/tag
+aliases in every version while retaining valid old JSON bytes. Neither receipts
+nor supplied source hashes prove historical fitting/upstream authenticity or profit.

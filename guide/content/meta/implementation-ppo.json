@@ -55,6 +55,16 @@
       "path": "docs/architecture/lean-core.md",
       "heading": "Independent account snapshot observer",
       "sha256": "b2ff80ce198fd8a2dec1bf12295531c253b1e271fcabf556de42a9a98c6f759b"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Allocation observation v2 pure encoder",
+      "sha256": "64b97dfe7c55e00996a89202d6dbc888cc9648f88e8d5032eb70033ded3da873"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: pure allocation observation v2 encoder candidate",
+      "sha256": "4fe8a476aefc4d9cb6672296c6b9005e314f726f45eccc21d59bf778f5566f90"
     }
   ],
   "code_references": [
@@ -296,6 +306,30 @@
       "tests": [
         "tests/evaluation/test_allocation_snapshot.py",
         "tests/architecture/test_allocation_snapshot_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-observation-v2-encoder",
+      "symbol": "trade_rl.strategies.rl.allocation_observation_encoder_v2.encode_allocation_observation_v2",
+      "kind": "function",
+      "source_sha256": "ea5b2707168b8c2f79b25425465b815c7c53af6238346adbbd0ef94793b6fe02",
+      "label_ja": "配分口座・未約定注文を数値化",
+      "description_ja": "一致する口座スナップショットと配分判断を、固定初期資本・期間・特徴量順・注文枠に対応する新しいfloat32配列へ写します。正確な経済値を丸める前に注文を並べます。PPOの学習・読み込み・実行からはまだ呼ばれません。",
+      "variables": [
+        {
+          "name": "values",
+          "label_ja": "正確な経済比率",
+          "description_ja": "予測・基準配分と口座状態、注文スロットを宣言の順序で保持し、経済値の絶対値を増やさないfloat32射影へ渡します。"
+        },
+        {
+          "name": "rows",
+          "label_ja": "未約定注文の数値列",
+          "description_ja": "正確な数量・金額比率・相対時刻などで並べます。注文IDは数値に含めず、この並びは実際の約定処理の優先順位を表しません。"
+        }
+      ],
+      "tests": [
+        "tests/strategies/test_allocation_observation_encoder_v2.py",
+        "tests/architecture/test_allocation_observation_encoder_v2_boundary.py"
       ]
     }
   ]

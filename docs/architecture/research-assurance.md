@@ -1142,16 +1142,35 @@ preregistered G4 contract remain required before new economic evidence.
 
 G0 asks whether an immutable, versioned layout can fix future input meaning
 without changing the allocation v1 recipe or tensor. This stage defines a
-contract; it does not demonstrate numerical account/order encoding.
+contract; numerical account/order projection has a separate encoder owner.
 
 G1 requires unique ordered feature names, K in 1..64, positive finite native
 capital and positive episode steps. The digest binds all four fields, the
 `F+9+13+24K` layout and declared projection/sorting/padding/overflow semantics.
-Those algorithm identifiers are obligations for the subsequent encoder, not
-evidence that arithmetic, causal offsets or native order priority were executed.
+The separate encoder implements these identifiers; the declaration alone is
+not evidence of arithmetic, causal offsets or native order-priority behavior.
 
 G2 no-fit tests check strict types/bounds, field order/namespaces, required
 identity fields, detached payloads and native capital overflow/underflow.
 Architecture tests reject direct runtime/numeric imports and encoder publication.
-Snapshot binding, arithmetic/mask oracles, PPO train/load parity, formal research
-approval and preregistered G4/G5 economic evidence remain separate requirements.
+Snapshot binding and arithmetic/mask oracles belong to the encoder assurance
+below. PPO train/load parity, formal research approval and preregistered G4/G5
+economic evidence remain separate requirements.
+
+## Allocation observation v2 encoder assurance
+
+G0 asks whether declared causal snapshot/decision facts retain signed financial
+meaning in bounded numeric slots. It does not assert native execution priority,
+complete Markov state, source authenticity, learnability or market value.
+
+G1 fixes `F+9+13+24K`, matching C/horizon/features/account identity, exact economic
+sorting, optional-clock masks, zero padding and overflow rejection. Float32
+economic ratios never overstate exact magnitude; raw features keep ordinary
+guarded conversion. Native source admission remains the observer's responsibility.
+
+G2 no-fit declaration oracles cover complete vectors, positive/negative thirds,
+binary-value inequalities and successor maximality, subnormal/overflow failures,
+large intermediate products, equal projections with unequal exact order facts,
+ID/permutation invariance, absent/index-zero clocks and input nonmutation.
+V1 numeric/recipe behavior stays fixed. These fixtures are not native order
+admission or market evidence; train/load integration and G4/G5 remain unverified.

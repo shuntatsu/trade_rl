@@ -1443,8 +1443,8 @@ economic result, unused-future opening or live eligibility is established.
 現在の候補には、liveな独立口座のaccount/order factsを受け取るimmutable下位DTOを追加した。
 宣言mappingのsoftware testでclock、active-order status、exact quantity、
 deep immutabilityとdigest scopeを検証する。既存PPO v1はこのDTOを消費しない。
-source factsの読み出しは下記observerで追加した。numeric policy encoder、予約cash・
-position ageのモデル、このsnapshotを消費するallocation RL adapterは未実装である。
+source factsの読み出しは下記observer、numeric projectionは下記pure encoderが担当する。
+予約cash・position ageのモデルと、このsnapshotを消費するallocation RL adapterは未実装である。
 方策への接続、continuous walk-forward、正式な経済比較は後続作業である。
 実市場fit / replay、経済比較、formal independent approvalやprofitabilityを達成した状態ではない。
 
@@ -1474,6 +1474,17 @@ integration still requires final-head full CI and formal independent approval.
 The lower immutable schema now declares ordered `F+9+13+24K` field names and
 binds feature names, bounded order slots, fixed capital and episode normalization
 length. Software tests cover layout/identity, detachment and constructor failures.
-The numeric encoder, snapshot-to-policy binding and PPO consumer are not
-implemented in this stage. Allocation v1 recipes/tensors remain unchanged.
+The peer pure encoder supplies numeric generation. Snapshot-to-policy runtime
+binding and the PPO consumer remain unimplemented. Allocation v1 recipes/tensors
+remain unchanged.
 There is no new fit/replay, market result, research approval or live eligibility.
+
+## Issue #810: pure allocation observation v2 encoder candidate
+
+An opt-in lower encoder now checks matching snapshot/decision declarations and
+returns detached bounded float32 account/order values. Signed exact quantities,
+current/historical drawdown, causal clock masks and fixed capital retain explicit
+meaning; ID-based execution priority, ages/reservations and source authenticity
+are outside its scope. No-fit arithmetic/failure oracles and v1 behavior checks
+cover this software stage. PPO train/load/source-receipt integration, train-only
+preprocessing, continuous walk-forward and economic comparison remain open.

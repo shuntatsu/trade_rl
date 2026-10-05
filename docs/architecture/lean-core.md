@@ -894,6 +894,25 @@ The nine forecast/baseline, thirteen account and twenty-four per-order fields
 separate current/historical drawdown, signed quantity notionals, margin facts,
 TIF/status and optional-clock masks. The payload declares conservative economic
 float32 projection, guarded raw features, exact economic sorting, rejected slot
-overflow and zero padding. These are requirements for a subsequent encoder;
-this module currently generates no numeric observation and reads no snapshot.
+overflow and zero padding. This declaration module generates no numeric
+observation and reads no snapshot; the separate encoder implements its layout.
 Existing allocation v1 recipes/tensors and policy consumers are unchanged.
+
+## Allocation observation v2 pure encoder
+
+`strategies/rl/allocation_observation_encoder_v2.py` projects a lower snapshot
+and AllocationDecision into a fresh `F+9+13+24K` float32 array. It checks matching
+account/source/time/symbol, exact position, reported cash/equity/current weight,
+historical drawdown, feature order, fixed capital and normalization horizon.
+Exact signed order quantities are independent of v1 pending reporting summaries.
+
+Economic ratios use exact quantities and decimal interpretations of reporting
+scalars before fixed-capital division, then the closest conservative float32
+value toward zero. Overflow and nonzero-to-zero underflow reject; raw features
+use guarded ordinary float32 conversion. Order rows sort by exact economic facts
+before projection. Offsets subtract integer causal clocks before episode-length
+division; masks separate absent clocks from index zero. Excess orders reject;
+unused slots are zero. IDs, digests, absolute clocks and symbol index are absent
+from numeric inputs. This sort does not reproduce native ID/capacity priority.
+The encoder reads no runtime source, invents no ages/reserved cash, establishes
+no authenticity/full Markov state and is not yet connected to PPO train/load.

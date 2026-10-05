@@ -683,6 +683,16 @@ ordered layout, detached payload and digest. Its public export is
 imports contain no NumPy, account/decision reader, evaluation, simulation, risk
 or optional trainer. The existing `strategies.rl` package initializer retains
 its current imports; this check does not claim transitive runtime independence.
-The declaration introduces no schema dispatch or v1 recipe migration. A later
-pure encoder can implement this same declaration using the lower snapshot and
-AllocationDecision; runtime source admission and PPO integration remain above it.
+The declaration introduces no schema dispatch or v1 recipe migration. Its peer
+encoder consumes the same declaration; source admission and PPO integration
+remain above these lower owners.
+
+## Allocation observation v2 encoder ownership
+
+`strategies/rl/allocation_observation_encoder_v2.py` exports only the pure
+`encode_allocation_observation_v2` function. It reuses the schema's field order
+and consumes AllocationAccountSnapshot/AllocationDecision without mutation.
+Its direct imports exclude evaluation, simulation, risk and optional learners.
+Runtime admission stays with the observer; canonical accounting/order rules are
+not reimplemented here. Exact slot sorting is a representation choice, not
+native ID-based execution priority. There is no v1 recipe change or dispatch.

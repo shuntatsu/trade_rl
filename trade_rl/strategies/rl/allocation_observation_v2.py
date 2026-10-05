@@ -1,6 +1,6 @@
-"""Immutable v2 layout declaration; numeric generation is not implemented.
+"""Immutable v2 layout declaration, separate from numeric generation.
 
-Projection/sorting identifiers specify requirements for a subsequent encoder.
+Projection/sorting identifiers specify the encoder contract.
 This contract has no account reader, policy consumer or training integration.
 """
 

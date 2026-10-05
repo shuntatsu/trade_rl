@@ -1536,3 +1536,15 @@ Allocation environments, v1/v2 recipes and v1/v2/v3 bundles do not consume this
 declaration. Frozen preprocessing runtime/receipt integration, sampling, action
 evidence, delayed learning and continuous handover remain subsequent stages.
 No market fit/replay, profitability result or G4/G5/live eligibility is added.
+
+## Issue #810: pure allocation observation v3 candidate
+
+The pure observation/recipe v3 owners compose frozen preprocessing with the existing
+economic layout. Literal normalized feature values, suffix-byte parity, raw-input
+nonmutation and closed-reader rejection are verified. Root/tag dispatch now rejects
+non-native aliases; valid legacy JSON identities and defaults remain unchanged.
+Environments, learners, input receipts and bundles remain unconnected; current
+bundles reject this recipe. Actual source/time admission, zero-terminal bypass and
+normalized actor/boundary records need a subsequent runtime/bundle stage. Sampling,
+delayed learning and continuous handover remain open. No market fit/replay,
+profitability evidence or G4/G5/live eligibility is added.

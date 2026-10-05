@@ -1210,6 +1210,31 @@ G2 independent literal payload/stdlib digest oracles cover all variable identity
 detachment, required settings, nested closure, bool/numeric collisions, mutable
 tuple subclasses, non-JSON conversions and invalid numeric/schedule/architecture
 inputs. Import checks exclude optional learners.
-No model is constructed or trained here. Actual optimizer calls, persisted raw
-action/logprob traces and delayed-payoff learning still need connected oracles.
+No model is constructed or trained by this pure declaration. The explicit
+consumer is below; persisted raw action/logprob and delayed-payoff learning
+still need connected oracles.
 These software checks provide neither formal independent approval nor G4/G5 authority.
+
+## Explicit allocation PPO protocol consumer assurance
+
+G0 asks whether an explicit immutable learning declaration can bind the actual
+constructor and mechanical optimizer-call receipts without altering v1/v2.
+G1 fixes a separate v3 training/bundle contract with the same v2 runtime recipe,
+clock-bound rollout/gamma/GAE, complete exposed PPO/policy/Adam settings and a
+read-only instance post-hook. Final capture follows the last native train call;
+hook cleanup is mandatory on exceptions. Counts describe returned Adam calls,
+not parameter improvement, gradient success or source/fitting authenticity.
+G2 is result-blind: two/four-step no-KL fixtures require two/four Adam calls;
+four-step/two-minibatch fixture separates four calls from two entered epochs.
+Controlled log-ratio1 and targetKL0.1 must stop before any step but enter one
+epoch. Rehashed protocol/count/version tampering fails before deserialization;
+actual loaded settings, None compatibility and exceptional hook cleanup are
+checked separately. No market comparison, learnability or G4/G5 claim is added.
+
+Installed-SB3 synthetic checks use independent returned-step spies and literal
+constructor kwargs. They separate actor/collector inputs from actual optimizer
+mechanics and confirm native KL stopping preserves parameters/Adam state.
+Post-load optimizer, built activation and backend-release mismatches reject;
+None v1/v2 canonical bytes, source fields and action traces match omitted mode.
+These bounded observations do not authenticate historical fitting or constitute
+a complete preprocessing/sampling, restart or market learning protocol.

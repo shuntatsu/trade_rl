@@ -959,6 +959,34 @@ Dormant Gaussian/image flags are declared, not categorical tuning factors.
 The reader accepts only native JSON values and rejects unknown/missing fields,
 changed fixed flags and bool/numeric collisions. Network/beta tuples must be plain
 immutable tuples. Detached payloads and normalized scalars have canonical digests.
-No learner consumes this declaration yet. Runtime clock/version validation,
-constructor, optimizer-call counters and new receipts remain separate work;
-existing recipes, defaults and v1/v2 contracts are unchanged.
+The explicit consumer below binds this declaration to actual construction.
+Existing recipes, defaults and v1/v2 contracts are unchanged.
+
+## Explicit allocation PPO protocol runtime
+
+build/fit accept training_protocol=None for the existing v1/v2 path. Explicit
+protocol requires observation v2 and matching financial-clock rollout/gamma/GAE
+before backend imports. A fixed resolver supplies all declared PPO/policy/Adam
+kwargs, verifies public SB3/Torch releases, CPU float32 parameters and actual
+model/optimizer settings. A local Torch build suffix such as +cpu is allowed;
+ambient default dtype mismatches reject rather than changing the global default.
+Post-load checks inspect actual Linear/Tanh architecture, shared Flatten child
+and dimensions, unique optimizer parameter coverage,
+constant schedules, parameter groups and installed releases, without lower
+optional imports. Dormant policy flags remain declarations, not tuning factors.
+
+The v2 runtime recipe stays identical. Explicit fitting alone uses bundle_v3 and
+training_receipt_v3 with the frozen protocol/digest and bounded optimizer summary.
+V1/v2 bundles reject these fields. The actual Adam instance post-hook counts calls
+whose wrapped implementation returns. Rollout-end marks an update; the next
+rollout start and training-end flush it after native train, including the last
+update. The hook changes no parameters, gradients or training decisions and is
+removed in finally. Any learning exception discards the receipt.
+
+Each completed-call event hashes canonical step/rollout/timestep metadata framed
+by an 8-byte big-endian length. Manifest counters distinguish successful returned
+calls from entered epochs, whose count includes KL-stopped epochs. Empty event
+phases require SHA256(empty); whole-budget/no-KL exact counts and KL-enabled bounds
+are validated before deserialization. Existing source/input receipts retain their
+meaning. Returned calls may be no-ops; neither receipts nor source pins establish
+parameter improvement, fitting authenticity, restart state or market profitability.

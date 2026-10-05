@@ -716,4 +716,17 @@ Direct dependencies are stdlib and existing stdlib canonical artifact helpers;
 there is no numerical, account, risk, evaluation or optional learner import.
 Existing package initializers are unchanged; transitive independence is not claimed.
 Class identifiers are fixed data, never arbitrary import/constructor requests.
-No protocol consumer, receipt dispatch, fit, model or facade change is added.
+This pure owner adds no consumer; the separate explicit runtime owner is below.
+
+## Allocation PPO protocol runtime ownership
+
+evaluation/rl_allocation/training_protocol resolves the closed declaration into
+known optional types and observes actual optimizer calls. training composes its
+callback with the existing input recorder only for explicit protocol fits.
+strategies/rl/allocation_protocol_receipt reconstructs strict v3 training data
+and delegates common source/clock validation to existing receipt owners.
+allocation_model reads actual settings/classes/architecture and stdlib installed
+version metadata; it imports neither upper runtime nor optional learners.
+allocation_manifest dispatches v3 only with recipe_v2; verified-file save/load
+and recipe/env/encoder ownership stay unchanged. No new facade, Run/Study,
+learner subclass, ledger, normalization or sampler is introduced.

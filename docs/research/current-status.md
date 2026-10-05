@@ -1496,8 +1496,8 @@ Software oracles verify default v1 compatibility, actual partial-order columns,
 terminal sentinels, real SB3 masks/bootstrap, consumed actor/boundary inputs and
 save/load trace parity. This is G0-G2 synthetic software evidence only.
 Sources/receipts do not prove authenticity, full Markov state or profitability.
-Full immutable training protocol/optimizer-step telemetry, fit-only preprocessing
-and sampling, continuous-account handover/walk-forward, calibrated finite market
+Explicit training settings/returned-call telemetry are covered below; fit-only
+preprocessing and sampling, continuous-account handover/walk-forward, calibrated finite market
 Study and formal G4/G5 approval remain open. Existing Run/Study/sealed outcomes
 and deployment eligibility remain unchanged.
 
@@ -1507,8 +1507,21 @@ The candidate adds a pure immutable declaration with 19 required learning values
 and closed fixed SB3/Torch categorical CPU construction identifiers. A supplied
 positive Adam epsilon is always recorded; the literal initial fixture uses 1e-5.
 No-fit literal/digest and rejection oracles validate the declaration, not training.
-The current constructor, v1/v2 recipes, receipts and defaults do not consume it.
-Explicit runtime construction, actual optimizer-call receipts, durable raw-action
-evidence and delayed-payoff learnability remain next stages. Preprocessing/sampling,
+Explicit runtime construction and returned-call receipts are covered below;
+v1/v2 recipes, receipts and defaults remain fixed. Durable raw-action evidence
+and delayed-payoff learnability remain next stages. Preprocessing/sampling,
 actual continuous-account handover, formal review and economic comparison remain open.
 No new market fit/replay, profitability, G4/G5 approval or live eligibility is established.
+
+## Issue #810: explicit allocation PPO protocol runtime candidate
+
+Explicit protocol fits now bind the financial clock and known installed
+PPO/policy/Adam configuration. Bundle/training v3 retains recipe_v2 and adds a
+closed protocol/digest and bounded completed-Adam-call/entered-epoch receipt.
+Fixed two/four-step synthetic oracles verify final capture, minibatch counts,
+native KL no-step behavior, hook cleanup, strict pre-loader tampering and actual
+post-load settings. None v1/v2 bytes/source/action behavior stays unchanged.
+This is G0-G2 software evidence, not parameter-improvement or fit authenticity.
+Raw-action evidence, delayed-payoff learning, fit-only preprocessing/sampling,
+continuous-account handover/walk-forward, market calibration/Study and formal
+G4/G5 approval remain open; existing sealed outcomes and eligibility are unchanged.

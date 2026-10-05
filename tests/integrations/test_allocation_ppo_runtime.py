@@ -38,6 +38,323 @@ pytest.importorskip("stable_baselines3")
 pytest.importorskip("torch")
 
 
+@pytest.mark.parametrize("steps,budget,expected", [(2, 2, 2), (2, 4, 4), (4, 4, 4)])
+def test_explicit_protocol_counts_actual_adam_calls_and_final_update(
+    tmp_path, monkeypatch, steps, budget, expected
+):
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.strategies.rl.allocation_artifact import (
+        load_allocation_policy,
+        save_allocation_policy,
+    )
+
+    module = trainer()
+    env = protocol_env(steps=steps)
+    declaration = protocol(n_steps=steps, batch_size=2, n_epochs=2)
+    original = module.build_allocation_ppo
+    calls, built = [], []
+
+    def build(*args, **kwargs):
+        model = original(*args, **kwargs)
+        built.append(model)
+        step = model.policy.optimizer.step
+
+        def returned_step(*a, **k):
+            result = step(*a, **k)
+            calls.append(model.num_timesteps)
+            return result
+
+        monkeypatch.setattr(model.policy.optimizer, "step", returned_step)
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", build)
+    policy = module.fit_allocation_ppo(
+        env, total_timesteps=budget, seed=7, training_protocol=declaration
+    )
+    raw = policy.manifest
+    assert raw["schema"] == "allocation_ppo_inference_bundle_v3"
+    assert raw["recipe"] == env.recipe and raw["recipe_digest"] == env.recipe_digest
+    assert raw["training"]["protocol"] == declaration.payload()
+    receipt = raw["training"]["optimization"]
+    assert len(calls) == receipt["successful_optimizer_step_calls"] == expected
+    assert receipt["rollout_update_count"] == budget // steps
+    assert receipt["epoch_iterations"] == budget // steps * 2
+    assert (
+        calls[-1] == budget and not built[0].policy.optimizer._optimizer_step_post_hooks
+    )
+    destination = tmp_path / "protocol"
+    digest = save_allocation_policy(destination, policy)
+    loaded = load_allocation_policy(
+        destination, expected_digest=digest, expected_recipe_digest=env.recipe_digest
+    )
+    assert loaded.manifest["training"] == raw["training"]
+    assert rollout(
+        protocol_env(steps=steps),
+        lambda o: policy.action(o, runtime_recipe_digest=env.recipe_digest),
+    ) == rollout(
+        protocol_env(steps=steps),
+        lambda o: loaded.action(o, runtime_recipe_digest=env.recipe_digest),
+    )
+    loaded.model.policy.optimizer.param_groups[0]["eps"] = 1e-8
+    with pytest.raises(ValueError, match="protocol"):
+        loaded.action(env.reset()[0], runtime_recipe_digest=env.recipe_digest)
+
+
+def test_explicit_protocol_resolves_all_constructor_kwargs(monkeypatch):
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+
+    module = trainer()
+    sb3 = import_module("stable_baselines3")
+    original, captured = sb3.PPO, []
+
+    def construct(*args, **kwargs):
+        captured.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sb3, "PPO", construct)
+    declaration = protocol(
+        n_steps=2,
+        batch_size=2,
+        n_epochs=2,
+        learning_rate=0.003,
+        clip_range=0.17,
+        clip_range_vf=0.12,
+        normalize_advantage=False,
+        ent_coef=0.01,
+        vf_coef=0.6,
+        max_grad_norm=0.7,
+        pi_layers=(8,),
+        vf_layers=(4,),
+        adam_betas=(0.8, 0.95),
+        adam_eps=2e-5,
+        adam_weight_decay=0.01,
+        adam_amsgrad=True,
+    )
+    model = module.build_allocation_ppo(protocol_env(), training_protocol=declaration)
+    p, k = declaration.payload(), captured[0]
+    for name in (
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "gamma",
+        "gae_lambda",
+        "learning_rate",
+        "clip_range",
+        "clip_range_vf",
+        "normalize_advantage",
+        "ent_coef",
+        "vf_coef",
+        "max_grad_norm",
+        "target_kl",
+        "use_sde",
+        "sde_sample_freq",
+        "rollout_buffer_kwargs",
+        "stats_window_size",
+        "tensorboard_log",
+        "verbose",
+        "_init_setup_model",
+    ):
+        assert k[name] == p["ppo"][name]
+    assert k["policy_kwargs"]["net_arch"] == {"pi": [8], "vf": [4]}
+    expected = {
+        name: value
+        for name, value in p["optimizer"].items()
+        if name not in {"class", "learning_rate_source"}
+    }
+    expected["betas"] = (0.8, 0.95)
+    assert k["policy_kwargs"]["optimizer_kwargs"] == expected
+    assert model.policy.optimizer.param_groups[0]["eps"] == 2e-5
+
+
+def test_native_kl_stop_skips_adam_but_enters_epoch_and_keeps_state(monkeypatch):
+    import torch
+
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+
+    module = trainer()
+    original, snapshots = module.build_allocation_ppo, []
+
+    def build(*args, **kwargs):
+        model = original(*args, **kwargs)
+        snapshots.append([p.detach().clone() for p in model.policy.parameters()])
+        forward, evaluate = model.policy.forward, model.policy.evaluate_actions
+
+        def actor(*a, **k):
+            actions, values, logprob = forward(*a, **k)
+            return actions, values, torch.zeros_like(logprob)
+
+        def likelihood(*a, **k):
+            values, logprob, entropy = evaluate(*a, **k)
+            return values, torch.ones_like(logprob), entropy
+
+        monkeypatch.setattr(model.policy, "forward", actor)
+        monkeypatch.setattr(model.policy, "evaluate_actions", likelihood)
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", build)
+    policy = module.fit_allocation_ppo(
+        protocol_env(),
+        total_timesteps=2,
+        training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=2, target_kl=0.1),
+    )
+    receipt = policy.manifest["training"]["optimization"]
+    assert receipt["successful_optimizer_step_calls"] == 0
+    assert receipt["epoch_iterations"] == policy.model._n_updates == 1
+    assert not policy.model.policy.optimizer.state
+    assert all(
+        torch.equal(a, b)
+        for a, b in zip(snapshots[0], policy.model.policy.parameters())
+    )
+    from trade_rl.strategies.rl.allocation_model import validate_allocation_model
+
+    policy.model._n_updates = True
+    with pytest.raises(ValueError, match="epoch iterations"):
+        validate_allocation_model(policy.model, policy.manifest)
+
+
+def test_explicit_protocol_hook_is_removed_on_learning_exception(monkeypatch):
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+
+    module = trainer()
+    original, models = module.build_allocation_ppo, []
+
+    def build(*args, **kwargs):
+        model = original(*args, **kwargs)
+        models.append(model)
+
+        def fail(**_):
+            assert len(model.policy.optimizer._optimizer_step_post_hooks) == 1
+            raise RuntimeError("synthetic train exception")
+
+        monkeypatch.setattr(model, "learn", fail)
+        return model
+
+    monkeypatch.setattr(module, "build_allocation_ppo", build)
+    with pytest.raises(RuntimeError, match="synthetic"):
+        module.fit_allocation_ppo(
+            protocol_env(),
+            total_timesteps=2,
+            training_protocol=protocol(n_steps=2, batch_size=2),
+        )
+    assert not models[0].policy.optimizer._optimizer_step_post_hooks
+
+
+def test_protocol_checks_built_activation_and_loaded_backend_without_optional_imports(
+    monkeypatch,
+):
+    import torch
+
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.strategies.rl import allocation_model as validator
+
+    declaration = protocol(n_steps=2, batch_size=2, n_epochs=2)
+    model = trainer().build_allocation_ppo(
+        protocol_env(), training_protocol=declaration
+    )
+    old = model.policy.mlp_extractor.policy_net[1]
+    model.policy.mlp_extractor.policy_net[1] = torch.nn.ReLU()
+    with pytest.raises(ValueError, match="protocol"):
+        validator.validate_allocation_protocol_model(model, declaration)
+    model.policy.mlp_extractor.policy_net[1] = old
+    monkeypatch.setattr(validator, "version", lambda _: "9.0.0")
+    with pytest.raises(ValueError, match="release"):
+        validator.validate_allocation_protocol_model(model, declaration)
+
+
+@pytest.mark.parametrize("corruption", ["child", "dimension", "width"])
+def test_protocol_checks_actual_flatten_extractor_child(corruption):
+    import torch
+
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.strategies.rl.allocation_model import (
+        validate_allocation_protocol_model,
+    )
+
+    declaration = protocol(n_steps=2, batch_size=2, n_epochs=2)
+    model = trainer().build_allocation_ppo(
+        protocol_env(), training_protocol=declaration
+    )
+    extractor = model.policy.features_extractor
+    if corruption == "child":
+        extractor.flatten = torch.nn.Tanh()
+    elif corruption == "dimension":
+        extractor.flatten = torch.nn.Flatten(start_dim=0)
+    else:
+        extractor._features_dim = 70
+    with pytest.raises(ValueError, match="protocol"):
+        validate_allocation_protocol_model(model, declaration)
+
+
+def test_protocol_rejects_duplicate_actual_optimizer_parameter():
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.strategies.rl.allocation_model import (
+        validate_allocation_protocol_model,
+    )
+
+    declaration = protocol(n_steps=2, batch_size=2, n_epochs=2)
+    model = trainer().build_allocation_ppo(
+        protocol_env(), training_protocol=declaration
+    )
+    parameters = model.policy.optimizer.param_groups[0]["params"]
+    parameters.append(parameters[0])
+    with pytest.raises(ValueError, match="protocol"):
+        validate_allocation_protocol_model(model, declaration)
+
+
+@pytest.mark.parametrize("v2", [False, True])
+def test_none_protocol_retains_legacy_bytes_sources_and_actions(v2):
+    from tests.evaluation.test_allocation_protocol_admission import protocol_env
+    from trade_rl.artifacts import canonical_json_bytes
+
+    def env():
+        if v2:
+            return protocol_env()
+        args = parameters(stop=10)
+        args["bound"] = replace(
+            args["bound"], clock=replace(args["bound"].clock, rollout_steps=2)
+        )
+        return AllocationTradingEnv(**args)
+
+    module = trainer()
+    old = module.fit_allocation_ppo(env(), total_timesteps=2, seed=7)
+    explicit = module.fit_allocation_ppo(
+        env(), total_timesteps=2, seed=7, training_protocol=None
+    )
+    assert canonical_json_bytes(old.manifest) == canonical_json_bytes(explicit.manifest)
+    assert old.manifest["training"]["ppo"] == {
+        "gamma": 1.0,
+        "gae_lambda": 0.95,
+        "n_steps": 2,
+        "batch_size": 2,
+        "n_epochs": 10,
+        "learning_rate": 0.002,
+        "net_arch": {"pi": [32, 32], "vf": [32, 32]},
+        "device": "cpu",
+    }
+    assert set(old.manifest["training"]) == {
+        "seed",
+        "requested_timesteps",
+        "actual_timesteps",
+        "clock",
+        "objective",
+        "source",
+        "ppo",
+    } | ({"observation_consumption"} if v2 else set())
+    first, second = env(), env()
+    assert rollout(
+        first, lambda o: old.action(o, runtime_recipe_digest=first.recipe_digest)
+    ) == rollout(
+        second, lambda o: explicit.action(o, runtime_recipe_digest=second.recipe_digest)
+    )
+
+
 def trainer():
     try:
         return import_module("trade_rl.evaluation.rl_allocation.training")

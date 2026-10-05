@@ -7,6 +7,9 @@ from typing import Any
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.strategies.rl.allocation_protocol_receipt import (
+    validate_allocation_training_v3,
+)
 from trade_rl.strategies.rl.allocation_recipe_validation import (
     validate_allocation_recipe,
 )
@@ -16,6 +19,7 @@ from trade_rl.strategies.rl.allocation_training_receipt import (
 
 ALLOCATION_BUNDLE_SCHEMA = "allocation_ppo_inference_bundle_v1"
 ALLOCATION_BUNDLE_SCHEMA_V2 = "allocation_ppo_inference_bundle_v2"
+ALLOCATION_BUNDLE_SCHEMA_V3 = "allocation_ppo_inference_bundle_v3"
 
 
 def allocation_bundle_schema(recipe: dict[str, Any]) -> str:
@@ -49,14 +53,21 @@ def validate_allocation_manifest(
     if not isinstance(manifest["recipe"], dict):
         raise ValueError("allocation recipe must be a mapping")
     validate_allocation_recipe(manifest["recipe"])
-    if manifest["schema"] != allocation_bundle_schema(manifest["recipe"]):
+    explicit = manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V3
+    if (
+        explicit
+        and manifest["recipe"]["schema"] != "allocation_ppo_recipe_v2"
+        or not explicit
+        and manifest["schema"] != allocation_bundle_schema(manifest["recipe"])
+    ):
         raise ValueError("unsupported allocation inference/recipe version pairing")
     require_sha256(manifest["recipe_digest"], field="recipe_digest")
     if content_digest(manifest["recipe"]) != manifest["recipe_digest"]:
         raise ValueError("allocation recipe digest differs from its payload")
-    validate_allocation_training(
-        manifest["training"], manifest["recipe"], manifest["recipe_digest"]
+    validator = (
+        validate_allocation_training_v3 if explicit else validate_allocation_training
     )
+    validator(manifest["training"], manifest["recipe"], manifest["recipe_digest"])
     if "policy_sha256" in manifest:
         require_sha256(manifest["policy_sha256"], field="policy_sha256")
     return manifest

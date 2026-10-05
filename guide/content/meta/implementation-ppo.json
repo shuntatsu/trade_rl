@@ -31,18 +31,20 @@
     "snapshot_allocation_account",
     "AllocationObservationSchema",
     "allocation_account_observation_v2",
-    "AllocationPPOTrainingProtocol"
+    "AllocationPPOTrainingProtocol",
+    "明示学習設定",
+    "Adam完了回数"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Explicit allocation PPO training protocol declaration",
-      "sha256": "4705a09c4f1df9796f77f9ae09da05678f18bab69b9ce91969e2935121c27e89"
+      "sha256": "2280f4357a821e225072a721076e7dff6f17f09b2d7899d00bf32f98901322f6"
     },
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: explicit allocation training protocol declaration candidate",
-      "sha256": "e7b9be3120e4299953d500893e512f5aa423ecaddafd3ae397cc497dc9212b01"
+      "sha256": "058cae675b49d3c4843a52bf22f210550ba75941082c518500ac7118821ce3a5"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -97,7 +99,17 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: allocation observation v2 runtime candidate",
-      "sha256": "e528c53795631bda6257a8f6a52b18efc7fd0909b824667b94d0e5ed9363e4c2"
+      "sha256": "fab31dce7b35a9e8f91f862c50b0c3c94bbdfb742cdd3ee0419b8800ab75c4f6"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Explicit allocation PPO protocol runtime",
+      "sha256": "b4b4713615ca5d3f5948e92264c9a16acc15f8430fb989077f10b3539fdb3510"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810: explicit allocation PPO protocol runtime candidate",
+      "sha256": "de3da471a7dafc1697d7fcae29120c13104f7bfaee28cb062d009d271b00b02a"
     }
   ],
   "code_references": [
@@ -107,7 +119,7 @@
       "kind": "class",
       "source_sha256": "4ab0dede1f4eb65c476c137b8cc941f73aed0334b3c87027c152ce951faeade1",
       "label_ja": "配分PPOの不変な学習設定宣言",
-      "description_ja": "19の学習設定を必須にし、固定したcategorical CPU識別子と全フラグを閉じたpayloadへ保持します。既存の学習・receiptへは未接続で、モデルを構築しません。",
+      "description_ja": "19の学習設定を必須にし、固定したcategorical CPU識別子と全フラグを閉じたpayloadへ保持します。宣言自体はモデルを構築せず、別の明示consumerが学習設定とv3 receiptへ接続します。",
       "variables": [],
       "tests": [
         "tests/strategies/test_allocation_training_protocol.py",
@@ -433,12 +445,54 @@
       "id": "fit-allocation-ppo",
       "symbol": "trade_rl.evaluation.rl_allocation.training.fit_allocation_ppo",
       "kind": "function",
-      "source_sha256": "ec3c86f2555d1e36f141bda3ce74d6b52cbeae2103561a325562795daee27a6c",
+      "source_sha256": "206fa5ab5c3005e2324db7657f3ac0ee5e44ff83d3d1bd8244aa58fbfd0c96d6",
       "label_ja": "明示した独立口座だけで配分PPOを学習する",
-      "description_ja": "既存の学習手順を保ち、供給されたepisodeの実budgetとsourceを記録します。v2では消費入力記録を加え、recipeに合うbundle versionを使います。市場の研究承認や完全な学習設定の契約を新設する機能ではありません。",
+      "description_ja": "省略・Noneでは既存v1/v2の実budgetとsource記録を維持します。明示設定では金融時計を確認し、既存v2入力記録にAdam完了回数と最終更新記録を加えたv3 bundleを使います。市場承認や学習成功の証明ではありません。",
       "variables": [],
       "tests": [
         "tests/integrations/test_allocation_ppo_runtime.py"
+      ]
+    },
+    {
+      "id": "allocation-protocol-constructor",
+      "symbol": "trade_rl.evaluation.rl_allocation.training_protocol.construct_protocol_ppo",
+      "kind": "function",
+      "source_sha256": "a3269418b3c329f1b7060166393e20f0eee134db85633ded540a85fc896b3430",
+      "label_ja": "明示設定を実PPOへ渡す",
+      "description_ja": "閉じた設定の全PPO・policy・Adam引数を既知の型へ解決し、導入版・CPU float32・実設定を検査します。予約した識別子から任意のclassをimportする機能ではありません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-optimizer-updates",
+      "symbol": "trade_rl.evaluation.rl_allocation.training_protocol.AllocationUpdateRecorder",
+      "kind": "class",
+      "source_sha256": "6095955c7ecbd89a4ba5c6931f1bf2351a9af9828e06276ef5d00f70ebc82f12",
+      "label_ja": "Adamが戻った呼び出しを数える",
+      "description_ja": "実optimizerのpost-hookで件数と時刻metadataのhashを残し、最後のnative train後に確定します。例外時もフックを解除し、パラメータ改善や学習成功と呼び出し完了を区別します。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-protocol-receipt",
+      "symbol": "trade_rl.strategies.rl.allocation_protocol_receipt.validate_allocation_training_v3",
+      "kind": "function",
+      "source_sha256": "f668634935d212194fe2d580cf1055561e0242a9ccf275ee4a4356d672cc7d6c",
+      "label_ja": "v3の学習記録を読み込み前に検査する",
+      "description_ja": "純粋な設定readerと既存source・時計検査を使い、閉じたv3字段・digest・mechanical件数を確認します。履歴や学習の真正性を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/integrations/test_allocation_ppo_runtime.py",
+        "tests/strategies/test_allocation_protocol_receipt.py",
+        "tests/architecture/test_allocation_protocol_runtime_boundary.py"
       ]
     }
   ]

@@ -7,17 +7,36 @@ from typing import Any
 
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.rl_allocation.input_receipt import AllocationInputRecorder
+from trade_rl.evaluation.rl_allocation.training_protocol import (
+    AllocationUpdateRecorder,
+    construct_protocol_ppo,
+    validate_protocol_clock,
+)
 from trade_rl.evaluation.rl_allocation.training_source import allocation_training_source
 from trade_rl.strategies.rl.allocation_manifest import allocation_bundle_schema
-from trade_rl.strategies.rl.allocation_model import AllocationPPOPolicy
+from trade_rl.strategies.rl.allocation_model import (
+    AllocationPPOPolicy,
+    validate_allocation_protocol_model,
+)
+from trade_rl.strategies.rl.allocation_training_protocol import (
+    AllocationPPOTrainingProtocol,
+)
 
 
-def build_allocation_ppo(env: AllocationTradingEnv, *, seed: int = 0) -> Any:
+def build_allocation_ppo(
+    env: AllocationTradingEnv,
+    *,
+    seed: int = 0,
+    training_protocol: AllocationPPOTrainingProtocol | None = None,
+) -> Any:
     """Fixed software learning protocol; no search or economic authorization."""
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("policy seed must be a nonnegative integer")
     env.validate_binding()
     clock = env.bound.clock
+    if training_protocol is not None:
+        validate_protocol_clock(env, training_protocol)
+        return construct_protocol_ppo(env, training_protocol, seed=seed)
     if clock.rollout_steps < 2:
         raise ValueError("PPO rollout must contain at least two transitions")
     batch_size = min(clock.rollout_steps, 64)
@@ -43,7 +62,11 @@ def build_allocation_ppo(env: AllocationTradingEnv, *, seed: int = 0) -> Any:
 
 
 def fit_allocation_ppo(
-    env: AllocationTradingEnv, *, total_timesteps: int, seed: int = 0
+    env: AllocationTradingEnv,
+    *,
+    total_timesteps: int,
+    seed: int = 0,
+    training_protocol: AllocationPPOTrainingProtocol | None = None,
 ) -> AllocationPPOPolicy:
     """Fit only the supplied episode; publish actual budget and consumed sources.
 
@@ -60,7 +83,13 @@ def fit_allocation_ppo(
     env.validate_binding()
     envelope = allocation_training_source(env)
     recipe, recipe_digest = env.recipe, env.recipe_digest
-    model = build_allocation_ppo(env, seed=seed)
+    if training_protocol is None:
+        model = build_allocation_ppo(env, seed=seed)
+    else:
+        validate_protocol_clock(env, training_protocol)
+        model = build_allocation_ppo(
+            env, seed=seed, training_protocol=training_protocol
+        )
     counts: dict[int, int] = {}
     observed = {env.start_index}
 
@@ -87,7 +116,25 @@ def fit_allocation_ppo(
         recorder = AllocationInputRecorder(env)
         callbacks = importlib.import_module("stable_baselines3.common.callbacks")
         callback = recorder.callback(callbacks.BaseCallback, observe_steps)
-    model.learn(total_timesteps=total_timesteps, callback=callback)
+    if training_protocol is None:
+        model.learn(total_timesteps=total_timesteps, callback=callback)
+    else:
+        updates = AllocationUpdateRecorder(model)
+        try:
+            callback = callbacks.CallbackList(
+                [callback, updates.callback(callbacks.BaseCallback)]
+            )
+            model.learn(
+                total_timesteps=total_timesteps,
+                callback=callback,
+                reset_num_timesteps=True,
+                progress_bar=False,
+                log_interval=1,
+                tb_log_name="PPO",
+            )
+        finally:
+            updates.close()
+        validate_allocation_protocol_model(model, training_protocol)
     env.validate_binding()
     if (
         model.num_timesteps != total_timesteps
@@ -124,4 +171,12 @@ def fit_allocation_ppo(
     }
     if recorder is not None:
         manifest["training"]["observation_consumption"] = recorder.payload()
+    if training_protocol is not None:
+        manifest["schema"] = "allocation_ppo_inference_bundle_v3"
+        manifest["training"].update(
+            schema="allocation_ppo_training_receipt_v3",
+            protocol=training_protocol.payload(),
+            protocol_digest=training_protocol.digest,
+            optimization=updates.payload(),
+        )
     return AllocationPPOPolicy(model, manifest)

@@ -1,4 +1,4 @@
-"""No learner consumer, upper account ownership or optional backend imports."""
+"""Prefix/application admission owns no account or optional backend imports."""
 
 import subprocess
 import sys
@@ -24,8 +24,12 @@ def test_preprocessing_owners_avoid_account_and_optional_learner_imports():
             for prefix in "trade_rl.simulation trade_rl.risk torch stable_baselines3".split()
         )
     assert import_module(MODULES[0]).__all__ == ["AllocationFeaturePreprocessing"]
-    assert import_module(MODULES[1]).__all__ == ["fit_allocation_feature_preprocessing"]
-    assert not any(
+    assert import_module(MODULES[1]).__all__ == [
+        "fit_allocation_feature_preprocessing",
+        "validate_preprocessing_application",
+        "validate_training_preprocessing",
+    ]
+    assert any(
         within_module(name, MODULES[0])
         for name in collector.collect(ROOT / "trade_rl/evaluation/rl_allocation/env.py")
     )

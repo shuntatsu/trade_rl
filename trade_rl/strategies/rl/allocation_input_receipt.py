@@ -18,6 +18,7 @@ def validate_allocation_input_receipt(
     episode_starts: int,
     horizon_terminations: int,
 ) -> None:
+    v3 = recipe["schema"] == "allocation_ppo_recipe_v3"
     keys = {
         "schema",
         "observation_schema_digest",
@@ -30,8 +31,16 @@ def validate_allocation_input_receipt(
         "rollout_boundary_digest",
         "terminal_digest",
     }
+    if v3:
+        keys.add("preprocessing_digest")
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError("v2 input receipt must contain exactly its declared fields")
+    if (
+        v3
+        and value["preprocessing_digest"]
+        != recipe["observation"]["feature_preprocessing_digest"]
+    ):
+        raise ValueError("actual input preprocessing differs from recipe")
     for key in ("width", "actor_count", "rollout_boundary_count", "terminal_count"):
         count = value[key]
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
@@ -50,7 +59,12 @@ def validate_allocation_input_receipt(
         ):
             raise ValueError("an empty input phase must have the empty SHA256 digest")
     if (
-        value["schema"] != "allocation_ppo_observation_consumption_v2"
+        value["schema"]
+        != (
+            "allocation_ppo_observation_consumption_v3"
+            if v3
+            else "allocation_ppo_observation_consumption_v2"
+        )
         or value["dtype"] != "little_endian_float32"
         or value["width"] != len(recipe["observation"]["fields"])
         or value["observation_schema_digest"] != content_digest(recipe["observation"])

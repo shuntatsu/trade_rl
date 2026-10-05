@@ -17,6 +17,12 @@ from trade_rl.strategies.rl.allocation_training_receipt import (
 def validate_allocation_training_v3(
     training: object, recipe: dict[str, Any], recipe_digest: str
 ) -> None:
+    if (
+        type(recipe) is not dict
+        or type(recipe.get("schema")) is not str
+        or recipe["schema"] != "allocation_ppo_recipe_v2"
+    ):
+        raise ValueError("v3 training requires recipe v2")
     extras = {"schema", "protocol", "protocol_digest", "optimization"}
     if not isinstance(training, dict) or not extras <= training.keys():
         raise ValueError("v3 training requires its explicit protocol fields")
@@ -24,6 +30,10 @@ def validate_allocation_training_v3(
         raise ValueError("unsupported explicit protocol training receipt")
     common = {key: value for key, value in training.items() if key not in extras}
     validate_allocation_training(common, recipe, recipe_digest)
+    _validate_protocol_optimization(training)
+
+
+def _validate_protocol_optimization(training: dict[str, Any]) -> None:
     protocol = AllocationPPOTrainingProtocol.from_payload(training["protocol"])
     declaration: dict[str, Any] = protocol.payload()
     require_sha256(training["protocol_digest"], field="protocol_digest")

@@ -738,7 +738,7 @@ equal-symbol fitting, preserving the selected-feature dependency-scope guard.
 `strategies/rl/allocation_preprocessing.py` owns the frozen closed declaration,
 reader/digest and feature-only transform, composing existing numerical statistics.
 Neither owner imports account/risk processing or optional learners; the lower
-owner does not import the upper fitter. There is no runtime consumer, new facade,
+owner does not import the upper fitter. Explicit runtime admission composes them without a new facade,
 online normalization or sampler; existing legacy preprocessing remains unchanged.
 
 ## Pure allocation observation v3 ownership
@@ -748,8 +748,20 @@ and feature-prefix encoder, composing existing v2 economics and frozen statistic
 `strategies/rl/allocation_recipe_v3.py` owns its pure recipe builder; the existing
 recipe validator has an explicit v3 reconstruction lane and native root/tag dispatch.
 Neither lower owner imports environments, fitting, risk/account execution or optional
-learners. There is no new public facade, runtime consumer, bundle, online fit or
-sampler. Upper source admission and actual actor consumption remain future work.
+learners. Explicit upper consumers compose them without a new public facade,
+online fit or sampler.
+
+## Frozen preprocessing runtime ownership
+
+The existing upper preprocessing owner separates actual training-prefix validation
+from inference application admission. Env owns source application and zero-terminal
+bypass; training owns pre/post prefix envelopes and v4 dispatch. InputRecorder hashes
+actual normalized tensors while TrainingSource retains raw meanings. The lower
+preprocessing receipt owner checks closed source/declaration links and delegates
+shared protocol mechanics, without importing Dataset/evaluation/optional learners.
+Manifest/model extend explicit version/width/post-load guards; verified-file
+save/load signatures and execution/account owners remain unchanged. No sampler or
+Run/Study consumer is introduced.
 
 ## Stacked PR verification routing
 

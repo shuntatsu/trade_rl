@@ -1689,3 +1689,41 @@ prove that a fold's policy was selected without test leakage, does not verify
 policy artifact bytes itself, and does not run market economic selection. Those
 links must be supplied by the later Run/Study evidence layer before P5 or the
 overall Issue #810 research can be called complete.
+
+
+## Issue #810 P5: immutable allocation policy admission candidate
+
+The continuous OOS runner now has a separate immutable-policy admission
+candidate. Each fold declares the expected allocation bundle manifest digest and
+runtime recipe digest. All fold bundles are verified through the existing
+write-once policy loader before the first OOS reset; a broken second/later bundle
+therefore prevents the first fold from opening.
+
+Focused software evidence covers both a backend-neutral fake-loader oracle and a
+real SB3 fit/save/load path. The real path fits a small allocation PPO, publishes
+the existing immutable policy bundle, verifies manifest and policy bytes through
+`load_allocation_policy`, adapts the keyword-only inference method and then
+runs the verified digest through the continuous-account fold runner.
+
+A CI coverage gap was also found while adding this stage: the hosted PPO Runtime
+command did not include the separate
+`tests/integrations/test_allocation_schedule_ppo_runtime.py` module introduced
+with #832. Those five real-SB3 scheduled-training tests had local evidence but
+were not part of the hosted PPO Runtime command. The command is corrected here
+to include both that module and the new artifact-admission runtime test. This
+supersedes any earlier statement that the #832 module was already exercised by
+hosted PPO Runtime.
+
+Artifact admission still does not prove result-blind policy selection or sealed
+outer-test authorization. It verifies immutable inference bytes and recipe
+identity only. Study registration, selection evidence, one-shot sealed-test
+access and economic winner logic remain above this owner.
+
+
+The immutable fold-policy admission stage now runs the complete continuous OOS
+chain preflight before any bundle deserialization. Gap/Dataset/account/recipe
+counterexamples therefore fail before the artifact loader executes, while a real
+saved allocation bundle is verified and admitted in the PPO-runtime lane before
+continuous OOS execution. This remains software evidence only; selection
+authority, sealed outer-test authorization and economic winner gates remain
+separate.

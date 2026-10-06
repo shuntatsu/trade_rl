@@ -880,3 +880,36 @@ does not yet own policy switching, fold construction or walk-forward selection.
 The existing `robustness.walk_forward.stitching` continuous mode remains the
 aggregation authority; actual allocation handoff digests can now satisfy its
 opening/closing state-chain contract.
+
+
+## Continuous allocation walk-forward runner ownership
+
+`evaluation/rl_allocation/continuous_walk_forward.py` is the first bounded
+consumer of the allocation continuation capability. It accepts an explicit
+`WalkForwardFold` tuple, one fresh OOS `AllocationTradingEnv` per declared
+`fold.test` range, and one caller-pinned policy declaration per fold. Preflight
+requires the OOS environment ranges to equal the declared fold test ranges,
+requires those test ranges and runtime windows to be contiguous, and validates
+one account/Dataset/symbol/capital/execution/risk chain before the first reset.
+
+Only the first fold uses the normal reset path. Every later fold resumes the
+previous exact `AllocationAccountContinuation`, so policy switches do not reset
+cash, quantities, orders, drawdown or the execution RNG stream. Each policy is
+given the current observation and runtime recipe digest, and its returned action
+must be one integer in `{0,1,2,3}` before it reaches the canonical allocation
+environment.
+
+The runner records actual canonical `execution.interval_net_return` values as
+`ReturnKind.DECISION_STEP`, per-fold execution-counter deltas, real
+opening/closing account state digests, the declared fold index, and the
+caller-pinned policy digest. The resulting folds are passed to the existing
+`StitchMode.CONTINUOUS_ACCOUNT` authority. Compounding the stitched simple
+returns is required to match the actual continuous account equity path in
+software oracles.
+
+This owner does not train, deserialize or select policies and imports no
+SB3/Torch learner backend. The policy digest is a caller declaration; artifact
+byte verification must happen before this runner is called. `reset_seed` is
+only the first Gym reset seed and does not replace the declared execution RNG or
+a policy seed. Training/selection leakage, artifact admission and economic
+winner selection remain higher-level Study responsibilities.

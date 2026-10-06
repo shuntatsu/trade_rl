@@ -804,8 +804,11 @@ window roster for Issue #810 allocation training. A window binds role
 symbol, complete episode indices/clocks and a digest of the actually consumed
 training-source scope. The causal `window_id` excludes whole-Dataset lineage,
 so an unused future suffix cannot rewrite an earlier window identity; the full
-window payload and schedule still retain that lineage. The schedule fixes one causal training order,
-`cyclic_declared_order_v1`, and states that a reset means a new independent
+window payload and schedule still retain that lineage. Same-symbol clock
+overlap is rejected even across different Dataset lineages, so relining or
+overlapping crops cannot multiply the declared market interval. The schedule
+fixes one causal training order, `cyclic_declared_order_v1`, and states that a
+reset means a new independent
 account while a PPO rollout boundary continues the current account. It imports
 no evaluation, simulation, risk or optional learner backend and does not call a
 Dataset, account or policy.

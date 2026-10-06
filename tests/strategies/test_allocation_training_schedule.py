@@ -169,6 +169,24 @@ def test_schedule_rejects_duplicate_overlap_or_future_role_before_training(mutat
         AllocationTrainingSchedule(bad, train_window_ids=train_ids)
 
 
+def test_schedule_rejects_same_symbol_clock_overlap_across_dataset_lineages():
+    AllocationTrainingSchedule, _ = capability()
+    first = window(dataset="a", source="b")
+    relined_overlap = window(
+        dataset="f",
+        start=8,
+        stop=12,
+        start_ns=8_000,
+        stop_ns=12_000,
+        source="c",
+    )
+    with pytest.raises(ValueError, match="overlap"):
+        AllocationTrainingSchedule(
+            (first, relined_overlap),
+            train_window_ids=(first.window_id, relined_overlap.window_id),
+        )
+
+
 def test_schedule_rejects_validation_or_heldout_in_training_order():
     AllocationTrainingSchedule, _ = capability()
     first = window()

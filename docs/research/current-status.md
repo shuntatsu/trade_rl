@@ -1585,8 +1585,11 @@ provenance, bind the actually consumed per-episode source scope, and require
 training windows in declared chronological order. The causal window identity
 does not include whole-Dataset lineage, so an unused future suffix cannot rewrite
 an earlier window ID; the full schedule payload still records the declared
-Dataset lineage. Validation and held-out windows must begin after training;
-held-out windows must also follow declared validation windows.
+Dataset lineage. Same-symbol windows may not overlap in market time even when
+their Dataset lineage differs, preventing relined or overlapping crops from
+being treated as additional declared intervals. Validation and held-out windows
+must begin after training; held-out windows must also follow declared validation
+windows.
 
 The upper schedule runtime accepts exactly the declared train windows, verifies
 their actual source identities plus common recipe / financial clock / policy

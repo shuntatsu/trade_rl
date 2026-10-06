@@ -212,20 +212,17 @@ class AllocationTrainingSchedule:
                 "training order must contain every train window exactly once"
             )
 
-        grouped: dict[tuple[str, str], list[AllocationTrainingWindow]] = {}
+        grouped: dict[str, list[AllocationTrainingWindow]] = {}
         for window in self.windows:
-            grouped.setdefault((window.dataset_id, window.symbol), []).append(window)
+            grouped.setdefault(window.symbol, []).append(window)
         for values in grouped.values():
             ordered = sorted(
                 values, key=lambda window: (window.decision_start_ns, window.window_id)
             )
             for left, right in zip(ordered, ordered[1:]):
-                if (
-                    left.stop_index > right.start_index
-                    or left.terminal_time_ns > right.decision_start_ns
-                ):
+                if left.terminal_time_ns > right.decision_start_ns:
                     raise ValueError(
-                        "schedule windows must not overlap for one source account"
+                        "schedule windows must not overlap for one symbol clock"
                     )
 
         train_terminal = max(window.terminal_time_ns for window in training)

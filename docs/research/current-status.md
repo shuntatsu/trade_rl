@@ -1660,3 +1660,32 @@ This is an in-process runtime handoff only. It intentionally requires the same
 cross-machine serialization, walk-forward policy selection, or economic
 performance. A higher-level fold runner/policy-switching consumer is the next P5
 step; the existing independent-fold study evidence is unchanged.
+
+
+## Issue #810 P5: continuous allocation OOS fold runner candidate
+
+The exact account handoff from #834 now has a bounded walk-forward consumer.
+The runner binds each actual OOS allocation environment to an explicit
+`WalkForwardFold.test` range and switches a caller-declared policy at fold
+boundaries while preserving one continuous account.
+
+Software evidence requires:
+
+- declared fold test ranges and actual OOS env ranges match exactly;
+- all OOS test ranges are contiguous before the first account reset;
+- only the first fold resets, later folds consume exact account continuations;
+- different policy identities can be used per fold without resetting the account;
+- canonical interval simple returns compound to the final actual account equity;
+- stochastic execution under split folds reaches the same final BookState as an
+  uninterrupted account with the same actions;
+- opening/closing state digests satisfy existing continuous stitching;
+- per-fold cost/turnover/fill/rebalance deltas are derived from canonical account
+  counters rather than a second ledger;
+- invalid fold ranges, Dataset/recipe mismatch, reused environments, invalid
+  action codes and economic termination fail closed.
+
+This remains an execution consumer, not a policy-selection engine. It does not
+prove that a fold's policy was selected without test leakage, does not verify
+policy artifact bytes itself, and does not run market economic selection. Those
+links must be supplied by the later Run/Study evidence layer before P5 or the
+overall Issue #810 research can be called complete.

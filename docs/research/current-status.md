@@ -1633,3 +1633,30 @@ This removes the single-episode-sampler ambiguity needed for the delayed-payoff
 oracle, but it does not itself establish market generalization, continuous
 economic-account handover across evaluation windows, or long-horizon
 learnability. Those remain separate P3/P5 evidence before economic comparison.
+
+
+## Issue #810 P5: exact allocation account handoff software capability
+
+The allocation path now has a bounded continuous-account handoff capability.
+A marked-continuation horizon can export its exact canonical account/order state
+only after the declared horizon terminal and only when no economic termination
+occurred. The next contiguous OOS window resumes that state without calling the
+normal reset path.
+
+Focused software oracles establish:
+
+- stochastic slippage execution across a split boundary matches uninterrupted
+  execution, demonstrating that the execution RNG is not reseeded;
+- cash, quantities, exact quantity evidence, peak/drawdown, accumulated costs,
+  carry/account counters and final economics match uninterrupted execution;
+- active GTC residual orders survive the boundary unchanged;
+- previous closing and next opening canonical state digests are identical and
+  satisfy the existing `StitchMode.CONTINUOUS_ACCOUNT` contract;
+- gaps, account changes, execution-policy changes, continuation reuse and
+  economically terminated accounts fail closed.
+
+This is an in-process runtime handoff only. It intentionally requires the same
+`MarketDataset` instance and does not claim exact process restart,
+cross-machine serialization, walk-forward policy selection, or economic
+performance. A higher-level fold runner/policy-switching consumer is the next P5
+step; the existing independent-fold study evidence is unchanged.

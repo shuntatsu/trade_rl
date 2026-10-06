@@ -1,5 +1,3 @@
-[Reading 254 lines from start (total: 254 lines, 0 remaining)]
-
 """Continuous allocation OOS fold runner with explicit policy switches."""
 
 from __future__ import annotations
@@ -254,5 +252,3 @@ __all__ = [
     "ContinuousAllocationWalkForwardResult",
     "run_continuous_allocation_walk_forward",
 ]
-
-[executed on device: DESKTOP-MTD23AI (0abc841c-0215-491a-8eb3-2ddd8c73feac)]

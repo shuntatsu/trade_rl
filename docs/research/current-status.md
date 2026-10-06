@@ -1606,3 +1606,30 @@ generalization. The existing single-episode PPO bundle schemas and evidence are
 unchanged. Delayed-payoff learnability and the result-blind
 `gae_lambda` / rollout-length comparison remain separate next work before any
 market P&L comparison or new learner family.
+
+
+## Issue #810: scheduled allocation PPO fit consumer candidate
+
+The declared chronological window runtime is now consumed by an opt-in actual
+SB3 PPO fit. The fit remains `n_envs=1`: full independent-account windows are
+cycled in causal declared order, and a PPO rollout boundary does not create a new
+account. True terminal auto-reset is observable separately from actor decision
+reuse.
+
+The training-only receipt records each window's exact decision indices and reuse
+counts plus the observation/successor indices admitted to policy/critic
+consumption. It also records the immutable schedule, common allocation recipe,
+explicit PPO protocol, optimizer-call telemetry and runtime reset/decision
+counts. Consequently, repeated use of a short history is visible as repeated row
+counts rather than being reported as additional independent experience.
+
+The existing v3 frozen-preprocessing path is supported: the original fit prefix
+is reconstructed once and the same frozen transform is admitted on later window
+clocks. Existing single-episode bundle identities and loaders are unchanged; this
+stage deliberately does not publish a new inference artifact or authorize a
+market Study.
+
+This removes the single-episode-sampler ambiguity needed for the delayed-payoff
+oracle, but it does not itself establish market generalization, continuous
+economic-account handover across evaluation windows, or long-horizon
+learnability. Those remain separate P3/P5 evidence before economic comparison.

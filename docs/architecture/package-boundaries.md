@@ -828,3 +828,27 @@ This stage intentionally does **not** connect the schedule runtime to
 `fit_allocation_ppo`, bundle/receipt publication, Run/Study registration or
 continuous-account walk-forward. Those require a separate reviewed consumer so
 existing single-episode bundle identities remain unchanged.
+
+
+### Scheduled PPO fit consumer
+
+`evaluation/rl_allocation/scheduled_training.py` is the first learner consumer
+of the chronological schedule. It requires the explicit immutable PPO protocol,
+uses the existing schedule Gym wrapper as the single SB3 environment, and leaves
+every child `AllocationTradingEnv` as the owner of risk, execution, accounting
+and reward. It does not construct a second ledger or source model.
+
+The fit revalidates every declared source before and after learning, requires the
+budget to cover every train window and to be an exact rollout multiple, and
+records a detached training-only receipt. The receipt binds the schedule and
+recipe digests, protocol and optimizer-call evidence, per-window true reset and
+decision counts, and exact per-row decision reuse plus policy/critic observation
+indices. A final DummyVecEnv post-terminal reset remains visible even when no
+subsequent actor decision consumes it; reset count is therefore not described as
+an independent-experience count.
+
+Frozen v3 preprocessing is reconstructed once from its declared fit Dataset and
+then checked for valid application at each scheduled child clock. This consumer
+does not publish an allocation inference bundle, Run/Study artifact, winner
+decision or deployment authorization. Existing single-episode bundle schemas and
+`fit_allocation_ppo` remain unchanged.

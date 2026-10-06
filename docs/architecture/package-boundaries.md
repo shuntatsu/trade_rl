@@ -947,3 +947,24 @@ Dataset-instance identity, account/symbol/capital chain, execution/risk
 identity, and per-fold recipe compatibility therefore fail closed before
 artifact code is loaded. Bundle verification remains a second gate: all pinned
 manifests/policy bytes must verify before the first OOS reset.
+
+
+## Sealed allocation fold-policy authorization ownership
+
+`evaluation/rl_allocation/sealed_policy_admission.py` binds an existing
+`SealedTestAccessRecord` to one verified allocation policy artifact before a
+continuous outer-OOS run. It does not select a configuration, create access
+authority, train a learner or open final/unused data.
+
+For every fold it reconstructs the canonical sealed-access record and requires
+the registered experiment-plan digest, Dataset identity, fold index, exact
+outer-test range and selected policy digest to match the declared fold,
+allocation runtime and immutable artifact. A `selected_policy_digest=None`
+record is not executable authorization. Access records must be unique.
+
+After authorization validation, the lower artifact-admission owner performs the
+full continuous-chain preflight and verifies/deserializes every pinned policy
+bundle before the first OOS account reset. The admitted policy digests must then
+still equal the sealed selected-policy identities before the continuous runner
+may execute. Selection rules, ledger issuance, Study outcomes and final-test
+authorization remain separate authorities.

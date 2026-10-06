@@ -196,17 +196,16 @@ def _scenario(
     return matches[0]
 
 
-def _validate_runtime_context(
+def validate_continuous_allocation_comparison_context(
     contract: AllocationComparisonContract,
     *,
-    candidate: AllocationCandidateKind,
+    expected_recipe_digest: str,
     scenario: str,
     folds: tuple[WalkForwardFold, ...],
     environments: tuple[AllocationTradingEnv, ...],
     result: ContinuousAllocationWalkForwardResult,
 ) -> None:
-    if type(candidate) is not AllocationCandidateKind:
-        raise ValueError("candidate must be AllocationCandidateKind")
+    require_sha256(expected_recipe_digest, field="expected_recipe_digest")
     if (
         type(environments) is not tuple
         or len(environments) != len(folds)
@@ -260,7 +259,6 @@ def _validate_runtime_context(
     if first.bound.objective.maximum_drawdown != contract.maximum_drawdown:
         raise ValueError("comparison drawdown guardrail differs from runtime")
 
-    expected_recipe = _candidate_recipe(contract, candidate)
     for fold, env, fold_result in zip(folds, environments, result.folds, strict=True):
         env.validate_binding()
         if (
@@ -277,7 +275,7 @@ def _validate_runtime_context(
             raise ValueError("comparison business objective differs across folds")
         if allocation_economic_clock_digest(env.bound.clock) != contract.clock_digest:
             raise ValueError("comparison economic clock differs across folds")
-        if env.recipe_digest != expected_recipe:
+        if env.recipe_digest != expected_recipe_digest:
             raise ValueError("comparison candidate recipe differs from runtime")
         if (env.start_index, env.stop_index) != (fold.test.start, fold.test.stop):
             raise ValueError("comparison OOS environment differs from fold test range")
@@ -321,7 +319,7 @@ def _validate_runtime_context(
         raise ValueError("base comparison scenario must use contract economics/risk")
 
 
-def _oos_source_digest(
+def allocation_comparison_oos_source_digest(
     contract: AllocationComparisonContract,
     *,
     scenario: str,
@@ -337,7 +335,7 @@ def _oos_source_digest(
     )
 
 
-def _ledger_digest(
+def allocation_continuous_ledger_summary_digest(
     result: ContinuousAllocationWalkForwardResult,
     *,
     source_digest: str,
@@ -363,7 +361,7 @@ def _ledger_digest(
     )
 
 
-def _execution_digest(
+def allocation_continuous_execution_summary_digest(
     result: ContinuousAllocationWalkForwardResult,
     *,
     source_digest: str,
@@ -385,6 +383,42 @@ def _execution_digest(
     )
 
 
+def canonical_continuous_allocation_metrics(
+    contract: AllocationComparisonContract,
+    environments: tuple[AllocationTradingEnv, ...],
+    result: ContinuousAllocationWalkForwardResult,
+) -> tuple[float, float]:
+    """Cross-check stitched returns against canonical final account economics."""
+    if type(contract) is not AllocationComparisonContract:
+        raise ValueError("canonical metrics require allocation comparison contract")
+    if (
+        type(environments) is not tuple
+        or not environments
+        or any(type(env) is not AllocationTradingEnv for env in environments)
+    ):
+        raise ValueError("canonical metrics require allocation environments")
+    if type(result) is not ContinuousAllocationWalkForwardResult:
+        raise ValueError("canonical metrics require continuous allocation result")
+    return_profit, return_path_drawdown = continuous_account_profit_and_drawdown(
+        result.stitched.returns
+    )
+    final_book = environments[-1].book
+    terminal_profit = final_book.portfolio_value / contract.initial_capital - 1.0
+    if not math.isclose(
+        terminal_profit,
+        return_profit,
+        rel_tol=1e-10,
+        abs_tol=1e-12,
+    ):
+        raise ValueError(
+            "continuous account returns disagree with canonical terminal equity"
+        )
+    max_drawdown = final_book.max_drawdown
+    if return_path_drawdown > max_drawdown + 1e-12:
+        raise ValueError("return-path drawdown exceeds canonical account drawdown")
+    return terminal_profit, max_drawdown
+
+
 def build_continuous_allocation_comparison_evidence(
     contract: AllocationComparisonContract,
     *,
@@ -402,9 +436,9 @@ def build_continuous_allocation_comparison_evidence(
     require_sha256(validity_evidence_digest, field="validity_evidence_digest")
     if type(validity) is not AllocationValidity:
         raise ValueError("validity must be AllocationValidity")
-    _validate_runtime_context(
+    validate_continuous_allocation_comparison_context(
         contract,
-        candidate=candidate,
+        expected_recipe_digest=_candidate_recipe(contract, candidate),
         scenario=scenario,
         folds=folds,
         environments=environments,
@@ -424,24 +458,15 @@ def build_continuous_allocation_comparison_evidence(
             result.policy_digests,
         )
 
-    return_profit, return_path_drawdown = continuous_account_profit_and_drawdown(
-        result.stitched.returns
+    terminal_profit, max_drawdown = canonical_continuous_allocation_metrics(
+        contract,
+        environments,
+        result,
     )
-    final_book = environments[-1].book
-    terminal_profit = final_book.portfolio_value / contract.initial_capital - 1.0
-    if not math.isclose(
-        terminal_profit,
-        return_profit,
-        rel_tol=1e-10,
-        abs_tol=1e-12,
-    ):
-        raise ValueError(
-            "continuous account returns disagree with canonical terminal equity"
-        )
-    max_drawdown = final_book.max_drawdown
-    if return_path_drawdown > max_drawdown + 1e-12:
-        raise ValueError("return-path drawdown exceeds canonical account drawdown")
-    source_digest = _oos_source_digest(contract, scenario=scenario)
+    source_digest = allocation_comparison_oos_source_digest(
+        contract,
+        scenario=scenario,
+    )
     opening = result.folds[0].opening_state_digest
     closing = result.folds[-1].closing_state_digest
     if opening is None or closing is None:
@@ -458,8 +483,12 @@ def build_continuous_allocation_comparison_evidence(
         seed=seed,
         policy_digest=policy_digest,
         oos_source_digest=source_digest,
-        ledger_digest=_ledger_digest(result, source_digest=source_digest),
-        execution_digest=_execution_digest(result, source_digest=source_digest),
+        ledger_digest=allocation_continuous_ledger_summary_digest(
+            result, source_digest=source_digest
+        ),
+        execution_digest=allocation_continuous_execution_summary_digest(
+            result, source_digest=source_digest
+        ),
         validity_evidence_digest=validity_evidence_digest,
         recipe_digest=_candidate_recipe(contract, candidate),
         opening_state_digest=opening,
@@ -474,10 +503,15 @@ def build_continuous_allocation_comparison_evidence(
 
 __all__ = [
     "allocation_business_objective_digest",
+    "allocation_comparison_oos_source_digest",
     "allocation_comparison_scenario_digest",
+    "allocation_continuous_execution_summary_digest",
+    "allocation_continuous_ledger_summary_digest",
     "allocation_economic_clock_digest",
     "allocation_fold_plan_digest",
     "allocation_policy_schedule_digest",
     "build_continuous_allocation_comparison_evidence",
+    "canonical_continuous_allocation_metrics",
     "continuous_account_profit_and_drawdown",
+    "validate_continuous_allocation_comparison_context",
 ]

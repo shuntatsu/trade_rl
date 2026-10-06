@@ -1633,3 +1633,36 @@ This removes the single-episode-sampler ambiguity needed for the delayed-payoff
 oracle, but it does not itself establish market generalization, continuous
 economic-account handover across evaluation windows, or long-horizon
 learnability. Those remain separate P3/P5 evidence before economic comparison.
+
+
+## Issue #810: delayed-payoff allocation PPO software oracle
+
+A synthetic G2 oracle now exercises the **current v4 path** rather than the old
+minimal observation lane: frozen causal preprocessing, explicit PPO protocol,
+the chronological six-window training schedule, canonical action/risk/execution
+and fixed-capital after-cost equity reward are all in the fitted path.
+
+The oracle keeps the causal sign observable throughout each eight-bar flat-price
+segment so it tests delayed credit rather than recurrent memory. Entry pays the
+declared fee immediately, no positive reward appears during the first seven
+steps, and the directional payoff appears only on the eighth processing bar.
+Three held-out schedules (100/101/102) are never used for optimizer updates.
+
+Before any market P&L was opened, the preregistered software factors were
+characterized with the same 4096-step budget and seeds 0/7/17. With
+`gae_lambda=0.95, n_steps=32`, seeds 0 and 17 passed the held-out oracle while
+seed 7 collapsed to 0.50 cue alignment. A separate result-blind local
+diagnostic that raised only `gae_lambda` to 1.0 did not improve the fixed
+three-seed acceptance and is not the maintained acceptance lane. Keeping
+`gae_lambda=0.95` and changing only `n_steps` from 32 to 64 made
+all three seeds reach 1.0 held-out cue alignment, with about +8% synthetic
+after-cost reward on each held-out schedule. The maintained software acceptance
+therefore uses the 64-step controlled factor for this oracle.
+
+This is synthetic mechanism evidence, **not** a market hyperparameter winner or
+profitability result, and it does not mutate the repository's existing market
+Study protocols. An eight-bar payoff is still shorter than both compared rollout
+lengths; therefore this result establishes delayed-payoff learnability and
+rollout/update-geometry sensitivity, but not multi-day credit across a rollout
+boundary. A payoff beyond the active rollout boundary remains a separate
+long-horizon G2 oracle before P3 can be called complete.

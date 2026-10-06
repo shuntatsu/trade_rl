@@ -913,3 +913,29 @@ byte verification must happen before this runner is called. `reset_seed` is
 only the first Gym reset seed and does not replace the declared execution RNG or
 a policy seed. Training/selection leakage, artifact admission and economic
 winner selection remain higher-level Study responsibilities.
+
+
+## Allocation continuous policy artifact admission ownership
+
+`evaluation/rl_allocation/policy_admission.py` is the artifact-verification layer
+immediately above the continuous OOS runner. One immutable declaration pins the
+fold index, bundle root, expected canonical manifest digest and expected runtime
+recipe digest. Admission first validates the complete fold/env/artifact roster,
+then calls the existing `load_allocation_policy()` authority for **every** fold
+before the first OOS reset. The loader remains responsible for the exact regular
+bundle directory, canonical manifest bytes, pinned manifest digest, verified
+private policy copy, policy-byte SHA-256 and recipe identity.
+
+After loading, admission rechecks the returned manifest digest and recipe, then
+wraps the real keyword-only `AllocationPPOPolicy.action(...,
+runtime_recipe_digest=...)` call in the lower runner's backend-neutral action
+contract. The lower runner therefore records the same verified manifest digest
+as the fold policy identity; a caller cannot substitute an arbitrary digest at
+this layer. If any later fold bundle is absent, malformed, tampered or bound to
+another recipe, admission fails before any OOS account is initialized.
+
+This layer does not train, select, authorize or rank policies and does not import
+the training consumers. It is not the sealed-test access authority. A later
+Study consumer must still bind each admitted artifact to result-blind selection
+evidence and a one-shot sealed outer-test authorization before economic evidence
+can be claimed.

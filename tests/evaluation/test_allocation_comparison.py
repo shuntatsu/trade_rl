@@ -41,6 +41,9 @@ def contract():
         economics_digest=sha("economics"),
         risk_digest=sha("risk"),
         fold_plan_digest=sha("fold-plan"),
+        nonrl_recipe_digest=sha("recipe-nonrl"),
+        residual_recipe_digest=sha("recipe-residual"),
+        direct_recipe_digest=sha("recipe-direct"),
         account_mode="independent_symbol",
         initial_capital=1_000.0,
         scenarios=(
@@ -85,6 +88,11 @@ def evidence(
         ledger_digest=sha(f"ledger-{kind.value}-{scenario}-{seed}"),
         execution_digest=sha(f"execution-{kind.value}-{scenario}-{seed}"),
         validity_evidence_digest=sha(f"validity-{kind.value}-{scenario}-{seed}"),
+        recipe_digest={
+            Candidate.NONRL: declaration.nonrl_recipe_digest,
+            Candidate.RESIDUAL_PPO: declaration.residual_recipe_digest,
+            Candidate.DIRECT_PPO: declaration.direct_recipe_digest,
+        }[kind],
         opening_state_digest=opening or sha(f"opening-{scenario}"),
         closing_state_digest=sha(f"closing-{kind.value}-{scenario}-{seed}"),
         terminal_profit_rate=profit,
@@ -178,6 +186,9 @@ def test_contract_rejects_malformed_identity_capital_seed_and_risk(changes):
             "economics_digest",
             "risk_digest",
             "fold_plan_digest",
+            "nonrl_recipe_digest",
+            "residual_recipe_digest",
+            "direct_recipe_digest",
             "account_mode",
             "initial_capital",
             "scenarios",
@@ -377,4 +388,24 @@ def test_rl_policy_identity_cannot_change_between_base_and_stress_scenarios():
     )
     rows[index] = replace(rows[index], policy_digest=sha("stress-specific-policy"))
     with pytest.raises(ValueError, match="one policy|across scenarios"):
+        validate(declaration, tuple(rows))
+
+
+@pytest.mark.parametrize(
+    "candidate,expected_field",
+    [
+        ("nonrl", "nonrl_recipe_digest"),
+        ("residual_ppo", "residual_recipe_digest"),
+        ("direct_ppo", "direct_recipe_digest"),
+    ],
+)
+def test_candidate_recipe_identity_is_fixed_by_contract(candidate, expected_field):
+    Candidate, _, _, _, _, _, validate = capability()
+    declaration = contract()
+    rows = list(complete_matrix(declaration))
+    kind = Candidate(candidate)
+    index = next(i for i, row in enumerate(rows) if row.candidate is kind)
+    rows[index] = replace(rows[index], recipe_digest=sha("wrong-recipe"))
+    assert getattr(declaration, expected_field) != rows[index].recipe_digest
+    with pytest.raises(ValueError, match="recipe"):
         validate(declaration, tuple(rows))

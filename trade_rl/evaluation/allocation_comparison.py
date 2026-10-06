@@ -102,6 +102,9 @@ class AllocationComparisonContract:
     economics_digest: str
     risk_digest: str
     fold_plan_digest: str
+    nonrl_recipe_digest: str
+    residual_recipe_digest: str
+    direct_recipe_digest: str
     account_mode: str
     initial_capital: float
     scenarios: tuple[AllocationComparisonScenario, ...]
@@ -117,6 +120,9 @@ class AllocationComparisonContract:
             "economics_digest",
             "risk_digest",
             "fold_plan_digest",
+            "nonrl_recipe_digest",
+            "residual_recipe_digest",
+            "direct_recipe_digest",
         ):
             require_sha256(getattr(self, field), field=field)
         if self.account_mode not in _ACCOUNT_MODES:
@@ -169,6 +175,11 @@ class AllocationComparisonContract:
             "economics_digest": self.economics_digest,
             "risk_digest": self.risk_digest,
             "fold_plan_digest": self.fold_plan_digest,
+            "candidate_recipes": {
+                "nonrl": self.nonrl_recipe_digest,
+                "residual_ppo": self.residual_recipe_digest,
+                "direct_ppo": self.direct_recipe_digest,
+            },
             "account_mode": self.account_mode,
             "initial_capital": self.initial_capital,
             "scenarios": [value.payload() for value in self.scenarios],
@@ -190,6 +201,7 @@ class AllocationComparisonContract:
                 "economics_digest",
                 "risk_digest",
                 "fold_plan_digest",
+                "candidate_recipes",
                 "account_mode",
                 "initial_capital",
                 "scenarios",
@@ -203,6 +215,11 @@ class AllocationComparisonContract:
             raise ValueError("unsupported allocation comparison contract schema")
         if data["candidate_roster"] != [value.value for value in _CANDIDATE_ROSTER]:
             raise ValueError("allocation comparison candidate roster changed")
+        recipes = _closed_mapping(
+            data["candidate_recipes"],
+            {"nonrl", "residual_ppo", "direct_ppo"},
+            "candidate_recipes",
+        )
         if type(data["scenarios"]) is not list or type(data["rl_seeds"]) is not list:
             raise ValueError("comparison contract arrays must be native lists")
         try:
@@ -214,6 +231,9 @@ class AllocationComparisonContract:
                 economics_digest=data["economics_digest"],
                 risk_digest=data["risk_digest"],
                 fold_plan_digest=data["fold_plan_digest"],
+                nonrl_recipe_digest=recipes["nonrl"],
+                residual_recipe_digest=recipes["residual_ppo"],
+                direct_recipe_digest=recipes["direct_ppo"],
                 account_mode=data["account_mode"],
                 initial_capital=data["initial_capital"],
                 scenarios=tuple(
@@ -241,6 +261,7 @@ class AllocationComparisonEvidence:
     ledger_digest: str
     execution_digest: str
     validity_evidence_digest: str
+    recipe_digest: str
     opening_state_digest: str
     closing_state_digest: str
     terminal_profit_rate: float
@@ -261,6 +282,7 @@ class AllocationComparisonEvidence:
             "ledger_digest",
             "execution_digest",
             "validity_evidence_digest",
+            "recipe_digest",
             "opening_state_digest",
             "closing_state_digest",
         ):
@@ -307,6 +329,7 @@ class AllocationComparisonEvidence:
             "ledger_digest": self.ledger_digest,
             "execution_digest": self.execution_digest,
             "validity_evidence_digest": self.validity_evidence_digest,
+            "recipe_digest": self.recipe_digest,
             "opening_state_digest": self.opening_state_digest,
             "closing_state_digest": self.closing_state_digest,
             "terminal_profit_rate": self.terminal_profit_rate,
@@ -331,6 +354,7 @@ class AllocationComparisonEvidence:
                 "ledger_digest",
                 "execution_digest",
                 "validity_evidence_digest",
+                "recipe_digest",
                 "opening_state_digest",
                 "closing_state_digest",
                 "terminal_profit_rate",
@@ -354,6 +378,7 @@ class AllocationComparisonEvidence:
                 ledger_digest=data["ledger_digest"],
                 execution_digest=data["execution_digest"],
                 validity_evidence_digest=data["validity_evidence_digest"],
+                recipe_digest=data["recipe_digest"],
                 opening_state_digest=data["opening_state_digest"],
                 closing_state_digest=data["closing_state_digest"],
                 terminal_profit_rate=data["terminal_profit_rate"],
@@ -414,6 +439,8 @@ def validate_allocation_comparison_evidence(
             and row.seed not in contract.rl_seeds
         ):
             raise ValueError("comparison evidence uses an undeclared RL seed")
+        if row.recipe_digest != _candidate_recipe(contract, row.candidate):
+            raise ValueError("comparison evidence candidate recipe differs from contract")
         key = (row.candidate, row.seed, row.scenario)
         if key not in expected_set:
             raise ValueError("comparison evidence row is outside the fixed matrix")
@@ -444,6 +471,17 @@ def validate_allocation_comparison_evidence(
                 raise ValueError("one RL seed must use one policy across scenarios")
 
     return tuple(by_key[key] for key in expected)
+
+
+def _candidate_recipe(
+    contract: AllocationComparisonContract,
+    candidate: AllocationCandidateKind,
+) -> str:
+    if candidate is AllocationCandidateKind.NONRL:
+        return contract.nonrl_recipe_digest
+    if candidate is AllocationCandidateKind.RESIDUAL_PPO:
+        return contract.residual_recipe_digest
+    return contract.direct_recipe_digest
 
 
 @dataclass(frozen=True, slots=True)

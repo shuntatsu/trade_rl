@@ -1,5 +1,3 @@
-[Reading 309 lines from start (total: 309 lines, 0 remaining)]
-
 from dataclasses import replace
 
 import pytest
@@ -309,5 +307,3 @@ def test_runner_rejects_invalid_reset_seed_before_account_reset(reset_seed):
             reset_seed=reset_seed,
         )
     assert not hasattr(first, "book")
-
-[executed on device: DESKTOP-MTD23AI (0abc841c-0215-491a-8eb3-2ddd8c73feac)]

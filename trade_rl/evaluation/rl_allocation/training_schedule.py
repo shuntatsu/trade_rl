@@ -133,6 +133,23 @@ class AllocationTrainingScheduleEnv(gym.Env):
         }
 
     @property
+    def template_env(self) -> AllocationTradingEnv:
+        """First declared train window; common policy/clock semantics only."""
+        return self._environments[self.schedule.train_window_ids[0]]
+
+    @property
+    def training_environments(self) -> tuple[AllocationTradingEnv, ...]:
+        """Declared train environments in immutable sampling order."""
+        return tuple(
+            self._environments[identity] for identity in self.schedule.train_window_ids
+        )
+
+    def validate_sources(self) -> None:
+        """Rebind every actual child to the immutable declared source envelope."""
+        for identity in self.schedule.train_window_ids:
+            self._validate_window(identity, self._environments[identity])
+
+    @property
     def active_window_id(self) -> str:
         if self._active_window_id is None:
             raise RuntimeError("training schedule has not been reset")

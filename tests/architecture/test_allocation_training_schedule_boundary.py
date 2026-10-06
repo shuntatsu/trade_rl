@@ -10,10 +10,11 @@ from trade_rl.strategies.rl.allocation_training_schedule import (
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = ROOT / "trade_rl" / "strategies" / "rl" / "allocation_training_schedule.py"
+FIT_OWNER = ROOT / "trade_rl" / "evaluation" / "rl_allocation" / "scheduled_training.py"
 
 
-def imports() -> set[str]:
-    tree = ast.parse(OWNER.read_text(encoding="utf-8"), filename=str(OWNER))
+def direct_imports(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     result: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -24,7 +25,7 @@ def imports() -> set[str]:
 
 
 def test_training_schedule_owner_stays_pure_and_below_runtime():
-    actual = imports()
+    actual = direct_imports(OWNER)
     forbidden = (
         "trade_rl.evaluation",
         "trade_rl.simulation",
@@ -45,6 +46,25 @@ def test_training_schedule_owner_stays_pure_and_below_runtime():
     assert AllocationTrainingWindow.__module__ == (
         "trade_rl.strategies.rl.allocation_training_schedule"
     )
+
+
+def test_scheduled_fit_stays_training_only_and_uses_existing_economic_env():
+    actual = direct_imports(FIT_OWNER)
+    forbidden = (
+        "trade_rl.simulation",
+        "trade_rl.risk",
+        "trade_rl.evaluation.runs",
+        "trade_rl.evaluation.experiments",
+        "trade_rl.strategies.rl.allocation_artifact",
+        "trade_rl.strategies.rl.allocation_manifest",
+    )
+    assert not any(
+        name == prefix or name.startswith(prefix + ".")
+        for name in actual
+        for prefix in forbidden
+    )
+    assert "trade_rl.evaluation.rl_allocation.training_schedule" in actual
+    assert "trade_rl.evaluation.rl_allocation.training_protocol" in actual
 
 
 def test_training_schedule_owner_loads_without_optional_rl_backend():

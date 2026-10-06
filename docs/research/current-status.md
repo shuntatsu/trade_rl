@@ -1727,3 +1727,34 @@ saved allocation bundle is verified and admitted in the PPO-runtime lane before
 continuous OOS execution. This remains software evidence only; selection
 authority, sealed outer-test authorization and economic winner gates remain
 separate.
+
+
+## Issue #810 P5: sealed fold-policy authorization candidate
+
+The continuous allocation OOS path can now bind existing sealed outer-test
+authorization to the exact immutable PPO bundle used for each fold. The binding
+checks the canonical access-record digest, experiment-plan identity, Dataset,
+fold/test range and selected policy digest before artifact loading. A missing
+selected policy, altered access digest, wrong plan/range/Dataset/fold or a
+different artifact digest fails closed.
+
+A real SB3 software integration creates a saved allocation bundle and
+`SealedTestLedger` records, then verifies the bundle through the immutable
+artifact path and runs the authorized policy across the continuous account
+chain. This establishes software identity flow only. The owner does not perform
+configuration selection, issue sealed authorization, freeze a Study outcome,
+open unused/final data or establish profitability/production eligibility.
+
+
+The sealed allocation binding now distinguishes canonical record content from
+runtime authority. A fold access record must rebuild to its canonical digest
+and compare equal to an immutable record present in the supplied
+`SealedTestLedger`. Equivalent reconstructed records remain valid after
+persistence, while a record absent from the supplied ledger is rejected before
+policy artifact loading or OOS reset. This remains software authority, not
+durable signed authorization or final-data permission.
+
+
+This stage does not yet consume/tombstone a sealed access record after one run.
+A higher-level Study/outer-test authority must prevent replay of an already-used
+authorization before unused/final-data evidence can be claimed.

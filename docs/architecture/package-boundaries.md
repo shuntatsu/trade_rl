@@ -947,3 +947,39 @@ Dataset-instance identity, account/symbol/capital chain, execution/risk
 identity, and per-fold recipe compatibility therefore fail closed before
 artifact code is loaded. Bundle verification remains a second gate: all pinned
 manifests/policy bytes must verify before the first OOS reset.
+
+
+## Sealed allocation fold-policy authorization ownership
+
+`evaluation/rl_allocation/sealed_policy_admission.py` binds an existing
+`SealedTestAccessRecord` to one verified allocation policy artifact before a
+continuous outer-OOS run. It does not select a configuration, create access
+authority, train a learner or open final/unused data.
+
+For every fold it reconstructs the canonical sealed-access record and requires
+the registered experiment-plan digest, Dataset identity, fold index, exact
+outer-test range and selected policy digest to match the declared fold,
+allocation runtime and immutable artifact. A `selected_policy_digest=None`
+record is not executable authorization. Access records must be unique.
+
+After authorization validation, the lower artifact-admission owner performs the
+full continuous-chain preflight and verifies/deserializes every pinned policy
+bundle before the first OOS account reset. The admitted policy digests must then
+still equal the sealed selected-policy identities before the continuous runner
+may execute. Selection rules, ledger issuance, Study outcomes and final-test
+authorization remain separate authorities.
+
+
+The sealed allocation consumer also requires ledger membership, not only a
+self-consistent access digest. The supplied canonical `SealedTestAccessRecord`
+must compare equal to one of the immutable records exposed by the caller-supplied
+`SealedTestLedgerProtocol`. This keeps authority content-addressed and permits
+an equivalent reconstructed record after persistence, while a record absent from
+the supplied ledger is rejected. Canonical digest reconstruction remains a
+separate tamper check before that membership check.
+
+
+Ledger membership here authenticates the in-process issuer but does not consume
+or tombstone an access record after execution. Durable one-shot execution/replay
+prevention therefore remains a higher-level Study/outer-test authority; this
+owner must not be treated as final-data permission by itself.

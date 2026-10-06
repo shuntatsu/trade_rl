@@ -228,7 +228,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Real SB3 PPO integration
-        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py tests/integrations/test_allocation_schedule_ppo_runtime.py tests/integrations/test_allocation_policy_admission_runtime.py
+        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py tests/integrations/test_allocation_schedule_ppo_runtime.py tests/integrations/test_allocation_policy_admission_runtime.py tests/integrations/test_allocation_sealed_policy_runtime.py
 
   guide:
     name: Human Guide${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}

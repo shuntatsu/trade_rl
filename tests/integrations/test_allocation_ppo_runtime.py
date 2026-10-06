@@ -1292,3 +1292,331 @@ def test_actual_v2_consumed_tensors_receipt_and_save_load_trace(
         AllocationTradingEnv(**opt_in(args)),
         lambda x: loaded.action(x, runtime_recipe_digest=env.recipe_digest),
     )
+
+
+def delayed_v4_episode(
+    schedule_seed,
+    *,
+    frozen=None,
+    delay=8,
+    price_response=0.04,
+    fee=0.0005,
+    gae_lambda=0.95,
+    rollout_steps=32,
+):
+    """Four causal cue decisions whose economic payoff arrives eight bars later."""
+    from tests.evaluation.test_allocation_preprocessing_runtime import bind_frozen
+    from tests.evaluation.test_allocation_rl_observation_v2 import opt_in
+    from trade_rl.evaluation.rl_allocation import preprocessing
+
+    start, segments = 6, 4
+    stop = start + segments * delay
+    n_bars = stop + 1
+    rng = np.random.default_rng(schedule_seed)
+    signs = np.asarray([-1.0, -1.0, 1.0, 1.0])
+    rng.shuffle(signs)
+    cue = np.zeros(n_bars, dtype=np.float32)
+    close = np.full((n_bars, 1), 100.0)
+    level = 100.0
+    for segment, sign in enumerate(signs):
+        decision = start + segment * delay
+        cue[decision : decision + delay] = sign
+        close[decision : decision + delay, 0] = level
+        level *= 1.0 + price_response * sign
+        close[decision + delay, 0] = level
+    opens = close.copy()
+    opens[1:, 0] = close[:-1, 0]
+    shape = close.shape
+    offset = schedule_seed if schedule_seed >= 100 else 2 * max(schedule_seed - 10, 0)
+    dataset = MarketDataset(
+        dataset_id=content_digest(
+            {
+                "synthetic_delayed_credit_v1": schedule_seed,
+                "delay": delay,
+                "price_response": price_response,
+            }
+        ),
+        timestamps=np.datetime64("2026-02-01", "ns")
+        + np.timedelta64(offset, "D")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.stack([np.ones(n_bars), cue], axis=1)[:, None, :].astype(
+            np.float32
+        ),
+        feature_names=("constant", "signal"),
+        feature_available=np.ones((n_bars, 1, 2), dtype=bool),
+        global_features=np.zeros(shape),
+        global_feature_names=("regime",),
+        symbols=("S0",),
+        volume_units=(VolumeUnit.BASE_ASSET,),
+        periods_per_year=8760,
+        open=opens,
+        close=close,
+        mark_price=close,
+        index_price=close,
+        high=np.maximum(opens, close),
+        low=np.minimum(opens, close),
+        volume=np.full(shape, 100_000.0),
+        funding_rate=np.zeros(shape),
+        tradable=np.ones(shape, dtype=bool),
+        split_factor=np.ones(shape),
+    )
+    times = dataset.timestamps
+    block = ForecastBlock(
+        times[5], times[5] + np.timedelta64(15, "m"), times[start], times[stop]
+    )
+    stream = fit_prequential_simple_ridge(
+        dataset,
+        blocks=(block,),
+        feature_indices=(0,),
+        horizon_hours=1,
+    )
+    assert all(packet.expected_simple_return == 0.0 for packet in stream.packets)
+    estimates = tuple(
+        HorizonCostEstimates(
+            "S0",
+            times[i],
+            times[i],
+            times[i + 1],
+            "declared-delayed-credit-fee",
+            buy_cost=fee,
+            sell_cost=fee,
+        )
+        for i in range(start, stop)
+    )
+    action = AllocationActionContract("direct", 0.5)
+    allocator = AfterCostTargetAllocator()
+    cost = replace(ExecutionCostConfig.zero(), fee_rate=fee, max_participation_rate=1.0)
+    risk = PreTradeRiskConfig(max_abs_weight=1.0, max_turnover=None)
+    economics = MarketExecutor(
+        dataset, cost, insolvency_valuation="retain_debt"
+    ).execution_policy_digest
+    profile = AllocationRuntimeProfile(
+        economics,
+        content_digest(risk),
+        1000.0,
+        "USD",
+        3600,
+        (stop - start) * 3600,
+    )
+    recipe = allocation_recipe_digest(
+        action,
+        ("signal",),
+        allocator=allocator,
+        expected_horizon_seconds=3600,
+        runtime_profile=profile,
+    )
+    base = datetime(2026, 2, 1, tzinfo=UTC) + timedelta(days=offset)
+    objective = ObjectiveContract(
+        CapitalContract("independent_symbol", "USD", (1000.0,)),
+        base + timedelta(hours=start),
+        base + timedelta(hours=stop),
+        "marked_continuation",
+        economics,
+        content_digest(risk),
+        recipe,
+    )
+    clock = FinancialClockContract(
+        3600,
+        3600,
+        3600,
+        (stop - start) * 3600,
+        rollout_steps,
+        1.0,
+        gae_lambda,
+        "equity_delta_v1",
+    )
+    args = opt_in(
+        dict(
+            dataset=dataset,
+            stream=stream,
+            estimates=estimates,
+            bound=BoundObjectiveClock(objective, clock),
+            action_contract=action,
+            allocator=allocator,
+            execution_cost=cost,
+            risk_config=risk,
+            feature_indices=(1,),
+            symbol_index=0,
+            start_index=start,
+            stop_index=stop,
+            account_id="synthetic-delayed-credit-S0",
+        )
+    )
+    if frozen is None:
+        frozen = preprocessing.fit_allocation_feature_preprocessing(
+            dataset,
+            feature_indices=(1,),
+            fit_symbol_indices=(0,),
+            fit_start=0,
+            fit_stop=5,
+            fit_as_of=times[5],
+            first_decision_index=start,
+        )
+    args = bind_frozen(args, frozen)
+    return AllocationTradingEnv(**args), frozen
+
+
+def delayed_rollout(env, action):
+    observation, _ = env.reset(seed=41)
+    reward, correct, cue_count, actions = 0.0, 0, 0, []
+    while True:
+        cue = float(env.dataset.features[env.index, 0, 1])
+        code = int(action(observation))
+        observation, increment, done, truncated, _ = env.step(code)
+        assert not truncated
+        reward += increment
+        actions.append(code)
+        if cue:
+            cue_count += 1
+            correct += int(float(env.book.weights[0]) * cue > 0)
+        if done:
+            return reward, correct / cue_count, tuple(actions), env.book.fill_count
+
+
+def delayed_training_schedule(
+    *,
+    gae_lambda=0.95,
+    rollout_steps=32,
+    delay=8,
+):
+    from trade_rl.evaluation.rl_allocation.training_schedule import (
+        AllocationTrainingScheduleEnv,
+        allocation_training_window,
+    )
+    from trade_rl.strategies.rl.allocation_training_schedule import (
+        AllocationTrainingSchedule,
+    )
+
+    seeds = (10, 11, 12, 16, 17, 24)
+    first, frozen = delayed_v4_episode(
+        seeds[0],
+        gae_lambda=gae_lambda,
+        rollout_steps=rollout_steps,
+        delay=delay,
+    )
+    children = [first]
+    for seed in seeds[1:]:
+        child, _ = delayed_v4_episode(
+            seed,
+            frozen=frozen,
+            gae_lambda=gae_lambda,
+            rollout_steps=rollout_steps,
+            delay=delay,
+        )
+        children.append(child)
+    windows = tuple(allocation_training_window(child) for child in children)
+    schedule = AllocationTrainingSchedule(
+        windows,
+        train_window_ids=tuple(window.window_id for window in windows),
+    )
+    return AllocationTrainingScheduleEnv(schedule, tuple(children)), frozen
+
+
+def test_delayed_credit_longer_rollout_is_an_isolated_protocol_factor():
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+
+    short, _ = delayed_training_schedule(gae_lambda=0.95, rollout_steps=32)
+    long, _ = delayed_training_schedule(gae_lambda=0.95, rollout_steps=64)
+    short_protocol = protocol(
+        n_steps=32, batch_size=32, n_epochs=10, gae_lambda=0.95
+    ).payload()
+    long_protocol = protocol(
+        n_steps=64, batch_size=32, n_epochs=10, gae_lambda=0.95
+    ).payload()
+
+    assert short.schedule.digest == long.schedule.digest
+    assert short.template_env.recipe_digest == long.template_env.recipe_digest
+    short_clock = short.template_env.bound.clock.payload()
+    long_clock = long.template_env.bound.clock.payload()
+    assert short_clock | {"rollout_steps": 64} == long_clock
+
+    short_ppo, long_ppo = dict(short_protocol["ppo"]), dict(long_protocol["ppo"])
+    assert short_ppo.pop("n_steps") == 32
+    assert long_ppo.pop("n_steps") == 64
+    assert short_ppo == long_ppo
+    assert short_protocol["policy"] == long_protocol["policy"]
+    assert short_protocol["optimizer"] == long_protocol["optimizer"]
+
+
+def test_v4_delayed_credit_oracle_has_no_positive_immediate_cue_reward():
+    env, _ = delayed_v4_episode(10)
+    observation, _ = env.reset(seed=41)
+    cue = float(env.dataset.features[env.index, 0, 1])
+    action = 3 if cue > 0 else 1
+    rewards = []
+    observation, reward, done, truncated, _ = env.step(action)
+    assert not done and not truncated
+    rewards.append(reward)
+    for _ in range(7):
+        observation, reward, done, truncated, _ = env.step(0)
+        assert not truncated
+        rewards.append(reward)
+    assert rewards[0] < 0.0
+    assert max(rewards[:-1]) <= 0.0
+    assert rewards[-1] > 0.015
+    assert sum(rewards) > 0.015
+
+
+@pytest.mark.parametrize("seed", [0, 7, 17])
+def test_actual_v4_schedule_ppo_learns_delayed_payoff_with_long_rollout_on_held_out_schedules(
+    seed,
+):
+    from tests.strategies.test_allocation_protocol_receipt import protocol
+    from trade_rl.evaluation.rl_allocation.scheduled_training import (
+        fit_allocation_ppo_schedule,
+    )
+
+    env, frozen = delayed_training_schedule(gae_lambda=0.95, rollout_steps=64)
+    declaration = protocol(
+        n_steps=64,
+        batch_size=32,
+        n_epochs=10,
+        gae_lambda=0.95,
+    )
+    untrained = trainer().build_allocation_ppo(
+        env.template_env, seed=seed, training_protocol=declaration
+    )
+    initial = []
+    for schedule in (100, 101, 102):
+        check, _ = delayed_v4_episode(
+            schedule,
+            frozen=frozen,
+            gae_lambda=0.95,
+            rollout_steps=64,
+        )
+        initial.append(
+            delayed_rollout(
+                check,
+                lambda x: int(untrained.predict(x, deterministic=True)[0]),
+            )[0]
+        )
+
+    trained = fit_allocation_ppo_schedule(
+        env,
+        total_timesteps=4096,
+        seed=seed,
+        training_protocol=declaration,
+    )
+    receipt = trained.receipt
+    assert receipt["protocol"]["ppo"]["gae_lambda"] == 0.95
+    assert receipt["protocol"]["ppo"]["n_steps"] == 64
+    assert len(receipt["consumption"]["windows"]) == 6
+    assert (
+        sum(sum(row["decision_counts"]) for row in receipt["consumption"]["windows"])
+        == 4096
+    )
+
+    for schedule, initial_reward in zip((100, 101, 102), initial):
+        check, _ = delayed_v4_episode(
+            schedule,
+            frozen=frozen,
+            gae_lambda=0.95,
+            rollout_steps=64,
+        )
+        result = delayed_rollout(
+            check,
+            lambda x: int(trained.model.predict(x, deterministic=True)[0]),
+        )
+        assert result[1] >= 0.75
+        assert result[0] > 0.03
+        assert result[0] - initial_reward > 0.02

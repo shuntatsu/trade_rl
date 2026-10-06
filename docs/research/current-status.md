@@ -1755,6 +1755,13 @@ policy artifact loading or OOS reset. This remains software authority, not
 durable signed authorization or final-data permission.
 
 
-This stage does not yet consume/tombstone a sealed access record after one run.
-A higher-level Study/outer-test authority must prevent replay of an already-used
-authorization before unused/final-data evidence can be claimed.
+The supplied sealed ledger now consumes the complete authorized fold batch once,
+after all immutable policy artifacts verify and immediately before OOS execution.
+Artifact-admission failure leaves the records unconsumed; after OOS admission,
+success or later runtime failure leaves them spent, and a replay attempt is
+rejected before artifact loading. Batch consumption is atomic.
+
+This is still in-process software authority. The consumed set is not yet a
+durable cross-process tombstone or signed final-data permit, so restart-safe
+one-shot execution and unused/final-data evidence remain higher-level
+Study/outer-test responsibilities.

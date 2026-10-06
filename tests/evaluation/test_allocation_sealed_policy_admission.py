@@ -247,3 +247,90 @@ def test_all_bundles_are_admitted_before_first_oos_reset(monkeypatch, tmp_path):
         value.access.selected_policy_digest for value in bindings
     )
     assert second.index == second.stop_index
+    assert ledger.consumed_access_digests == tuple(
+        value.access.access_digest for value in bindings
+    )
+
+    replay_first, replay_second = env_for(6, 8), env_for(8, 10)
+    monkeypatch.setattr(
+        module,
+        "admit_allocation_fold_policies",
+        lambda *_args, **_kwargs: pytest.fail(
+            "consumed authorization must fail before artifact admission"
+        ),
+    )
+    with pytest.raises(ValueError, match="consumed"):
+        run(
+            folds_for(replay_first, replay_second),
+            (replay_first, replay_second),
+            bindings,
+            experiment_plan_digest=plan,
+            access_ledger=ledger,
+        )
+    assert not hasattr(replay_first, "book")
+    assert not hasattr(replay_second, "book")
+
+
+def test_artifact_admission_failure_does_not_consume_sealed_access(
+    monkeypatch, tmp_path
+):
+    _, _, run = capability()
+    first, second, folds, plan, _declarations, bindings, ledger = setup(tmp_path)
+
+    import trade_rl.evaluation.rl_allocation.sealed_policy_admission as module
+
+    monkeypatch.setattr(
+        module,
+        "admit_allocation_fold_policies",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("synthetic artifact verification failure")
+        ),
+    )
+    with pytest.raises(ValueError, match="artifact verification failure"):
+        run(
+            folds,
+            (first, second),
+            bindings,
+            experiment_plan_digest=plan,
+            access_ledger=ledger,
+        )
+    assert ledger.consumed_access_digests == ()
+    assert not hasattr(first, "book")
+    assert not hasattr(second, "book")
+
+
+def test_oos_failure_after_consumption_keeps_authorization_spent(monkeypatch, tmp_path):
+    _, _, run = capability()
+    first, second, folds, plan, _declarations, bindings, ledger = setup(tmp_path)
+
+    import trade_rl.evaluation.rl_allocation.sealed_policy_admission as module
+    from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
+        AllocationFoldPolicy,
+    )
+
+    bad = AllocationFoldPolicy(
+        bindings[0].artifact.expected_digest,
+        first.recipe_digest,
+        lambda _observation, _recipe: 4,
+    )
+    unused = AllocationFoldPolicy(
+        bindings[1].artifact.expected_digest,
+        second.recipe_digest,
+        lambda _observation, _recipe: 0,
+    )
+    monkeypatch.setattr(
+        module,
+        "admit_allocation_fold_policies",
+        lambda *_args, **_kwargs: (bad, unused),
+    )
+    with pytest.raises(ValueError, match="one integer"):
+        run(
+            folds,
+            (first, second),
+            bindings,
+            experiment_plan_digest=plan,
+            access_ledger=ledger,
+        )
+    assert ledger.consumed_access_digests == tuple(
+        value.access.access_digest for value in bindings
+    )

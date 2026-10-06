@@ -1045,3 +1045,27 @@ diagnostics. They are not an independent accounting/execution oracle. The
 separate `validity_evidence_digest` must identify that higher-assurance
 validation. Winner selection, Study mutation and final-data authorization remain
 outside this adapter.
+
+
+## Allocation cash/no-trade control ownership
+
+`evaluation/allocation_cash_control.py` owns the explicit cash/no-trade reference
+for Issue #810 comparison. It is **not** a fourth candidate family and does not
+participate in candidate ranking. The control runs the same canonical continuous
+allocation account with raw action 0 (`quantity_hold_current_v1`) from an
+initially flat book, so it receives the actual declared cash-interest economics
+instead of assuming zero return.
+
+The control must remain flat for every fold, retain no active orders and produce
+zero trade count, turnover, explicit execution cost, funding and borrow cost.
+Its policy identity is seedless and scenario-result independent. The direct-PPO
+recipe is used only as the runtime carrier needed by the common allocation
+environment; the cash-control policy digest explicitly binds that carrier recipe
+and the HOLD-current semantics.
+
+Cash-control evidence reuses the continuous-comparison context validator and the
+canonical account metrics from the actual runner. Its ledger/execution summary
+digests are evidence bindings, not an independent replay oracle. Candidate
+ranking remains limited to non-RL / residual PPO / direct PPO; a later
+preregistered selection gate may require an eligible candidate to beat this
+cash/no-trade reference before declaring a winner.

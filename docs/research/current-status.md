@@ -1809,3 +1809,19 @@ validity oracle is still required and is referenced by
 `validity_evidence_digest`. Real non-RL/residual/direct execution orchestration
 for every declared scenario/seed and the preregistered winner rule remain later
 P4 stages.
+
+
+## Issue #810 P4: explicit cash/no-trade reference
+
+The common allocation comparison now has a separate cash/no-trade reference
+capability. It does not hard-code zero profit: the same continuous canonical
+account is executed with HOLD-current from a flat book, so declared cash
+interest is realized by the ledger. A software oracle with non-zero cash rate
+confirms positive cash-control return with zero fills, zero turnover and zero
+explicit trading/carry costs.
+
+The control is seedless and is intentionally outside the fixed A/B/C candidate
+roster. This preserves the study question "which allocation method is best?"
+while also allowing the later winner rule to ask the stronger question "is the
+best method actually better than doing nothing / holding cash under the same
+economics?" No winner rule is introduced at this stage.

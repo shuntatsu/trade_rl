@@ -1,4 +1,4 @@
-from dataclasses import fields, replace
+from dataclasses import FrozenInstanceError, fields, replace
 from datetime import UTC, datetime
 
 import numpy as np
@@ -279,3 +279,46 @@ def test_export_rejects_live_or_economically_terminated_accounts():
     terminated._terminated = True
     with pytest.raises(ValueError, match="economic"):
         export(terminated)
+
+
+def test_same_terminal_cannot_export_two_execution_rng_branches():
+    _, export, _ = capability()
+    first = env_for(6, 8)
+    first.reset()
+    run(first, (3, 0))
+    export(first)
+    with pytest.raises(RuntimeError, match="already exported"):
+        export(first)
+
+
+def test_continuation_identity_is_immutable_after_export():
+    _, export, _ = capability()
+    first = env_for(6, 8)
+    first.reset()
+    run(first, (3, 0))
+    handoff = export(first)
+    with pytest.raises(FrozenInstanceError):
+        handoff.next_index = 9  # type: ignore[misc]
+
+
+def test_failed_resume_rolls_target_back_and_does_not_consume(monkeypatch):
+    _, export, resume = capability()
+    first = env_for(6, 8)
+    target = env_for(8, 10)
+    first.reset()
+    run(first, (3, 0))
+    handoff = export(first)
+
+    def fail_observation():
+        raise ValueError("synthetic observation failure")
+
+    monkeypatch.setattr(target, "_observation", fail_observation)
+    with pytest.raises(ValueError, match="synthetic observation failure"):
+        resume(target, handoff)
+
+    assert target._terminated
+    assert not handoff.consumed
+    assert not hasattr(target, "book")
+    assert not hasattr(target, "order_book")
+    assert not hasattr(target, "index")
+    assert not hasattr(target, "decision")

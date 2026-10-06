@@ -17,7 +17,7 @@ from trade_rl.simulation import BookState, MarketExecutor
 from trade_rl.simulation.orders.model import OrderBookState
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class AllocationAccountContinuation:
     """Ephemeral one-shot runtime handoff; not a serialized restart artifact."""
 
@@ -120,8 +120,10 @@ def export_allocation_continuation(
         raise ValueError("economically terminated accounts cannot be continued")
     if not env._terminated or env.index != env.stop_index:
         raise RuntimeError("continuation export requires a true horizon terminal")
+    if env._continuation_exported:
+        raise RuntimeError("allocation horizon continuation was already exported")
     state_digest = allocation_state_digest(env)
-    return AllocationAccountContinuation(
+    continuation = AllocationAccountContinuation(
         account_id=env.account_id,
         dataset_id=env.dataset.dataset_id,
         execution_policy_digest=env.executor.execution_policy_digest,
@@ -135,6 +137,8 @@ def export_allocation_continuation(
         _book=env.book.clone(),
         _order_book=env.order_book,
     )
+    env._continuation_exported = True
+    return continuation
 
 
 def _validate_resume_target(
@@ -204,6 +208,12 @@ def resume_allocation_continuation(
         raise ValueError("continuous allocation opening state digest mismatch")
 
     original_executor, original_risk = env.executor, env.risk
+    original_terminated = env._terminated
+    existing = {
+        name: getattr(env, name)
+        for name in ("book", "order_book", "index", "decision")
+        if hasattr(env, name)
+    }
     try:
         env.executor = continuation._executor
         env.risk = risk
@@ -211,15 +221,21 @@ def resume_allocation_continuation(
         env.order_book = order_book
         env.index = env.start_index
         env._terminated = False
+        env._continuation_exported = False
         env.validate_binding()
         observation = env._observation()
     except Exception:
         env.executor = original_executor
         env.risk = original_risk
-        env._terminated = True
+        env._terminated = original_terminated
+        for name in ("book", "order_book", "index", "decision"):
+            if name in existing:
+                setattr(env, name, existing[name])
+            elif hasattr(env, name):
+                delattr(env, name)
         raise
 
-    continuation._consumed = True
+    object.__setattr__(continuation, "_consumed", True)
     return observation, {
         "symbol": env.dataset.symbols[env.symbol_index],
         "opening_state_digest": opening.source_state_digest,

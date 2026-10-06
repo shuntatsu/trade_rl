@@ -991,3 +991,27 @@ This consumption ledger is still in-memory runtime authority. It is not a
 durable cross-process tombstone, signed final-data permit or repository-global
 execution lock. Persistence/restart semantics and final/unused-data permission
 remain higher-level Study/outer-test responsibilities.
+
+
+## Common allocation comparison evidence ownership
+
+`evaluation/allocation_comparison.py` owns the pure Issue #810 P4 comparison
+contract for the fixed candidate roster `nonrl / residual_ppo / direct_ppo`.
+The contract binds one Dataset, business objective, financial clock, forecast
+context, execution economics, risk profile, fold plan, account mode, capital
+denominator, scenario roster, RL seed roster and maximum-drawdown guardrail.
+It imports no strategy, simulator, learner, Study lifecycle or selection gate.
+
+Evidence is admitted only as a complete matrix. The non-RL candidate has one row
+per scenario; each RL candidate has exactly one row per declared seed/scenario.
+Within a scenario every candidate/seed must refer to the same OOS source and
+opening account state. One RL candidate/seed must retain the same policy digest
+across base and all stress/diagnostic scenarios, preventing stress-specific
+refits or policy substitution.
+
+The pure summary reports median base after-cost terminal profit, incremental
+base profit versus the common non-RL baseline, required-scenario validity,
+required risk/execution status and optional diagnostic failures. It intentionally
+contains no winner or selected-candidate field. Evidence production, economic
+execution, preregistered selection and WINNER/NO_WINNER/INVALID remain separate
+higher-level responsibilities.

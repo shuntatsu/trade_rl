@@ -1765,3 +1765,23 @@ This is still in-process software authority. The consumed set is not yet a
 durable cross-process tombstone or signed final-data permit, so restart-safe
 one-shot execution and unused/final-data evidence remain higher-level
 Study/outer-test responsibilities.
+
+
+## Issue #810 P4: common allocation comparison contract candidate
+
+A pure comparison contract now fixes the common context for non-RL allocation,
+residual PPO and direct PPO before any winner logic. The declared identity binds
+Dataset, objective, financial clock, forecast context, economics, risk, fold
+plan, account mode/capital, required/diagnostic scenarios and the RL seed roster.
+
+The evidence validator requires a complete candidate × scenario × seed matrix.
+Candidate rows within one scenario must share the same OOS source and opening
+account state, and each RL seed must use one unchanged policy digest across base,
+cost stress and diagnostics. Missing, duplicate, cross-contract or
+stress-specific-policy rows fail closed.
+
+The derived summary reports base median terminal profit, incremental base profit
+versus non-RL, required validity/risk-execution status and diagnostic failures.
+It does not select a winner. Mapping real continuous OOS ledgers/execution
+evidence into this contract and a separately preregistered selection rule remain
+next P4 stages; no economic result or eligibility is claimed here.

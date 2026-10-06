@@ -1785,3 +1785,27 @@ versus non-RL, required validity/risk-execution status and diagnostic failures.
 It does not select a winner. Mapping real continuous OOS ledgers/execution
 evidence into this contract and a separately preregistered selection rule remain
 next P4 stages; no economic result or eligibility is claimed here.
+
+
+## Issue #810 P4: actual continuous OOS comparison-evidence adapter
+
+The pure comparison matrix can now be populated from a completed continuous
+allocation OOS result without caller-supplied P&L or drawdown numbers. The
+adapter binds the actual Dataset, forecast context, fold plan, candidate recipe,
+economic clock and business-objective profile before producing one evidence row.
+
+Terminal after-cost profit is checked two ways: geometric compounding of the
+canonical interval net-return series must match final account equity on the
+declared initial-capital denominator. Drawdown is taken from the final canonical
+BookState rather than reconstructed from interval endpoints, preserving
+intra-step losses. The final closing state digest is recomputed from the actual
+account, and the supplied stitched result is rebuilt from fold evidence to reject
+tampering.
+
+The adapter derives OOS-source, ledger-summary, execution-summary and RL
+fold-policy-schedule identities deterministically. These summary digests are
+bindings, not independent replay/accounting proof. A separate independent
+validity oracle is still required and is referenced by
+`validity_evidence_digest`. Real non-RL/residual/direct execution orchestration
+for every declared scenario/seed and the preregistered winner rule remain later
+P4 stages.

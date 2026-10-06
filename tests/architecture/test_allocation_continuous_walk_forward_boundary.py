@@ -1,5 +1,3 @@
-[Reading 56 lines from start (total: 56 lines, 0 remaining)]
-
 import ast
 import subprocess
 import sys
@@ -56,5 +54,3 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 """
     subprocess.run([sys.executable, "-c", code], check=True)
-
-[executed on device: DESKTOP-MTD23AI (0abc841c-0215-491a-8eb3-2ddd8c73feac)]

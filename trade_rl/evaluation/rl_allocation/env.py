@@ -172,6 +172,7 @@ class AllocationTradingEnv(gym.Env):
         )
         self.action_space = spaces.Discrete(4)
         self._terminated = True
+        self._continuation_exported = False
 
     @property
     def recipe(self) -> dict[str, object]:
@@ -323,6 +324,7 @@ class AllocationTradingEnv(gym.Env):
             self.executor._update_margin(self.book)
         self.order_book, self.index = OrderBookState.empty(), self.start_index
         self._terminated = False
+        self._continuation_exported = False
         return self._observation(), {"symbol": self.dataset.symbols[self.symbol_index]}
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:

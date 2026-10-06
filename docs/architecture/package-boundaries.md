@@ -852,3 +852,31 @@ then checked for valid application at each scheduled child clock. This consumer
 does not publish an allocation inference bundle, Run/Study artifact, winner
 decision or deployment authorization. Existing single-episode bundle schemas and
 `fit_allocation_ppo` remain unchanged.
+
+
+## Allocation continuous-account handoff ownership
+
+`evaluation/rl_allocation/continuation.py` owns the first bounded P5 handoff
+capability for contiguous allocation OOS windows. It does not create another
+ledger. A horizon-terminal `AllocationTradingEnv` exports a one-shot runtime
+continuation containing a detached canonical `BookState`, the immutable
+`OrderBookState`, the exact current account-context digest, and the same
+`MarketExecutor` instance. Reusing that executor is intentional: stochastic
+execution RNG, execution-rule caches and the declared execution policy continue
+through the fold boundary instead of silently reseeding.
+
+Resume requires the next window to start at the exact previous processing index,
+use the same in-memory `MarketDataset`, account ID, symbol, initial-capital
+denominator, execution policy and risk profile. The opening account/order digest
+must equal the previous closing digest. Cash, exact quantities, peak equity,
+drawdown, accumulated costs/carry, active GTC residuals, terminal order archive
+and processing clock are therefore handed over without settlement or
+reconstruction. Economic termination cannot be continued, and a continuation is
+one-shot so a single execution RNG stream cannot branch into multiple claimed
+continuations.
+
+This runtime capability is deliberately not a serialized restart artifact and
+does not yet own policy switching, fold construction or walk-forward selection.
+The existing `robustness.walk_forward.stitching` continuous mode remains the
+aggregation authority; actual allocation handoff digests can now satisfy its
+opening/closing state-chain contract.

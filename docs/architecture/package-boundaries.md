@@ -794,3 +794,37 @@ verified external sidecar files without model deserialization. Env has one optio
 pre-overwrite hook; fit owns attachment, cleanup and successful-final-policy
 completion. Lower recipes/bundle/training/input owners remain unchanged. These
 owners never execute another ledger, sample a policy, call buffer.get or alter RNG.
+
+
+## Allocation chronological training schedule ownership
+
+`strategies/rl/allocation_training_schedule.py` owns the immutable result-blind
+window roster for Issue #810 allocation training. A window binds role
+(`train` / `validation` / `held_out`), whole-Dataset identity as provenance,
+symbol, complete episode indices/clocks and a digest of the actually consumed
+training-source scope. The causal `window_id` excludes whole-Dataset lineage,
+so an unused future suffix cannot rewrite an earlier window identity; the full
+window payload and schedule still retain that lineage. Same-symbol clock
+overlap is rejected even across different Dataset lineages, so relining or
+overlapping crops cannot multiply the declared market interval. The schedule
+fixes one causal training order, `cyclic_declared_order_v1`, and states that a
+reset means a new independent
+account while a PPO rollout boundary continues the current account. It imports
+no evaluation, simulation, risk or optional learner backend and does not call a
+Dataset, account or policy.
+
+`evaluation/rl_allocation/training_schedule.py` is the upper runtime adapter.
+It reconstructs each train-window identity from the existing
+`allocation_training_source()` authority, requires exactly the declared train
+roster, identical policy recipe / financial clock / spaces across children, and
+cycles only after the active canonical `AllocationTradingEnv` reaches true
+termination. Manual mid-episode reset and truncation-as-clean-reset fail closed.
+The child environment remains the sole owner of risk, execution, accounting and
+reward. Runtime usage reports reset and decision counts per declared window and
+does not label symbol count, crop count or reset count as independent market
+experience.
+
+This stage intentionally does **not** connect the schedule runtime to
+`fit_allocation_ppo`, bundle/receipt publication, Run/Study registration or
+continuous-account walk-forward. Those require a separate reviewed consumer so
+existing single-episode bundle identities remain unchanged.

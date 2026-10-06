@@ -1574,3 +1574,35 @@ failure-to-complete, closed reader links and None model/economics/RNG parity.
 This improves observability; delayed-payoff learnability, multiwindow/multisymbol
 sampling, continuous handover, Run/Study consumption and economic evaluation
 remain open. No market fit/replay, profitability claim or G4/G5/live eligibility is added.
+
+
+## Issue #810: chronological allocation training schedule/runtime candidate
+
+The next P3/P5 prerequisite now has a software declaration and runtime boundary
+for causal multi-window training. Immutable windows distinguish train,
+validation and held-out roles, retain whole-Dataset identity as separate
+provenance, bind the actually consumed per-episode source scope, and require
+training windows in declared chronological order. The causal window identity
+does not include whole-Dataset lineage, so an unused future suffix cannot rewrite
+an earlier window ID; the full schedule payload still records the declared
+Dataset lineage. Same-symbol windows may not overlap in market time even when
+their Dataset lineage differs, preventing relined or overlapping crops from
+being treated as additional declared intervals. Validation and held-out windows
+must begin after training; held-out windows must also follow declared validation
+windows.
+
+The upper schedule runtime accepts exactly the declared train windows, verifies
+their actual source identities plus common recipe / financial clock / policy
+spaces, and cycles them only on true episode reset. A rollout boundary does not
+advance the window or reset cash, quantity, pending orders, drawdown or execution
+clock inside the active child account. Resetting a live nonterminal account is
+rejected. Per-window reset and decision counts are observable, but are
+deliberately not named an independent-experience count.
+
+This is still a bounded software stage. It does not yet make the scheduled
+runtime a `fit_allocation_ppo` consumer, publish a multi-window training receipt,
+handover one economic account across evaluation windows, or establish market
+generalization. The existing single-episode PPO bundle schemas and evidence are
+unchanged. Delayed-payoff learnability and the result-blind
+`gae_lambda` / rollout-length comparison remain separate next work before any
+market P&L comparison or new learner family.

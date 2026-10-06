@@ -225,3 +225,37 @@ def test_artifact_declaration_rejects_malformed_identity(tmp_path, kwargs):
     values.update(kwargs)
     with pytest.raises(ValueError):
         AllocationFoldPolicyArtifact(**values)
+
+
+@pytest.mark.parametrize("change", ["gap", "dataset", "account"])
+def test_full_continuous_chain_is_rejected_before_any_artifact_deserialization(
+    monkeypatch, tmp_path, change
+):
+    _, admit, _ = capability()
+    first = env_for(6, 8)
+    if change == "gap":
+        second = env_for(9, 10)
+    elif change == "dataset":
+        from dataclasses import replace
+
+        second = env_for(8, 10, dataset=replace(first.dataset))
+    else:
+        second = env_for(8, 10, account_id="different-account")
+    declarations = (
+        artifact(first, 0, tmp_path / "a", "a"),
+        artifact(second, 1, tmp_path / "b", "b"),
+    )
+
+    import trade_rl.evaluation.rl_allocation.policy_admission as module
+
+    monkeypatch.setattr(
+        module,
+        "load_allocation_policy",
+        lambda *_args, **_kwargs: pytest.fail(
+            "artifact deserializer must not run before continuous-chain preflight"
+        ),
+    )
+    with pytest.raises(ValueError):
+        admit(folds_for(first, second), (first, second), declarations)
+    assert not hasattr(first, "book")
+    assert not hasattr(second, "book")

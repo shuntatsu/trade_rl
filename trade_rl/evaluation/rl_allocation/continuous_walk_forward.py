@@ -60,7 +60,7 @@ class ContinuousAllocationWalkForwardResult:
             raise ValueError("continuous result must use continuous-account stitching")
 
 
-def _preflight(
+def validate_continuous_allocation_walk_forward(
     folds: tuple[WalkForwardFold, ...],
     environments: tuple[AllocationTradingEnv, ...],
     policies: tuple[AllocationFoldPolicy, ...],
@@ -163,7 +163,7 @@ def run_continuous_allocation_walk_forward(
         or reset_seed < 0
     ):
         raise ValueError("reset_seed must be a non-negative integer or None")
-    _preflight(folds, environments, policies)
+    validate_continuous_allocation_walk_forward(folds, environments, policies)
 
     results: list[FoldOOSResult] = []
     first = environments[0]
@@ -251,4 +251,5 @@ __all__ = [
     "AllocationFoldPolicy",
     "ContinuousAllocationWalkForwardResult",
     "run_continuous_allocation_walk_forward",
+    "validate_continuous_allocation_walk_forward",
 ]

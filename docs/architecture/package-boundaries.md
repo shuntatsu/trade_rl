@@ -939,3 +939,11 @@ the training consumers. It is not the sealed-test access authority. A later
 Study consumer must still bind each admitted artifact to result-blind selection
 evidence and a one-shot sealed outer-test authorization before economic evidence
 can be claimed.
+
+
+The artifact-admission layer performs the complete continuous-runner preflight
+before opening or deserializing any policy bundle. Fold chronology/ranges,
+Dataset-instance identity, account/symbol/capital chain, execution/risk
+identity, and per-fold recipe compatibility therefore fail closed before
+artifact code is loaded. Bundle verification remains a second gate: all pinned
+manifests/policy bytes must verify before the first OOS reset.

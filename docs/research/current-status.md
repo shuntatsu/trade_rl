@@ -1718,3 +1718,12 @@ Artifact admission still does not prove result-blind policy selection or sealed
 outer-test authorization. It verifies immutable inference bytes and recipe
 identity only. Study registration, selection evidence, one-shot sealed-test
 access and economic winner logic remain above this owner.
+
+
+The immutable fold-policy admission stage now runs the complete continuous OOS
+chain preflight before any bundle deserialization. Gap/Dataset/account/recipe
+counterexamples therefore fail before the artifact loader executes, while a real
+saved allocation bundle is verified and admitted in the PPO-runtime lane before
+continuous OOS execution. This remains software evidence only; selection
+authority, sealed outer-test authorization and economic winner gates remain
+separate.

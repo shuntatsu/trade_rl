@@ -12,6 +12,7 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     ContinuousAllocationWalkForwardResult,
     run_continuous_allocation_walk_forward,
+    validate_continuous_allocation_walk_forward,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
@@ -66,11 +67,24 @@ def _preflight(
         or any(type(value) is not AllocationFoldPolicyArtifact for value in artifacts)
     ):
         raise ValueError("artifact admission requires one policy artifact per fold")
+    declared_policies: list[AllocationFoldPolicy] = []
     for fold, env, artifact in zip(folds, environments, artifacts, strict=True):
         if artifact.fold_index != fold.fold_index:
             raise ValueError("policy artifact fold identity differs from declaration")
         if artifact.expected_recipe_digest != env.recipe_digest:
             raise ValueError("policy artifact recipe differs from allocation runtime")
+        declared_policies.append(
+            AllocationFoldPolicy(
+                policy_digest=artifact.expected_digest,
+                recipe_digest=artifact.expected_recipe_digest,
+                action=lambda _observation, _recipe: 0,
+            )
+        )
+    validate_continuous_allocation_walk_forward(
+        folds,
+        environments,
+        tuple(declared_policies),
+    )
 
 
 def _bind_loaded_policy(

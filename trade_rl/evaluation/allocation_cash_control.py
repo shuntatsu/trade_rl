@@ -19,6 +19,7 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     canonical_continuous_allocation_metrics,
     validate_continuous_allocation_comparison_context,
 )
+from trade_rl.evaluation.allocation_selection import AllocationCashReference
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     ContinuousAllocationWalkForwardResult,
@@ -222,6 +223,26 @@ def _validate_cash_result(
             raise ValueError("cash control must not trade or carry position economics")
 
 
+def allocation_cash_reference(
+    evidence: AllocationCashControlEvidence,
+) -> AllocationCashReference:
+    """Project verified cash-control evidence into the pure selection boundary."""
+    if type(evidence) is not AllocationCashControlEvidence:
+        raise ValueError("cash reference projection requires cash-control evidence")
+    return AllocationCashReference(
+        contract_digest=evidence.contract_digest,
+        scenario=evidence.scenario,
+        control_evidence_digest=evidence.digest,
+        oos_source_digest=evidence.oos_source_digest,
+        opening_state_digest=evidence.opening_state_digest,
+        terminal_profit_rate=evidence.terminal_profit_rate,
+        max_drawdown=evidence.max_drawdown,
+        validity=evidence.validity,
+        coverage_complete=evidence.coverage_complete,
+        termination_reason=evidence.termination_reason,
+    )
+
+
 def run_continuous_allocation_cash_control(
     folds: tuple[WalkForwardFold, ...],
     environments: tuple[AllocationTradingEnv, ...],
@@ -330,6 +351,7 @@ def build_allocation_cash_control_evidence(
 __all__ = [
     "AllocationCashControlEvidence",
     "allocation_cash_control_policy_digest",
+    "allocation_cash_reference",
     "build_allocation_cash_control_evidence",
     "run_continuous_allocation_cash_control",
 ]

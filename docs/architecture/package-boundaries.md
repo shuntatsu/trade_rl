@@ -1015,3 +1015,33 @@ required risk/execution status and optional diagnostic failures. It intentionall
 contains no winner or selected-candidate field. Evidence production, economic
 execution, preregistered selection and WINNER/NO_WINNER/INVALID remain separate
 higher-level responsibilities.
+
+
+## Allocation comparison evidence binding ownership
+
+`evaluation/allocation_comparison_evidence.py` is the bounded adapter from an
+already-completed continuous allocation OOS run into the pure P4 comparison
+matrix. It does not rerun execution or construct a second account ledger.
+
+The adapter projects the business objective and economic clock into comparison
+identities that deliberately exclude fold window, scenario economics/risk,
+candidate recipe and PPO-only rollout/GAE settings. The fold plan, scenario
+context and RL fold-policy schedule have separate content-addressed identities.
+Every runtime fold is rechecked against the comparison Dataset, forecast context,
+candidate recipe, business objective, economic clock and declared OOS ranges.
+
+A supplied `ContinuousAllocationWalkForwardResult` is not trusted by shape
+alone. The adapter rebuilds continuous stitching from the fold results and
+requires equality, requires each runtime environment to have completed its fold,
+and recomputes the final canonical account-state digest from the actual
+`BookState`. The stitched interval net returns are geometrically compounded and
+must agree with final canonical equity. Maximum drawdown comes from the final
+canonical `BookState.max_drawdown`, because interval-end returns cannot recover
+intra-step drawdown exactly.
+
+The produced ledger/execution digests are deterministic bindings over the
+continuous runner's state chain, after-cost return series and execution
+diagnostics. They are not an independent accounting/execution oracle. The
+separate `validity_evidence_digest` must identify that higher-assurance
+validation. Winner selection, Study mutation and final-data authorization remain
+outside this adapter.

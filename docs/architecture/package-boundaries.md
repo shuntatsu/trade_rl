@@ -824,10 +824,10 @@ reward. Runtime usage reports reset and decision counts per declared window and
 does not label symbol count, crop count or reset count as independent market
 experience.
 
-This stage intentionally does **not** connect the schedule runtime to
-`fit_allocation_ppo`, bundle/receipt publication, Run/Study registration or
-continuous-account walk-forward. Those require a separate reviewed consumer so
-existing single-episode bundle identities remain unchanged.
+This lower schedule stage does not itself own learning or artifact publication.
+The separate reviewed consumer below now fits PPO through this runtime while
+leaving existing single-episode bundle identities unchanged. Run/Study
+registration and continuous-account walk-forward remain outside both owners.
 
 
 ### Scheduled PPO fit consumer

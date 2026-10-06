@@ -1599,13 +1599,13 @@ clock inside the active child account. Resetting a live nonterminal account is
 rejected. Per-window reset and decision counts are observable, but are
 deliberately not named an independent-experience count.
 
-This is still a bounded software stage. It does not yet make the scheduled
-runtime a `fit_allocation_ppo` consumer, publish a multi-window training receipt,
-handover one economic account across evaluation windows, or establish market
-generalization. The existing single-episode PPO bundle schemas and evidence are
-unchanged. Delayed-payoff learnability and the result-blind
-`gae_lambda` / rollout-length comparison remain separate next work before any
-market P&L comparison or new learner family.
+This lower declaration/runtime stage remains bounded: it does not itself own a
+learner, artifact publication, continuous economic-account handover or market
+generalization. The opt-in learner consumer immediately below composes this
+runtime without changing the existing single-episode PPO bundle schemas.
+Delayed-payoff learnability and the result-blind `gae_lambda` / rollout-length
+comparison remain separate software evidence before any market P&L comparison
+or new learner family.
 
 
 ## Issue #810: scheduled allocation PPO fit consumer candidate

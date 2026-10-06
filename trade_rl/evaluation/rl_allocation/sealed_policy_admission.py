@@ -82,10 +82,12 @@ def validate_sealed_allocation_fold_artifacts(
         raise ValueError("sealed allocation admission requires one binding per fold")
 
     records = access_ledger.records
-    if type(records) is not tuple:
+    consumed = access_ledger.consumed_access_digests
+    if type(records) is not tuple or type(consumed) is not tuple:
         raise ValueError(
             "sealed allocation access ledger must expose immutable records"
         )
+    consumed_set = set(consumed)
     access_digests: list[str] = []
     for fold, env, binding in zip(folds, environments, bindings, strict=True):
         access = _canonical_access(binding.access)
@@ -93,6 +95,8 @@ def validate_sealed_allocation_fold_artifacts(
             raise ValueError(
                 "sealed allocation access was not authorized by this ledger"
             )
+        if access.access_digest in consumed_set:
+            raise ValueError("sealed allocation access was already consumed")
         artifact = binding.artifact
         if access.experiment_plan_digest != experiment_plan_digest:
             raise ValueError("sealed allocation experiment plan identity mismatch")
@@ -141,6 +145,11 @@ def run_sealed_artifact_bound_continuous_allocation_walk_forward(
         or tuple(policy.policy_digest for policy in policies) != selected
     ):
         raise ValueError("admitted policies differ from sealed selected identities")
+    consumed = access_ledger.consume_all_once(tuple(value.access for value in bindings))
+    if tuple(record.access_digest for record in consumed) != tuple(
+        value.access.access_digest for value in bindings
+    ):
+        raise ValueError("sealed access consumption differs from admitted bindings")
     return run_continuous_allocation_walk_forward(
         folds,
         environments,

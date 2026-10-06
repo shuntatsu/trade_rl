@@ -979,7 +979,15 @@ the supplied ledger is rejected. Canonical digest reconstruction remains a
 separate tamper check before that membership check.
 
 
-Ledger membership here authenticates the in-process issuer but does not consume
-or tombstone an access record after execution. Durable one-shot execution/replay
-prevention therefore remains a higher-level Study/outer-test authority; this
-owner must not be treated as final-data permission by itself.
+Ledger membership authenticates the in-process issuer and the ledger also owns
+one-shot runtime consumption. The sealed allocation consumer verifies every
+policy artifact first, then atomically consumes the complete fold-access batch
+immediately before the first OOS reset. Artifact verification failure therefore
+leaves the access batch unspent; once OOS execution is admitted, any later
+runtime failure leaves that batch consumed and a replay fails before artifact
+deserialization. Partial batch consumption is forbidden.
+
+This consumption ledger is still in-memory runtime authority. It is not a
+durable cross-process tombstone, signed final-data permit or repository-global
+execution lock. Persistence/restart semantics and final/unused-data permission
+remain higher-level Study/outer-test responsibilities.

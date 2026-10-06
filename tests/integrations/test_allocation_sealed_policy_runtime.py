@@ -59,6 +59,9 @@ def test_real_saved_bundle_runs_only_under_matching_sealed_fold_authorization(tm
     )
 
     assert len(ledger.records) == 2
+    assert ledger.consumed_access_digests == tuple(
+        record.access_digest for record in ledger.records
+    )
     assert result.policy_digests == (digest, digest)
     assert result.folds[0].closing_state_digest == result.folds[1].opening_state_digest
     assert second.index == second.stop_index

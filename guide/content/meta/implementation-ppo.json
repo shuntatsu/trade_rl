@@ -176,7 +176,7 @@
       "id": "allocation-environment",
       "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
       "kind": "class",
-      "source_sha256": "88157711e2d8f2aa861817555424df6e8322ffc6bfaedd7ee153419fe54548a6",
+      "source_sha256": "891e3a4254a91cb1fdd6770a2f388b9e156eea9baec6f728b6955668e440b4a9",
       "label_ja": "独立口座の配分PPO環境",
       "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。既定v1と明示v2を保ち、凍結前処理の明示v3では先頭の特徴だけを変換します。真の終了は変換を迂回した全0通知で、truncationは生成しません。",
       "variables": [],

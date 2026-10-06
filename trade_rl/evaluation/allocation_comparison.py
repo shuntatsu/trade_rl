@@ -440,7 +440,9 @@ def validate_allocation_comparison_evidence(
         ):
             raise ValueError("comparison evidence uses an undeclared RL seed")
         if row.recipe_digest != _candidate_recipe(contract, row.candidate):
-            raise ValueError("comparison evidence candidate recipe differs from contract")
+            raise ValueError(
+                "comparison evidence candidate recipe differs from contract"
+            )
         key = (row.candidate, row.seed, row.scenario)
         if key not in expected_set:
             raise ValueError("comparison evidence row is outside the fixed matrix")

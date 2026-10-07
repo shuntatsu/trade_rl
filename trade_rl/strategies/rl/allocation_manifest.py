@@ -17,6 +17,9 @@ from trade_rl.strategies.rl.allocation_protocol_receipt import (
 from trade_rl.strategies.rl.allocation_recipe_validation import (
     validate_allocation_recipe,
 )
+from trade_rl.strategies.rl.allocation_schedule_receipt import (
+    validate_allocation_schedule_training,
+)
 from trade_rl.strategies.rl.allocation_training_receipt import (
     validate_allocation_training,
 )
@@ -25,6 +28,7 @@ ALLOCATION_BUNDLE_SCHEMA = "allocation_ppo_inference_bundle_v1"
 ALLOCATION_BUNDLE_SCHEMA_V2 = "allocation_ppo_inference_bundle_v2"
 ALLOCATION_BUNDLE_SCHEMA_V3 = "allocation_ppo_inference_bundle_v3"
 ALLOCATION_BUNDLE_SCHEMA_V4 = "allocation_ppo_inference_bundle_v4"
+ALLOCATION_BUNDLE_SCHEMA_V5 = "allocation_ppo_inference_bundle_v5"
 
 
 def allocation_bundle_schema(recipe: dict[str, Any]) -> str:
@@ -50,7 +54,10 @@ def validate_allocation_manifest(
     if type(value) is not dict or type(value.get("schema")) is not str:
         raise ValueError("allocation manifest dispatch requires native mapping/tag")
     try:
-        if value["schema"] == ALLOCATION_BUNDLE_SCHEMA_V4:
+        if value["schema"] in (
+            ALLOCATION_BUNDLE_SCHEMA_V4,
+            ALLOCATION_BUNDLE_SCHEMA_V5,
+        ):
             _native_json(value)
         normalized = json.loads(canonical_json_bytes(value))
     except (TypeError, ValueError, OverflowError, RecursionError) as error:
@@ -68,15 +75,20 @@ def validate_allocation_manifest(
         ALLOCATION_BUNDLE_SCHEMA_V3,
         ALLOCATION_BUNDLE_SCHEMA_V4,
     )
+    scheduled = manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V5
     expected_recipe = (
         "allocation_ppo_recipe_v3"
         if manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V4
         else "allocation_ppo_recipe_v2"
     )
     if (
-        explicit
+        scheduled
+        and manifest["recipe"]["schema"]
+        not in ("allocation_ppo_recipe_v2", "allocation_ppo_recipe_v3")
+        or explicit
         and manifest["recipe"]["schema"] != expected_recipe
         or not explicit
+        and not scheduled
         and manifest["schema"] != allocation_bundle_schema(manifest["recipe"])
     ):
         raise ValueError("unsupported allocation inference/recipe version pairing")
@@ -84,7 +96,9 @@ def validate_allocation_manifest(
     if content_digest(manifest["recipe"]) != manifest["recipe_digest"]:
         raise ValueError("allocation recipe digest differs from its payload")
     validator = (
-        validate_allocation_training_v4
+        validate_allocation_schedule_training
+        if scheduled
+        else validate_allocation_training_v4
         if manifest["schema"] == ALLOCATION_BUNDLE_SCHEMA_V4
         else validate_allocation_training_v3
         if explicit

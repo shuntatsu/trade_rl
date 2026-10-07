@@ -1104,3 +1104,17 @@ not reconstruct them with another encoder or rerun execution. HOLD may cancel
 residuals and incur carry. Native clipped interval returns are separate from the
 signed fixed-capital reward. Consistent repinning is a different artifact, not
 proof of authenticity, source history, exact restart or learned profitability.
+
+## Scheduled allocation inference handoff
+
+Scheduled PPO fits retain their detached training-only receipt and separately
+capture a v5 inference manifest. The explicit `inference_policy()` handoff
+validates the frozen complete-window sources, objectives, chronological cyclic
+usage/reuse, clock, protocol/optimizer evidence, preprocessing and actual model.
+It reuses existing immutable save/load and artifact-bound continuous OOS owners;
+no second ledger or learner is introduced. V1-v4 valid formats are unchanged.
+The exact full runtime recipe remains mandatory, including fees and finite H.
+Same-H complete training to a same-H one-fold chain is supported. A multi-fold
+chain with a different locally bound H is rejected, even if its total duration
+matches training H. These software bindings establish neither historical source
+authenticity, actor learnability, market profitability nor research permission.

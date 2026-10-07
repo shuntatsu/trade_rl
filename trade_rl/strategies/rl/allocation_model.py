@@ -231,6 +231,7 @@ def validate_allocation_model(model: Any, manifest: dict[str, Any]) -> None:
     if manifest["schema"] in (
         "allocation_ppo_inference_bundle_v3",
         "allocation_ppo_inference_bundle_v4",
+        "allocation_ppo_inference_bundle_v5",
     ):
         validate_allocation_protocol_model(
             model, AllocationPPOTrainingProtocol.from_payload(training["protocol"])

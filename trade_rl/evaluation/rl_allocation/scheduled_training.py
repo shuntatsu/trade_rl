@@ -1,7 +1,7 @@
 """Actual PPO fitting over a declared chronological allocation schedule.
 
-This capability is training-only. It does not publish an inference bundle or
-claim independent market experience from resets/windows.
+This capability fits only declared train windows. Inference handoff requires a
+distinct schedule manifest; reset/window counts are not market experience.
 """
 
 from __future__ import annotations
@@ -24,18 +24,32 @@ from trade_rl.evaluation.rl_allocation.training_protocol import (
 from trade_rl.evaluation.rl_allocation.training_schedule import (
     AllocationTrainingScheduleEnv,
 )
-from trade_rl.strategies.rl.allocation_model import validate_allocation_protocol_model
+from trade_rl.evaluation.rl_allocation.training_source import allocation_training_source
+from trade_rl.strategies.rl.allocation_model import (
+    AllocationPPOPolicy,
+    validate_allocation_protocol_model,
+)
 from trade_rl.strategies.rl.allocation_training_protocol import (
     AllocationPPOTrainingProtocol,
 )
+from trade_rl.strategies.rl.allocation_training_schedule import _native_json
 
 
 class ScheduledAllocationPPOFit:
-    """Detached training receipt plus the actual in-memory model; no artifact."""
+    """Detached fit facts and optional inference handoff; no published artifact."""
 
-    def __init__(self, model: Any, receipt: dict[str, object]) -> None:
+    def __init__(
+        self,
+        model: Any,
+        receipt: dict[str, object],
+        *,
+        manifest: dict[str, Any] | None = None,
+    ) -> None:
         self.model = model
         self._receipt = canonical_json_bytes(receipt)
+        if manifest is not None:
+            _native_json(manifest)
+        self._manifest = None if manifest is None else canonical_json_bytes(manifest)
 
     @property
     def receipt(self) -> dict[str, Any]:
@@ -44,6 +58,12 @@ class ScheduledAllocationPPOFit:
     @property
     def receipt_digest(self) -> str:
         return content_digest(self.receipt)
+
+    def inference_policy(self) -> AllocationPPOPolicy:
+        """Validate frozen scheduled facts/model before existing write-once save."""
+        if self._manifest is None:
+            raise ValueError("scheduled fit has no frozen inference manifest")
+        return AllocationPPOPolicy(self.model, json.loads(self._manifest))
 
 
 def _preprocessing_fit(
@@ -103,11 +123,10 @@ def fit_allocation_ppo_schedule(
         raise ValueError("scheduled fit requires AllocationTrainingScheduleEnv")
     if training_protocol is None:
         raise ValueError("scheduled fit requires an explicit training protocol")
-    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+    if type(seed) is not int or seed < 0:
         raise ValueError("policy seed must be a nonnegative integer")
     if (
-        isinstance(total_timesteps, bool)
-        or not isinstance(total_timesteps, int)
+        type(total_timesteps) is not int
         or total_timesteps <= 0
         or total_timesteps % training_protocol.n_steps
     ):
@@ -122,6 +141,11 @@ def fit_allocation_ppo_schedule(
 
     env.validate_sources()
     template = env.template_env
+    recipe = json.loads(canonical_json_bytes(template.recipe))
+    objectives = [
+        json.loads(canonical_json_bytes(child.bound.objective.payload()))
+        for child in env.training_environments
+    ]
     validate_protocol_clock(template, training_protocol)
     cycle_steps = sum(
         window.stop_index - window.start_index
@@ -245,7 +269,44 @@ def fit_allocation_ppo_schedule(
     }
     if preprocessing_fit is not None:
         receipt["preprocessing_fit"] = preprocessing_fit
-    return ScheduledAllocationPPOFit(model, receipt)
+    sources = []
+    for child, objective, row in zip(
+        env.training_environments, objectives, consumption_rows, strict=True
+    ):
+        sources.append(
+            {
+                "window_id": row["window_id"],
+                "objective": objective,
+                "source": allocation_training_source(
+                    child,
+                    decision_counts=decision_counts[cast(str, row["window_id"])],
+                    observation_indices=tuple(
+                        cast(list[int], row["observation_indices"])
+                    ),
+                ),
+            }
+        )
+    manifest = {
+        "schema": "allocation_ppo_inference_bundle_v5",
+        "recipe": recipe,
+        "recipe_digest": template.recipe_digest,
+        "training": receipt
+        | {
+            "schema": "allocation_ppo_schedule_training_receipt_v1",
+            "sources": sources,
+            "ppo": {
+                "gamma": model.gamma,
+                "gae_lambda": model.gae_lambda,
+                "n_steps": model.n_steps,
+                "batch_size": model.batch_size,
+                "n_epochs": model.n_epochs,
+                "learning_rate": model.learning_rate,
+                "net_arch": model.policy.net_arch,
+                "device": str(model.device),
+            },
+        },
+    }
+    return ScheduledAllocationPPOFit(model, receipt, manifest=manifest)
 
 
 __all__ = ["ScheduledAllocationPPOFit", "fit_allocation_ppo_schedule"]

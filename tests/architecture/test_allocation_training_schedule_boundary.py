@@ -11,6 +11,9 @@ from trade_rl.strategies.rl.allocation_training_schedule import (
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = ROOT / "trade_rl" / "strategies" / "rl" / "allocation_training_schedule.py"
 FIT_OWNER = ROOT / "trade_rl" / "evaluation" / "rl_allocation" / "scheduled_training.py"
+RECEIPT_OWNER = (
+    ROOT / "trade_rl" / "strategies" / "rl" / "allocation_schedule_receipt.py"
+)
 
 
 def direct_imports(path: Path) -> set[str]:
@@ -84,3 +87,39 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_scheduled_inference_validator_stays_lower_and_runs_without_learner():
+    forbidden = (
+        "trade_rl.evaluation",
+        "trade_rl.simulation",
+        "trade_rl.risk",
+        "torch",
+        "stable_baselines3",
+    )
+    assert not any(
+        name == prefix or name.startswith(prefix + ".")
+        for name in direct_imports(RECEIPT_OWNER)
+        for prefix in forbidden
+    )
+    script = """
+import importlib.abc, sys
+class Block(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in ('torch', 'stable_baselines3'):
+            raise AssertionError(fullname)
+sys.meta_path.insert(0, Block())
+from tests.strategies.test_allocation_schedule_receipt import manifest_v5
+from trade_rl.strategies.rl.allocation_manifest import validate_allocation_manifest
+assert validate_allocation_manifest(manifest_v5())['schema'] == 'allocation_ppo_inference_bundle_v5'
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert "test_allocation_schedule_ppo_runtime.py" in (
+        ROOT / ".github/workflows/ci.yml"
+    ).read_text(encoding="utf-8")
+    assert "Scheduled allocation inference software assurance" in (
+        ROOT / "docs/architecture/research-assurance.md"
+    ).read_text(encoding="utf-8")

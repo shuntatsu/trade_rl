@@ -1181,3 +1181,36 @@ The upper artifact entry reads all metadata first and then invokes the loader
 with the same pins/cutoff. Backend deserialization and actual model checks remain
 lower-loader responsibilities. Default v1-v4 loading and historical local-fold
 admission remain unchanged; global results have no common evidence adapter.
+
+## Configured-fee policy view ownership
+
+`strategies/rl/allocation_fee_stress.py` owns the closed immutable base/stress
+binding, native cost-payload equality except fee_rate, original tensor digest and
+prediction-only policy view. It has no evaluation/simulation/risk/learner import.
+`allocation_model.py` retains ordinary manifest/full-recipe guard order, with
+the already guarded model/vector/action prediction body factored privately for
+the fee view. Original policy manifests and recipe v1-v5 bytes are unchanged.
+
+`evaluation/rl_allocation/fee_stress_admission.py` owns actual native runtime and
+source-envelope checks, whole-roster pure-reader/load-before-reset admission,
+per-action guards and the separate global execution receipt. It calls the
+existing regular-file digest owner to precheck the complete ZIP roster before
+any optional loader, then preserves ordinary verified-copy/recheck boundaries.
+It reuses native `Dataset.identity_contract_payload()` alongside the array
+envelope rather than declaring a second metadata roster. It calls the
+existing native global runner and imports common contract/identity functions
+only for declared candidate/scenario crosslinks. It does not build historical
+common evidence, select candidates, fit models or mutate research authority.
+A future global-result evidence producer must separately pin its actual source
+and runtime and supply proper global NONRL/cash controls; no implicit conversion
+or historical per-fold normalization is allowed.
+
+`tests/integrations/test_allocation_fee_stress_runtime.py` owns the separately
+declared actual-SB3 software controls and finite canonical tmp-path receipts.
+The first uncommitted-source execution passed its three fixed cases: unchanged
+scheduled v2/v3 and a deliberately constant v3 actor, explicitly distinguished
+by `software_kind` with `learned_alpha_established=false`. All preserve
+before/after tensor identity; the fixed native fixture records qty5, fee1/2,
+cash499/498 and first stress equity1048.
+These test artifacts add no production fitting, economic comparison or research
+authority. Exact final-head full CI, integration and formal gates remain open.

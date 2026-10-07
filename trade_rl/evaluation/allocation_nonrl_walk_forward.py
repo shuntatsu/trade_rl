@@ -29,7 +29,15 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     run_continuous_allocation_walk_forward,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_walk_forward import (
+    GlobalAllocationWalkForwardResult,
+    run_global_allocation_walk_forward,
+)
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
+from trade_rl.evaluation.robustness.walk_forward.stitching import (
+    FoldOOSResult,
+    StitchedOOS,
+)
 
 
 def allocation_nonrl_rule_digest(candidate_recipe_digest: str) -> str:
@@ -72,7 +80,16 @@ class ContinuousNonRLAllocationResult:
         return allocation_nonrl_rule_digest(self.candidate_recipe_digest)
 
 
-def _carriers(environments: tuple[AllocationTradingEnv, ...]) -> str:
+def _carriers(
+    environments: tuple[AllocationTradingEnv, ...],
+    *,
+    required_action_mode: str = "residual",
+) -> str:
+    if type(required_action_mode) is not str or required_action_mode not in {
+        "residual",
+        "direct",
+    }:
+        raise ValueError("native control requires residual or direct action semantics")
     if (
         type(environments) is not tuple
         or not environments
@@ -91,8 +108,10 @@ def _carriers(environments: tuple[AllocationTradingEnv, ...]) -> str:
             raise ValueError("nonRL allocation requires MARKET with zero extra latency")
         if not env.risk_config.drawdown_start < env.risk_config.drawdown_stop <= 0.20:
             raise ValueError("nonRL allocation requires the native drawdown guardrail")
-        if env.action_contract.mode != "residual":
-            raise ValueError("nonRL baseline requires residual action2 carriers")
+        if env.action_contract.mode != required_action_mode:
+            if required_action_mode == "residual":
+                raise ValueError("nonRL baseline requires residual action2 carriers")
+            raise ValueError("cash control requires direct HOLD-current carriers")
         if allocation_candidate_recipe_digest(env.recipe) != candidate:
             raise ValueError("nonRL candidate recipe differs across folds")
         if (
@@ -178,9 +197,74 @@ def build_continuous_nonrl_allocation_evidence(
     )
 
 
+def _validate_global_control_roster(result: GlobalAllocationWalkForwardResult) -> None:
+    if type(result) is not GlobalAllocationWalkForwardResult:
+        raise ValueError("native control requires the exact global walk-forward result")
+    if (
+        type(result.folds) is not tuple
+        or type(result.policy_digests) is not tuple
+        or any(type(fold) is not FoldOOSResult for fold in result.folds)
+        or type(result.stitched) is not StitchedOOS
+    ):
+        raise ValueError("global control requires an immutable native result roster")
+    result.__post_init__()
+    for digest in result.policy_digests:
+        if type(digest) is not str:
+            raise ValueError("global policy digest must be a native SHA-256 string")
+        require_sha256(digest, field="policy_digest")
+
+
+@dataclass(frozen=True, slots=True)
+class GlobalNonRLAllocationResult:
+    """Fixed seedless rule on one global account; not execution authenticity."""
+
+    walk_forward: GlobalAllocationWalkForwardResult
+    candidate_recipe_digest: str
+    forecast_context_digest: str
+    runtime_recipe_digest: str
+
+    def __post_init__(self) -> None:
+        _validate_global_control_roster(self.walk_forward)
+        for name in (
+            "candidate_recipe_digest",
+            "forecast_context_digest",
+            "runtime_recipe_digest",
+        ):
+            require_sha256(getattr(self, name), field=name)
+        if self.walk_forward.policy_digests != (self.rule_digest,) * len(
+            self.walk_forward.folds
+        ):
+            raise ValueError("global nonRL result must carry the fixed allocator rule")
+
+    @property
+    def rule_digest(self) -> str:
+        return allocation_nonrl_rule_digest(self.candidate_recipe_digest)
+
+
+def run_global_nonrl_allocation(
+    folds: tuple[WalkForwardFold, ...],
+    env: AllocationTradingEnv,
+) -> GlobalNonRLAllocationResult:
+    """Execute only residual action2 over one complete native horizon/account."""
+    candidate = _carriers((env,))
+    if type(folds) is not tuple:
+        raise ValueError("global nonRL requires immutable native folds")
+    policy = AllocationFoldPolicy(
+        allocation_nonrl_rule_digest(candidate),
+        env.recipe_digest,
+        lambda _observation, _recipe: 2,
+    )
+    result = run_global_allocation_walk_forward(folds, env, (policy,) * len(folds))
+    return GlobalNonRLAllocationResult(
+        result, candidate, env.stream.digest, env.recipe_digest
+    )
+
+
 __all__ = [
     "ContinuousNonRLAllocationResult",
+    "GlobalNonRLAllocationResult",
     "allocation_nonrl_rule_digest",
     "build_continuous_nonrl_allocation_evidence",
     "run_continuous_nonrl_allocation",
+    "run_global_nonrl_allocation",
 ]

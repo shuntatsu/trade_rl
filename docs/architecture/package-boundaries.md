@@ -1252,3 +1252,23 @@ before/after tensor identity; the fixed native fixture records qty5, fee1/2,
 cash499/498 and first stress equity1048.
 These test artifacts add no production fitting, economic comparison or research
 authority. Exact final-head full CI, integration and formal gates remain open.
+
+## Native global allocation control ownership
+
+`allocation_nonrl_walk_forward` owns `run_global_nonrl_allocation` and its
+distinct `GlobalNonRLAllocationResult`. `allocation_cash_control` owns
+`run_global_allocation_cash_control` and `GlobalAllocationCashControlResult`.
+Both compose the existing native `global_walk_forward` runner; neither loads a
+model, fits, selects a candidate or casts a historical local-fold result into a
+global result. Cash stays outside the candidate winner roster.
+
+The existing private carrier validator admits only a closed residual/direct
+mode, preserving its historical residual default and rejection behavior. Cash
+reuses its complete forecast/cost coverage and native profile checks with direct
+semantics. A shared private structural checker requires the exact native global
+result and immutable native fold/policy-digest rosters. The old public continuous
+functions and classes keep their source bytes and behavior. No lower strategy,
+artifact, environment, native ledger or global runner owner changes in this
+stage. Closed source/runtime execution receipts and a separately reviewed common
+evidence adapter remain subsequent work; wrappers are consistency declarations,
+not origin or independent research approval.

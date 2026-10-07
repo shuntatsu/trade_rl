@@ -239,3 +239,193 @@ def test_cash_control_rejects_a_result_with_any_trade_or_nonflat_final_book():
             result=result,
             validity_evidence_digest="c" * 64,
         )
+
+
+def global_cash_capability():
+    from trade_rl.evaluation import allocation_cash_control as api
+
+    assert hasattr(api, "run_global_allocation_cash_control"), (
+        "global cash runner is missing"
+    )
+    assert hasattr(api, "GlobalAllocationCashControlResult"), (
+        "global cash result is missing"
+    )
+    return api
+
+
+@pytest.mark.parametrize("annual_rate", [0, 0.876])
+@pytest.mark.parametrize("boundary", [7, 9])
+def test_global_cash_uses_one_native_account_and_complete_financial_clock(
+    annual_rate,
+    boundary,
+    monkeypatch,
+):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+    from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
+
+    api = global_cash_capability()
+    arguments = dict(mode="direct", cash_rate=annual_rate)
+    uninterrupted = global_control_fixture(**arguments)
+    observation, _ = uninterrupted.reset(seed=0)
+    states, observations = {}, []
+    for _ in range(4):
+        observations.append(observation.copy())
+        observation, _, terminal, truncated, _ = uninterrupted.step(0)
+        states[uninterrupted.index] = allocation_state_digest(uninterrupted)
+        assert not truncated and terminal is (uninterrupted.index == 10)
+    env = global_control_fixture(**arguments)
+    resets, actions, actual_observations = [], [], []
+    native_reset, native_step = env.reset, env.step
+
+    def reset(**kwargs):
+        resets.append(kwargs)
+        result = native_reset(**kwargs)
+        actual_observations.append(result[0].copy())
+        return result
+
+    def step(action):
+        actions.append(action)
+        result = native_step(action)
+        assert allocation_state_digest(env) == states[env.index]
+        if env.index < 10:
+            actual_observations.append(result[0].copy())
+        return result
+
+    monkeypatch.setattr(env, "reset", reset)
+    monkeypatch.setattr(env, "step", step)
+    result = api.run_global_allocation_cash_control(global_control_folds(boundary), env)
+    assert type(result) is api.GlobalAllocationCashControlResult
+    assert actions == [0] * 4 and resets == [{"seed": 0}]
+    np.testing.assert_array_equal(actual_observations, observations)
+    assert [float(o[22]) for o in actual_observations] == [1, 0.75, 0.5, 0.25]
+    expected = 1000 * (1 + annual_rate / 8760) ** 4
+    assert env.book.cash == pytest.approx(expected)
+    assert env.book.portfolio_value == pytest.approx(expected)
+    assert env.book.exact_quantities == (0,)
+    assert env.initial_capital == env.observation_schema.initial_capital == 1000
+    assert not env.order_book.active_orders
+    assert env.book.fill_count == env.book.turnover_total == env.book.total_cost == 0
+    assert env.book.funding_pnl == env.book.borrow_cost == 0
+    assert result.walk_forward.stitched.diagnostics.n_trades == 0
+    assert result.walk_forward.folds[0].closing_state_digest == states[boundary]
+    assert result.walk_forward.folds[1].opening_state_digest == states[boundary]
+    assert result.walk_forward.policy_digests == (result.control_policy_digest,) * 2
+    assert result.runtime_recipe_digest == env.recipe_digest
+    if annual_rate == 0:
+        assert env.book.cash == 1000
+
+
+@pytest.mark.parametrize(
+    "change", ["residual", "gap", "wrong_env", "used", "missing_cost", "late_cost"]
+)
+def test_global_cash_preflight_rejects_before_native_reset(change, monkeypatch):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+
+    api = global_cash_capability()
+    env = global_control_fixture(mode="residual" if change == "residual" else "direct")
+    folds = global_control_folds(7)
+    if change == "gap":
+        from trade_rl.evaluation.robustness.walk_forward.folds import IndexRange
+
+        folds = (folds[0], replace(folds[1], test=IndexRange(8, 10)))
+    elif change == "used":
+        env.reset()
+    elif change == "missing_cost":
+        env._estimates.pop(next(iter(env._estimates)))
+    elif change == "late_cost":
+        key = next(iter(env._estimates))
+        object.__setattr__(
+            env._estimates[key],
+            "available_at",
+            np.datetime64(key, "ns") + np.timedelta64(1, "h"),
+        )
+    monkeypatch.setattr(env, "reset", lambda **kw: pytest.fail("native reset happened"))
+    with pytest.raises((ValueError, RuntimeError)):
+        api.run_global_allocation_cash_control(
+            folds, (env,) if change == "wrong_env" else env
+        )
+
+
+def test_global_cash_result_rejects_local_fold_substitutes_and_wrong_identity():
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+
+    api = global_cash_capability()
+    first, second, folds = cash_fixture()
+    local = api.run_continuous_allocation_cash_control(folds, (first, second))
+    with pytest.raises(ValueError, match="global"):
+        api.GlobalAllocationCashControlResult(local, "a" * 64, "b" * 64, "c" * 64)
+    env = global_control_fixture(mode="direct")
+    result = api.run_global_allocation_cash_control(global_control_folds(7), env)
+    with pytest.raises(ValueError, match="cash control policy"):
+        replace(
+            result,
+            walk_forward=replace(result.walk_forward, policy_digests=("b" * 64,) * 2),
+        )
+
+
+def test_global_cash_propagates_native_failure_without_completed_result(monkeypatch):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+
+    api = global_cash_capability()
+    env = global_control_fixture(mode="direct")
+    monkeypatch.setattr(
+        env, "step", lambda *_: (_ for _ in ()).throw(RuntimeError("native failure"))
+    )
+    with pytest.raises(RuntimeError, match="native failure"):
+        api.run_global_allocation_cash_control(global_control_folds(7), env)
+
+
+@pytest.mark.parametrize("field", ["folds", "policy_digests"])
+def test_global_cash_wrapper_rechecks_immutable_native_roster(field):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+
+    api = global_cash_capability()
+    env = global_control_fixture(mode="direct")
+    result = api.run_global_allocation_cash_control(global_control_folds(7), env)
+    object.__setattr__(
+        result.walk_forward, field, list(getattr(result.walk_forward, field))
+    )
+    with pytest.raises(ValueError, match="immutable"):
+        result.__post_init__()
+
+
+def test_global_cash_checks_each_native_segment_trade_diagnostic(monkeypatch):
+    from tests.evaluation.test_allocation_nonrl_walk_forward import (
+        global_control_fixture,
+        global_control_folds,
+    )
+
+    api = global_cash_capability()
+    native = api.run_global_allocation_walk_forward
+
+    def inconsistent_segment(*args, **kwargs):
+        result = native(*args, **kwargs)
+        first, second = result.folds
+        return replace(
+            result,
+            folds=(
+                replace(first, diagnostics=replace(first.diagnostics, n_trades=1)),
+                second,
+            ),
+        )
+
+    monkeypatch.setattr(api, "run_global_allocation_walk_forward", inconsistent_segment)
+    with pytest.raises(ValueError, match="cash control"):
+        api.run_global_allocation_cash_control(
+            global_control_folds(7), global_control_fixture(mode="direct")
+        )

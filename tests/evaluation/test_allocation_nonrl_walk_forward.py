@@ -578,3 +578,332 @@ def test_unsupported_native_allocation_profile_rejected_before_reset(
     )
     with pytest.raises(ValueError, match="MARKET|drawdown"):
         capability().run_continuous_nonrl_allocation(folds, envs)
+
+
+def global_control_fixture(
+    *,
+    mode="residual",
+    cash_rate=None,
+    insolvent_short=False,
+    zero_later_volume=False,
+    **arguments,
+):
+    """Literal H4/C1000 native carrier; coefficients are declared, never fitted."""
+    _, (original,) = fixture(ranges=((6, 10),), mode=mode, **arguments)
+    dataset, allocator = original.dataset, original.allocator
+    if cash_rate is not None:
+        dataset = replace(dataset, cash_rate=np.full(12, cash_rate, dtype=np.float64))
+    if zero_later_volume:
+        volume = dataset.volume.copy()
+        volume[8:] = 0
+        dataset = replace(dataset, volume=volume)
+    if insolvent_short:
+        prices = dataset.close.copy()
+        prices[7:] = 400
+        opens = prices.copy()
+        opens[7] = 100
+        dataset = replace(
+            dataset,
+            close=prices,
+            open=opens,
+            high=np.maximum(opens, prices),
+            low=np.minimum(opens, prices),
+            mark_price=prices,
+        )
+        allocator = replace(allocator, lower_weight=-0.5, upper_weight=0)
+    execution = MarketExecutor(
+        dataset, original.execution_cost, insolvency_valuation="retain_debt"
+    ).execution_policy_digest
+    profile = AllocationRuntimeProfile(
+        execution, content_digest(original.risk_config), 1000.0, "USD", 3600, 14400
+    )
+    recipe = allocation_recipe_payload_v2(
+        original.action_contract,
+        ("signal",),
+        allocator=allocator,
+        expected_horizon_seconds=3600,
+        runtime_profile=profile,
+        observation_schema=original.observation_schema,
+    )
+    bound = replace(
+        original.bound,
+        objective=replace(
+            original.bound.objective,
+            economics_digest=execution,
+            deployment_recipe_digest=content_digest(recipe),
+        ),
+    )
+    return AllocationTradingEnv(
+        dataset,
+        stream=replace(
+            original.stream,
+            packets=tuple(
+                replace(packet, decision_close=float(dataset.close[index, 0]))
+                for index, packet in enumerate(original.stream.packets, start=6)
+            ),
+        ),
+        estimates=tuple(original._estimates.values()),
+        bound=bound,
+        action_contract=original.action_contract,
+        allocator=allocator,
+        execution_cost=original.execution_cost,
+        risk_config=original.risk_config,
+        feature_indices=(0,),
+        symbol_index=0,
+        start_index=6,
+        stop_index=10,
+        account_id=original.account_id,
+        observation_schema=original.observation_schema,
+    )
+
+
+def global_control_folds(boundary):
+    return tuple(
+        WalkForwardFold(
+            i,
+            IndexRange(0, 2),
+            IndexRange(2, 3),
+            IndexRange(3, 6),
+            IndexRange(start, stop),
+            0,
+        )
+        for i, (start, stop) in enumerate(((6, boundary), (boundary, 10)))
+    )
+
+
+def global_nonrl_capability():
+    api = capability()
+    assert hasattr(api, "run_global_nonrl_allocation"), "global NONRL runner is missing"
+    assert hasattr(api, "GlobalNonRLAllocationResult"), "global NONRL result is missing"
+    return api
+
+
+@pytest.mark.parametrize("boundary", [7, 9])
+@pytest.mark.parametrize("control", ["ordinary", "risk_veto", "partial_no_fill"])
+def test_global_nonrl_matches_native_forecast_and_unsegmented_state(
+    boundary,
+    control,
+    monkeypatch,
+):
+    from trade_rl.evaluation.forecast_allocation import (
+        execute_forecast_proposal,
+        propose_forecast_target,
+    )
+    from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
+
+    api = global_nonrl_capability()
+    arguments = {}
+    if control == "risk_veto":
+        arguments["risk"] = PreTradeRiskConfig(
+            max_gross=1,
+            max_abs_weight=1,
+            max_turnover=0,
+        )
+    elif control == "partial_no_fill":
+        arguments = dict(
+            signals=(1, 1, 1, 1),
+            zero_later_volume=True,
+            cost_changes=dict(
+                max_participation_rate=0.00001, random_seed=73, slippage_std=0.01
+            ),
+        )
+    script = global_control_fixture(**arguments)
+    script.reset()
+    expected = []
+    for index in range(6, 10):
+        causal = dict(
+            account_id=script.account_id,
+            stream=script.stream,
+            estimates=script._estimates[
+                int(script.dataset.timestamps[index].astype(np.int64))
+            ],
+            allocator=script.allocator,
+            pretrade_risk=script.risk,
+            symbol_index=0,
+            start_index=index,
+            expected_horizon_seconds=3600,
+        )
+        proposal = propose_forecast_target(
+            script.executor, script.book, script.order_book, **causal
+        )
+        actual = execute_forecast_proposal(
+            script.executor,
+            script.book,
+            script.order_book,
+            proposal,
+            **causal,
+        )
+        script.book, script.order_book = (
+            actual.execution.book,
+            actual.execution.order_book,
+        )
+        expected.append(facts(actual.execution, actual.risk_target.weights))
+    uninterrupted = global_control_fixture(**arguments)
+    uninterrupted.reset()
+    state = {}
+    for _ in range(4):
+        uninterrupted.step(2)
+        state[uninterrupted.index] = allocation_state_digest(uninterrupted)
+    env = global_control_fixture(**arguments)
+    observations, observed, actions, resets = [], [], [], []
+    native_reset, native_step = env.reset, env.step
+
+    def reset(**kwargs):
+        resets.append(kwargs)
+        result = native_reset(**kwargs)
+        observations.append(result[0].copy())
+        return result
+
+    def step(action):
+        actions.append(action)
+        result = native_step(action)
+        observed.append(
+            facts(result[-1]["execution"], result[-1]["risk_target"].weights)
+        )
+        assert allocation_state_digest(env) == state[env.index]
+        if env.index < 10:
+            observations.append(result[0].copy())
+        return result
+
+    monkeypatch.setattr(env, "reset", reset)
+    monkeypatch.setattr(env, "step", step)
+    result = api.run_global_nonrl_allocation(global_control_folds(boundary), env)
+    assert type(result) is api.GlobalNonRLAllocationResult
+    assert actions == [2] * 4
+    assert resets == [{"seed": None}]
+    assert observed == expected
+    assert [float(o[22]) for o in observations] == [1, 0.75, 0.5, 0.25]
+    assert env.initial_capital == env.observation_schema.initial_capital == 1000
+    assert result.walk_forward.stitched.boundaries == ((6, boundary), (boundary, 10))
+    assert result.walk_forward.folds[0].closing_state_digest == state[boundary]
+    assert result.walk_forward.folds[1].opening_state_digest == state[boundary]
+    assert result.walk_forward.stitched.returns.values == tuple(
+        row[11] for row in expected
+    )
+    assert result.walk_forward.policy_digests == (result.rule_digest,) * 2
+    assert result.runtime_recipe_digest == env.recipe_digest
+    if control == "ordinary":
+        assert [row[12] for row in observed] == [(0.5,), (0.0,), (0.5,), (0.0,)]
+        assert observed[0][0] == (5,)
+        assert observed[0][1:3] == (499, 1049)
+        assert observed[0][6] == 1
+        # Independent declared arithmetic: later sizing uses the current account
+        # at decision close110; the third execution uses the next open100.
+        cash2 = 499 + 5 * 110 * (1 - 0.002)
+        quantity3 = 0.5 * cash2 / 110
+        cash3 = cash2 - quantity3 * 100 * (1 + 0.002)
+        cash4 = cash3 + quantity3 * 100 * (1 - 0.002)
+        assert [row[0][0] for row in observed] == pytest.approx([5, 0, quantity3, 0])
+        assert [row[1] for row in observed] == pytest.approx([499, cash2, cash3, cash4])
+        assert [row[2] for row in observed] == pytest.approx(
+            [1049, cash2, cash3 + quantity3 * 100, cash4]
+        )
+        assert env.book.total_cost == pytest.approx(
+            1 + 1.1 + 2 * quantity3 * 100 * 0.002
+        )
+        assert env.book.peak_value == 1049
+        assert env.book.max_drawdown == pytest.approx((1049 - cash4) / 1049)
+    elif control == "risk_veto":
+        assert env.book.fill_count == 0 and env.book.cash == 1000
+    else:
+        assert env.order_book.active_orders
+        assert any(e.event_type == "no_fill" for row in observed[1:] for e in row[10])
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["direct", "gap", "bool_clock", "missing_cost", "late_cost", "latency", "drawdown"],
+)
+def test_global_nonrl_preflight_rejects_before_native_reset(change, monkeypatch):
+    api = global_nonrl_capability()
+    arguments = {}
+    if change == "direct":
+        arguments["mode"] = "direct"
+    elif change == "latency":
+        arguments["cost_changes"] = dict(order_latency_bars=1)
+    elif change == "drawdown":
+        arguments["risk"] = PreTradeRiskConfig(drawdown_start=0.2, drawdown_stop=0.2)
+    env = global_control_fixture(**arguments)
+    folds = global_control_folds(7)
+    if change == "gap":
+        folds = (folds[0], replace(folds[1], test=IndexRange(8, 10)))
+    elif change == "bool_clock":
+        object.__setattr__(folds[1].test, "stop", True)
+    elif change == "missing_cost":
+        env._estimates.pop(next(iter(env._estimates)))
+    elif change == "late_cost":
+        key = next(iter(env._estimates))
+        object.__setattr__(
+            env._estimates[key],
+            "available_at",
+            np.datetime64(key, "ns") + np.timedelta64(1, "h"),
+        )
+    monkeypatch.setattr(env, "reset", lambda **kw: pytest.fail("native reset happened"))
+    with pytest.raises(ValueError):
+        api.run_global_nonrl_allocation(folds, env)
+    assert not hasattr(env, "book")
+
+
+def test_global_nonrl_economic_stop_preserves_actual_native_account_prefix(monkeypatch):
+    api = global_nonrl_capability()
+    env = global_control_fixture(signals=(-1, -1, -1, -1), insolvent_short=True)
+    actions, executions = [], []
+    native_step = env.step
+
+    def step(action):
+        actions.append(action)
+        result = native_step(action)
+        executions.append(result[-1]["execution"])
+        return result
+
+    monkeypatch.setattr(env, "step", step)
+    with pytest.raises(ValueError, match="economic termination"):
+        api.run_global_nonrl_allocation(global_control_folds(7), env)
+    assert actions == [2] and len(executions) == 1
+    assert env.index == 7 < env.stop_index == 10
+    assert env.book.portfolio_value == -501
+    assert env.book.cash == -501
+    assert env.book.termination_reason is not None
+    assert env._terminated
+    assert executions[0].book is env.book
+
+
+def test_global_nonrl_result_rejects_local_fold_substitutes_and_wrong_rule():
+    api = global_nonrl_capability()
+    folds, envs = fixture()
+    local = api.run_continuous_nonrl_allocation(folds, envs)
+    with pytest.raises(ValueError, match="global"):
+        api.GlobalNonRLAllocationResult(
+            local.walk_forward,
+            local.candidate_recipe_digest,
+            local.forecast_context_digest,
+            envs[0].recipe_digest,
+        )
+    env = global_control_fixture()
+    result = api.run_global_nonrl_allocation(global_control_folds(7), env)
+    with pytest.raises(ValueError, match="fixed allocator rule"):
+        replace(
+            result,
+            walk_forward=replace(result.walk_forward, policy_digests=("b" * 64,) * 2),
+        )
+    with pytest.raises(ValueError, match="fixed allocator result"):
+        api.build_continuous_nonrl_allocation_evidence(
+            comparison_contract(envs[0], folds),
+            scenario="base",
+            folds=folds,
+            environments=envs,
+            result=result,
+            validity_evidence_digest="a" * 64,
+        )
+
+
+@pytest.mark.parametrize("field", ["folds", "policy_digests"])
+def test_global_nonrl_wrapper_rechecks_immutable_native_roster(field):
+    api = global_nonrl_capability()
+    env = global_control_fixture()
+    result = api.run_global_nonrl_allocation(global_control_folds(7), env)
+    object.__setattr__(
+        result.walk_forward, field, list(getattr(result.walk_forward, field))
+    )
+    with pytest.raises(ValueError, match="immutable"):
+        result.__post_init__()

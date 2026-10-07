@@ -457,11 +457,28 @@ def _validate_execution_facts(
         observed = [event for event in events if event.order_id == order.order_id]
         if observed:
             latest = observed[-1]
+            changes = [
+                event
+                for event in observed
+                if event.event_type not in ("submitted", "no_fill")
+            ]
+            last = order.last_processed_index
+            if changes:
+                clock_matches = changes[-1].processing_index == last
+            elif latest.event_type == "no_fill":
+                # A new attempt leaves the carried immutable order untouched.
+                # Submission needs its own native eligibility/latency mutation.
+                clock_matches = (
+                    all(event.event_type == "no_fill" for event in observed)
+                    and last is not None
+                    and last <= raw["decision_index"]
+                )
+            else:
+                clock_matches = latest.event_type == "submitted" and last is None
             if (
                 latest.new_status != order.status
                 or latest.remaining_quantity != order.remaining_quantity
-                or latest.event_type != "submitted"
-                and latest.processing_index != order.last_processed_index
+                or not clock_matches
             ):
                 raise ValueError(
                     "transition final active order differs from its last native event"

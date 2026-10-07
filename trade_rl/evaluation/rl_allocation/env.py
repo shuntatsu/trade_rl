@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 import gymnasium as gym
 import numpy as np
@@ -13,6 +13,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import MarketCalendarKind
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.allocation_decision import (
+    AllocationActionExecutionResult,
     execute_allocation_action,
     prepare_allocation_decision,
 )
@@ -40,11 +41,6 @@ from trade_rl.strategies.rl.allocation_observation_v2 import AllocationObservati
 from trade_rl.strategies.rl.allocation_observation_v3 import (
     encode_allocation_observation_v3,
 )
-
-if TYPE_CHECKING:
-    from trade_rl.evaluation.rl_allocation.transition_trace import (
-        AllocationTransitionRecorder,
-    )
 from trade_rl.strategies.rl.allocation_policy import (
     ALLOCATION_OBSERVATION_FIELDS,
     AllocationRuntimeProfile,
@@ -56,6 +52,12 @@ from trade_rl.strategies.rl.allocation_preprocessing import (
 )
 from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
 from trade_rl.strategies.rl.allocation_recipe_v3 import allocation_recipe_payload_v3
+
+
+class AllocationExecutionObserver(Protocol):
+    """Optional pre-overwrite observer; owns no execution or accounting behavior."""
+
+    def freeze_execution(self, result: AllocationActionExecutionResult) -> bytes: ...
 
 
 class AllocationTradingEnv(gym.Env):
@@ -87,7 +89,7 @@ class AllocationTradingEnv(gym.Env):
         feature_preprocessing: AllocationFeaturePreprocessing | None = None,
     ) -> None:
         self.dataset, self.stream, self.bound = dataset, stream, bound
-        self._transition_recorder: AllocationTransitionRecorder | None = None
+        self._transition_recorder: AllocationExecutionObserver | None = None
         self._bound_digest = bound.digest
         self.action_contract, self.allocator = action_contract, allocator
         self.execution_cost, self.risk_config = execution_cost, risk_config

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from hashlib import sha256
 from typing import Any
 
@@ -84,13 +85,20 @@ def construct_protocol_ppo(
 class AllocationUpdateRecorder:
     """Count returned Adam calls, not parameter improvement or successful learning."""
 
-    def __init__(self, model: Any) -> None:
+    def __init__(
+        self,
+        model: Any,
+        *,
+        completed_update: Callable[[int, int, int], None] | None = None,
+    ) -> None:
         if model.num_timesteps != 0 or model._n_updates != 0:
             raise ValueError("explicit protocol requires a fresh model")
         self.model = model
         self.steps = self.rollouts = self.epochs = 0
         self.digest = sha256()
         self.pending: tuple[int, int] | None = None
+        self._completed_update = completed_update
+        self._previous_steps = 0
         self.handle = model.policy.optimizer.register_step_post_hook(self._step)
 
     def _step(self, optimizer: Any, args: Any, kwargs: Any) -> None:
@@ -114,9 +122,15 @@ class AllocationUpdateRecorder:
             epoch_start, timesteps = self.pending
             if self.model.num_timesteps != timesteps:
                 raise ValueError("update capture must precede the next collection")
-            self.epochs += self.model._n_updates - epoch_start
+            entered_epochs = self.model._n_updates - epoch_start
+            self.epochs += entered_epochs
             self.rollouts += 1
             self.pending = None
+            if self._completed_update is not None:
+                self._completed_update(
+                    self.rollouts, self.steps - self._previous_steps, entered_epochs
+                )
+            self._previous_steps = self.steps
 
     def callback(self, base: type[Any]) -> Any:
         def start(_: Any) -> None:

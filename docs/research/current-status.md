@@ -1927,3 +1927,83 @@ This supplies a bounded software prerequisite, without online updates, historica
 fit/source authenticity, delayed actor learnability, market profitability,
 calibrated capacity, frozen-policy stress admission, registered A/B/C evidence,
 unused/final access or paper/live eligibility. The 20% research guardrail remains.
+
+## Issue #810: scheduled actor trace and fixed delayed-credit candidate
+
+An opt-in actual scheduled observer now captures OLD-child native facts and
+NEXT live/prepared-reset input separately, original actor/value/logpi tensors,
+chronological native buffer/GAE/bootstrap and optional native PPO update
+diagnostics/parameter pins. A separate closed backend-free sidecar binds the
+unchanged ordinary saved v5 policy. Rehashed repeated-feature and optimizer-event
+digest contradictions reject; default None/omitted and old readers remain
+compatible. Publication checks unchanged final live parameters without claiming
+historical fit/source authenticity or defeating malicious save/restore forgery.
+
+Local internal software verification ran 21 actual SB3 tests with 0 skips, covering
+independent original actor/bootstrap/buffer/named parameter witnesses, native
+logs, lifecycle failures, zero-step KL stop, None/omitted/enabled native
+model/optimizer/RNG/account parity and ordinary save/sidecar/read/reload/IO
+controls. Core trace/IO 36 tests and native feasibility/bare-buffer 43 tests have
+separate local evidence. These are uncommitted-source software results; final
+PR HEAD full CI and formal independent review remain integration gates.
+
+The separate fixed behavioral harness is declared before models: H16 first paid
+entry only, terminal 8% payoff, seeds 0/7/17 paired rollouts 4/32, 4096 fixed budget,
+six balanced train dates/four held-out dates, common frozen v3 and unchanged
+network/optimizer protocol. It retains initial actor baselines, all six outcomes,
+strict per-cell effective fill/profit/improvement gates and initial-ceiling
+failures. The first six-cell invocation was software INVALID at finish because
+the parent facts reader required a carried order's last mutation clock to equal
+a later no-fill attempt. Native execution preserves that immutable order. A
+narrow reader repair retains state/quantity checks and separates mutation from
+attempt clocks, rejecting invented same-bar/carried clocks or missing eligibility.
+All 24,576 original fact rows then passed a fit-free parent-reader/reward replay.
+
+One corrected-source reproduction completed the same frozen six cells. Initial
+actor files, initial named parameter files and complete native training events
+were byte-identical to the preserved first INVALID invocation in every cell.
+Full sidecar/save/read/reload and aggregate software evidence are VALID;
+all six learning outcomes and `short_learning` are FAILED. No long or short
+factor improves its initial held-out mean. The ratios below are rounded native
+returns relative to capital 1024 and direction-alignment fractions on the four
+synthetic held-out windows; they are not real-market results.
+
+| Seed | Rollout | Initial mean gain | Trained mean gain | Improvement | Filled-sign alignment | Learning |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 0 | 4 | 0.01951171875 | -0.02048828125 | -0.04 | 0 | FAILED |
+| 0 | 32 | 0.01951171875 | 0.01951171875 | 0 | 0.5 | FAILED |
+| 7 | 4 | 0 | -0.0009765625 | -0.0009765625 | 0.5 | FAILED |
+| 7 | 32 | 0 | 0 | 0 | 0 | FAILED |
+| 17 | 4 | 0.01951171875 | -0.0009765625 | -0.02048828125 | 0.5 | FAILED |
+| 17 | 32 | 0.01951171875 | 0.01951171875 | 0 | 0.5 | FAILED |
+
+Unchanged per-cell requirements are alignment >= 0.75, mean after-fee gain
+> 0.025 and improvement > 0.02; every row failed all three. Seeds 0/17 also retain
+`INITIAL_BASELINE_CEILING`, without exclusion or a waiver. Each cell completed
+4096 transitions and 10240 returned Adam calls; actor and critic parameter
+changes occurred at all 1024 short or 128 long updates. Parameter movement and
+valid records do not demonstrate effective learning. The corrected comparison
+SHA256 is `4d942ff1c871f7979545f207dbd86266c028eb138e42a928c3f92ea6de1b236b`;
+the retained archive is 13,405,486 bytes, alongside the unchanged first INVALID
+archive of 12,752,323 bytes. No favorable rerun or hyperparameter tuning was used.
+This remains uncommitted-source evidence; final exact PR HEAD full checks and
+formal independent review are pending.
+
+Before saving any aggregate VALID claim, the report checks every software
+prerequisite including paired initial actor/native-account parity and returned
+optimizer-call counts. Invalid comparisons retain all six outcomes and structured
+reasons, without overwriting per-cell learning gates or claiming overall PASS.
+Software trace completeness is not behavioral success; no favorable tuning or
+long-factor substitution may repair a failed short-factor gate.
+The single CI PPO invocation preserves the complete synthetic fixed-actor
+subtree on success or failure, named by exact PR HEAD/run/attempt with seven-day
+retention. The source/declaration/receipt boundary supports protocol inspection
+and reproduction without claiming identical cross-platform weights or upstream
+historical authenticity; it does not create another learning invocation.
+
+Beyond-rollout actor learnability and causal credit THROUGH bootstrap are not
+established by this failed comparison. No market profit, multiweek delayed actor
+learning, cost/capacity calibration,
+frozen-policy stress economics, registered common A/B/C Study, unused/final
+access or paper/live eligibility is established. The 20% research guardrail and
+separate formal review/final-head integration gates remain.

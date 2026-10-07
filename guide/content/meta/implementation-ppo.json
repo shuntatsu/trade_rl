@@ -40,7 +40,10 @@
     "transition_trace_v1",
     "実行動と約定",
     "buffer admission",
-    "非RL固定runner"
+    "非RL固定runner",
+    "scheduled transition trace",
+    "native PPO update",
+    "旧口座と次のreset入力"
   ],
   "source_sections": [
     {
@@ -167,6 +170,16 @@
       "path": "docs/research/current-status.md",
       "heading": "Issue #810 P4: actual fixed nonRL consumer",
       "sha256": "5e3c50f204fb490970a915d15eeabd46b5c0fe0bb9a55b890445b28347964a58"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Scheduled actor and native learner sidecar",
+      "sha256": "150c4bd3e4757561f3d4d2fbe594523ecec4e42f08dc7325c88c2af98cf68a17"
+    },
+    {
+      "path": "docs/architecture/research-assurance.md",
+      "heading": "Scheduled actor trace and finite delayed credit G0-G2",
+      "sha256": "eb2c7cff32c08af06f933393b6a523b672bcab51ceba22c72a849fabf5f9b3a1"
     }
   ],
   "code_references": [
@@ -187,7 +200,7 @@
       "id": "allocation-environment",
       "symbol": "trade_rl.evaluation.rl_allocation.env.AllocationTradingEnv",
       "kind": "class",
-      "source_sha256": "891e3a4254a91cb1fdd6770a2f388b9e156eea9baec6f728b6955668e440b4a9",
+      "source_sha256": "cdeeec0855f71d1bc3c1aa18d32efefd4225196747e928225a761ac1a2c892fa",
       "label_ja": "独立口座の配分PPO環境",
       "description_ja": "共通のrisk・約定・会計から固定初期資本の純資産増分を報酬にします。既定v1と明示v2を保ち、凍結前処理の明示v3では先頭の特徴だけを変換します。真の終了は変換を迂回した全0通知で、truncationは生成しません。",
       "variables": [],
@@ -530,7 +543,7 @@
       "id": "allocation-optimizer-updates",
       "symbol": "trade_rl.evaluation.rl_allocation.training_protocol.AllocationUpdateRecorder",
       "kind": "class",
-      "source_sha256": "6095955c7ecbd89a4ba5c6931f1bf2351a9af9828e06276ef5d00f70ebc82f12",
+      "source_sha256": "08135c2adf6691424ee6c1e0c1a1b6b5e31093a9cef2fa5688b887bcea47ef86",
       "label_ja": "Adamが戻った呼び出しを数える",
       "description_ja": "実optimizerのpost-hookで件数と時刻metadataのhashを残し、最後のnative train後に確定します。例外時もフックを解除し、パラメータ改善や学習成功と呼び出し完了を区別します。",
       "variables": [],
@@ -722,6 +735,34 @@
       "tests": [
         "tests/evaluation/test_allocation_nonrl_walk_forward.py",
         "tests/architecture/test_allocation_nonrl_walk_forward_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-scheduled-transition-recorder",
+      "symbol": "trade_rl.evaluation.rl_allocation.scheduled_transition_trace.ScheduledAllocationTransitionRecorder",
+      "kind": "class",
+      "source_sha256": "a55350a75d7f2c3d4d7e70c40d0d6e743983fb94434cc82736dbe0fd405e93e0",
+      "label_ja": "旧口座・次の入力と実PPO更新を記録する",
+      "description_ja": "実actor・bootstrapと採用済みbufferを窓の順序へ結び、任意の実更新診断を閉じたv5の別記録へ渡します。再予測・再約定せず、完了は学習利益の判定とは区別します。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_scheduled_transition_trace.py",
+        "tests/integrations/test_allocation_scheduled_transition_runtime.py",
+        "tests/architecture/test_allocation_scheduled_trace_boundary.py"
+      ]
+    },
+    {
+      "id": "allocation-scheduled-transition-reader",
+      "symbol": "trade_rl.evaluation.rl_allocation.scheduled_transition_trace_io.read_scheduled_allocation_transition_trace",
+      "kind": "function",
+      "source_sha256": "fe1b7a716d114341b73c1b22f68a47068581598b1e3603838ef4a8e9b125dd66",
+      "label_ja": "保存v5と窓・実更新の別記録を検証する",
+      "description_ja": "モデルを読まず、保存bundleと独立pin、行の順序・特徴の再利用・採用済みbuffer・GAE・更新の関係を検査します。履歴の真正性や市場利益を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_scheduled_transition_io.py",
+        "tests/integrations/test_allocation_scheduled_transition_runtime.py",
+        "tests/architecture/test_allocation_scheduled_trace_boundary.py"
       ]
     }
   ]

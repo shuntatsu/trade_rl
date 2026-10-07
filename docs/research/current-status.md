@@ -2187,3 +2187,25 @@ authenticate historical fitting or Dataset provenance. Measured market forecast
 calibration, venue costs/capacity, profitable execution and Issue #810 completion
 remain unestablished. Final full verification, formal review and integration
 remain separately required; the 20% maximum DD research constraint is unchanged.
+
+## Issue #810 P3: complete scheduled raw-credit diagnostic capability
+
+An opt-in pure reader now summarizes complete already-validated scheduled
+records by true first/later decision, every raw action 0..3, window and exact
+POST held-quantity sign. Target groups distinguish an observed own-episode
+terminal inside the recorded rollout from live bootstrap; a live-ended buffer
+can contain both. All rows remain in transition-weighted raw float32 collector
+reward/value/return/advantage statistics, with zero-coverage actions explicit.
+Separate native filled-notional/cost statistics and positive-filled-notional
+transition counts describe actual supplied execution, not counterfactual fills.
+
+These are descriptive software diagnostics, not an optimizer repair or actor
+learning verdict. Generic later decisions can fill; zero later capacity belongs
+only to the separate fixed H16 fixture. Terminal-bound GAE is not a Monte Carlo
+return, and shuffled normalized minibatch exposure/gradient attribution remain
+NOT ESTABLISHED. No new backend training, model prediction, market experiment
+or profitability assessment is performed by the reader. All-six FAILED and
+INITIAL_BASELINE_CEILING outcomes remain, with no gate waiver. P3 and Issue #810
+remain incomplete; calibration, profitable execution, G3-G5, formal review and
+exact final-head integration remain separately required under the unchanged
+20% research DD guardrail.

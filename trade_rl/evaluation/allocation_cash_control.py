@@ -19,6 +19,9 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     canonical_continuous_allocation_metrics,
     validate_continuous_allocation_comparison_context,
 )
+from trade_rl.evaluation.allocation_scenario_identity import (
+    allocation_candidate_recipe_digest,
+)
 from trade_rl.evaluation.allocation_selection import AllocationCashReference
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
@@ -254,10 +257,13 @@ def run_continuous_allocation_cash_control(
         or any(type(env) is not AllocationTradingEnv for env in environments)
     ):
         raise ValueError("cash control requires immutable allocation environments")
-    recipe = environments[0].recipe_digest
-    if any(env.recipe_digest != recipe for env in environments):
-        raise ValueError("cash control carrier recipe must be identical across folds")
-    policy_digest = _cash_policy_digest_for_recipe(recipe)
+    candidate_recipe = allocation_candidate_recipe_digest(environments[0].recipe)
+    if any(
+        allocation_candidate_recipe_digest(env.recipe) != candidate_recipe
+        for env in environments
+    ):
+        raise ValueError("cash control candidate recipe must be identical across folds")
+    policy_digest = _cash_policy_digest_for_recipe(candidate_recipe)
     policies = tuple(
         AllocationFoldPolicy(
             policy_digest=policy_digest,
@@ -336,6 +342,7 @@ def build_allocation_cash_control_evidence(
         execution_digest=allocation_continuous_execution_summary_digest(
             result,
             source_digest=source_digest,
+            runtime_recipe_digests=tuple(env.recipe_digest for env in environments),
         ),
         validity_evidence_digest=validity_evidence_digest,
         opening_state_digest=opening,

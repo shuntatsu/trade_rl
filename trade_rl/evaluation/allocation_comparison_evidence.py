@@ -13,6 +13,10 @@ from trade_rl.evaluation.allocation_comparison import (
     AllocationComparisonScenario,
     AllocationValidity,
 )
+from trade_rl.evaluation.allocation_scenario_identity import (
+    allocation_candidate_recipe_digest,
+    allocation_runtime_invariant_digest,
+)
 from trade_rl.evaluation.objectives import FinancialClockContract, ObjectiveContract
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
@@ -205,6 +209,8 @@ def validate_continuous_allocation_comparison_context(
     environments: tuple[AllocationTradingEnv, ...],
     result: ContinuousAllocationWalkForwardResult,
 ) -> None:
+    if type(expected_recipe_digest) is not str:
+        raise ValueError("comparison requires a native candidate recipe digest")
     require_sha256(expected_recipe_digest, field="expected_recipe_digest")
     if (
         type(environments) is not tuple
@@ -241,6 +247,7 @@ def validate_continuous_allocation_comparison_context(
         raise ValueError("allocation comparison requires decision-step OOS returns")
 
     first = environments[0]
+    expected_runtime_invariant = allocation_runtime_invariant_digest(first.recipe)
     if first.dataset.dataset_id != contract.dataset_id:
         raise ValueError("comparison Dataset differs from runtime")
     if first.stream.digest != contract.forecast_context_digest:
@@ -275,8 +282,13 @@ def validate_continuous_allocation_comparison_context(
             raise ValueError("comparison business objective differs across folds")
         if allocation_economic_clock_digest(env.bound.clock) != contract.clock_digest:
             raise ValueError("comparison economic clock differs across folds")
-        if env.recipe_digest != expected_recipe_digest:
+        if allocation_candidate_recipe_digest(env.recipe) != expected_recipe_digest:
             raise ValueError("comparison candidate recipe differs from runtime")
+        if (
+            allocation_runtime_invariant_digest(env.recipe)
+            != expected_runtime_invariant
+        ):
+            raise ValueError("comparison runtime invariant differs across folds")
         if (env.start_index, env.stop_index) != (fold.test.start, fold.test.stop):
             raise ValueError("comparison OOS environment differs from fold test range")
         if (fold_result.start, fold_result.stop) != (fold.test.start, fold.test.stop):
@@ -365,11 +377,19 @@ def allocation_continuous_execution_summary_digest(
     result: ContinuousAllocationWalkForwardResult,
     *,
     source_digest: str,
+    runtime_recipe_digests: tuple[str, ...],
 ) -> str:
+    if type(runtime_recipe_digests) is not tuple or len(runtime_recipe_digests) != len(
+        result.folds
+    ):
+        raise ValueError("execution evidence requires one runtime recipe per fold")
+    for digest in runtime_recipe_digests:
+        require_sha256(digest, field="runtime_recipe_digest")
     return content_digest(
         {
             "schema": "allocation_continuous_execution_evidence_v1",
             "oos_source_digest": source_digest,
+            "runtime_recipe_digests": list(runtime_recipe_digests),
             "boundaries": [list(value) for value in result.stitched.boundaries],
             "fold_diagnostics": [
                 {
@@ -487,7 +507,9 @@ def build_continuous_allocation_comparison_evidence(
             result, source_digest=source_digest
         ),
         execution_digest=allocation_continuous_execution_summary_digest(
-            result, source_digest=source_digest
+            result,
+            source_digest=source_digest,
+            runtime_recipe_digests=tuple(env.recipe_digest for env in environments),
         ),
         validity_evidence_digest=validity_evidence_digest,
         recipe_digest=_candidate_recipe(contract, candidate),

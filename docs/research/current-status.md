@@ -1848,3 +1848,29 @@ cash-control evidence has a one-way projection into the pure selector contract,
 binding its evidence digest, common OOS source/opening state, realized profit,
 drawdown and validity. The selector still has no Study mutation or final-data
 authority.
+
+
+## Issue #810 P4: candidate identity separated from stress runtime
+
+A comparison blocker was identified: `AllocationTradingEnv.recipe_digest`
+includes economics/risk through `runtime_profile`, so a cost stress necessarily
+changes the full recipe digest even when the candidate decision logic and policy
+bytes are unchanged. Treating that full digest as the candidate identity would
+make "same frozen policy under stressed execution economics" impossible by
+construction.
+
+The comparison layer now uses a scenario-stable candidate-structure digest and
+keeps the full per-fold runtime recipe in execution evidence. A software oracle
+runs a fee-stressed continuous OOS path where base/stress full recipe digests
+differ, candidate identity remains equal, and comparison evidence is admitted.
+Changing action mode, features, allocator/preprocessing, capital/currency,
+financial clock, calendar or other runtime invariants fails closed. The frozen
+candidate pin includes the non-stressed runtime invariant digest: changing the
+calendar or execution bar duration in every stress fold cannot evade rejection
+by making those folds agree only with each other. Admitted synthetic native
+accounts demonstrate rejection at the evidence adapter. Digest/schema string
+subclasses are rejected rather than coerced to potentially different values.
+
+This does not relax `AllocationPPOPolicy.action` exact-recipe checking.
+Executing one frozen PPO bundle under a declared stress remains separate
+admission work; no economic stress result is established by the identity layer.

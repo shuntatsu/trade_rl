@@ -2129,3 +2129,36 @@ or adequate G3. No learned alpha, market profitability, registered economic Stud
 calibration, online refit, unused/final access or paper/live eligibility is added.
 Issue #810 remains incomplete. Formal review, final full verification and
 integration remain required; maximum 20% DD remains a research constraint.
+
+## Issue #810 P3: unfit payoff-release timing control
+
+A separate source-only diagnostic fixture now accepts payoff_index8 against the
+unchanged omitted/explicit22. The same artificial 8% cue payoff reaches the
+second transition of H16 instead of terminal22. The full mark family, including
+index_price, moves; opens128, sole positive processing volume7, raw cue/prefix
+information, capital1024, action/fee/hard-risk contracts and true terminal remain
+fixed. Legacy22 identities, data, recipes and native scripted traces are retained.
+
+The early arm has distinct Dataset and canonical day1/cue+1 preprocessing lineage,
+shared by all six training and four held-out windows. Actual prefix moments and
+forecast label rows remain equal. Supplied early declarations validate against
+that owner without replacement; the owner belongs to the training roster.
+Independent Fraction tests check entry quantities/cash/fee, interval reward
+release, terminal equity, zero later fills and schedule resets at true terminal.
+
+The initial close-only DD oracle was falsified and corrected from the native
+open-then-mark valuation sequence, preserving its failed attempt. Correct early
+entry has maxDD1/1024 at8 but1024/26599 at9: later opens128 temporarily value the
+retained position at equity1023 against peak1063.96 before marked recovery.
+Correct late entry retains maxDD1/1024; wrong entry1049/25600 and cash0 are unchanged.
+Terminal gains remain999/25600 for correct and -1049/25600 for wrong. Later wealth,
+DD/risk/pending states and observations can differ, so this timing control cannot
+attribute a future learning difference solely to reward access or bootstrap.
+
+The new control is unfit/ungraded; actor/model execution authority is zero.
+All original FAILED and INITIAL_BASELINE_CEILING outcomes and strict old gates
+remain unchanged. A successor behavioral/negative-control protocol requires
+separate preregistration before any fit. P3 and Issue #810 remain incomplete,
+alongside calibration, market profitability, G3-G5, unused/final access and
+paper/live eligibility. Exact final-head full verification, formal review and
+integration remain required; the20% research guardrail remains fixed.

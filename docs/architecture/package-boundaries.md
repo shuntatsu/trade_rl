@@ -849,9 +849,32 @@ an independent-experience count.
 
 Frozen v3 preprocessing is reconstructed once from its declared fit Dataset and
 then checked for valid application at each scheduled child clock. This consumer
-does not publish an allocation inference bundle, Run/Study artifact, winner
-decision or deployment authorization. Existing single-episode bundle schemas and
-`fit_allocation_ppo` remain unchanged.
+captures a separate v5 inference manifest and exposes an explicit
+`ScheduledAllocationPPOFit.inference_policy()` handoff. Publication remains the
+existing `allocation_artifact.py` write-once owner; this consumer does not write
+bundle bytes, Run/Study artifacts, winner decisions or deployment authorization.
+Existing single-episode bundle schemas and `fit_allocation_ppo` remain unchanged.
+
+`strategies/rl/allocation_schedule_receipt.py` owns the lower closed scheduled
+receipt validator. It has no upper-runtime or optional learner imports. V5
+accepts only existing recipe v2/v3, fixes native JSON before canonicalization,
+and binds the complete train-window sources/objectives, schedule, financial
+clock, explicit protocol, optimizer telemetry, seed, realized budget and cyclic
+usage/row reuse. Sources match their declared full-window digest after removing
+repeat counts; all train windows must have been completely consumed at least
+once. Excluded validation/held-out windows cannot enter the consumption roster.
+Final autoreset is retained in reset counts, including a prepared episode with
+no subsequent actor decision. Frozen preprocessing is linked to its fit Dataset
+and admitted training clocks. These are consistency checks, not authentication
+of the supplied sources or historical fitting.
+
+The existing manifest/model/artifact owners dispatch v5 explicitly, keep actual
+model seed/timesteps/spaces/protocol/optimizer checks and bind `policy.zip` bytes.
+The existing artifact-bound continuous consumer accepts v5 under the same exact
+full-runtime recipe guard. Same-H complete training and a same-H one-fold OOS
+chain are connected; global-H multi-fold inference is not implemented here.
+Two locally bound H2 folds do not become compatible with an H4 policy by adding
+their durations. Cost/risk stress still requires separate explicit admission.
 
 
 ## Allocation continuous-account handoff ownership

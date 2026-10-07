@@ -1875,6 +1875,27 @@ This does not relax `AllocationPPOPolicy.action` exact-recipe checking.
 Executing one frozen PPO bundle under a declared stress remains separate
 admission work; no economic stress result is established by the identity layer.
 
+## Issue #810: scheduled immutable inference handoff candidate
+
+The scheduled PPO producer now captures a separately versioned v5 inference
+manifest alongside its unchanged detached fit receipt. The explicit policy
+handoff checks complete declared window coverage, actual cyclic reuse/reset
+counts, source/objective clocks, explicit protocol/optimizer/model facts and
+frozen preprocessing. Existing immutable model publication/load and the actual
+artifact-bound continuous OOS consumer are reused under exact full recipe guards.
+
+Synthetic software tests connect actual fixed-budget scheduled fitting to
+write-once bytes, verified reload, deterministic action parity and native account
+parity on a later same-H one-fold chain. Excluded held-out accounts remain
+uninitialized. A trained H4 policy is rejected before reset by two locally H2
+folds, despite their total H4: global-clock multi-fold support remains separate.
+Legacy v1-v4 formats/default consumers and the 20% research guardrail are kept.
+
+This stage does not establish historical source authenticity, delayed actor
+learnability, market profit, calibrated costs/capacity, policy stress admission,
+registered A/B/C economics, unused/final access or paper/live eligibility.
+Formal independent approval and final-head full CI remain integration gates.
+
 ## Issue #810 P4: actual fixed nonRL consumer
 
 The seedless baseline now runs residual action2 on the common continuous account,

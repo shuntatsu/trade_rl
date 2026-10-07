@@ -1335,6 +1335,41 @@ Historical PPO inference retains exact full-recipe checking. The candidate
 projection does not grant sealed access, change past artifacts or authorize
 Study selection, final-data access or deployment.
 
+## Scheduled allocation inference software assurance
+
+G0 asks whether a finite scheduled fit can become verified immutable inference
+bytes and reach the actual canonical OOS consumer without inventing a legacy
+single-episode receipt. This is a producer/consumer software prerequisite for
+Issue #810, not an edge hypothesis, learnability test or economic selection.
+
+G1 keeps independent-symbol capital, Discrete4 mapping, hard risk and canonical
+execution/accounting/fixed-capital reward. Bundle v5 is explicit, supports only
+existing recipe v2/v3 and binds complete training-window source/objective
+records, declared chronological schedule, seed/budget, clock, explicit protocol,
+optimizer calls, usage, exact row reuse and frozen preprocessing. Train accounts
+reset only at true terminal; rollouts continue accounts. Validation/held-out
+windows are excluded. Write-once publication, verified private policy copy and
+actual post-load model checks retain their existing owners. Full recipe/H/fee
+checking stays exact: adding two H2 folds does not admit an H4 trained recipe.
+Same-H single-fold continuous inference is the bounded connected capability.
+
+G2 uses independent declared N64/H16 two-window counts: two complete cycles,
+32 decisions per window and reset counts 3/2 with the final prepared autoreset.
+Rehashed malformed source digest and float indices must fail; schema aliases,
+changed order/role/range/clock/budget/consumption/usage/protocol/preprocessing,
+model seed/timestep/epochs and policy-byte tamper have separate failure controls.
+A fixed actual SB3 8-step synthetic two-day schedule feeds write-once save/load
+and a later-day same-H one-fold continuous OOS account. Reloaded deterministic
+actions and actual native account facts must match in-memory inference.
+Declared excluded data remains uninitialized; incompatible H2 fold recipes fail
+before OOS reset. A frozen mean/scale 1/1 independently maps raw feature 4 to 3.
+
+Known limits: declarations and hashes are consistency bindings, not unforgeable
+source/fit authentication. The receipt records source rows rather than the full
+actor/critic tensor sidecar. A same-H one-fold chain does not establish global
+clock normalization across multiple folds, refit/update timing, actor learning,
+calibration, a finite registered market comparison, G4/G5 or deployment access.
+
 ## Fixed nonRL consumer G0-G2
 
 G0 is a software mechanism: residual action2 reproduces the current after-cost

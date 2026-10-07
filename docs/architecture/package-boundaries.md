@@ -1166,3 +1166,18 @@ runner and comparison adapter, with no learner, model loader, selector or Study
 mutation. Candidate projection stays scenario-stable; complete per-fold runtime
 recipes and forecast context remain separate result bindings. Only its typed
 fixed-rule result enters this NONRL adapter; the generic comparison API is unchanged.
+
+## Global allocation episode ownership
+
+`evaluation/rl_allocation/global_walk_forward.py` owns the opt-in single-global-H
+segmented runner, distinct result and artifact entry. It reuses native environment
+transitions, state digests, fold diagnostics and stitching; no alternate account
+ledger, environment reset, normalization or learner is added. Structural/native
+fold and seed checks cover the complete roster before reset.
+`strategies/rl/allocation_artifact.py` owns a pure pinned manifest reader shared
+with its existing loader. An optional native-ns cutoff admits only scheduled v5,
+checking every TRAIN terminal and preprocessing fit endpoints before global start.
+The upper artifact entry reads all metadata first and then invokes the loader
+with the same pins/cutoff. Backend deserialization and actual model checks remain
+lower-loader responsibilities. Default v1-v4 loading and historical local-fold
+admission remain unchanged; global results have no common evidence adapter.

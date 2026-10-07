@@ -12,6 +12,125 @@ import pytest
 from trade_rl.artifacts import canonical_json_bytes, content_digest
 
 
+def scheduled_bundle(tmp_path, *, frozen=False):
+    from hashlib import sha256
+
+    from tests.strategies.test_allocation_schedule_receipt import direct_reader_case
+
+    raw = direct_reader_case(frozen=frozen)
+    root = tmp_path / "scheduled"
+    root.mkdir()
+    model = b"inert policy bytes; pure reader must not deserialize"
+    raw["policy_sha256"] = sha256(model).hexdigest()
+    (root / "policy.zip").write_bytes(model)
+    (root / "manifest.json").write_bytes(canonical_json_bytes(raw))
+    return root, raw
+
+
+@pytest.mark.parametrize("frozen", [False, True])
+def test_pinned_pure_reader_and_strict_absolute_training_cutoff(
+    tmp_path, monkeypatch, frozen
+):
+    module = capability("artifact")
+    reader = getattr(module, "read_allocation_policy_manifest", None)
+    assert callable(reader), "pure pinned manifest reader is absent"
+    root, raw = scheduled_bundle(tmp_path, frozen=frozen)
+    last = raw["training"]["schedule"]["windows"][-1]["terminal_time_ns"]
+    monkeypatch.setattr(
+        module, "_load_policy", lambda _: pytest.fail("backend reached")
+    )
+    pins = dict(
+        expected_digest=content_digest(raw), expected_recipe_digest=raw["recipe_digest"]
+    )
+    assert reader(root, **pins, training_cutoff_ns=last + 1000) == raw
+    for cutoff in (last, last - 1000, True, np.int64(last + 1000)):
+        with pytest.raises(ValueError):
+            reader(root, **pins, training_cutoff_ns=cutoff)
+
+    class Clock(int):
+        pass
+
+    with pytest.raises(ValueError):
+        reader(root, **pins, training_cutoff_ns=Clock(last + 1000))
+    with pytest.raises(ValueError, match="pinned"):
+        reader(
+            root, expected_digest="f" * 64, expected_recipe_digest=raw["recipe_digest"]
+        )
+    with pytest.raises(ValueError, match="recipe"):
+        reader(
+            root,
+            expected_digest=pins["expected_digest"],
+            expected_recipe_digest="f" * 64,
+        )
+    # The reader returns detached native bytes, not an in-process trusted object.
+    returned = reader(root, **pins)
+    returned["recipe"]["feature_names"][0] = "mutated"
+    assert reader(root, **pins) == raw
+
+
+def test_global_cutoff_rejects_historical_bundle_without_changing_default(
+    tmp_path, monkeypatch
+):
+    from hashlib import sha256
+
+    module = capability("artifact")
+    reader = getattr(module, "read_allocation_policy_manifest", None)
+    assert callable(reader), "pure pinned manifest reader is absent"
+    raw = manifest()
+    root = tmp_path / "historical"
+    root.mkdir()
+    model = b"historical policy"
+    raw["policy_sha256"] = sha256(model).hexdigest()
+    (root / "policy.zip").write_bytes(model)
+    (root / "manifest.json").write_bytes(canonical_json_bytes(raw))
+    pins = dict(
+        expected_digest=content_digest(raw), expected_recipe_digest=raw["recipe_digest"]
+    )
+    assert reader(root, **pins) == raw
+    with pytest.raises(ValueError, match="v5"):
+        reader(root, **pins, training_cutoff_ns=10**18)
+    monkeypatch.setattr(
+        module, "_load_policy", lambda _: pytest.fail("backend reached")
+    )
+    with pytest.raises(ValueError, match="v5"):
+        module.load_allocation_policy(root, **pins, training_cutoff_ns=10**18)
+
+
+@pytest.mark.parametrize(
+    "change", ["source_clock", "normalizer_values", "normalizer_future"]
+)
+def test_pure_reader_preserves_source_clock_and_frozen_fit_guards(
+    tmp_path, monkeypatch, change
+):
+    module = capability("artifact")
+    root, raw = scheduled_bundle(tmp_path, frozen=True)
+    cutoff = raw["training"]["schedule"]["windows"][-1]["terminal_time_ns"] + 1000
+    if change == "source_clock":
+        raw["training"]["sources"][0]["source"]["terminal_time"] = (
+            "2026-01-03T22:00:00.000000000"
+        )
+    else:
+        frozen = raw["recipe"]["observation"]["feature_preprocessing"]
+        if change == "normalizer_values":
+            frozen["statistics"]["mean"][0] += 1.0
+        else:
+            frozen["fit_as_of_ns"] = cutoff
+            frozen["policy_start_time_ns"] = cutoff
+        raw["recipe_digest"] = content_digest(raw["recipe"])
+        raw["training"]["recipe_digest"] = raw["recipe_digest"]
+    (root / "manifest.json").write_bytes(canonical_json_bytes(raw))
+    monkeypatch.setattr(
+        module, "_load_policy", lambda _: pytest.fail("backend reached")
+    )
+    with pytest.raises(ValueError):
+        module.load_allocation_policy(
+            root,
+            expected_digest=content_digest(raw),
+            expected_recipe_digest=raw["recipe_digest"],
+            training_cutoff_ns=cutoff,
+        )
+
+
 def capability(name):
     try:
         return import_module(f"trade_rl.strategies.rl.allocation_{name}")

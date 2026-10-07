@@ -1908,3 +1908,22 @@ declared fee stress, and full runtime recipes in execution evidence. In-process
 markers are not origin/authenticity proof; independent validity remains supplied.
 All-scenario orchestration, frozen PPO stress admission, calibration and a real
 economic Study remain separate work. This is G0-G2 software evidence, not profit.
+
+## Issue #810: opt-in global OOS clock consumer
+
+One native environment now spans the global OOS horizon, with immutable
+contiguous test segments switching frozen policies without reset/terminal or
+clock normalization at internal boundaries. Whole-roster structural checks and
+scheduled v5 metadata/cutoff preflight precede backend loading and the single
+account reset. Every TRAIN terminal and v3 preprocessing fit-last-event/as-of
+claim is strictly earlier than global start, using absolute source clocks even
+when training and OOS Dataset identities differ. Full global recipe, H, fees,
+capital and fixed normalizer guards remain exact; local-fold paths are unchanged.
+
+Synthetic G2 tests cover literal remaining time, unequal segmentation, native
+orders/risk/counters/RNG and actual small scheduled v3 PPO save/load global parity.
+The separate global result cannot satisfy the existing common-comparison DTO.
+This supplies a bounded software prerequisite, without online updates, historical
+fit/source authenticity, delayed actor learnability, market profitability,
+calibrated capacity, frozen-policy stress admission, registered A/B/C evidence,
+unused/final access or paper/live eligibility. The 20% research guardrail remains.

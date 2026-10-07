@@ -1157,3 +1157,12 @@ Historical exact-recipe policy inference remains unchanged. This identity split
 does not by itself authorize a frozen PPO artifact trained under base economics
 to execute in a stressed runtime; that requires a separately reviewed
 stress-policy admission adapter.
+
+## Fixed nonRL runner ownership
+
+`evaluation/allocation_nonrl_walk_forward.py` owns the fixed residual-action2
+consumer and its result/evidence boundary. It imports the existing continuous
+runner and comparison adapter, with no learner, model loader, selector or Study
+mutation. Candidate projection stays scenario-stable; complete per-fold runtime
+recipes and forecast context remain separate result bindings. Only its typed
+fixed-rule result enters this NONRL adapter; the generic comparison API is unchanged.

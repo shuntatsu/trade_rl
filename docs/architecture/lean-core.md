@@ -1118,3 +1118,15 @@ Same-H complete training to a same-H one-fold chain is supported. A multi-fold
 chain with a different locally bound H is rejected, even if its total duration
 matches training H. These software bindings establish neither historical source
 authenticity, actor learnability, market profitability nor research permission.
+
+## Fixed nonRL continuous-account consumer
+
+`run_continuous_nonrl_allocation` accepts fresh residual allocation environments,
+declares only action2, and delegates account/order carry and actual execution to
+the existing continuous runner. Direct action2 means FLAT and is rejected before
+reset. Only native MARKET/zero-extra-latency and drawdown profiles are admitted.
+Candidate/runtime, forecast and cost-clock coverage are checked for the
+whole chain first; native source/account admission remains per decision.
+The typed result retains the fixed rule, forecast and complete runtime identities.
+Its evidence adapter reuses common NONRL metrics with seed/policy fields null.
+These in-process markers prevent accidental labeling, not deliberate forgery.

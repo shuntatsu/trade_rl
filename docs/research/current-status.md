@@ -1895,3 +1895,16 @@ This stage does not establish historical source authenticity, delayed actor
 learnability, market profit, calibrated costs/capacity, policy stress admission,
 registered A/B/C economics, unused/final access or paper/live eligibility.
 Formal independent approval and final-head full CI remain integration gates.
+
+## Issue #810 P4: actual fixed nonRL consumer
+
+The seedless baseline now runs residual action2 on the common continuous account,
+with no caller policy, fit or model loading. Synthetic native execution matches
+independently scripted forecast proposals, including literal fees, risk veto,
+pending-order carry and HOLD cancellation. Its result/evidence boundary rejects
+direct carriers, mismatched contexts and generic caller-action results.
+The common NONRL row keeps seed/policy null, candidate identity stable under
+declared fee stress, and full runtime recipes in execution evidence. In-process
+markers are not origin/authenticity proof; independent validity remains supplied.
+All-scenario orchestration, frozen PPO stress admission, calibration and a real
+economic Study remain separate work. This is G0-G2 software evidence, not profit.

@@ -39,7 +39,8 @@
     "配分観測v3",
     "transition_trace_v1",
     "実行動と約定",
-    "buffer admission"
+    "buffer admission",
+    "非RL固定runner"
   ],
   "source_sections": [
     {
@@ -156,6 +157,16 @@
       "path": "docs/research/current-status.md",
       "heading": "Issue #810: chronological allocation action sidecar candidate",
       "sha256": "8e0aab3e5f5a19e98eb4779eb11f4f78acc2fc56c16fbd07cc047e472864e031"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Fixed nonRL continuous-account consumer",
+      "sha256": "17005a43542df51acb6f263f8c9e8753dcdb33dc9b8fadb4526c05bbfdc167db"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Issue #810 P4: actual fixed nonRL consumer",
+      "sha256": "5e3c50f204fb490970a915d15eeabd46b5c0fe0bb9a55b890445b28347964a58"
     }
   ],
   "code_references": [
@@ -685,6 +696,32 @@
         "tests/evaluation/test_allocation_transition_trace.py",
         "tests/integrations/test_allocation_ppo_runtime.py",
         "tests/architecture/test_allocation_rl_boundary.py"
+      ]
+    },
+    {
+      "id": "run-continuous-nonrl-allocation",
+      "symbol": "trade_rl.evaluation.allocation_nonrl_walk_forward.run_continuous_nonrl_allocation",
+      "kind": "function",
+      "source_sha256": "ce472fde04a64ddfe291612d03e21ca912cafcb519bf46ee29f0802ff39d844b",
+      "label_ja": "学習しない基準配分を連続実行する",
+      "description_ja": "残差action2だけを使う固定ruleを宣言し、口座・注文の継続と約定は共通runnerへ任せます。直接配分と構造・時計の不一致はreset前に拒否し、任意のpolicyを受け取りません。実特徴・口座との照合は各判断時のnative admissionで行います。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_nonrl_walk_forward.py",
+        "tests/architecture/test_allocation_nonrl_walk_forward_boundary.py"
+      ]
+    },
+    {
+      "id": "build-continuous-nonrl-allocation-evidence",
+      "symbol": "trade_rl.evaluation.allocation_nonrl_walk_forward.build_continuous_nonrl_allocation_evidence",
+      "kind": "function",
+      "source_sha256": "f1ba9d34d401ad95ccf279f6a339a22190c46d9da4d241e96f520c49e2f9bb86",
+      "label_ja": "固定基準の結果を共通比較へ結ぶ",
+      "description_ja": "専用結果のrule・候補・予測・完全なruntimeを照合し、共通NONRL証拠へ渡します。seed/policyはnullで、宣言の真正性や市場利益を証明しません。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_allocation_nonrl_walk_forward.py",
+        "tests/architecture/test_allocation_nonrl_walk_forward_boundary.py"
       ]
     }
   ]

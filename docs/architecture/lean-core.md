@@ -1227,8 +1227,9 @@ Same-object metadata changes therefore also fail before native execution.
 
 The distinct fee/global result retains actor input bytes/actions, model-state
 pins and native execution facts. These consistency links do not authenticate
-historical training or source usage. The result has no common-comparison adapter,
-learning/profit gate, refitting, Study mutation or final/unused authorization.
+historical training or source usage. The separate pure global comparison owner
+below consumes completed receipts; this result supplies no learning/profit gate,
+refitting, Study mutation or final/unused authorization.
 
 The first actual-SB3 software execution passed all three fixed cases on frozen
 uncommitted source: unchanged scheduled v2 and v3 policies, plus a separately
@@ -1256,8 +1257,8 @@ context and one complete runtime recipe. Cash checks its actual final book,
 orders and every native segment diagnostic for no position/trading costs, while
 preserving configured cash interest. These structural checks do not authenticate
 execution history or supply research validity. Historical continuous APIs and
-their result/evidence meanings remain unchanged; there is no global comparison
-adapter in this stage. An economic stop is detected after its actual native
+their result/evidence meanings remain unchanged. The separate global comparison
+adapter below admits completed observations only. An economic stop is detected after its actual native
 event, preserves the signed account and observed prefix, and raises without a
 completed global result. No loss clamping, fallback cash or automatic retry is
 introduced.
@@ -1283,5 +1284,39 @@ Economic stops keep the actual signed prefix and original raise; unavailable
 model/live-state hashes are explicit. Partial records never wrap completed results.
 The raw finite envelope is not a Dataset getter-use log, source/fit authenticity,
 backend `predict` tensor witness or independent G3 approval. None retains ordinary
-execution/fee bytes and load/predict/order/RNG behavior. Common comparison and
-research/economic admission remain separate future work.
+execution/fee bytes and load/predict/order/RNG behavior. The pure common comparison
+consumer is separate below; research/economic admission remains unestablished.
+
+## Completed global comparison evidence
+
+`allocation_global_comparison_evidence` consumes exact completed observations
+and a separately frozen expected plan. It executes no environment, policy or
+model. Candidate and native cash builders rerun closed receipt validation and
+match the whole plan, contract context, actual scenario and registered original
+candidate against the actual runtime recipe projection. Policy seed and Gym
+reset seed remain separate; ordinary policy7/reset17 uses schedule seed7.
+
+Before projecting metrics, the owner reconstructs the entire supplied
+`StitchedOOS` from its native folds. Returns, DECISION_STEP kind, fold-derived
+annualization, indices, boundaries, absence of gaps, continuous-account mode and
+combined diagnostics must match. SESSION annualization need not be the inverse
+of decision-clock seconds. Every interval's decision equity, weight and DD join
+to the preceding native book; returns/log returns, unsigned cumulative counters
+and signed funding join through segment and stitched diagnostics. Partial fills
+use actual fill count and filled turnover, preserving their distinction from
+completed orders and requested turnover.
+
+Primary profit is final native equity/C-1 and DD is native cumulative maximum
+drawdown, including intra-event effects. Geometric full-H returns must agree;
+bar-return DD is only a lower-bound check. Exact quantities, cash, marks,
+multipliers and all receipt facts remain digest-bound. A partial or insolvent
+prefix cannot produce a completed row, fallback cash or a padded matrix.
+
+The closed immutable validity record requires explicit VALID/INVALID, reasons
+for INVALID, scope and separate declared review/accounting content references.
+Each builder also requires an expected assurance scope without a default.
+`bounded_software_g2` and `independent_g3` are declared content scopes, not
+authenticated approval. The distinct global OOS projection combines unchanged
+legacy OOS identity with candidate-independent common identity. Existing common
+candidate/cash DTOs and complete matrix/selection rules remain unchanged; this
+owner grants no Study, learning, profitability or execution authority.

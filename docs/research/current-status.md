@@ -1922,7 +1922,8 @@ capital and fixed normalizer guards remain exact; local-fold paths are unchanged
 
 Synthetic G2 tests cover literal remaining time, unequal segmentation, native
 orders/risk/counters/RNG and actual small scheduled v3 PPO save/load global parity.
-The separate global result cannot satisfy the existing common-comparison DTO.
+The separate global result does not directly satisfy the existing common
+comparison DTO; a pure completed-receipt consumer is implemented below.
 This supplies a bounded software prerequisite, without online updates, historical
 fit/source authenticity, delayed actor learnability, market profitability,
 calibrated capacity, frozen-policy stress admission, registered A/B/C evidence,
@@ -2039,10 +2040,11 @@ software check, not learned-alpha or economic-study gates. Exact final-head
 full CI, integration and formal research gates remain pending; hashes do not
 authenticate original fitting or source use.
 
-Issue #810 remains incomplete: the separate global result still needs a reviewed
-source/runtime-pinned common-evidence producer before registered A/B/C
-comparison. Native global NONRL/cash controls and bounded received/native receipts
-are implemented below; their software consistency does not supply validity. No refit, profitability conclusion,
+Issue #810 remains incomplete: the separate source/runtime-pinned common evidence
+consumer below still needs formal review and research admission before registered
+A/B/C comparison. Native global NONRL/cash controls and bounded received/native
+receipts are implemented below; their software consistency does not supply
+independent validity. No refit, profitability conclusion,
 calibration, unused/final access or paper/live eligibility is added. The 20%
 research guardrail remains.
 
@@ -2066,8 +2068,8 @@ and its one-step prefix, with no completed global result or fabricated score.
 
 This is a software prerequisite, not learned alpha or market-profit evidence.
 A bounded source/runtime-bound received/native execution receipt is now implemented
-below. Explicit independent validity and the proper global common-comparison
-adapter remain unimplemented.
+below. The proper pure global common-comparison adapter is implemented below;
+authenticated independent validity remains unestablished.
 No actual learner/model execution, economic Study, online refit, selection,
 unused/final authorization or live eligibility is added. Exact final-head full
 CI, integration and formal independent review remain pending. Issue #810 remains
@@ -2092,3 +2094,38 @@ independent validity/G3, unused/final access or paper/live eligibility. Exact fi
 HEAD full CI, review, integration and downstream gates remain pending. Issue #810
 is incomplete; market profitability and the declared 20% guardrail remain
 unestablished by these software consistency checks.
+
+## Issue #810: completed global comparison evidence candidate
+
+A separate pure adapter now projects exact completed global observations into
+the unchanged candidate/cash comparison contracts. It requires a separately
+frozen full execution plan and closed explicit validity record with a required
+matching assurance scope. Original candidate/policy identity remains separate
+from actual fee runtime, policy seed remains separate from Gym reset seed, and
+candidate-independent global OOS identity adds common context to the unchanged
+legacy source projection. Shared portfolio and partial economic/integrity
+prefixes cannot become completed rows or fallback cash.
+
+The adapter reconstructs the entire supplied native stitching and checks every
+interval's return, log return, prior book/decision equity-weight-DD linkage and
+cumulative/segment/stitched cost, signed funding, borrow, filled turnover, fill
+and rebalance facts. SESSION annualization retains native fold semantics. Primary
+profit is native final equity/C-1 and DD remains native cumulative maximum DD;
+the lower bar-return estimate cannot replace intra-event DD.
+
+Bounded no-fit native/fake-policy controls exercise literal H4/C1000 profit/DD,
+actual cash interest, unequal segments, compensating-return/counter/context
+tampering and complete seeds0/7 x base/fee_x2 software matrices. Existing matrix
+and selection behavior remains: no missing or duplicate padding, no policy drift,
+explicit INVALID retained, and no NO_WINNER manufactured for incomplete data.
+The existing saved-v3 policy7/reset17 and three fee policy7/reset7 integration
+cases attach explicitly bounded G2 artifacts to the same existing calls after
+all original assertions. This source update adds no fit, prediction or replay;
+its actual-backend and final exact-source verification remain separately gated.
+
+`bounded_software_g2` and `independent_g3` are declared content scopes; neither
+scope name nor review/accounting reference hash establishes independent review
+or adequate G3. No learned alpha, market profitability, registered economic Study,
+calibration, online refit, unused/final access or paper/live eligibility is added.
+Issue #810 remains incomplete. Formal review, final full verification and
+integration remain required; maximum 20% DD remains a research constraint.

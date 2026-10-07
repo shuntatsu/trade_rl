@@ -532,9 +532,52 @@ def test_actual_v3_scheduled_bundle_global_clock_matches_uninterrupted_policy(
 
     monkeypatch.setattr(consumer, "load_allocation_policy", load)
     monkeypatch.setattr(saved, "reset", reset)
-    result = consumer.run_artifact_bound_global_allocation_walk_forward(
-        folds, saved, artifacts, reset_seed=17
+    from tests.evaluation.test_allocation_global_comparison_evidence import (
+        SCOPE,
+        contract_for_plan,
+        validity_payload,
     )
+    from trade_rl.evaluation import allocation_global_execution as execution
+    from trade_rl.evaluation.allocation_global_comparison_evidence import (
+        GlobalAllocationValidityRecord,
+        build_global_allocation_comparison_evidence,
+    )
+    from trade_rl.evaluation.runs import build_candidate_run_provenance
+
+    provenance = build_candidate_run_provenance()
+    expected_plan = execution.declare_global_allocation_execution(
+        folds,
+        saved,
+        kind="direct_ppo",
+        scenario="base",
+        seed=7,
+        reset_seed=17,
+        artifacts=artifacts,
+        expected_implementation_digest=provenance["implementation_digest"],
+        expected_runtime_digest=provenance["runtime_environment_digest"],
+    )
+    comparison_contract = contract_for_plan(expected_plan, seeds=(7,))
+    observed = execution.run_declared_global_allocation_execution(
+        folds, saved, expected_plan, artifacts=artifacts
+    )
+    result = observed.native_result
+    validity_record = GlobalAllocationValidityRecord.from_payload(
+        validity_payload(comparison_contract, expected_plan, observed)
+    )
+    comparison_row = build_global_allocation_comparison_evidence(
+        comparison_contract,
+        observed,
+        expected_plan=expected_plan,
+        validity_record=validity_record,
+        expected_assurance_scope=SCOPE,
+    )
+    assert observed.receipt.payload["reset_count"] == 1
+    assert len(observed.receipt.payload["rows"]) == 4
+    assert comparison_row.seed == 7
+    assert comparison_row.terminal_profit_rate == pytest.approx(
+        saved.book.portfolio_value / saved.initial_capital - 1
+    )
+    assert comparison_row.max_drawdown == saved.book.max_drawdown
     assert loaded_actions == actions
     assert resets == [{"seed": 17}]
     assert result.policy_digests == (digest, digest)
@@ -600,3 +643,19 @@ def test_actual_v3_scheduled_bundle_global_clock_matches_uninterrupted_policy(
             folds, fresh, (artifacts[0], bad_artifact)
         )
     assert not hasattr(fresh, "book")
+
+    evidence_root = tmp_path / "global-comparison"
+    evidence_root.mkdir()
+    (evidence_root / "software-evidence.json").write_bytes(
+        canonical_json_bytes(
+            {
+                "schema": "allocation_global_runtime_comparison_software_evidence_v1",
+                "software_kind": "genuine_unchanged_scheduled_v3_policy7_reset17",
+                "learned_alpha_established": False,
+                "expected_plan": expected_plan.payload,
+                "receipt": observed.receipt.payload,
+                "validity_record": validity_record.payload,
+                "comparison_evidence": comparison_row.payload(),
+            }
+        )
+    )

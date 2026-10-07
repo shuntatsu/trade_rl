@@ -426,3 +426,79 @@ def test_cost_stress_changes_runtime_recipe_but_keeps_candidate_identity_and_evi
     )
     assert evidence.recipe_digest == declaration.direct_recipe_digest
     assert evidence.policy_digest is not None
+
+
+@pytest.mark.parametrize("bar_hours", [0.5, 1.0])
+def test_comparison_rejects_runtime_drift_shared_by_every_scenario_fold(bar_hours):
+    from trade_rl.data.contracts import MarketCalendarKind
+
+    base_first, base_second = env_for(6, 8), env_for(8, 10)
+    folds = folds_for(base_first, base_second)
+    # A directly constructed, admitted Dataset can retain its declared ID.
+    # This tests the comparison's runtime closure, not Dataset authenticity.
+    source = replace(
+        base_first.dataset,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=bar_hours,
+    )
+    assert source.dataset_id == base_first.dataset.dataset_id
+    first, second = env_for(6, 8, dataset=source), env_for(8, 10, dataset=source)
+    assert first.recipe_digest != base_first.recipe_digest
+    result = run_continuous_allocation_walk_forward(
+        folds,
+        (first, second),
+        (
+            AllocationFoldPolicy("1" * 64, first.recipe_digest, lambda _o, _r: 3),
+            AllocationFoldPolicy("2" * 64, second.recipe_digest, lambda _o, _r: 0),
+        ),
+        reset_seed=7,
+    )
+    declaration = contract_for(base_first, folds)
+    _, scenario_digest, *_ = capability()
+    stress = AllocationComparisonScenario(
+        "cost_2x",
+        scenario_digest(
+            name="cost_2x",
+            dataset_id=source.dataset_id,
+            forecast_context_digest=first.stream.digest,
+            economics_digest=first.executor.execution_policy_digest,
+            risk_digest=content_digest(first.risk_config),
+        ),
+        required=True,
+    )
+    declaration = replace(declaration, scenarios=(declaration.scenarios[0], stress))
+    *_, build, _profit = capability()
+    with pytest.raises(ValueError, match="candidate recipe"):
+        build(
+            declaration,
+            candidate=AllocationCandidateKind.DIRECT_PPO,
+            scenario="cost_2x",
+            seed=0,
+            folds=folds,
+            environments=(first, second),
+            result=result,
+            validity_evidence_digest="e" * 64,
+        )
+
+
+def test_comparison_adapter_rejects_non_native_candidate_pin():
+    class MatchingDigest(str):
+        def __ne__(self, _other):
+            return False
+
+    first, second, folds, result = run_result()
+    declaration = replace(
+        contract_for(first, folds), direct_recipe_digest=MatchingDigest("c" * 64)
+    )
+    *_, build, _profit = capability()
+    with pytest.raises(ValueError, match="native.*recipe|native.*candidate"):
+        build(
+            declaration,
+            candidate=AllocationCandidateKind.DIRECT_PPO,
+            scenario="base",
+            seed=0,
+            folds=folds,
+            environments=(first, second),
+            result=result,
+            validity_evidence_digest="e" * 64,
+        )

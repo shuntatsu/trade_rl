@@ -1299,3 +1299,38 @@ and post-fit source/protocol failure refuse completion. None preserves model,
 manifest, full fixed-action economic traces and Python/NumPy/Torch RNG.
 These finite observability checks do not establish delayed learning, sampler
 coverage, continuous handover, source authenticity, market profits or G4/G5 approval.
+
+## Allocation scenario identity software assurance
+
+G0 asks whether a fixed allocation candidate can be compared under declared
+execution-cost/risk stress without changing its decision structure or common
+capital and timing. It is an evidence-integrity prerequisite, not an economic
+edge hypothesis or authority to execute market research.
+
+G1 distinguishes the complete per-fold runtime recipe from a scenario-stable
+candidate projection. The projection retains action/observation/allocator and
+preprocessing structure plus all runtime fields except economics/risk digests.
+The comparison contract pins this projection before the results; execution
+evidence separately binds each actual complete runtime recipe. Runtime agreement
+inside one submitted scenario does not establish agreement with the frozen
+base candidate. The scenario adapter still checks the declared economics/risk.
+
+G2 includes a valid declared fee-change control, seven invariant mutations and
+two admitted native continuous-account counterexamples: every stress fold uses
+one SESSION Dataset with the same declared ID, with nominal bar duration 0.5 or
+1.0 hours. Both complete the canonical runner but must fail the frozen candidate
+pin. Native schema/digest string guards also reject subclasses whose string
+conversion can differ from their canonical JSON value.
+Declared digest pins also require native strings so overloaded comparisons
+cannot make a mismatched pin appear equal.
+The actual comparison-evidence adapter enforces the same native-string rule
+for its predeclared candidate pin; guarding the standalone validator alone
+does not protect that separate admission boundary.
+
+These are fixed synthetic software oracles, not market fit/replay, independent
+Dataset authenticity proof, learned-policy stress admission or a G4 result.
+The identity helpers project supplied recipes; they are not complete domain
+parsers. The evidence adapter separately validates actual environment bindings.
+Historical PPO inference retains exact full-recipe checking. The candidate
+projection does not grant sealed access, change past artifacts or authorize
+Study selection, final-data access or deployment.

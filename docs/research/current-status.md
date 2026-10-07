@@ -1864,7 +1864,12 @@ keeps the full per-fold runtime recipe in execution evidence. A software oracle
 runs a fee-stressed continuous OOS path where base/stress full recipe digests
 differ, candidate identity remains equal, and comparison evidence is admitted.
 Changing action mode, features, allocator/preprocessing, capital/currency,
-financial clock, calendar or other runtime invariants fails closed.
+financial clock, calendar or other runtime invariants fails closed. The frozen
+candidate pin includes the non-stressed runtime invariant digest: changing the
+calendar or execution bar duration in every stress fold cannot evade rejection
+by making those folds agree only with each other. Admitted synthetic native
+accounts demonstrate rejection at the evidence adapter. Digest/schema string
+subclasses are rejected rather than coerced to potentially different values.
 
 This does not relax `AllocationPPOPolicy.action` exact-recipe checking.
 Executing one frozen PPO bundle under a declared stress remains separate

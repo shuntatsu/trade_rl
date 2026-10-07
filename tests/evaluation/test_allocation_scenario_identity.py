@@ -77,6 +77,28 @@ def test_candidate_identity_changes_when_decision_structure_changes(path, value)
         ("insolvency_valuation", "other"),
     ],
 )
+def test_candidate_pin_preserves_common_runtime_invariants(field, value):
+    candidate, _, _ = capability()
+    env = env_for(6, 8)
+    changed = deepcopy(env.recipe)
+    changed["runtime_profile"][field] = value
+    # Every scenario is compared with this predeclared candidate pin; a digest
+    # derived solely from that scenario's first environment cannot close drift.
+    assert candidate(env.recipe) != candidate(changed)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("initial_capital", 2000.0),
+        ("currency", "JPY"),
+        ("decision_interval_seconds", 7200),
+        ("economic_horizon_seconds", 14400),
+        ("calendar_kind", "session_calendar"),
+        ("execution_bar_hours", 2.0),
+        ("insolvency_valuation", "other"),
+    ],
+)
 def test_scenario_validation_rejects_non_economic_runtime_invariant_changes(
     field, value
 ):
@@ -129,3 +151,66 @@ def test_candidate_identity_does_not_mutate_recipe():
     candidate(env.recipe)
     invariant(env.recipe)
     assert env.recipe == before
+
+
+@pytest.mark.parametrize("field", ["economics_digest", "risk_digest"])
+def test_scenario_validator_rejects_digest_alias_coercion(field):
+    class DigestAlias(str):
+        def __str__(self):
+            return "c" * 64
+
+    _, _, validate = capability()
+    env = env_for(6, 8)
+    changed = deepcopy(env.recipe)
+    profile = changed["runtime_profile"]
+    original = profile[field]
+    profile[field] = DigestAlias(original)
+    assert profile[field] == original
+    assert str(profile[field]) != original
+    declarations = {
+        "base_economics_digest": str(profile["economics_digest"]),
+        "base_risk_digest": str(profile["risk_digest"]),
+        "scenario_economics_digest": str(profile["economics_digest"]),
+        "scenario_risk_digest": str(profile["risk_digest"]),
+    }
+    with pytest.raises(ValueError, match="native|SHA"):
+        validate(changed, changed, **declarations)
+
+
+def test_candidate_identity_rejects_non_native_schema_tag():
+    class SchemaAlias(str):
+        pass
+
+    candidate, _, _ = capability()
+    env = env_for(6, 8)
+    changed = deepcopy(env.recipe)
+    changed["schema"] = SchemaAlias(changed["schema"])
+    with pytest.raises(ValueError, match="schema"):
+        candidate(changed)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "base_economics_digest",
+        "base_risk_digest",
+        "scenario_economics_digest",
+        "scenario_risk_digest",
+    ],
+)
+def test_scenario_validator_rejects_alias_in_declared_pin(field):
+    class MatchingDigest(str):
+        def __ne__(self, _other):
+            return False
+
+    _, _, validate = capability()
+    env = env_for(6, 8)
+    declarations = {
+        "base_economics_digest": env.executor.execution_policy_digest,
+        "base_risk_digest": env.bound.objective.risk_digest,
+        "scenario_economics_digest": env.executor.execution_policy_digest,
+        "scenario_risk_digest": env.bound.objective.risk_digest,
+    }
+    declarations[field] = MatchingDigest("c" * 64)
+    with pytest.raises(ValueError, match="native|SHA"):
+        validate(env.recipe, env.recipe, **declarations)

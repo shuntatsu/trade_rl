@@ -6,6 +6,7 @@ import pytest
 
 from tests.evaluation.test_allocation_rl_env import parameters
 from trade_rl.artifacts import content_digest
+from trade_rl.data.contracts import MarketCalendarKind
 from trade_rl.evaluation.objectives import BoundObjectiveClock
 from trade_rl.evaluation.robustness.walk_forward.stitching import (
     FoldOOSResult,
@@ -67,6 +68,8 @@ def env_for(start, stop, *, cost=None, account_id="continuous-S0", dataset=None)
         objective.capital.currency,
         clock.decision_interval_seconds,
         clock.economic_horizon_seconds,
+        calendar_kind=MarketCalendarKind(source.calendar_kind).value,
+        execution_bar_hours=source.bar_hours,
     )
     recipe = allocation_recipe_digest(
         args["action_contract"],

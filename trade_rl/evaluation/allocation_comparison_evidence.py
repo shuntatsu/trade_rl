@@ -209,6 +209,8 @@ def validate_continuous_allocation_comparison_context(
     environments: tuple[AllocationTradingEnv, ...],
     result: ContinuousAllocationWalkForwardResult,
 ) -> None:
+    if type(expected_recipe_digest) is not str:
+        raise ValueError("comparison requires a native candidate recipe digest")
     require_sha256(expected_recipe_digest, field="expected_recipe_digest")
     if (
         type(environments) is not tuple

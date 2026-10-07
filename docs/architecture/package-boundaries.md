@@ -1107,8 +1107,8 @@ Issue #810 stress comparison separates candidate structure from scenario runtime
 `evaluation/allocation_scenario_identity.py` projects an allocation recipe into:
 
 - a candidate-structure digest containing the recipe schema, action mapping,
-  observation/features, allocator, horizon and preprocessing while excluding the
-  runtime profile; and
+  observation/features, allocator, horizon and preprocessing, together with the
+  runtime-invariant digest; and
 - a runtime-invariant digest containing the runtime-profile fields other than
   economics/risk.
 
@@ -1118,6 +1118,10 @@ values. A declared fee/spread/impact/capacity/risk scenario may therefore change
 the full runtime recipe while retaining the same candidate identity. Capital,
 currency, decision/economic clock, calendar, insolvency valuation and execution
 bar timing remain runtime invariants and cannot drift under a stress label.
+The predeclared candidate pin binds these invariants across all scenarios;
+agreement among folds within one submitted scenario alone is insufficient.
+Schema and runtime digest tags must be native strings, so custom string
+coercion cannot substitute another declared digest for canonical recipe bytes.
 
 Continuous comparison evidence binds the actual full runtime-recipe digest for
 every fold into its execution-summary digest. Thus scenario flexibility does

@@ -1334,3 +1334,16 @@ parsers. The evidence adapter separately validates actual environment bindings.
 Historical PPO inference retains exact full-recipe checking. The candidate
 projection does not grant sealed access, change past artifacts or authorize
 Study selection, final-data access or deployment.
+
+## Fixed nonRL consumer G0-G2
+
+G0 is a software mechanism: residual action2 reproduces the current after-cost
+allocator proposal, then the one canonical risk/execution/accounting path. G1
+binds fixed-rule and candidate identity, causal forecast/cost clocks, contiguous
+account state and full actual runtime recipes; supplied validity evidence is not
+independently authenticated by this wrapper. G2 uses declared coefficients with
+no fitting: capital 1000, execution price 100, target .5 and fee .002 buy 5
+with cash 499; the next valuation price 110 gives equity 1049.
+Independent forecast execution agrees on quantities, order IDs/events and costs;
+risk veto, partial-fill carry/HOLD cancellation and pre-reset rejection are tested.
+No market profitability, calibration, full comparison run or G3-G5 is established.

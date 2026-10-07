@@ -1320,3 +1320,16 @@ authenticated approval. The distinct global OOS projection combines unchanged
 legacy OOS identity with candidate-independent common identity. Existing common
 candidate/cash DTOs and complete matrix/selection rules remain unchanged; this
 owner grants no Study, learning, profitability or execution authority.
+
+## Frozen simple-return forecast diagnostics
+
+`evaluation/forecast_diagnostics.py` pairs an explicit sorted decision roster
+with every owning vintage's prediction symbols and exact mature horizon closes.
+Missing predictions, block gaps, selected snapshot/feature-name drift and
+unavailable sources fail before error calculation. Each vintage retains its own
+causal fit boundary; later prequential updates inside the roster are allowed.
+The label is end_close/start_close-1 and the residual is prediction minus label.
+Packet-weighted bias, MAE and RMSE describe raw price forecasts, not portfolio
+wealth, costs or conditional risk. The immutable report binds selected observed
+sources, roster, cutoff and supplied stream identity. It neither fits nor predicts,
+authenticates historical fits/dataset provenance, nor promotes calibration state.

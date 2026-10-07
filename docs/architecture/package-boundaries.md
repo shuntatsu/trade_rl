@@ -1329,3 +1329,14 @@ constant v3 remain distinct. No additional fitting, loading, predicting, replay
 or CI runtime case is introduced. Core native/fake-policy checks and architecture
 contracts belong to the new evidence owner; actual-backend verification requires
 separate frozen-source clearance. None of these paths grants economic authority.
+
+## Forecast diagnostic reader ownership
+
+`evaluation/forecast_diagnostics.py` exports only
+`SimpleReturnForecastDiagnostics` and `evaluate_simple_return_forecasts` from its
+own module. Tier-1 facades remain unchanged. It reads native Dataset and frozen
+simple-stream declarations and canonical content hashes, without importing RL,
+accounting, risk, execution or a forecast fitter. It never reconstructs a stream
+through its prediction-running constructor/reader. One immutable result returns
+detached payload copies with pooled and symbol/vintage/horizon error summaries;
+it is a supplied-source diagnostic, not a model or research authorization owner.

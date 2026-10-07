@@ -1099,3 +1099,34 @@ eligible candidates, the highest median base after-cost terminal profit wins.
 If no candidate is eligible the pure outcome is `NO_WINNER`. This decision is
 development evidence only; higher-level Study freeze/final-test authorization
 must bind it separately.
+
+
+## Allocation candidate vs scenario-runtime identity
+
+Issue #810 stress comparison separates candidate structure from scenario runtime.
+`evaluation/allocation_scenario_identity.py` projects an allocation recipe into:
+
+- a candidate-structure digest containing the recipe schema, action mapping,
+  observation/features, allocator, horizon and preprocessing while excluding the
+  runtime profile; and
+- a runtime-invariant digest containing the runtime-profile fields other than
+  economics/risk.
+
+The comparison contract's non-RL / residual-PPO / direct-PPO recipe digests are
+candidate-structure identities, not full `AllocationTradingEnv.recipe_digest`
+values. A declared fee/spread/impact/capacity/risk scenario may therefore change
+the full runtime recipe while retaining the same candidate identity. Capital,
+currency, decision/economic clock, calendar, insolvency valuation and execution
+bar timing remain runtime invariants and cannot drift under a stress label.
+
+Continuous comparison evidence binds the actual full runtime-recipe digest for
+every fold into its execution-summary digest. Thus scenario flexibility does
+not erase the exact environment identity that executed. Cash/no-trade control
+uses the same candidate-structure identity for its seedless policy identity
+while each fold policy remains bound to the actual full runtime recipe required
+by the canonical runner.
+
+Historical exact-recipe policy inference remains unchanged. This identity split
+does not by itself authorize a frozen PPO artifact trained under base economics
+to execute in a stressed runtime; that requires a separately reviewed
+stress-policy admission adapter.

@@ -11,6 +11,9 @@ from trade_rl.evaluation.allocation_comparison import (
     AllocationComparisonScenario,
     AllocationValidity,
 )
+from trade_rl.evaluation.allocation_scenario_identity import (
+    allocation_candidate_recipe_digest,
+)
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     run_continuous_allocation_walk_forward,
@@ -98,9 +101,9 @@ def contract_for(first, folds, *, scenario_name="base", economics=None, risk=Non
         economics_digest=first.executor.execution_policy_digest,
         risk_digest=content_digest(first.risk_config),
         fold_plan_digest=fold_digest(folds),
-        nonrl_recipe_digest=first.recipe_digest,
-        residual_recipe_digest=first.recipe_digest,
-        direct_recipe_digest=first.recipe_digest,
+        nonrl_recipe_digest=allocation_candidate_recipe_digest(first.recipe),
+        residual_recipe_digest=allocation_candidate_recipe_digest(first.recipe),
+        direct_recipe_digest=allocation_candidate_recipe_digest(first.recipe),
         account_mode=first.bound.objective.capital.account_mode,
         initial_capital=first.initial_capital,
         scenarios=(scenario,),
@@ -334,3 +337,92 @@ def test_builder_rejects_tampered_continuous_result_state_or_stitching():
             result=tampered_stitched,
             validity_evidence_digest="c" * 64,
         )
+
+
+def test_execution_evidence_binds_full_runtime_recipe_schedule():
+    from trade_rl.evaluation.allocation_comparison_evidence import (
+        allocation_comparison_oos_source_digest,
+        allocation_continuous_execution_summary_digest,
+    )
+
+    first, second, folds, result = run_result()
+    declaration = contract_for(first, folds)
+    source = allocation_comparison_oos_source_digest(declaration, scenario="base")
+    actual = allocation_continuous_execution_summary_digest(
+        result,
+        source_digest=source,
+        runtime_recipe_digests=(first.recipe_digest, second.recipe_digest),
+    )
+    changed = allocation_continuous_execution_summary_digest(
+        result,
+        source_digest=source,
+        runtime_recipe_digests=("a" * 64, second.recipe_digest),
+    )
+    assert actual != changed
+
+
+def test_cost_stress_changes_runtime_recipe_but_keeps_candidate_identity_and_evidence():
+    from tests.evaluation.test_allocation_rl_env import parameters
+    from trade_rl.evaluation.allocation_scenario_identity import (
+        allocation_candidate_recipe_digest,
+    )
+
+    base_first, base_second = env_for(6, 8), env_for(8, 10)
+    folds = folds_for(base_first, base_second)
+    args = parameters(stop=10)
+    stressed_cost = replace(
+        args["execution_cost"],
+        fee_rate=args["execution_cost"].fee_rate * 2,
+    )
+    stress_first = env_for(6, 8, cost=stressed_cost)
+    stress_second = env_for(8, 10, cost=stressed_cost)
+    policies = (
+        AllocationFoldPolicy("1" * 64, stress_first.recipe_digest, lambda _o, _r: 3),
+        AllocationFoldPolicy("2" * 64, stress_second.recipe_digest, lambda _o, _r: 0),
+    )
+    stressed_result = run_continuous_allocation_walk_forward(
+        folds,
+        (stress_first, stress_second),
+        policies,
+        reset_seed=7,
+    )
+
+    declaration = contract_for(base_first, folds)
+    _, scenario_digest, *_ = capability()
+    stress_scenario = AllocationComparisonScenario(
+        "cost_2x",
+        scenario_digest(
+            name="cost_2x",
+            dataset_id=base_first.dataset.dataset_id,
+            forecast_context_digest=base_first.stream.digest,
+            economics_digest=stress_first.executor.execution_policy_digest,
+            risk_digest=content_digest(stress_first.risk_config),
+        ),
+        required=True,
+    )
+    declaration = replace(
+        declaration,
+        scenarios=(declaration.scenarios[0], stress_scenario),
+    )
+
+    assert base_first.recipe_digest != stress_first.recipe_digest
+    assert allocation_candidate_recipe_digest(
+        base_first.recipe
+    ) == allocation_candidate_recipe_digest(stress_first.recipe)
+    assert declaration.direct_recipe_digest == allocation_candidate_recipe_digest(
+        stress_first.recipe
+    )
+
+    *_, build, _profit = capability()
+    evidence = build(
+        declaration,
+        candidate=AllocationCandidateKind.DIRECT_PPO,
+        scenario="cost_2x",
+        seed=0,
+        folds=folds,
+        environments=(stress_first, stress_second),
+        result=stressed_result,
+        validity_evidence_digest="d" * 64,
+    )
+    assert evidence.recipe_digest == declaration.direct_recipe_digest
+    assert evidence.policy_digest is not None

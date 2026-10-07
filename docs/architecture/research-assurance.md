@@ -1600,4 +1600,30 @@ mark 400 terminates after one native event at retained-debt cash/equity -501.
 These are bounded software arithmetic/state controls with no fitting, actual
 learner backend, market-data study or G3-G5 authority. Structural hashes do not
 prove historical source use or authenticity; full independent native accounting
-and the later receipt/evidence gates remain required for research validity.
+and separately reviewed evidence/independent-validity gates remain required
+for research validity; bounded received/native receipts are implemented below.
+
+
+## Global received/native receipt controls
+
+The opt-in closed plan pins a candidate-independent raw Dataset envelope, full
+absolute segment roster/H4/C1000 account, objective/clock/scenario and expected
+implementation/runtime. Cell pins retain action/observation/preprocessing/full
+recipe, original manifest/ZIP and policy seed separately from the actual env reset
+seed. Completed receipts require one reset, four actual action inputs/native
+transitions, original model state, segment/state continuity and global terminal.
+The public received argument is copied before the same call; terminal zero vectors
+are not fifth inputs. Native facts reuse the original detached closed reader.
+
+Bounded no-fit controls cover unequal 1+3/3+1, private NONRL2/cash0, literal cash
+interest, partial/no-fill carry, native retained-debt cash/equity -501, source/cost/
+model drift, occupied/foreign observers, whole ZIP preflight and unchanged None
+load/private-bind/receipt behavior. Model seed7/reset17 remains distinct on the
+ordinary artifact route; fee preserves its original comparison seed guard.
+Inside-call drift records the actual return with no native event, or an exception
+if the original fee action guard raises. Post-native drift keeps the real prefix.
+The original failure propagates; missing hashes/facts never imply completion.
+These software records establish neither raw getter use, backend predict inputs,
+historical fit/source origin nor independent accounting/G3 or profitability.
+Formal gates, actual-model runtime clearance and global common evidence remain
+separate requirements; no economic/final/online execution is added here.

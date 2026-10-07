@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import Any
 
 import numpy as np
@@ -29,6 +28,13 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_execution_context import (
+    GlobalAllocationExecutionCollector,
+    allocation_array_pin,
+    allocation_execution_runtime,
+    allocation_source_envelope_digest,
+    validate_global_collector,
+)
 from trade_rl.evaluation.rl_allocation.global_walk_forward import (
     GlobalAllocationWalkForwardResult,
     run_global_allocation_walk_forward,
@@ -38,8 +44,6 @@ from trade_rl.evaluation.rl_allocation.policy_admission import (
     AllocationFoldPolicyArtifact,
 )
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
-from trade_rl.simulation import MarketExecutor
-from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.rl.allocation_artifact import (
     load_allocation_policy,
     read_allocation_policy_manifest,
@@ -48,87 +52,19 @@ from trade_rl.strategies.rl.allocation_fee_stress import (
     AllocationFeeStressBinding,
     AllocationFeeStressPolicyView,
     allocation_policy_state_digest,
-    retained_debt_economics_digest,
 )
 
 
 def _array_pin(values: np.ndarray) -> dict[str, Any]:
-    return {
-        "dtype": values.dtype.str,
-        "shape": list(values.shape),
-        "sha256": sha256(np.ascontiguousarray(values).tobytes()).hexdigest(),
-    }
+    return allocation_array_pin(values)
 
 
 def _source_context(env: AllocationTradingEnv) -> str:
-    """Declared finite envelope, explicitly not an authenticated usage receipt."""
-    dataset = env.dataset
-    arrays = {}
-    for name, values in dataset.identity_arrays().items():
-        if name == "global_features":
-            continue
-        if name in ("features", "feature_available"):
-            selected = values[env.start_index : env.stop_index, env.symbol_index][
-                :, list(env.feature_indices)
-            ]
-        elif values.ndim > 0 and values.shape[0] == dataset.n_bars:
-            selected = values[env.start_index : env.stop_index + 1]
-        else:
-            selected = values
-        arrays[name] = _array_pin(selected)
-    return content_digest(
-        {
-            "schema": "allocation_fee_global_source_envelope_v1",
-            "dataset_id": dataset.dataset_id,
-            "dataset_contract": dataset.identity_contract_payload(),
-            "symbol_index": env.symbol_index,
-            "feature_indices": list(env.feature_indices),
-            "feature_names": list(dataset.feature_names),
-            "range": [env.start_index, env.stop_index],
-            "account_id": env.account_id,
-            "forecast_context_digest": env.stream.digest,
-            "cost_beliefs": [
-                env._estimates[key].payload() for key in sorted(env._estimates)
-            ],
-            "arrays": arrays,
-        }
-    )
+    return allocation_source_envelope_digest(env)
 
 
 def _runtime(env: AllocationTradingEnv) -> dict[str, Any]:
-    if (
-        type(env) is not AllocationTradingEnv
-        or type(env.executor) is not MarketExecutor
-    ):
-        raise ValueError("fee view requires native allocation execution")
-    cost = env.execution_cost
-    if (
-        type(cost) is not ExecutionCostConfig
-        or type(env.executor.cost) is not ExecutionCostConfig
-    ):
-        raise ValueError("fee view requires native cost configuration")
-    cost.__post_init__()
-    env.executor.cost.__post_init__()
-    actual = env.executor.cost.execution_policy_payload()
-    if canonical_json_bytes(actual) != canonical_json_bytes(
-        cost.execution_policy_payload()
-    ):
-        raise ValueError("fee executor actual cost differs from configured cost")
-    if (
-        env.executor.market_order_profile is not None
-        or env.executor.rule_stress.enabled
-        or env.executor.insolvency_valuation != "retain_debt"
-    ):
-        raise ValueError("fee view rejects execution profiles or rule stress")
-    economics = retained_debt_economics_digest(actual)
-    if economics != env.executor.execution_policy_digest:
-        raise ValueError("fee native cost contents changed behind cached economics")
-    env.validate_binding()
-    return {
-        "recipe": env.recipe,
-        "cost_payload": actual,
-        "source_context_digest": _source_context(env),
-    }
+    return allocation_execution_runtime(env)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +206,7 @@ def run_fee_stressed_global_allocation(
     scenario: str,
     fee_factor: float,
     reset_seed: int | None = None,
+    collector: GlobalAllocationExecutionCollector | None = None,
 ) -> FeeStressedGlobalAllocationResult:
     """Preflight/load originals, then reset once with exact fee-only policy views."""
     if (
@@ -285,6 +222,7 @@ def run_fee_stressed_global_allocation(
         raise ValueError("fee declaration requires an allocation comparison contract")
     if type(reset_seed) is not int or reset_seed not in contract.rl_seeds:
         raise ValueError("fee run requires one declared native RL seed")
+    validate_global_collector(stress_env, collector)
     base, stress = _runtime(base_env), _runtime(stress_env)
     if (
         base_env is stress_env
@@ -363,6 +301,8 @@ def run_fee_stressed_global_allocation(
     )
     if any(model.manifest["training"]["seed"] != reset_seed for model in models):
         raise ValueError("fee original model seed differs from comparison seed")
+    if collector is not None:
+        collector.loaded_policies(models)
     states = tuple(allocation_policy_state_digest(model) for model in models)
     bindings = tuple(
         AllocationFeeStressBinding(d | {"model_state_digest": state})
@@ -384,7 +324,7 @@ def run_fee_stressed_global_allocation(
         for a, view in zip(artifacts, views, strict=True)
     )
     result = run_global_allocation_walk_forward(
-        folds, stress_env, policies, reset_seed=reset_seed
+        folds, stress_env, policies, reset_seed=reset_seed, collector=collector
     )
     for view in views:
         view.validate_original()

@@ -452,3 +452,125 @@ def test_v3_frozen_prefix_is_identical_and_never_refitted_by_fee_run(
         == prefix
     )
     assert [call[0] for call in model.calls] == [1, 1, 1, 1]
+
+
+def test_fee_none_and_observed_preserve_original_receipt_and_call_counts(
+    tmp_path, monkeypatch
+):
+    import trade_rl.strategies.rl.allocation_artifact as archive
+    from tests.evaluation.allocation_fee_stress_fixture import FakeModel
+    from tests.evaluation.test_allocation_global_execution import capability, declare
+    from trade_rl.evaluation.rl_allocation.fee_stress_admission import (
+        run_fee_stressed_global_allocation,
+    )
+
+    api = capability()
+    base, _ = native_pair()
+    root, digest, _ = publish_fake(base, tmp_path, monkeypatch)
+    raw = archive.read_allocation_policy_manifest(
+        root, expected_digest=digest, expected_recipe_digest=base.recipe_digest
+    )
+    snapshots = []
+    for route in ("omitted", "none", "observed"):
+        base, stress = native_pair()
+        model = FakeModel(raw)
+        loads = []
+        monkeypatch.setattr(
+            archive, "_load_policy", lambda path: (loads.append(path), model)[1]
+        )
+        folds, contract, artifacts = declaration(base, stress, root, digest)
+        if route == "observed":
+            plan = declare(
+                api,
+                stress,
+                folds,
+                kind="residual_ppo",
+                scenario="configured_fee_x2",
+                seed=7,
+                artifacts=artifacts,
+                base_env=base,
+                contract=contract,
+                fee_factor=2.0,
+            )
+            wrapped = api.run_declared_global_allocation_execution(
+                folds,
+                stress,
+                plan,
+                artifacts=artifacts,
+                base_env=base,
+                contract=contract,
+            )
+            result = wrapped.native_result
+            receipt = wrapped.receipt.payload
+            assert receipt["rows"][0]["native"]["book"]["cash"] == 498
+            assert receipt["rows"][0]["native"]["book"]["equity"] == 1048
+            assert (
+                receipt["plan"]["cell"]["original_recipe_digest"] == base.recipe_digest
+            )
+        else:
+            result = run_fee_stressed_global_allocation(
+                folds,
+                base_env=base,
+                stress_env=stress,
+                artifacts=artifacts,
+                contract=contract,
+                candidate=AllocationCandidateKind.RESIDUAL_PPO,
+                scenario="configured_fee_x2",
+                fee_factor=2.0,
+                reset_seed=7,
+                **({"collector": None} if route == "none" else {}),
+            )
+        assert len(loads) == 2 and len(model.calls) == 4
+        assert stress._transition_recorder is None
+        snapshots.append(
+            (
+                canonical_json_bytes(result.receipt),
+                canonical_json_bytes(result.walk_forward),
+                [v.tobytes() for v in model.calls],
+                stress.book,
+                stress.order_book,
+                stress.executor._rng.bit_generator.state,
+            )
+        )
+    assert snapshots[0] == snapshots[1] == snapshots[2]
+    # Immutable-parent bytes, independently captured before any B source edits.
+    assert len(snapshots[0][0]) == 20359
+    assert (
+        sha256(snapshots[0][0]).hexdigest()
+        == "8934a49781271b4e12647b00deccc06149366a1c2811c1718fdff3654bdd3a21"
+    )
+
+
+def test_fee_action_guard_raising_does_not_invent_public_return(tmp_path, monkeypatch):
+    import trade_rl.strategies.rl.allocation_artifact as archive
+    from tests.evaluation.test_allocation_global_execution import capability, declare
+
+    api = capability()
+    base, stress = native_pair()
+    root, digest, model = publish_fake(base, tmp_path, monkeypatch)
+    folds, contract, artifacts = declaration(base, stress, root, digest)
+    monkeypatch.setattr(archive, "_load_policy", lambda _: model)
+    plan = declare(
+        api,
+        stress,
+        folds,
+        kind="residual_ppo",
+        scenario="configured_fee_x2",
+        seed=7,
+        artifacts=artifacts,
+        base_env=base,
+        contract=contract,
+        fee_factor=2.0,
+    )
+    model.before_predict = lambda: model.weights["actor.weight"].__setitem__((0, 0), 2)
+    with pytest.raises(
+        ValueError, match="fee view model tensor contents changed"
+    ) as raised:
+        api.run_declared_global_allocation_execution(
+            folds, stress, plan, artifacts=artifacts, base_env=base, contract=contract
+        )
+    receipt = raised.value.global_execution_receipt.payload
+    assert receipt["rows"][0]["call_outcome"]["status"] == "raised"
+    assert "action" not in receipt["rows"][0]["call_outcome"]
+    assert receipt["rows"][0]["native"] is None and len(model.calls) == 1
+    assert stress.index == 6 and stress.book.fill_count == 0

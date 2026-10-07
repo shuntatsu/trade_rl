@@ -2040,8 +2040,9 @@ full CI, integration and formal research gates remain pending; hashes do not
 authenticate original fitting or source use.
 
 Issue #810 remains incomplete: the separate global result still needs a reviewed
-source/runtime-pinned common-evidence producer and proper global NONRL/cash
-controls before registered A/B/C comparison. No refit, profitability conclusion,
+source/runtime-pinned common-evidence producer before registered A/B/C
+comparison. Native global NONRL/cash controls and bounded received/native receipts
+are implemented below; their software consistency does not supply validity. No refit, profitability conclusion,
 calibration, unused/final access or paper/live eligibility is added. The 20%
 research guardrail remains.
 
@@ -2064,9 +2065,30 @@ insolvency instead happens after execution and retains signed equity/cash -501
 and its one-step prefix, with no completed global result or fabricated score.
 
 This is a software prerequisite, not learned alpha or market-profit evidence.
-The source/runtime-bound execution receipt, explicit independent validity and
-proper global common-comparison adapter remain unimplemented in this stage.
+A bounded source/runtime-bound received/native execution receipt is now implemented
+below. Explicit independent validity and the proper global common-comparison
+adapter remain unimplemented.
 No actual learner/model execution, economic Study, online refit, selection,
 unused/final authorization or live eligibility is added. Exact final-head full
 CI, integration and formal independent review remain pending. Issue #810 remains
 incomplete and the 20% research guardrail remains a declared constraint.
+
+
+## Issue #810: bounded global execution receipt candidate
+
+The closed global declaration/facade and concrete lower collector now bind the
+finite shared raw source/H/C/fold/account/objective/clock/scenario context to
+values received by existing public action/native calls. Candidate full recipe,
+selected observation/preprocessing, original artifacts/model state and policy
+seed remain separate from common identity and actual reset seed. Historical
+continuous APIs and original fee receipt/error/None semantics are retained.
+
+No-fit native/fake-policy checks cover four action inputs and transitions over
+unequal H4 segments, one reset, original load/predict counts, fee arithmetic,
+source/cached-cost/model drift and actual signed economic prefixes. A partial
+record retains its failure and cannot become a completed result or score.
+This candidate adds no fits, actual learner calls, economic Study, common matrix,
+independent validity/G3, unused/final access or paper/live eligibility. Exact final
+HEAD full CI, review, integration and downstream gates remain pending. Issue #810
+is incomplete; market profitability and the declared 20% guardrail remain
+unestablished by these software consistency checks.

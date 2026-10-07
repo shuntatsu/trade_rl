@@ -40,13 +40,33 @@ def test_global_cash_boundary_accepts_only_native_folds_and_one_environment():
     assert "run_global_allocation_cash_control" in functions
     run = functions["run_global_allocation_cash_control"]
     assert [a.arg for a in run.args.args] == ["folds", "env"]
+    assert not run.args.defaults and run.args.vararg is None and run.args.kwarg is None
+    assert [a.arg for a in run.args.kwonlyargs] == ["collector"]
     assert (
-        not run.args.kwonlyargs and run.args.vararg is None and run.args.kwarg is None
+        ast.unparse(run.args.kwonlyargs[0].annotation)
+        == "GlobalAllocationExecutionCollector | None"
     )
+    assert (
+        len(run.args.kw_defaults) == 1
+        and isinstance(run.args.kw_defaults[0], ast.Constant)
+        and run.args.kw_defaults[0].value is None
+    )
+    native_calls = [
+        n
+        for n in ast.walk(run)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "run_global_allocation_walk_forward"
+    ]
+    assert len(native_calls) == 1
+    forwarding = {k.arg: k.value for k in native_calls[0].keywords}
+    assert ast.unparse(forwarding["collector"]) == "collector"
+
     calls = {
         n.func.id
         for n in ast.walk(run)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
     }
+    assert ast.unparse(forwarding["reset_seed"]) == "0"
     assert "run_global_allocation_walk_forward" in calls
     assert "run_continuous_allocation_walk_forward" not in calls

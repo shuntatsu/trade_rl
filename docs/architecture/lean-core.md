@@ -1243,7 +1243,8 @@ formal research gates remain pending.
 
 The opt-in global NONRL and cash entries reuse the single-global-H native runner,
 with private fixed residual action2 and direct HOLD action0 respectively. They
-accept only the immutable segment plan and one fresh native environment, with no
+accept the immutable segment plan, one fresh native environment and an optional
+closed observational collector, with no
 caller policy, action sequence or reset seed. The complete carrier forecast/cost
 clock coverage, action mode, MARKET/zero-extra-latency profile and native
 drawdown guardrail at most 20% are checked before the one reset. H, capital and
@@ -1260,3 +1261,27 @@ adapter in this stage. An economic stop is detected after its actual native
 event, preserves the signed account and observed prefix, and raises without a
 completed global result. No loss clamping, fallback cash or automatic retry is
 introduced.
+
+
+## Received global allocation inputs and native facts
+
+`allocation_global_execution` declares a closed shared source/H/C/account/fold,
+objective/clock/scenario and implementation/runtime context before backend load
+or reset. Candidate action/schema/preprocessing/full recipe, original manifest
+and ZIP pins, policy seed and actual reset seed belong to the separate cell.
+`rl_allocation/global_execution_context` now owns the unchanged fee envelope and
+runtime guards plus the concrete observation-only collector; upper provenance
+stays in the facade. The existing env observer/freezer/closed native reader are
+reused without another ledger or policy invocation. A foreign collector or
+occupied slot is rejected before load/reset; finally clears only the owned slot.
+
+Rows snapshot the original finite public `action` argument before that same call,
+its actual return or exception, and detached native facts before book overwrite.
+After-step checks run before the existing economic-stop raise. Completion requires
+one reset/full H/native terminal, bound model state and segment/state-chain.
+Economic stops keep the actual signed prefix and original raise; unavailable
+model/live-state hashes are explicit. Partial records never wrap completed results.
+The raw finite envelope is not a Dataset getter-use log, source/fit authenticity,
+backend `predict` tensor witness or independent G3 approval. None retains ordinary
+execution/fee bytes and load/predict/order/RNG behavior. Common comparison and
+research/economic admission remain separate future work.

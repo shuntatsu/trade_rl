@@ -1181,3 +1181,41 @@ The upper artifact entry reads all metadata first and then invokes the loader
 with the same pins/cutoff. Backend deserialization and actual model checks remain
 lower-loader responsibilities. Default v1-v4 loading and historical local-fold
 admission remain unchanged; global results have no common evidence adapter.
+
+## Scheduled allocation transition evidence ownership
+
+Three upper owners compose the existing `transition_arrays` and
+`transition_facts`: `scheduled_transition_trace` owns actual scheduled observation
+and optional native learner diagnostics; `scheduled_transition_validation`
+owns closed supplied-fact joins without importing a learner; and
+`scheduled_transition_trace_io` owns separate write-once publication/reading
+without model deserialization. These owners do not sample a policy, call
+`buffer.get()` or execute another ledger. Actual outputs are captured once at
+existing seams and the reader checks their relations.
+
+The small `AllocationExecutionObserver` Protocol keeps the native environment's
+one pre-overwrite slot usable by both old single-source and scheduled observers.
+`scheduled_training` owns freshness, attachment, callback ordering, unconditional
+cleanup and successful final-policy completion. `training_protocol` has an
+optional completed-update observer while retaining its original optimizer-event
+framing and default receipt bytes. Callback import/construction precedes hook
+installation; failures remove only owned hooks/slots and restore the original
+predictor. Ordinary lower recipe/v5 source/schedule/receipt/model owners and
+the saved bundle's two-file layout are unchanged.
+
+The reader binds OLD-window source facts, NEXT live/reset identities, actual
+actor tensor bytes, admitted chronological buffer, mixed-precision GAE and
+bootstrap, native update counters/scalars and parameter-chain pins. Immutable
+raw/transformed feature prefixes stay equal across reused rows, independently
+of account suffix variation. Native update counts must reproduce the existing
+optimizer-event digest. The separate sidecar adds no new model/account/sampler
+facade, Study registration, historical authenticity or execution authority.
+
+The shared `transition_facts` owner checks native order attempt and mutation
+clocks separately. `no_fill` preserves the pending record; a final active order
+must match latest status/remaining and its latest observed state-changing clock.
+A no-fill-only carry requires a prior non-null clock, while submitted-plus-no-fill
+without eligibility rejects. This changes reader consistency, not native order
+execution, account economics or any artifact schema. The scheduled observer and
+ordinary single-source reader both reuse this parent rule. The six-cell actor
+comparison retains failed learning outcomes even when software evidence is VALID.

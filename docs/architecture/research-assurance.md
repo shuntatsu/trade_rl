@@ -1411,3 +1411,113 @@ complete source preflight or unread-future guarantees are not established.
 The global result has no common-comparison evidence adapter. No online refit,
 selection, completion/availability proof, learning/profit, stress admission,
 Study registration, G4/G5, final/sealed authority or market execution is added.
+
+## Scheduled actor trace and finite delayed credit G0-G2
+
+G0 is an actual scheduled PPO producer to a closed reader and separate saved-v5
+sidecar. G1 holds native financial H, source windows, causal preprocessing,
+mapper/risk/account/reward and all explicit PPO protocol fields. A rollout
+boundary continues the current account; only true terminal rotates to the
+prepared next child. Trace COMPLETE means successful software fitting with
+closed evidence, not profitable or improved learning.
+
+G2 independently wraps the original actor and bootstrap calls, native buffer
+target computation and native train. Original input/action/value/logpi,
+pre-forward episode-start masks and original env rewards match all six actual
+chronological buffer arrays. Original named parameter bytes are independently
+framed for both actor/critic pre/post pins; wrong-but-different pins fail. Three
+H4 windows with indices 6..9, rollout 6 and 12 decisions distinguish live W2/index 8
+bootstrap from the final OLD W3 terminal and prepared W1/index 6 reset, which
+gets no further actor call. Exact native cancellation and carried-precision
+discriminators reject blanket float 32 or one-ULP GAE substitutes.
+
+Connected counterexamples reject rehashed contradictory features on a later
+reuse of the same immutable row, and native optimizer-call distributions that
+disagree with the deterministic receipt digest despite equal totals. A positive
+two-cycle long-versus-short native fixture keeps the feature prefix equal while
+account suffixes differ. Lifecycle controls cover setup, optimizer, observer,
+finish, partial attachment, last callback False, post-fit source/model mutation,
+missing/stale/boolean/nonfinite diagnostics and mode downgrade. The first native
+ordinal True alias must fail at update 1. Zero-step KL stops preserve actual
+parameters, and zero-variance EV retains null with its sole declared reason.
+None/omitted/enabled model/optimizer/RNG/native-economics parity, ordinary v5
+save/read/reload, staged cleanup, write-once, symlink alias and final-live parameter
+mutation are separately checked. These are supplied-fact consistency oracles,
+not upstream source or historical fitting authentication.
+
+The separate fixed behavioral fixture declares H16, capital 1024, initial/entry
+price 128, first decision 6/process 7 capacity only and zero later volume. Signed
+quantity+/-4 pays entry fee 1. Native marked continuation gives correct terminal
+profit 39.96, wrong-41.96, fee-only-1 and cash 0; there is no terminal liquidation
+fee. Allocation adapter extra latency 0 is admitted; 1/2 are rejected. Separate
+existing native executor controls show 0/1 filling on 7 and 2 pending/no fill
+through 22. This does not expand adapter latency admission.
+
+Before models, the behavioral harness freezes all six paired cells: seeds 0/7/17,
+rollouts 4/32, six balanced train dates and four unseen held-out dates, common
+frozen v3 preprocessing with no clipping, 4096 transitions, minibatch 4, epochs 10,
+gamma 1, lambda .95 and the same full declared network/Adam protocol. Each cell
+records an untrained identical-seed initial actor, independent initial named
+bytes, actual early effective fill/fee and terminal native account. Actual fits
+must save/read/reload with native parity and retain early-row GAE/return/value/
+logpi, bootstrap and actual actor/critic updates. Rollout frequency and advantage
+normalization groups differ inherently; total returned Adam calls are 10240 in
+each factor absent KL stopping.
+
+Per-cell earliest effective filled-sign alignment>=.75, mean after-fee gain>.025
+and improvement over initialization>.02 are strict. All three short seeds must
+pass separately. Initial baseline>=.0190234375 makes the strict improvement gate
+uninformative; retain `INITIAL_BASELINE_CEILING` failure, with no seed exclusion
+or gate waiver. Every invocation attempts all six once before aggregation,
+retains failed/invalid outcomes and forbids favorable retries or tuning to green.
+Before persisting the comparison, aggregate software conformance checks the
+exact matrix, returned-call/budget counts, native parameter changes, paid early
+rows and paired initial parameter/action/account equality. A failed prerequisite
+persists INVALID with structured reasons and cannot furnish overall short PASS;
+all original per-cell learning outcomes remain unchanged.
+The existing CI PPO invocation uses a unique run/attempt temporary directory and
+uploads only its `fixed-delayed-actor` subtree even when that invocation fails.
+The artifact name binds the checked-out PR HEAD and run/attempt; retention is
+seven days. It retains the pre-fit declaration, initial baselines, all six raw
+outcomes, ordinary policy bundles and sidecars without rerunning or selecting
+successful cells. Exact HEAD source and these receipts permit inspection and
+reproduction of the declared finite protocol, not historical fit authentication
+or guaranteed identical learned weights across runtime platforms. No unrelated
+temporary files or authentication material belong to this artifact scope.
+Software evidence can be VALID while `short_learning` is FAILED; passing
+software tests never waives the behavioral acceptance gate.
+
+The first actual six-cell invocation completed all transitions but became
+software INVALID at finish: the parent facts reader equated a new `no_fill`
+attempt clock with the unchanged pending order's prior state-mutation clock.
+The native executor was unchanged. The repaired parent rule retains latest
+status/remaining equality and joins the last state-changing event clock. A
+no-fill-only carried clock must be non-null and no later than the decision;
+submitted-plus-no-fill cannot skip eligibility. Genuine eligible and partial
+GTC carries, forged current/stale clocks, status/remaining and missing-eligibility
+counterexamples are checked. The 24,576 original parent fact rows and collector
+reward bytes then passed a fit-free replay with optional learner imports blocked.
+That replay alone did not furnish a completed trace or trained evaluation.
+
+One corrected-source reproduction used the same six frozen cells without gate,
+seed, budget or protocol changes. Every initial actor file, independent initial
+parameter file and complete native training event ledger matched the preserved
+first INVALID invocation byte-for-byte. Full sidecar/ordinary save/read/reload
+and aggregate software checks passed; all six learning outcomes and
+`short_learning` remained FAILED. Returned Adam calls were 10240 per cell;
+actor/critic parameter changes occurred at 1024 short or 128 long updates.
+No factor improved its corresponding initial mean held-out gain. Seeds 0/17
+retain the predeclared initial-ceiling reason, and every cell also failed all
+three actual alignment, gain and improvement gates. This is a reader repair
+reproduction, not favorable result selection or tuning to green. The corrected
+comparison SHA256 is
+`4d942ff1c871f7979545f207dbd86266c028eb138e42a928c3f92ea6de1b236b`;
+its retained archive is 13,405,486 bytes. The first INVALID archive and outcomes
+remain separate and unchanged. These are local uncommitted-source results;
+final exact PR HEAD checks and formal independent review remain pending.
+
+Four held-out dates offer only two distinct initial cue conditions. Later visible
+cues and advantages provide alternate transfer pathways, so even a future short
+success alone would not identify causal credit THROUGH bootstrap. This failed
+comparison establishes neither beyond-rollout actor learnability, market
+generalization, calibrated economic profit, G4/G5 nor deployment.

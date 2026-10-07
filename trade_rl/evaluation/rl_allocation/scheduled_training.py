@@ -16,6 +16,9 @@ from trade_rl.evaluation.rl_allocation.preprocessing import (
     validate_preprocessing_application,
     validate_training_preprocessing,
 )
+from trade_rl.evaluation.rl_allocation.scheduled_transition_trace import (
+    ScheduledAllocationTransitionRecorder,
+)
 from trade_rl.evaluation.rl_allocation.training_protocol import (
     AllocationUpdateRecorder,
     construct_protocol_ppo,
@@ -117,6 +120,7 @@ def fit_allocation_ppo_schedule(
     total_timesteps: int,
     seed: int = 0,
     training_protocol: AllocationPPOTrainingProtocol | None = None,
+    transition_trace: ScheduledAllocationTransitionRecorder | None = None,
 ) -> ScheduledAllocationPPOFit:
     """Fit one PPO across declared independent-account windows in causal order."""
     if type(env) is not AllocationTrainingScheduleEnv:
@@ -154,13 +158,16 @@ def fit_allocation_ppo_schedule(
     if total_timesteps < cycle_steps:
         raise ValueError("scheduled fit budget must consume every train window")
     preprocessing_fit = _preprocessing_fit(env, training_protocol)
+    if transition_trace is not None:
+        if type(transition_trace) is not ScheduledAllocationTransitionRecorder:
+            raise ValueError("scheduled transition trace requires the exact recorder")
+        transition_trace.validate_fit(env, training_protocol)
 
     # construct_protocol_ppo only requires the concrete Gym spaces/runtime; the
     # cast keeps its historical single-env annotation unchanged.
     model = construct_protocol_ppo(
         cast(AllocationTradingEnv, env), training_protocol, seed=seed
     )
-    updates = AllocationUpdateRecorder(model)
     callbacks = importlib.import_module("stable_baselines3.common.callbacks")
     decision_counts: dict[str, dict[int, int]] = {
         identity: {} for identity in env.schedule.train_window_ids
@@ -201,10 +208,20 @@ def fit_allocation_ppo_schedule(
         (callbacks.BaseCallback,),
         {"_on_step": observe_step},
     )()
+    updates = AllocationUpdateRecorder(
+        model,
+        completed_update=None
+        if transition_trace is None
+        else transition_trace.observe_update,
+    )
     try:
-        callback = callbacks.CallbackList(
-            [consumption_callback, updates.callback(callbacks.BaseCallback)]
-        )
+        if transition_trace is not None:
+            transition_trace.attach(model)
+        observed = [consumption_callback]
+        if transition_trace is not None:
+            observed.append(transition_trace.callback(callbacks.BaseCallback))
+        observed.append(updates.callback(callbacks.BaseCallback))
+        callback = callbacks.CallbackList(observed)
         model.learn(
             total_timesteps=total_timesteps,
             callback=callback,
@@ -215,6 +232,8 @@ def fit_allocation_ppo_schedule(
         )
     finally:
         updates.close()
+        if transition_trace is not None:
+            transition_trace.detach()
 
     validate_allocation_protocol_model(model, training_protocol)
     env.validate_sources()
@@ -306,7 +325,10 @@ def fit_allocation_ppo_schedule(
             },
         },
     }
-    return ScheduledAllocationPPOFit(model, receipt, manifest=manifest)
+    fit = ScheduledAllocationPPOFit(model, receipt, manifest=manifest)
+    if transition_trace is not None:
+        transition_trace.finish(fit.inference_policy())
+    return fit
 
 
 __all__ = ["ScheduledAllocationPPOFit", "fit_allocation_ppo_schedule"]

@@ -14,11 +14,7 @@ from tests.evaluation.test_allocation_preprocessing_runtime import (
 from tests.integrations.test_allocation_schedule_ppo_runtime import dated_args
 from tests.strategies.test_allocation_protocol_receipt import protocol
 from trade_rl.artifacts import canonical_json_bytes, content_digest
-from trade_rl.evaluation.allocation_comparison import AllocationCandidateKind
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
-from trade_rl.evaluation.rl_allocation.fee_stress_admission import (
-    run_fee_stressed_global_allocation,
-)
 from trade_rl.evaluation.rl_allocation.global_walk_forward import (
     run_artifact_bound_global_allocation_walk_forward,
 )
@@ -49,6 +45,20 @@ def persist_software_evidence(path, receipt, *, software_kind, native_facts=None
     if native_facts is not None:
         payload["asserted_native_endpoint_facts"] = native_facts
     path.write_bytes(canonical_json_bytes(payload))
+
+
+def persist_global_software_evidence(path, evidence, *, software_kind):
+    path.parent.mkdir()
+    path.write_bytes(
+        canonical_json_bytes(
+            {
+                "schema": "allocation_global_runtime_comparison_software_evidence_v1",
+                "software_kind": software_kind,
+                "learned_alpha_established": False,
+                **evidence,
+            }
+        )
+    )
 
 
 def runtime_case(*, frozen):
@@ -96,23 +106,69 @@ def runtime_case(*, frozen):
     return fit.inference_policy(), base, AllocationTradingEnv(**stressed)
 
 
-def execute(base, stress, root, digest, *, second=None):
+def execute(base, stress, root, digest, *, evidence, second=None):
     folds, contract, artifacts = declaration(base, stress, root, digest)
     if second is not None:
         artifacts = (
             artifacts[0],
             replace(artifacts[1], bundle_root=second[0], expected_digest=second[1]),
         )
-    result = run_fee_stressed_global_allocation(
+    from tests.evaluation.test_allocation_global_comparison_evidence import (
+        SCOPE,
+        validity_payload,
+    )
+    from trade_rl.evaluation import allocation_global_execution as execution
+    from trade_rl.evaluation.allocation_global_comparison_evidence import (
+        GlobalAllocationValidityRecord,
+        build_global_allocation_comparison_evidence,
+    )
+    from trade_rl.evaluation.runs import build_candidate_run_provenance
+
+    provenance = build_candidate_run_provenance()
+    expected_plan = execution.declare_global_allocation_execution(
         folds,
-        base_env=base,
-        stress_env=stress,
-        artifacts=artifacts,
-        contract=contract,
-        candidate=AllocationCandidateKind.DIRECT_PPO,
+        stress,
+        kind="direct_ppo",
         scenario="configured_fee_x2",
-        fee_factor=2.0,
+        seed=7,
         reset_seed=7,
+        artifacts=artifacts,
+        base_env=base,
+        contract=contract,
+        fee_factor=2.0,
+        expected_implementation_digest=provenance["implementation_digest"],
+        expected_runtime_digest=provenance["runtime_environment_digest"],
+    )
+    observed = execution.run_declared_global_allocation_execution(
+        folds,
+        stress,
+        expected_plan,
+        artifacts=artifacts,
+        base_env=base,
+        contract=contract,
+    )
+    result = observed.native_result
+    validity_record = GlobalAllocationValidityRecord.from_payload(
+        validity_payload(contract, expected_plan, observed)
+    )
+    row = build_global_allocation_comparison_evidence(
+        contract,
+        observed,
+        expected_plan=expected_plan,
+        validity_record=validity_record,
+        expected_assurance_scope=SCOPE,
+    )
+    assert observed.receipt.payload["reset_count"] == 1
+    assert len(observed.receipt.payload["rows"]) == 4
+    assert row.seed == 7 and row.max_drawdown == stress.book.max_drawdown
+    assert row.terminal_profit_rate == pytest.approx(
+        stress.book.portfolio_value / stress.initial_capital - 1
+    )
+    evidence.update(
+        expected_plan=expected_plan.payload,
+        receipt=observed.receipt.payload,
+        validity_record=validity_record.payload,
+        comparison_evidence=row.payload(),
     )
     return result, folds, artifacts
 
@@ -123,7 +179,8 @@ def test_actual_unmodified_scheduled_policy_fee_view_save_reload(tmp_path, froze
     root = tmp_path / "genuine-original"
     digest = save_allocation_policy(root, policy)
     archive_before = (root / "policy.zip").read_bytes()
-    result, _, _ = execute(base, stress, root, digest)
+    evidence = {}
+    result, _, _ = execute(base, stress, root, digest, evidence=evidence)
     receipt = result.receipt
     assert (root / "policy.zip").read_bytes() == archive_before
     assert receipt["model_states_before"] == receipt["model_states_after"]
@@ -155,6 +212,14 @@ def test_actual_unmodified_scheduled_policy_fee_view_save_reload(tmp_path, froze
         ),
     )
 
+    persist_global_software_evidence(
+        tmp_path / "global-comparison" / "software-evidence.json",
+        evidence,
+        software_kind="genuine_unchanged_scheduled_v3"
+        if frozen
+        else "genuine_unchanged_scheduled_v2",
+    )
+
 
 def test_actual_constant_actor_native_fee_oracle_is_separate_from_learning(tmp_path):
     policy, base, stress = runtime_case(frozen=True)
@@ -168,7 +233,10 @@ def test_actual_constant_actor_native_fee_oracle_is_separate_from_learning(tmp_p
             policy.model.policy.action_net.bias[action] = 20
         root = tmp_path / f"constant-{action}"
         originals.append((root, save_allocation_policy(root, policy)))
-    result, folds, artifacts = execute(base, stress, *originals[0], second=originals[1])
+    evidence = {}
+    result, folds, artifacts = execute(
+        base, stress, *originals[0], evidence=evidence, second=originals[1]
+    )
     run_artifact_bound_global_allocation_walk_forward(
         folds, base, artifacts, reset_seed=7
     )
@@ -203,4 +271,10 @@ def test_actual_constant_actor_native_fee_oracle_is_separate_from_learning(tmp_p
                 "exact_quantities": [str(q) for q in stress.book.exact_quantities],
             },
         },
+    )
+
+    persist_global_software_evidence(
+        tmp_path / "global-comparison" / "software-evidence.json",
+        evidence,
+        software_kind="deliberately_constant_v3_software_fixture",
     )

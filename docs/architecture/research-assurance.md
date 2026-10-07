@@ -1408,7 +1408,7 @@ and historical loader regressions are separate controls.
 Known limits: clocks/hashes bind consistent declarations, not historical fit or
 source authenticity. Packet/feature preparation remains per native decision;
 complete source preflight or unread-future guarantees are not established.
-The global result has no common-comparison evidence adapter. No online refit,
+The separate completed-global evidence consumer is defined below. No online refit,
 selection, completion/availability proof, learning/profit, stress admission,
 Study registration, G4/G5, final/sealed authority or market execution is added.
 
@@ -1566,8 +1566,9 @@ Known limits: tensor checks cover parameters/persistent buffers, not arbitrary
 optimizer or transient backend state. Source hashes bind a declared finite
 envelope plus actual actor rows, not authenticated usage or historical fitting.
 Rehashing full source per action has no market-scale performance evidence.
-This distinct global receipt cannot satisfy the historical common-comparison
-DTO. No registered A/B/C economics, gain threshold, calibration, research
+This distinct global receipt cannot directly satisfy the historical common
+comparison DTO; the separate consumer below projects completed validated content.
+No registered A/B/C economics, gain threshold, calibration, research
 selection, G3-G5, final/sealed authority or market/live eligibility is supplied.
 
 The single combined PPO CI invocation also preserves the fee software JSON
@@ -1625,5 +1626,50 @@ if the original fee action guard raises. Post-native drift keeps the real prefix
 The original failure propagates; missing hashes/facts never imply completion.
 These software records establish neither raw getter use, backend predict inputs,
 historical fit/source origin nor independent accounting/G3 or profitability.
-Formal gates, actual-model runtime clearance and global common evidence remain
-separate requirements; no economic/final/online execution is added here.
+Formal gates and actual-model runtime clearance remain separate requirements;
+the pure global common-evidence consumer is below. No economic/final/online
+execution is added here.
+
+## Completed global comparison G0-G2
+
+G0 supplies a result-blind comparison consumer, separate expected execution plan
+and closed explicit validity content. It adds no new economic Study or execution.
+G1 binds exact completed global types, full plan/common/cell/receipt/implementation
+and runtime pins, registered original candidate, policy seed, actual reset seed,
+complete H/C, actual scenario economics/risk and independent-symbol account mode.
+Native drawdown-stop configuration must match the comparison's declared guardrail.
+Shared portfolio, stale references, wrong expected scope, historical/local-fold
+substitutes and incomplete native prefixes fail before evidence construction.
+
+G2 uses independently supplied H4/C1000 literals. Native NONRL final equity is
+5752971/5500, profit 252971/5500000, fees 22029/5500 and cumulative DD
+16529/5769500 over unequal 1+3/3+1 segments. A one-bar entry has native DD .001
+despite bar-return DD zero. Native cash keeps actual interest:
+1000*(1+.876/8760)^4, or 1000 at zero rate. The complete supplied stitching is
+reconstructed, preserving fold-to-stitched annualization even on SESSION data;
+its values, kind, indices, boundaries, mode, gaps and diagnostics must agree.
+
+Connected adversarial controls retain valid closed native types while changing
+compensating interval returns, cumulative or segment counters, decision equity,
+weight/DD joins and runtime candidate projection. Each interval's cost, signed
+funding of either sign, borrow, filled turnover, actual fill and rebalance count
+joins to native cumulative books and segment/stitched totals. Unsigned counters
+cannot decrease, completed orders are not fills, and requested turnover is not
+filled turnover. Full-H geometric profit matches native equity/C-1 within
+rel_tol 1e-10/abs_tol 1e-12; return-path DD cannot exceed native cumulative DD.
+
+The native/fake-policy complete software matrix has ten candidate cells and two
+cash references for seeds0/7 and base/fee_x2. Existing validators reject missing,
+duplicate, unregistered, source/opening or policy-drift cells; explicit INVALID
+required evidence stays INVALID. No partial matrix is padded or converted into
+NO_WINNER. The two existing actual-backend integration modules only attach
+bounded G2 receipt/validity/comparison artifacts to their original invocations;
+their execution and final full gates require separate frozen-source clearance.
+
+Both `bounded_software_g2` and `independent_g3` are explicitly declared content
+scopes matched by a required builder input. Neither scope name, review/accounting
+reference nor digest authenticates independence, accounting adequacy or G3.
+The record does not default to VALID, and reference hashes cannot authorize a
+Study. Historical source/getter/fit authenticity, full independent accounting,
+G3-G5, calibrated economics, profitability and final/paper/live eligibility remain
+unestablished. The maximum 20% DD limit is a research constraint, not a guarantee.

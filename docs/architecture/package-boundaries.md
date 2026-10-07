@@ -1180,7 +1180,8 @@ checking every TRAIN terminal and preprocessing fit endpoints before global star
 The upper artifact entry reads all metadata first and then invokes the loader
 with the same pins/cutoff. Backend deserialization and actual model checks remain
 lower-loader responsibilities. Default v1-v4 loading and historical local-fold
-admission remain unchanged; global results have no common evidence adapter.
+admission remain unchanged. The separate pure completed-global evidence consumer
+is defined below; the lower global runner does not construct common evidence.
 
 ## Scheduled allocation transition evidence ownership
 
@@ -1241,9 +1242,9 @@ envelope rather than declaring a second metadata roster. It calls the
 existing native global runner and imports common contract/identity functions
 only for declared candidate/scenario crosslinks. It does not build historical
 common evidence, select candidates, fit models or mutate research authority.
-A future global-result evidence producer must separately pin its actual source
-and runtime and supply proper global NONRL/cash controls; no implicit conversion
-or historical per-fold normalization is allowed.
+The separate global evidence consumer below pins actual source/runtime and uses
+native global NONRL/cash controls. No implicit conversion or historical per-fold
+normalization is allowed.
 
 `tests/integrations/test_allocation_fee_stress_runtime.py` owns the separately
 declared actual-SB3 software controls and finite canonical tmp-path receipts.
@@ -1271,8 +1272,8 @@ semantics. A shared private structural checker requires the exact native global
 result and immutable native fold/policy-digest rosters. The old public continuous
 functions and classes keep their source bytes and behavior. No lower strategy, artifact, environment or native ledger owner is changed.
 The global runner now forwards only a typed optional observational collector.
-Closed received/native execution receipts are implemented below; a separately
-reviewed common evidence adapter remains subsequent work. Wrappers are consistency declarations,
+Closed received/native execution receipts and the separate pure common evidence
+adapter are implemented below. Wrappers are consistency declarations,
 not origin or independent research approval.
 
 
@@ -1295,4 +1296,36 @@ Source/common identity contains the full shared raw Dataset scope and native
 metadata; selected actor columns and frozen preprocessing stay in cell recipe
 identity. No model reload, extra preparation/prediction or historical-result
 conversion is introduced. These owners supply software consistency records only;
-they cannot build common evidence, set validity, select a winner or authorize fits.
+they cannot themselves build common evidence, set validity, select a winner or
+authorize fits. The separate pure evidence owner below consumes completed records.
+
+## Global comparison evidence ownership
+
+`evaluation/allocation_global_comparison_evidence.py` owns one closed immutable
+`GlobalAllocationValidityRecord` and two exact candidate/cash evidence builders.
+It imports the public global execution types and existing comparison, cash,
+scenario identity, return and stitching owners. It does not import an environment,
+learner, optional backend, runs/Study authority or private producer, and invokes
+no execution, predictor, historical continuous builder or selector.
+
+The owner validates the separately declared full plan and explicit expected
+assurance scope, reconstructs full native stitching, and joins every native
+interval and fold counter to cumulative account evidence. It retains existing
+native validation and accounting ownership, uses the registered original
+candidate projection for ordinary and fee runtime identity, and hashes the full
+closed validity content. Record references and digests are consistency content;
+they do not authenticate independent approval or promote bounded G2 into G3.
+
+Its versioned global OOS identity adds shared common context to the unchanged
+legacy projection. It returns existing candidate/cash DTOs without modifying
+their schemas or complete matrix/selection rules. Historical continuous APIs,
+native receipts, policy archives, fee views and producer semantics are unchanged.
+
+The two existing PPO integration modules reuse only the original saved-v3
+policy7/reset17 call and each original fee policy7/reset7 call. Their added
+receipt/validity/comparison JSON is explicitly bounded software evidence and is
+written after all original case assertions; genuine v2/v3 and deliberately
+constant v3 remain distinct. No additional fitting, loading, predicting, replay
+or CI runtime case is introduced. Core native/fake-policy checks and architecture
+contracts belong to the new evidence owner; actual-backend verification requires
+separate frozen-source clearance. None of these paths grants economic authority.

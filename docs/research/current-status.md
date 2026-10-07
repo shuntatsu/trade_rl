@@ -1825,3 +1825,26 @@ roster. This preserves the study question "which allocation method is best?"
 while also allowing the later winner rule to ask the stronger question "is the
 best method actually better than doing nothing / holding cash under the same
 economics?" No winner rule is introduced at this stage.
+
+
+## Issue #810 P4: preregistered allocation selection gate
+
+A pure result-blind selection rule now distinguishes three outcomes:
+
+- `WINNER`: at least one valid candidate passes required risk/execution, beats
+  the cash/no-trade reference, and for RL candidates also beats non-RL.
+- `NO_WINNER`: the comparison is valid but no candidate clears the economic
+  eligibility thresholds.
+- `INVALID`: required candidate or cash-reference evidence itself is
+  invalid/incomplete, so an economic winner must not be inferred.
+
+The selector uses the comparison summary's median base after-cost terminal
+profit as primary score. Exact ties prefer non-RL, then residual PPO, then direct
+PPO. The threshold comparison is frozen as strict greater-than with 1e-12
+absolute/relative equality tolerance, preventing floating-point boundary drift.
+
+Cash/no-trade remains a reference rather than a fourth candidate. The actual
+cash-control evidence has a one-way projection into the pure selector contract,
+binding its evidence digest, common OOS source/opening state, realized profit,
+drawdown and validity. The selector still has no Study mutation or final-data
+authority.

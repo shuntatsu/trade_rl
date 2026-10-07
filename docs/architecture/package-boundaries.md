@@ -1069,3 +1069,33 @@ digests are evidence bindings, not an independent replay oracle. Candidate
 ranking remains limited to non-RL / residual PPO / direct PPO; a later
 preregistered selection gate may require an eligible candidate to beat this
 cash/no-trade reference before declaring a winner.
+
+
+## Allocation preregistered selection ownership
+
+`evaluation/allocation_selection.py` owns the pure development selection gate
+for the Issue #810 common comparison. It imports the comparison contract only;
+it does not execute candidates, load policies, issue sealed access, mutate a
+Study or authorize unused/final data.
+
+The frozen rule has two explicit non-negative base-scenario thresholds:
+incremental after-cost terminal profit versus the non-RL allocator and versus
+the cash/no-trade reference. Thresholds are strict; values within 1e-12 absolute
+or relative tolerance are treated as equal and therefore do not pass merely
+because of binary floating-point representation. Exact score ties use the fixed
+complexity order `nonrl -> residual_ppo -> direct_ppo`.
+
+All three candidate families must have valid/complete required evidence or the
+decision is `INVALID`. Required cash-reference evidence must likewise be
+valid, complete, unterminated and within the declared drawdown guardrail.
+Required risk/execution failure for a candidate is an economic disqualification,
+not an invalid Study. Optional diagnostic failures are reported but do not by
+themselves remove eligibility.
+
+The non-RL candidate is eligible only if it passes required risk/execution and
+strictly beats cash by the declared margin. Residual/direct PPO must additionally
+strictly beat the non-RL median base profit by the declared margin. Among
+eligible candidates, the highest median base after-cost terminal profit wins.
+If no candidate is eligible the pure outcome is `NO_WINNER`. This decision is
+development evidence only; higher-level Study freeze/final-test authorization
+must bind it separately.

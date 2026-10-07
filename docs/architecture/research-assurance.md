@@ -1718,7 +1718,7 @@ synthetic valuation checkpoints, not a measured market intrabar path.
 
 The original source-only control Task grants no actor execution authority or new
 behavioral PASS rule. A separately preregistered successor completed six bounded
-fits on source `8a0ab24afbb63226c5c6231f62617c3b7e58ea1c`; all strict learning
+fits on a separately frozen source; all strict learning
 gates FAILED, as recorded in `docs/research/current-status.md`. Original FAILED /
 INITIAL_BASELINE_CEILING results and strict learning gates remain. Neither the
 control nor that descriptive synthetic comparison establishes an optimizer cure,

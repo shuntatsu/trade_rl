@@ -2159,8 +2159,8 @@ The original source-only timing Task retained actor/model execution budget 0.
 A separately bounded successor diagnostic completed once for seeds 0/7/17 at
 rollout lengths 4/32, each 4096 transitions. All six software results were VALID
 and all strict learning gates FAILED; four initial-baseline ceilings remain.
-The completed successor used source `8a0ab24afbb63226c5c6231f62617c3b7e58ea1c`;
-its retained local receipt SHA-256 is `1e163578f54e13da4b24a7a8fd36d86c8b0f9743f84a7ee980f6cd6a4e98b141`
+The completed successor's source identity remains in its execution receipt;
+the retained local receipt SHA-256 is `1e163578f54e13da4b24a7a8fd36d86c8b0f9743f84a7ee980f6cd6a4e98b141`
 and raw archive SHA-256 is `6d2e40ee25ae5abae0e9d2326fd96ee6ae4a222796ec948c82439dfe37b3e033`.
 Short 4 held-out cue alignment was 0.5/0/0 with net gains 0.01951171875/0/0;
 long 32 alignment was 1/0.5/1 with gains 0.0390234375/0.01951171875/0.0390234375.

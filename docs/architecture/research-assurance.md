@@ -1716,7 +1716,26 @@ maxDD1/1024 because its first favorable mark is terminal22. Wrong maxDD is1049/2
 in both arms; cash DD0. All remain below unchanged drawdown_start.10. These are
 synthetic valuation checkpoints, not a measured market intrabar path.
 
-This control is unfit/ungraded and defines no new behavioral PASS rule or actor
-execution authority. Original FAILED/INITIAL_BASELINE_CEILING results and strict
-learning gates remain. It establishes no optimizer cure, causal bootstrap credit,
-G3-G5, calibrated economic profit, final access or paper/live eligibility.
+The original source-only control Task grants no actor execution authority or new
+behavioral PASS rule. A separately preregistered successor completed six bounded
+fits on a separately frozen source; all strict learning
+gates FAILED, as recorded in `docs/research/current-status.md`. Original FAILED /
+INITIAL_BASELINE_CEILING results and strict learning gates remain. Neither the
+control nor that descriptive synthetic comparison establishes an optimizer cure,
+causal bootstrap credit, G3-G5, calibrated economic profit, final access or
+paper/live eligibility.
+
+## Frozen simple-return diagnostic assurance
+
+G0 asks whether already recorded point forecasts agree with exact mature raw
+price returns on a caller-declared roster; it does not ask whether trading profits.
+G1 fixes decision indices and evaluation publication cutoff before pairing each
+decision with its own vintage symbol scope and exact horizon endpoint. Omitted,
+duplicate or unknown packets, snapshot/name drift and causal clock violations
+reject rather than select favorable available rows. Later prequential fits are
+admissible under their own fit cutoffs, without a global first-decision cutoff.
+G2 uses literal residuals[-.10,+.10,0]: bias0, MAE1/15 and RMSEsqrt(1/150).
+Unequal groups retain packet-weighted pooled errors. Source bindings and cached
+vintage content checks establish supplied consistency, not authenticated model
+fitting or dataset provenance. No fit/prediction, calibration-state promotion,
+economic Study, G3-G5, unused/final access or paper/live authority is added.

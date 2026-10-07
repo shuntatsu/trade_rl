@@ -2130,7 +2130,7 @@ calibration, online refit, unused/final access or paper/live eligibility is adde
 Issue #810 remains incomplete. Formal review, final full verification and
 integration remain required; maximum 20% DD remains a research constraint.
 
-## Issue #810 P3: unfit payoff-release timing control
+## Issue #810 P3: payoff-release timing control and bounded successor diagnostic
 
 A separate source-only diagnostic fixture now accepts payoff_index8 against the
 unchanged omitted/explicit22. The same artificial 8% cue payoff reaches the
@@ -2155,10 +2155,35 @@ Terminal gains remain999/25600 for correct and -1049/25600 for wrong. Later weal
 DD/risk/pending states and observations can differ, so this timing control cannot
 attribute a future learning difference solely to reward access or bootstrap.
 
-The new control is unfit/ungraded; actor/model execution authority is zero.
-All original FAILED and INITIAL_BASELINE_CEILING outcomes and strict old gates
-remain unchanged. A successor behavioral/negative-control protocol requires
-separate preregistration before any fit. P3 and Issue #810 remain incomplete,
-alongside calibration, market profitability, G3-G5, unused/final access and
-paper/live eligibility. Exact final-head full verification, formal review and
-integration remain required; the20% research guardrail remains fixed.
+The original source-only timing Task retained actor/model execution budget 0.
+A separately bounded successor diagnostic completed once for seeds 0/7/17 at
+rollout lengths 4/32, each 4096 transitions. All six software results were VALID
+and all strict learning gates FAILED; four initial-baseline ceilings remain.
+The completed successor's source identity remains in its execution receipt;
+the retained local receipt SHA-256 is `1e163578f54e13da4b24a7a8fd36d86c8b0f9743f84a7ee980f6cd6a4e98b141`
+and raw archive SHA-256 is `6d2e40ee25ae5abae0e9d2326fd96ee6ae4a222796ec948c82439dfe37b3e033`.
+Short 4 held-out cue alignment was 0.5/0/0 with net gains 0.01951171875/0/0;
+long 32 alignment was 1/0.5/1 with gains 0.0390234375/0.01951171875/0.0390234375.
+Earlier/later results are descriptive synthetic diagnostics, not isolated
+bootstrap proof, an optimizer cure or market profit evidence. Original FAILED
+and INITIAL_BASELINE_CEILING outcomes and strict old gates remain unchanged.
+P3 and Issue #810 remain incomplete alongside calibration, market profitability,
+G3-G5, unused/final access and paper/live eligibility. Exact final-head full
+verification, formal review and integration remain required; the 20% research
+guardrail remains fixed.
+
+## Issue #810 P2: frozen forecast-error diagnostic infrastructure
+
+An opt-in evaluation-only reader now requires an explicit decision roster and
+publication cutoff. It detects missing predictions, mismatched selected Dataset
+snapshots and immature exact endpoints before reporting packet-weighted bias,
+MAE and RMSE globally and by symbol/vintage/horizon. A later prequential vintage
+may fit inside the evaluation range while preserving its own causal boundary.
+Literal synthetic errors and source/availability negatives verify the reader;
+no market-data study or new fit/prediction is performed by this capability.
+Raw same-close price errors omit fees, funding, wealth, execution and capacity.
+The supplied frozen stream remains uncalibrated; content binding does not
+authenticate historical fitting or Dataset provenance. Measured market forecast
+calibration, venue costs/capacity, profitable execution and Issue #810 completion
+remain unestablished. Final full verification, formal review and integration
+remain separately required; the 20% maximum DD research constraint is unchanged.

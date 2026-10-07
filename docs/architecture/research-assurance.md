@@ -1739,3 +1739,27 @@ Unequal groups retain packet-weighted pooled errors. Source bindings and cached
 vintage content checks establish supplied consistency, not authenticated model
 fitting or dataset provenance. No fit/prediction, calibration-state promotion,
 economic Study, G3-G5, unused/final access or paper/live authority is added.
+
+## Scheduled credit diagnostic G0-G2
+
+G0 asks whether complete already-recorded scheduled transitions distinguish
+episode-start exploration and raw collector targets from later decisions.
+G1 retains every admitted row and all four native raw actions. Joint groups
+bind window, actual episode-start phase, raw action, exact POST held sign and
+the first true terminal reachable inside that row's recorded rollout, otherwise
+live bootstrap. A terminal-bound GAE target is not necessarily Monte Carlo;
+lambda below one can preserve earlier critic influence. Recorded float32
+reward/value/return/advantage remain distinct from account precision and actual
+shuffled normalized minibatch advantages or gradient attribution. Native filled
+notional, interval cost and positive-filled-notional counts are descriptive;
+POST held sign does not imply a new fill, and generic later decisions may fill.
+
+G2 requires literal target/fill/cost arithmetic, transition-weighted unequal
+groups, terminal-inside-live-buffer and post-terminal live controls, raw-action
+versus retained-position distinctions, all-action zero coverage, immutable
+full-input binding and inherited missing/reordered/GAE/source/mode rejection
+before any summary. This pure reader performs no new learning or economic
+execution. Supplied hashes do not authenticate fitting history; actual minibatch
+exposure, gradient attribution, improved learning and market profit are
+NOT ESTABLISHED. Existing failed synthetic learning gates remain unchanged,
+as do formal review, G3-G5 and final-head verification requirements.

@@ -1340,3 +1340,18 @@ accounting, risk, execution or a forecast fitter. It never reconstructs a stream
 through its prediction-running constructor/reader. One immutable result returns
 detached payload copies with pooled and symbol/vintage/horizon error summaries;
 it is a supplied-source diagnostic, not a model or research authorization owner.
+
+## Scheduled credit diagnostic ownership
+
+`evaluation/rl_allocation/scheduled_credit_diagnostics.py` owns only
+`ScheduledAllocationCreditDiagnostics` and
+`diagnose_scheduled_allocation_credit`, exported from that module alone.
+It reuses `scheduled_transition_validation` as the unchanged complete admission
+authority and `transition_arrays` for recorded float32 bytes. It neither imports
+the learner/environment nor samples, fits, predicts, deserializes models,
+recomputes account execution or publishes a Study. The immutable detached
+report binds full events/bundle/training/schedule/source/protocol and declared
+diagnostics mode. All four native raw actions, true first/later decisions and
+exact POST held sign remain separate. Recorded filled-notional/cost summaries
+and positive-filled-notional transition counts describe supplied facts; these
+groups add no actor-success gate or actual optimizer-minibatch authority.

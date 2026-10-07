@@ -1333,3 +1333,25 @@ Packet-weighted bias, MAE and RMSE describe raw price forecasts, not portfolio
 wealth, costs or conditional risk. The immutable report binds selected observed
 sources, roster, cutoff and supplied stream identity. It neither fits nor predicts,
 authenticates historical fits/dataset provenance, nor promotes calibration state.
+
+## Scheduled raw-credit diagnostics
+
+`diagnose_scheduled_allocation_credit` is an opt-in pure reader of complete
+scheduled events and their v5 bundle. Unchanged closed transition validation
+precedes aggregation. Every transition contributes to pooled, per-window,
+first/later-decision and all-four-raw-action summaries; absent actions have
+zero counts and null statistics. Sorted joint groups retain window, true
+episode-start phase, raw action, exact POST held-quantity sign and observed
+target boundary inside the recorded rollout.
+
+A true terminal inside a live-ended buffer bounds its own episode's target;
+rows after that terminal can still use live bootstrap. This boundary is not
+a Monte Carlo target or evidence that earlier critic estimates had no effect.
+Means/ranges and advantage sign counts describe saved float32 collector
+reward/value/return/raw GAE. Recorded filled notional, interval cost and counts
+of transitions with positive filled notional remain descriptive native facts.
+Held position is not a new fill; generic later decisions may fill. No learner,
+alternate ledger, learning verdict or default changes. Detached content digests
+bind complete supplied inputs without authenticating historical fitting.
+Shuffled normalized minibatch exposure and gradient attribution remain
+NOT ESTABLISHED.

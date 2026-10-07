@@ -125,6 +125,8 @@ def test_default_rule_selects_residual_ppo_as_highest_eligible_profit():
     decision = select(declaration)
     assert decision.outcome is Outcome.WINNER
     assert decision.selected_candidate is AllocationCandidateKind.RESIDUAL_PPO
+    assert decision.fallback is None
+    assert decision.fallback_control_evidence_digest is None
     assert decision.eligible_candidates == (
         AllocationCandidateKind.NONRL,
         AllocationCandidateKind.RESIDUAL_PPO,
@@ -144,6 +146,15 @@ def test_cash_floor_can_produce_no_winner_even_when_candidates_have_positive_pro
     )
     assert decision.outcome is Outcome.NO_WINNER
     assert decision.selected_candidate is None
+    assert decision.fallback.value == "cash_no_trade"
+    base_cash = next(
+        row
+        for row in cash_references(declaration, base_profit=0.06)
+        if row.scenario == "base"
+    )
+    assert (
+        decision.fallback_control_evidence_digest == base_cash.control_evidence_digest
+    )
     assert decision.eligible_candidates == ()
     assert all("cash" in row.reasons for row in decision.candidates)
 
@@ -195,6 +206,8 @@ def test_required_invalid_candidate_evidence_makes_whole_comparison_invalid():
     decision = select(declaration, rows=rows)
     assert decision.outcome is Outcome.INVALID
     assert decision.selected_candidate is None
+    assert decision.fallback is None
+    assert decision.fallback_control_evidence_digest is None
     assert "required_candidate_evidence_invalid" in decision.invalid_reasons
 
 
@@ -351,3 +364,24 @@ def test_actual_cash_control_evidence_projects_to_selector_reference():
     assert reference.terminal_profit_rate == evidence.terminal_profit_rate
     assert reference.oos_source_digest == evidence.oos_source_digest
     assert reference.opening_state_digest == evidence.opening_state_digest
+
+
+def test_no_winner_payload_binds_cash_fallback_identity():
+    declaration = contract()
+    refs = cash_references(declaration, base_profit=0.06)
+    decision = select(declaration, cash=refs)
+    payload = decision.payload()
+    base = next(row for row in refs if row.scenario == "base")
+    assert payload["outcome"] == "NO_WINNER"
+    assert payload["fallback"] == "cash_no_trade"
+    assert payload["fallback_control_evidence_digest"] == base.control_evidence_digest
+    changed = select(
+        declaration,
+        cash=tuple(
+            replace(row, control_evidence_digest=sha("other-cash-control"))
+            if row.scenario == "base"
+            else row
+            for row in refs
+        ),
+    )
+    assert changed.digest != decision.digest

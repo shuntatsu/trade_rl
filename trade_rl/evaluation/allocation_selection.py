@@ -32,6 +32,10 @@ class AllocationSelectionOutcome(StrEnum):
     INVALID = "INVALID"
 
 
+class AllocationSelectionFallback(StrEnum):
+    CASH_NO_TRADE = "cash_no_trade"
+
+
 def _finite_nonnegative(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a finite non-negative number")
@@ -245,6 +249,8 @@ class AllocationSelectionDecision:
     outcome: AllocationSelectionOutcome
     selected_candidate: AllocationCandidateKind | None
     winner_score: float | None
+    fallback: AllocationSelectionFallback | None
+    fallback_control_evidence_digest: str | None
     eligible_candidates: tuple[AllocationCandidateKind, ...]
     candidates: tuple[AllocationCandidateEligibility, ...]
     invalid_reasons: tuple[str, ...]
@@ -264,9 +270,28 @@ class AllocationSelectionDecision:
                 raise ValueError("WINNER requires a selected candidate and score")
             if self.selected_candidate not in self.eligible_candidates:
                 raise ValueError("WINNER candidate must be eligible")
+            if (
+                self.fallback is not None
+                or self.fallback_control_evidence_digest is not None
+            ):
+                raise ValueError("WINNER forbids a fallback")
         else:
             if self.selected_candidate is not None or self.winner_score is not None:
                 raise ValueError("non-WINNER outcome forbids selected candidate/score")
+        if self.outcome is AllocationSelectionOutcome.NO_WINNER:
+            if self.fallback is not AllocationSelectionFallback.CASH_NO_TRADE:
+                raise ValueError("NO_WINNER requires the cash/no-trade fallback")
+            if self.fallback_control_evidence_digest is None:
+                raise ValueError("NO_WINNER requires the cash control evidence digest")
+            require_sha256(
+                self.fallback_control_evidence_digest,
+                field="fallback_control_evidence_digest",
+            )
+        elif (
+            self.fallback is not None
+            or self.fallback_control_evidence_digest is not None
+        ):
+            raise ValueError("only NO_WINNER may carry a fallback")
         if self.outcome is AllocationSelectionOutcome.INVALID:
             if not self.invalid_reasons or self.eligible_candidates:
                 raise ValueError(
@@ -289,6 +314,8 @@ class AllocationSelectionDecision:
                 else self.selected_candidate.value
             ),
             "winner_score": self.winner_score,
+            "fallback": None if self.fallback is None else self.fallback.value,
+            "fallback_control_evidence_digest": self.fallback_control_evidence_digest,
             "eligible_candidates": [value.value for value in self.eligible_candidates],
             "candidates": [value.payload() for value in self.candidates],
             "invalid_reasons": list(self.invalid_reasons),
@@ -365,6 +392,8 @@ def _candidate_eligibility(
 ) -> AllocationCandidateEligibility:
     reasons: list[str] = []
     incremental_cash = summary.median_base_profit_rate - cash_base_profit
+    if not summary.validity_passed:
+        reasons.append("validity")
     if not summary.risk_execution_passed:
         reasons.append("risk_execution")
     if not _strictly_above(
@@ -443,6 +472,8 @@ def select_allocation_candidate(
             outcome=AllocationSelectionOutcome.INVALID,
             selected_candidate=None,
             winner_score=None,
+            fallback=None,
+            fallback_control_evidence_digest=None,
             eligible_candidates=(),
             candidates=tuple(
                 AllocationCandidateEligibility(
@@ -470,6 +501,8 @@ def select_allocation_candidate(
             outcome=AllocationSelectionOutcome.NO_WINNER,
             selected_candidate=None,
             winner_score=None,
+            fallback=AllocationSelectionFallback.CASH_NO_TRADE,
+            fallback_control_evidence_digest=cash_base.control_evidence_digest,
             eligible_candidates=(),
             candidates=candidates,
             invalid_reasons=(),
@@ -488,6 +521,8 @@ def select_allocation_candidate(
         outcome=AllocationSelectionOutcome.WINNER,
         selected_candidate=winner.candidate,
         winner_score=winner.score,
+        fallback=None,
+        fallback_control_evidence_digest=None,
         eligible_candidates=eligible_kinds,
         candidates=candidates,
         invalid_reasons=(),
@@ -498,6 +533,7 @@ __all__ = [
     "AllocationCandidateEligibility",
     "AllocationCashReference",
     "AllocationSelectionDecision",
+    "AllocationSelectionFallback",
     "AllocationSelectionOutcome",
     "AllocationSelectionRule",
     "select_allocation_candidate",

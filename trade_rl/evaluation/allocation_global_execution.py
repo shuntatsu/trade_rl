@@ -74,7 +74,7 @@ from trade_rl.evaluation.robustness.walk_forward.folds import (
     IndexRange,
     WalkForwardFold,
 )
-from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+from trade_rl.evaluation.runs import build_candidate_run_provenance
 from trade_rl.strategies.rl.allocation_artifact import read_allocation_policy_manifest
 from trade_rl.strategies.rl.allocation_fee_stress import (
     allocation_policy_state_digest,

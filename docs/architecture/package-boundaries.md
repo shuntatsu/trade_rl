@@ -1281,7 +1281,9 @@ not origin or independent research approval.
 The upper `allocation_global_execution` owner declares immutable canonical plans,
 reads completed/partial software receipts and composes the existing control,
 artifact-global or fee route. It alone checks run provenance before/after against
-expected fingerprints. The lower `global_execution_context` concrete collector
+expected fingerprints through the existing Tier-2 `trade_rl.evaluation.runs`
+facade, which re-exports the same provenance function. It does not import private
+runs owners directly. The lower `global_execution_context` concrete collector
 observes original public inputs, already-loaded policy states and existing native
 freeze facts; it returns no action or validation waiver and imports no runs/Study.
 The existing `AllocationExecutionObserver` remains the sole observer Protocol.

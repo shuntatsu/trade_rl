@@ -33,7 +33,19 @@ def test_global_context_and_facade_owners_keep_upper_provenance_separate():
                 name.startswith("trade_rl.evaluation.runs") for name in imports
             )
         else:
-            assert "trade_rl.evaluation.runs.provenance" in imports
+            assert {
+                name for name in imports if name.startswith("trade_rl.evaluation.runs")
+            } == {"trade_rl.evaluation.runs"}
+            provenance_imports = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                and node.module == "trade_rl.evaluation.runs"
+            ]
+            assert len(provenance_imports) == 1
+            assert [
+                (alias.name, alias.asname) for alias in provenance_imports[0].names
+            ] == [("build_candidate_run_provenance", None)]
 
 
 def test_lower_collector_is_concrete_and_not_a_second_callback_protocol():

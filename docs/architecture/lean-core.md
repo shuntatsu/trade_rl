@@ -1238,3 +1238,25 @@ qty5, fee1 versus2, cash499 versus498 and first stress equity1048. This verifies
 software save/load/fee-view consistency, without establishing learned alpha or
 historical fit/source authenticity. Exact final-head full CI, integration and
 formal research gates remain pending.
+
+## Native global allocation controls
+
+The opt-in global NONRL and cash entries reuse the single-global-H native runner,
+with private fixed residual action2 and direct HOLD action0 respectively. They
+accept only the immutable segment plan and one fresh native environment, with no
+caller policy, action sequence or reset seed. The complete carrier forecast/cost
+clock coverage, action mode, MARKET/zero-extra-latency profile and native
+drawdown guardrail at most 20% are checked before the one reset. H, capital and
+the observation normalizer remain global across unequal internal segments.
+Execution RNG retains the configured economic seed; controls have no policy seed.
+
+Distinct exact-typed global wrappers bind the fixed control identity, forecast
+context and one complete runtime recipe. Cash checks its actual final book,
+orders and every native segment diagnostic for no position/trading costs, while
+preserving configured cash interest. These structural checks do not authenticate
+execution history or supply research validity. Historical continuous APIs and
+their result/evidence meanings remain unchanged; there is no global comparison
+adapter in this stage. An economic stop is detected after its actual native
+event, preserves the signed account and observed prefix, and raises without a
+completed global result. No loss clamping, fallback cash or automatic retry is
+introduced.

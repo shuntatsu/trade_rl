@@ -1576,3 +1576,28 @@ Its artifact binds exact HEAD/run/attempt and has seven-day retention. A JSON
 software receipt is written only after that case's existing assertions pass;
 missing receipts or a partial archive never imply a successful case. Uploading
 these controlled software artifacts does not grant learning or study approval.
+
+## Native global controls G0-G2
+
+G0 fixes one seedless residual-action2 allocator baseline and one direct-HOLD0
+cash reference on the existing global account. G1 requires one reset, contiguous
+absolute clocks, complete H/C and normalizer, native order/risk/counter/RNG carry,
+complete forecast/cost-clock preflight, and distinct exact global result types.
+Malformed declarations reject before reset. Native economic termination is a
+separate post-event condition: preserve the actual signed account and incomplete
+prefix, then raise without declaring complete H or a comparison row.
+
+Result-blind no-fit G2 controls use H4/C1000, hourly decisions 6..9/terminal 10,
+unequal 1+3/3+1 segments and an uninterrupted native/independent forecast oracle.
+Literal targets .5/0/.5/0 with fee .002 give first qty 5/cash 499/equity 1049.
+Later sizing uses current cash 1047.9 at decision close 110, so third qty is
+1047.9/220, executing at next open 100; final cash is 1045.99472727 and total fees
+4.005272727. Risk veto and partial/no-fill carry preserve native state and seeded
+execution RNG. Cash annual rate .876 over 8760 periods gives
+1000*(1+.876/8760)^4, while zero rate ends exactly 1000; neither creates fills,
+turnover, trading costs, funding or borrow. A declared short qty 5 at 100, fee 1,
+mark 400 terminates after one native event at retained-debt cash/equity -501.
+These are bounded software arithmetic/state controls with no fitting, actual
+learner backend, market-data study or G3-G5 authority. Structural hashes do not
+prove historical source use or authenticity; full independent native accounting
+and the later receipt/evidence gates remain required for research validity.

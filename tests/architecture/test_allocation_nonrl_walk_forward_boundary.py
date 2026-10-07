@@ -34,3 +34,21 @@ def test_fixed_nonrl_consumer_reuses_execution_without_learning_or_selection():
         for name in imports
         for prefix in forbidden
     )
+
+
+def test_global_nonrl_boundary_accepts_only_native_folds_and_one_environment():
+    tree = ast.parse(OWNER.read_text(encoding="utf-8"))
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    assert "run_global_nonrl_allocation" in functions
+    run = functions["run_global_nonrl_allocation"]
+    assert [a.arg for a in run.args.args] == ["folds", "env"]
+    assert (
+        not run.args.kwonlyargs and run.args.vararg is None and run.args.kwarg is None
+    )
+    calls = {
+        n.func.id
+        for n in ast.walk(run)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "run_global_allocation_walk_forward" in calls
+    assert "run_continuous_allocation_walk_forward" not in calls

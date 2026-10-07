@@ -2044,3 +2044,29 @@ source/runtime-pinned common-evidence producer and proper global NONRL/cash
 controls before registered A/B/C comparison. No refit, profitability conclusion,
 calibration, unused/final access or paper/live eligibility is added. The 20%
 research guardrail remains.
+
+## Issue #810: native global NONRL and cash control candidate
+
+The existing fixed seedless NONRL rule and cash reference now have opt-in native
+global entries, each running one account/reset over complete contiguous OOS
+segments. NONRL privately fixes residual action2; cash privately fixes direct
+HOLD0 from flat and retains native cash interest. Callers cannot supply a policy,
+action sequence, reset seed or local-fold result as the control. Separate exact
+global wrappers retain forecast/control identity and the full global recipe.
+Historical continuous APIs and evidence remain unchanged.
+
+Bounded no-fit H4/C1000 core controls exercise unequal 1+3/3+1 segmentation,
+independent literal/native forecast arithmetic, global remaining fractions
+1/.75/.5/.25, order/counter/RNG carry, risk veto and eligible no-fill attempts.
+Cash annual rate .876 produces 1000*(1+.876/8760)^4 with no trading costs; zero rate
+ends exactly 1000. Malformed declarations reject before reset. Actual native short
+insolvency instead happens after execution and retains signed equity/cash -501
+and its one-step prefix, with no completed global result or fabricated score.
+
+This is a software prerequisite, not learned alpha or market-profit evidence.
+The source/runtime-bound execution receipt, explicit independent validity and
+proper global common-comparison adapter remain unimplemented in this stage.
+No actual learner/model execution, economic Study, online refit, selection,
+unused/final authorization or live eligibility is added. Exact final-head full
+CI, integration and formal independent review remain pending. Issue #810 remains
+incomplete and the 20% research guardrail remains a declared constraint.

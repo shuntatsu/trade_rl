@@ -19,6 +19,10 @@ from trade_rl.evaluation.allocation_comparison_evidence import (
     canonical_continuous_allocation_metrics,
     validate_continuous_allocation_comparison_context,
 )
+from trade_rl.evaluation.allocation_nonrl_walk_forward import (
+    _carriers,
+    _validate_global_control_roster,
+)
 from trade_rl.evaluation.allocation_scenario_identity import (
     allocation_candidate_recipe_digest,
 )
@@ -29,6 +33,10 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     run_continuous_allocation_walk_forward,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_walk_forward import (
+    GlobalAllocationWalkForwardResult,
+    run_global_allocation_walk_forward,
+)
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
 
 
@@ -355,10 +363,88 @@ def build_allocation_cash_control_evidence(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalAllocationCashControlResult:
+    """Seedless native global cash result, outside the candidate winner roster."""
+
+    walk_forward: GlobalAllocationWalkForwardResult
+    carrier_recipe_digest: str
+    forecast_context_digest: str
+    runtime_recipe_digest: str
+
+    def __post_init__(self) -> None:
+        _validate_global_control_roster(self.walk_forward)
+        for name in (
+            "carrier_recipe_digest",
+            "forecast_context_digest",
+            "runtime_recipe_digest",
+        ):
+            require_sha256(getattr(self, name), field=name)
+        if self.walk_forward.policy_digests != (self.control_policy_digest,) * len(
+            self.walk_forward.folds
+        ):
+            raise ValueError("global result must carry the fixed cash control policy")
+
+    @property
+    def control_policy_digest(self) -> str:
+        return _cash_policy_digest_for_recipe(self.carrier_recipe_digest)
+
+
+def run_global_allocation_cash_control(
+    folds: tuple[WalkForwardFold, ...],
+    env: AllocationTradingEnv,
+) -> GlobalAllocationCashControlResult:
+    """Execute direct HOLD from flat with one reset and native cash economics."""
+    candidate = _carriers((env,), required_action_mode="direct")
+    if type(folds) is not tuple:
+        raise ValueError("global cash control requires immutable native folds")
+    policy = AllocationFoldPolicy(
+        _cash_policy_digest_for_recipe(candidate),
+        env.recipe_digest,
+        lambda _observation, _recipe: 0,
+    )
+    result = run_global_allocation_walk_forward(
+        folds, env, (policy,) * len(folds), reset_seed=0
+    )
+    if any(quantity != 0 for quantity in env.book.exact_quantities) or (
+        env.order_book.active_orders
+    ):
+        raise ValueError("global cash control must remain flat with no active orders")
+    if any(
+        value != 0
+        for value in (
+            env.book.fill_count,
+            env.book.turnover_total,
+            env.book.total_cost,
+            env.book.funding_pnl,
+            env.book.borrow_cost,
+        )
+    ):
+        raise ValueError("global cash control must not trade or carry position costs")
+    for fold in result.folds:
+        diagnostics = fold.diagnostics
+        if any(
+            value != 0
+            for value in (
+                diagnostics.n_trades,
+                diagnostics.turnover_total,
+                diagnostics.total_cost,
+                diagnostics.funding_pnl,
+                diagnostics.borrow_cost,
+            )
+        ):
+            raise ValueError("global cash control segment must not carry trading costs")
+    return GlobalAllocationCashControlResult(
+        result, candidate, env.stream.digest, env.recipe_digest
+    )
+
+
 __all__ = [
     "AllocationCashControlEvidence",
+    "GlobalAllocationCashControlResult",
     "allocation_cash_control_policy_digest",
     "allocation_cash_reference",
     "build_allocation_cash_control_evidence",
     "run_continuous_allocation_cash_control",
+    "run_global_allocation_cash_control",
 ]

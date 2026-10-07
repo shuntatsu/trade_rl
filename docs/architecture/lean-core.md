@@ -1150,6 +1150,55 @@ loader then rechecks pins/cutoff, verified private bytes and actual model facts.
 These are consistency checks, not proof of historical fit/source authenticity.
 The distinct global result cannot enter the historical common-comparison adapter.
 
+## Scheduled actor and native learner sidecar
+
+`ScheduledAllocationTransitionRecorder` is an explicit observer for
+`fit_allocation_ppo_schedule(transition_trace=...)`. It preserves the native
+financial horizon, source schedule, mapper/risk/account/reward path and learner.
+Actor input/action/value/logpi/reward come from actual collector calls.
+Pre-overwrite OLD-child facts remain distinct from the prepared NEXT-child
+autoreset input; terminal sentinels, reset inputs and live bootstrap inputs
+have separate counts and identities. The full scheduled source scope, row
+reuse and repeated raw/transformed feature prefixes are checked. Account
+suffixes may vary when the same immutable source row is reused.
+
+Before `buffer.get()`, the observer checks the actual chronological six-array
+buffer and retains native advantages/returns and the original one-call bootstrap.
+Pinned SB3 GAE uses mixed NumPy precision: the final bool-mask operation widens
+to float 64, carried precision survives until float 32 target assignment, and
+returns are float 32 advantages plus values. No repeated actor prediction,
+policy sampling or alternate buffer/account calculation is introduced.
+
+Optional `native_ppo_update_v1` diagnostics require fresh native logger scalars
+and integer update ordinals, entered epochs, returned Adam-call counts and
+named actor/critic parameter bytes before/after each actual update. Their
+per-rollout counts reconstruct the unchanged deterministic optimizer-event
+digest. Zero-step KL stops retain unchanged parameters; explained variance
+is null only for zero collection-target variance. Diagnostics are observations,
+not proof of improved learning. Their declared mode cannot be downgraded.
+
+Completion follows successful ordinary v5 post-fit validation and unconditional
+owned hook/slot/predictor cleanup. The separate write-once
+`allocation_ppo_scheduled_transition_trace_v1` sidecar binds the unchanged
+ordinary saved bundle, policy bytes, source/schedule/protocol/optimization and
+closed chronological evidence. Publication verifies unchanged final live
+parameter pins. Its reader needs no Torch/SB3 or model deserialization. None and
+omitted observers preserve ordinary v5 bytes/model/RNG/economics; old single-source
+readers keep their existing v3/v4 scope. Consistently forged input/model history
+is not authenticated by these hashes, and malicious save/restore forgery remains
+outside the final-live consistency check. Completion grants no profit, Study,
+final-data or deployment authority.
+
+Native `no_fill` records a processing attempt without replacing the immutable
+pending order or advancing its last state-mutation clock. The shared facts
+reader keeps latest status/remaining checks, joins the clock to the latest
+state-changing event, and bounds a no-fill-only carried clock by the prior
+decision. A submitted order cannot skip its native eligibility transition.
+The fixed six-cell behavioral comparison is software VALID after this local
+gate repair, with all six learning outcomes FAILED. No short or long factor
+improves its initialization; native actor/critic updates alone do not demonstrate
+learning success.
+
 ## Frozen configured-fee-only global policy view
 
 The explicit fee-view entry admits the same original scheduled v5 bundle and

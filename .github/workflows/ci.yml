@@ -228,7 +228,31 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Real SB3 PPO integration
-        run: uv run pytest -q tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py tests/integrations/test_allocation_schedule_ppo_runtime.py tests/integrations/test_allocation_fee_stress_runtime.py tests/integrations/test_allocation_policy_admission_runtime.py tests/integrations/test_allocation_sealed_policy_runtime.py
+        run: uv run pytest -q --basetemp="${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}" tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/integrations/test_allocation_ppo_runtime.py tests/integrations/test_allocation_schedule_ppo_runtime.py tests/integrations/test_allocation_policy_admission_runtime.py tests/integrations/test_allocation_sealed_policy_runtime.py tests/integrations/test_allocation_scheduled_transition_runtime.py tests/integrations/test_allocation_scheduled_delayed_credit_runtime.py tests/integrations/test_allocation_fee_stress_runtime.py
+
+      - name: Preserve fixed delayed actor evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fixed-delayed-actor-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/fixed-delayed-actor/**
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false
+
+      - name: Preserve configured-fee software artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: configured-fee-software-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/software-evidence.json
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/genuine-original/**
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/constant-0/**
+            ${{ runner.temp }}/ppo-runtime-${{ github.run_id }}-${{ github.run_attempt }}/**/constant-3/**
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false
 
   guide:
     name: Human Guide${{ github.event_name == 'pull_request' && github.event.action == 'edited' && !github.event.changes.base && ' (metadata-only)' || '' }}

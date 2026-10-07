@@ -29,6 +29,9 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     run_continuous_allocation_walk_forward,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_execution_context import (
+    GlobalAllocationExecutionCollector,
+)
 from trade_rl.evaluation.rl_allocation.global_walk_forward import (
     GlobalAllocationWalkForwardResult,
     run_global_allocation_walk_forward,
@@ -244,6 +247,8 @@ class GlobalNonRLAllocationResult:
 def run_global_nonrl_allocation(
     folds: tuple[WalkForwardFold, ...],
     env: AllocationTradingEnv,
+    *,
+    collector: GlobalAllocationExecutionCollector | None = None,
 ) -> GlobalNonRLAllocationResult:
     """Execute only residual action2 over one complete native horizon/account."""
     candidate = _carriers((env,))
@@ -254,7 +259,9 @@ def run_global_nonrl_allocation(
         env.recipe_digest,
         lambda _observation, _recipe: 2,
     )
-    result = run_global_allocation_walk_forward(folds, env, (policy,) * len(folds))
+    result = run_global_allocation_walk_forward(
+        folds, env, (policy,) * len(folds), collector=collector
+    )
     return GlobalNonRLAllocationResult(
         result, candidate, env.stream.digest, env.recipe_digest
     )

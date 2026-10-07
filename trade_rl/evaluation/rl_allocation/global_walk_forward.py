@@ -7,12 +7,17 @@ from numbers import Integral
 
 import numpy as np
 
+from trade_rl.artifacts.verified_file import file_digest
 from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
 from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     AllocationFoldPolicy,
     _fold_diagnostics,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_execution_context import (
+    GlobalAllocationExecutionCollector,
+    validate_global_collector,
+)
 from trade_rl.evaluation.rl_allocation.policy_admission import (
     AllocationFoldPolicyArtifact,
     _bind_loaded_policy,
@@ -146,92 +151,128 @@ def run_global_allocation_walk_forward(
     policies: tuple[AllocationFoldPolicy, ...],
     *,
     reset_seed: int | None = None,
+    collector: GlobalAllocationExecutionCollector | None = None,
 ) -> GlobalAllocationWalkForwardResult:
     """Reset once; segment boundaries preserve the active native state/clock."""
     _seed(reset_seed)
     validate_global_allocation_walk_forward(folds, env, policies)
+    validate_global_collector(env, collector)
     recipe_digest = env.recipe_digest
     policy_digests = tuple(p.policy_digest for p in policies)
     # Strong references make action identity stable; callable __eq__ is unused.
     actions = tuple(p.action for p in policies)
     roster = _roster(folds, policies)
-    observation, _ = env.reset(seed=reset_seed)
-    results = []
-    for fold, policy, action in zip(folds, policies, actions, strict=True):
-        opening = allocation_state_digest(env)
-        turnover, cost, funding, borrow = (
-            env.book.turnover_total,
-            env.book.total_cost,
-            env.book.funding_pnl,
-            env.book.borrow_cost,
-        )
-        fills, rebalances = env.book.fill_count, env.book.rebalance_events
-        returns = []
-        while env.index < fold.test.stop:
-            if _roster(folds, policies) != roster:
-                raise ValueError("global declared roster changed during execution")
-            if (
-                env.recipe_digest != recipe_digest
-                or policy.recipe_digest != recipe_digest
-            ):
-                raise ValueError("global recipe changed during execution")
-            raw_action = action(observation, recipe_digest)
-            if _roster(folds, policies) != roster:
-                raise ValueError(
-                    "global declared roster changed during policy invocation"
-                )
-            if (
-                isinstance(raw_action, (bool, np.bool_))
-                or not isinstance(raw_action, Integral)
-                or not 0 <= int(raw_action) <= 3
-            ):
-                raise ValueError(
-                    "segment policy action must be an integer within {0, 1, 2, 3}"
-                )
-            if env.recipe_digest != recipe_digest:
-                raise ValueError("global recipe changed during policy invocation")
-            observation, _, terminated, truncated, info = env.step(int(raw_action))
-            if truncated or env.book.termination_reason is not None:
-                raise ValueError(
-                    "economic termination/truncation prevents global stitching"
-                )
-            if terminated != (env.index == env.stop_index):
-                raise ValueError(
-                    "native terminal must occur only at global horizon end"
-                )
-            execution = info.get("execution")
-            if not isinstance(execution, StatefulExecutionResult):
-                raise RuntimeError("allocation step did not return canonical execution")
-            returns.append(float(execution.interval_net_return))
-        results.append(
-            FoldOOSResult(
-                fold.fold_index,
-                fold.test.start,
-                fold.test.stop,
-                ReturnSeries(
-                    tuple(returns),
-                    ReturnKind.DECISION_STEP,
-                    env.dataset.periods_per_year,
-                ),
-                _fold_diagnostics(
-                    env,
-                    turnover_before=turnover,
-                    cost_before=cost,
-                    funding_before=funding,
-                    borrow_before=borrow,
-                    fills_before=fills,
-                    rebalances_before=rebalances,
-                ),
-                opening,
-                allocation_state_digest(env),
+    if collector is not None:
+        collector.before_reset(folds, env, policies, reset_seed)
+        env._transition_recorder = collector
+    try:
+        observation, _ = env.reset(seed=reset_seed)
+        if collector is not None:
+            collector.after_reset()
+        results = []
+        for fold, policy, action in zip(folds, policies, actions, strict=True):
+            opening = allocation_state_digest(env)
+            turnover, cost, funding, borrow = (
+                env.book.turnover_total,
+                env.book.total_cost,
+                env.book.funding_pnl,
+                env.book.borrow_cost,
             )
+            fills, rebalances = env.book.fill_count, env.book.rebalance_events
+            returns = []
+            while env.index < fold.test.stop:
+                if _roster(folds, policies) != roster:
+                    raise ValueError("global declared roster changed during execution")
+                if (
+                    env.recipe_digest != recipe_digest
+                    or policy.recipe_digest != recipe_digest
+                ):
+                    raise ValueError("global recipe changed during execution")
+                if collector is not None:
+                    collector.before_action(
+                        fold.fold_index,
+                        policy.policy_digest,
+                        observation,
+                        recipe_digest,
+                    )
+                try:
+                    raw_action = action(observation, recipe_digest)
+                except Exception as error:
+                    if collector is not None:
+                        collector.action_failed(error)
+                    raise
+                if collector is not None:
+                    collector.after_action(raw_action)
+                if _roster(folds, policies) != roster:
+                    raise ValueError(
+                        "global declared roster changed during policy invocation"
+                    )
+                if (
+                    isinstance(raw_action, (bool, np.bool_))
+                    or not isinstance(raw_action, Integral)
+                    or not 0 <= int(raw_action) <= 3
+                ):
+                    raise ValueError(
+                        "segment policy action must be an integer within {0, 1, 2, 3}"
+                    )
+                if env.recipe_digest != recipe_digest:
+                    raise ValueError("global recipe changed during policy invocation")
+                observation, _, terminated, truncated, info = env.step(int(raw_action))
+                if collector is not None:
+                    collector.after_step(terminated, truncated, info)
+                if truncated or env.book.termination_reason is not None:
+                    raise ValueError(
+                        "economic termination/truncation prevents global stitching"
+                    )
+                if terminated != (env.index == env.stop_index):
+                    raise ValueError(
+                        "native terminal must occur only at global horizon end"
+                    )
+                execution = info.get("execution")
+                if not isinstance(execution, StatefulExecutionResult):
+                    raise RuntimeError(
+                        "allocation step did not return canonical execution"
+                    )
+                returns.append(float(execution.interval_net_return))
+            results.append(
+                FoldOOSResult(
+                    fold.fold_index,
+                    fold.test.start,
+                    fold.test.stop,
+                    ReturnSeries(
+                        tuple(returns),
+                        ReturnKind.DECISION_STEP,
+                        env.dataset.periods_per_year,
+                    ),
+                    _fold_diagnostics(
+                        env,
+                        turnover_before=turnover,
+                        cost_before=cost,
+                        funding_before=funding,
+                        borrow_before=borrow,
+                        fills_before=fills,
+                        rebalances_before=rebalances,
+                    ),
+                    opening,
+                    allocation_state_digest(env),
+                )
+            )
+        completed = tuple(results)
+        result = GlobalAllocationWalkForwardResult(
+            completed,
+            policy_digests,
+            stitch_oos(completed, mode=StitchMode.CONTINUOUS_ACCOUNT),
         )
-    completed = tuple(results)
-    return GlobalAllocationWalkForwardResult(
-        completed,
-        policy_digests,
-        stitch_oos(completed, mode=StitchMode.CONTINUOUS_ACCOUNT),
-    )
+        if collector is not None:
+            collector.completed(result.folds)
+        return result
+    except Exception as error:
+        if collector is not None:
+            collector.failed(error)
+        raise
+    finally:
+        if collector is not None and env._transition_recorder is collector:
+            env._transition_recorder = None
 
 
 def run_artifact_bound_global_allocation_walk_forward(
@@ -240,9 +281,11 @@ def run_artifact_bound_global_allocation_walk_forward(
     artifacts: tuple[AllocationFoldPolicyArtifact, ...],
     *,
     reset_seed: int | None = None,
+    collector: GlobalAllocationExecutionCollector | None = None,
 ) -> GlobalAllocationWalkForwardResult:
     """Preflight all v5 temporal claims, then load/recheck every pinned model."""
     _seed(reset_seed)
+    validate_global_collector(env, collector)
     if (
         type(artifacts) is not tuple
         or not artifacts
@@ -262,27 +305,43 @@ def run_artifact_bound_global_allocation_walk_forward(
     cutoff = int(
         env.dataset.timestamps[env.start_index].astype("datetime64[ns]").astype("int64")
     )
+    manifests = []
     for artifact in artifacts:
-        read_allocation_policy_manifest(
+        manifests.append(
+            read_allocation_policy_manifest(
+                artifact.bundle_root,
+                expected_digest=artifact.expected_digest,
+                expected_recipe_digest=artifact.expected_recipe_digest,
+                training_cutoff_ns=cutoff,
+            )
+        )
+    if collector is not None:
+        for artifact, manifest in zip(artifacts, manifests, strict=True):
+            if (
+                file_digest(
+                    artifact.bundle_root / "policy.zip",
+                    field="global original allocation policy",
+                )
+                != manifest["policy_sha256"]
+            ):
+                raise ValueError(
+                    "global original allocation policy archive digest mismatch"
+                )
+    models = []
+    admitted = []
+    for artifact in artifacts:
+        loaded = load_allocation_policy(
             artifact.bundle_root,
             expected_digest=artifact.expected_digest,
             expected_recipe_digest=artifact.expected_recipe_digest,
             training_cutoff_ns=cutoff,
         )
-    admitted = tuple(
-        _bind_loaded_policy(
-            load_allocation_policy(
-                a.bundle_root,
-                expected_digest=a.expected_digest,
-                expected_recipe_digest=a.expected_recipe_digest,
-                training_cutoff_ns=cutoff,
-            ),
-            a,
-        )
-        for a in artifacts
-    )
+        admitted.append(_bind_loaded_policy(loaded, artifact))
+        models.append(loaded)
+    if collector is not None:
+        collector.loaded_policies(tuple(models))
     return run_global_allocation_walk_forward(
-        folds, env, admitted, reset_seed=reset_seed
+        folds, env, tuple(admitted), reset_seed=reset_seed, collector=collector
     )
 
 

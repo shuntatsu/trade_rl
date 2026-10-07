@@ -351,3 +351,57 @@ def test_literal_partial_fill_pending_order_survives_active_boundary():
     module.run_global_allocation_walk_forward(
         (fold(0, 6, 7), fold(1, 7, 10)), env, (declared(env, maintain),) * 2
     )
+
+
+def test_legacy_none_admission_keeps_load_then_bind_error_order(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import trade_rl.evaluation.rl_allocation.global_walk_forward as owner
+    from tests.evaluation.allocation_fee_stress_fixture import native_pair, publish_fake
+    from tests.evaluation.test_allocation_fee_stress import declaration
+
+    base, stress = native_pair()
+    root, digest, _ = publish_fake(base, tmp_path, monkeypatch)
+    folds, _, artifacts = declaration(base, stress, root, digest)
+    calls = []
+    monkeypatch.setattr(
+        owner,
+        "load_allocation_policy",
+        lambda *a, **k: (calls.append(a), SimpleNamespace(manifest={}))[1],
+    )
+    with pytest.raises(ValueError, match="admitted identity"):
+        owner.run_artifact_bound_global_allocation_walk_forward(
+            folds, base, artifacts, collector=None
+        )
+    assert len(calls) == 1 and not hasattr(base, "book")
+
+
+def test_legacy_none_bad_second_zip_loads_first_before_original_failure(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from shutil import copytree
+
+    import trade_rl.evaluation.rl_allocation.global_walk_forward as owner
+    import trade_rl.strategies.rl.allocation_artifact as archive
+    from tests.evaluation.allocation_fee_stress_fixture import native_pair, publish_fake
+    from tests.evaluation.test_allocation_fee_stress import declaration
+
+    base, stress = native_pair()
+    root, digest, model = publish_fake(base, tmp_path, monkeypatch)
+    folds, _, artifacts = declaration(base, stress, root, digest)
+    bad = tmp_path / "second"
+    copytree(root, bad)
+    (bad / "policy.zip").write_bytes(b"bad second")
+    artifacts = (artifacts[0], replace(artifacts[1], bundle_root=bad))
+    calls = []
+    monkeypatch.setattr(
+        archive, "_load_policy", lambda path: (calls.append(path), model)[1]
+    )
+    with pytest.raises(
+        ValueError, match="allocation policy changed during verified copy"
+    ):
+        owner.run_artifact_bound_global_allocation_walk_forward(
+            folds, base, artifacts, collector=None
+        )
+    assert len(calls) == 1 and not hasattr(base, "book")

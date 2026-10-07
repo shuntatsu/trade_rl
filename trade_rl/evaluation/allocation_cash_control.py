@@ -33,6 +33,9 @@ from trade_rl.evaluation.rl_allocation.continuous_walk_forward import (
     run_continuous_allocation_walk_forward,
 )
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+from trade_rl.evaluation.rl_allocation.global_execution_context import (
+    GlobalAllocationExecutionCollector,
+)
 from trade_rl.evaluation.rl_allocation.global_walk_forward import (
     GlobalAllocationWalkForwardResult,
     run_global_allocation_walk_forward,
@@ -393,6 +396,8 @@ class GlobalAllocationCashControlResult:
 def run_global_allocation_cash_control(
     folds: tuple[WalkForwardFold, ...],
     env: AllocationTradingEnv,
+    *,
+    collector: GlobalAllocationExecutionCollector | None = None,
 ) -> GlobalAllocationCashControlResult:
     """Execute direct HOLD from flat with one reset and native cash economics."""
     candidate = _carriers((env,), required_action_mode="direct")
@@ -404,7 +409,7 @@ def run_global_allocation_cash_control(
         lambda _observation, _recipe: 0,
     )
     result = run_global_allocation_walk_forward(
-        folds, env, (policy,) * len(folds), reset_seed=0
+        folds, env, (policy,) * len(folds), reset_seed=0, collector=collector
     )
     if any(quantity != 0 for quantity in env.book.exact_quantities) or (
         env.order_book.active_orders

@@ -1229,8 +1229,10 @@ prediction-only policy view. It has no evaluation/simulation/risk/learner import
 the already guarded model/vector/action prediction body factored privately for
 the fee view. Original policy manifests and recipe v1-v5 bytes are unchanged.
 
-`evaluation/rl_allocation/fee_stress_admission.py` owns actual native runtime and
-source-envelope checks, whole-roster pure-reader/load-before-reset admission,
+`evaluation/rl_allocation/global_execution_context.py` owns the extracted native
+runtime and declared source-envelope guards; compatible fee wrappers preserve
+the original payload/error meanings. `fee_stress_admission.py` owns whole-roster
+pure-reader/load-before-reset admission,
 per-action guards and the separate global execution receipt. It calls the
 existing regular-file digest owner to precheck the complete ZIP roster before
 any optional loader, then preserves ordinary verified-copy/recheck boundaries.
@@ -1267,8 +1269,28 @@ mode, preserving its historical residual default and rejection behavior. Cash
 reuses its complete forecast/cost coverage and native profile checks with direct
 semantics. A shared private structural checker requires the exact native global
 result and immutable native fold/policy-digest rosters. The old public continuous
-functions and classes keep their source bytes and behavior. No lower strategy,
-artifact, environment, native ledger or global runner owner changes in this
-stage. Closed source/runtime execution receipts and a separately reviewed common
-evidence adapter remain subsequent work; wrappers are consistency declarations,
+functions and classes keep their source bytes and behavior. No lower strategy, artifact, environment or native ledger owner is changed.
+The global runner now forwards only a typed optional observational collector.
+Closed received/native execution receipts are implemented below; a separately
+reviewed common evidence adapter remains subsequent work. Wrappers are consistency declarations,
 not origin or independent research approval.
+
+
+## Global execution receipt ownership
+
+The upper `allocation_global_execution` owner declares immutable canonical plans,
+reads completed/partial software receipts and composes the existing control,
+artifact-global or fee route. It alone checks run provenance before/after against
+expected fingerprints. The lower `global_execution_context` concrete collector
+observes original public inputs, already-loaded policy states and existing native
+freeze facts; it returns no action or validation waiver and imports no runs/Study.
+The existing `AllocationExecutionObserver` remains the sole observer Protocol.
+Historical continuous entries/result meanings and original fee guard order remain.
+Complete ZIP preflight is opt-in on the ordinary artifact route; None retains its
+original interleaved load/private-bind sequence and errors.
+
+Source/common identity contains the full shared raw Dataset scope and native
+metadata; selected actor columns and frozen preprocessing stay in cell recipe
+identity. No model reload, extra preparation/prediction or historical-result
+conversion is introduced. These owners supply software consistency records only;
+they cannot build common evidence, set validity, select a winner or authorize fits.

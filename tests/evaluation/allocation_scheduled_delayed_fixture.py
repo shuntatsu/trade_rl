@@ -15,6 +15,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
 from trade_rl.evaluation.rl_allocation.preprocessing import (
     fit_allocation_feature_preprocessing,
+    validate_training_preprocessing,
 )
 from trade_rl.evaluation.rl_allocation.training_schedule import (
     AllocationTrainingScheduleEnv,
@@ -40,7 +41,17 @@ def delayed_protocol(n_steps):
     return protocol(n_steps=n_steps, batch_size=4, n_epochs=10)
 
 
-def delayed_raw_args(day, cue, *, n_steps=4, latency=0, payoff=True, processing=True):
+def _validate_payoff_index(payoff_index, *, payoff=True):
+    if type(payoff_index) is not int or payoff_index not in (8, 22):
+        raise ValueError("payoff_index must be the native integer 8 or 22")
+    if payoff_index == 8 and not payoff:
+        raise ValueError("early payoff_index requires payoff=True")
+
+
+def delayed_raw_args(
+    day, cue, *, n_steps=4, latency=0, payoff=True, processing=True, payoff_index=22
+):
+    _validate_payoff_index(payoff_index, payoff=payoff)
     args = parameters()
     rows = 24
     times = np.datetime64(f"2026-01-{day:02d}", "ns") + np.arange(
@@ -49,7 +60,7 @@ def delayed_raw_args(day, cue, *, n_steps=4, latency=0, payoff=True, processing=
     shape = (rows, 1)
     marks = np.full(shape, 128.0)
     if payoff:
-        marks[22:] = 128 * (1 + 0.08 * cue)
+        marks[payoff_index:] = 128 * (1 + 0.08 * cue)
     opens = np.full(shape, 128.0)
     features = np.full((rows, 1, 1), cue, dtype=np.float32)
     features[:3, 0, 0] = [-1, 0, 1]
@@ -58,6 +69,13 @@ def delayed_raw_args(day, cue, *, n_steps=4, latency=0, payoff=True, processing=
     data = MarketDataset(
         dataset_id=content_digest(
             {"scheduled_delayed_v1": day, "cue": cue, "payoff": payoff}
+            if payoff_index == 22
+            else {
+                "scheduled_payoff_timing_v1": day,
+                "cue": cue,
+                "payoff": payoff,
+                "payoff_index": payoff_index,
+            }
         ),
         symbols=("S0",),
         timestamps=times,
@@ -136,8 +154,9 @@ def delayed_raw_args(day, cue, *, n_steps=4, latency=0, payoff=True, processing=
     return opt_in(args)
 
 
-def delayed_preprocessing():
-    data = delayed_raw_args(1, 1)["dataset"]
+def delayed_preprocessing(*, payoff_index=22):
+    _validate_payoff_index(payoff_index)
+    data = delayed_raw_args(1, 1, payoff_index=payoff_index)["dataset"]
     return fit_allocation_feature_preprocessing(
         data,
         feature_indices=(0,),
@@ -149,23 +168,41 @@ def delayed_preprocessing():
     )
 
 
-def delayed_env(day, cue, *, n_steps=4, frozen=None, **controls):
+def delayed_env(day, cue, *, n_steps=4, frozen=None, payoff_index=22, **controls):
+    _validate_payoff_index(payoff_index, payoff=controls.get("payoff", True))
+    if frozen is None:
+        frozen = delayed_preprocessing(payoff_index=payoff_index)
+    elif payoff_index == 8:
+        # All children consume this arm's canonical day1/cue+1 declaration.
+        # Reconstruct to check supplied content, never replace its coefficients.
+        validate_training_preprocessing(
+            delayed_raw_args(1, 1, payoff_index=payoff_index)["dataset"],
+            frozen,
+            feature_indices=(0,),
+            symbol_index=0,
+            first_decision_index=6,
+        )
     return AllocationTradingEnv(
         **bind_frozen(
-            delayed_raw_args(day, cue, n_steps=n_steps, **controls),
-            delayed_preprocessing() if frozen is None else frozen,
+            delayed_raw_args(
+                day, cue, n_steps=n_steps, payoff_index=payoff_index, **controls
+            ),
+            frozen,
         )
     )
 
 
-def delayed_schedule(n_steps, *, frozen=None):
-    frozen = delayed_preprocessing() if frozen is None else frozen
+def delayed_schedule(n_steps, *, frozen=None, payoff_index=22):
+    _validate_payoff_index(payoff_index)
+    frozen = (
+        delayed_preprocessing(payoff_index=payoff_index) if frozen is None else frozen
+    )
     children = tuple(
-        delayed_env(day, cue, n_steps=n_steps, frozen=frozen)
+        delayed_env(day, cue, n_steps=n_steps, frozen=frozen, payoff_index=payoff_index)
         for day, cue in TRAIN_ROSTER
     )
     heldout = tuple(
-        delayed_env(day, cue, n_steps=n_steps, frozen=frozen)
+        delayed_env(day, cue, n_steps=n_steps, frozen=frozen, payoff_index=payoff_index)
         for day, cue in HELDOUT_ROSTER
     )
     windows = tuple(allocation_training_window(child) for child in children)

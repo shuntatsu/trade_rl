@@ -1673,3 +1673,50 @@ The record does not default to VALID, and reference hashes cannot authorize a
 Study. Historical source/getter/fit authenticity, full independent accounting,
 G3-G5, calibrated economics, profitability and final/paper/live eligibility remain
 unestablished. The maximum 20% DD limit is a research constraint, not a guarantee.
+
+## Payoff-release timing software control
+
+G0 asks whether the same artificial exogenous cue payoff can arrive within the
+first four transitions while retaining the fixed H16 entry opportunity and
+terminal amounts. This tests mechanical reward access. Earlier wealth, holding
+weights, cumulative drawdown, risk inputs, pending requests and financial
+observations can change; timing alone does not isolate bootstrap necessity.
+
+G1 adds only a closed fixture opt-in: native integer payoff_index8 versus the
+unchanged omitted/explicit22. Other types/clocks and payoffFalse+8 reject before
+construction. The old22 identity mapping is retained;8 has a distinct versioned
+Dataset domain. Exactly mark_price/index_price/close/high/low move from8 instead
+of22. Opens remain128, sole executable volume is1000 at7, and cue features,
+publication clocks, funding/borrow/cash, capital1024, fees, action/risk contracts
+and decisions6..21/process7..22 remain fixed. There is no terminal liquidation.
+
+The early canonical normalizer owner is day1/cue+1 at8 and belongs to its six
+training windows; four held-out windows share the unchanged frozen declaration.
+Its admitted rows0..2, mean0, population variance2/3 and actual forecast label
+pairs0->1 through3->4 with zero labels agree with22. Source/declaration/recipe
+and schedule lineage differ. Supplied early content is checked against that
+canonical owner with validate_training_preprocessing, whose prefix reconstruction
+checks rather than replaces the supplied coefficients. Child IDs need not equal
+the common owner. The22 inference-application compatibility remains unchanged.
+Complete live observations at6 and after paid entry7 must agree across arms.
+
+G2 uses independent Fraction amounts: q=4*cue for correct, -4*cue for wrong,
+0 for cash; fee=abs(q)*128/512 and cash=1024-q*128-fee. The terminal mark is
+128*(1+2*cue/25), giving gains999/25600, -1049/25600 and0. Entry fee reward arrives
+at7 and signed mark contribution+/-1/25 at8 or22; native interval rewards telescope
+to the same endpoint. Every later first-entry decision7..21 and adversarial
+pending/direct/FLAT/opposite requests must retain zero post7 fills. Four transitions
+leave the same live child at10; only true terminal22 permits schedule rotation.
+
+Maximum DD must include native pre-fill open valuation, entry fee and final mark
+in that order, not only returned interval endpoints. Correct early entry marks
+equity26599/25 at8 with maxDD1/1024, then the unchanged open128 values equity1023
+at9 before recovery: cumulative maxDD1024/26599. Correct late entry retains
+maxDD1/1024 because its first favorable mark is terminal22. Wrong maxDD is1049/25600
+in both arms; cash DD0. All remain below unchanged drawdown_start.10. These are
+synthetic valuation checkpoints, not a measured market intrabar path.
+
+This control is unfit/ungraded and defines no new behavioral PASS rule or actor
+execution authority. Original FAILED/INITIAL_BASELINE_CEILING results and strict
+learning gates remain. It establishes no optimizer cure, causal bootstrap credit,
+G3-G5, calibrated economic profit, final access or paper/live eligibility.

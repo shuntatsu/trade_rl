@@ -1104,3 +1104,15 @@ not reconstruct them with another encoder or rerun execution. HOLD may cancel
 residuals and incur carry. Native clipped interval returns are separate from the
 signed fixed-capital reward. Consistent repinning is a different artifact, not
 proof of authenticity, source history, exact restart or learned profitability.
+
+## Fixed nonRL continuous-account consumer
+
+`run_continuous_nonrl_allocation` accepts fresh residual allocation environments,
+declares only action2, and delegates account/order carry and actual execution to
+the existing continuous runner. Direct action2 means FLAT and is rejected before
+reset. Only native MARKET/zero-extra-latency and drawdown profiles are admitted.
+Candidate/runtime, forecast and cost-clock coverage are checked for the
+whole chain first; native source/account admission remains per decision.
+The typed result retains the fixed rule, forecast and complete runtime identities.
+Its evidence adapter reuses common NONRL metrics with seed/policy fields null.
+These in-process markers prevent accidental labeling, not deliberate forgery.

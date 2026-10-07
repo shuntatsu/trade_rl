@@ -2007,3 +2007,40 @@ learning, cost/capacity calibration,
 frozen-policy stress economics, registered common A/B/C Study, unused/final
 access or paper/live eligibility is established. The 20% research guardrail and
 separate formal review/final-head integration gates remain.
+
+## Issue #810: bounded frozen configured-fee view
+
+An opt-in typed fee view now separates original scheduled v5 bundle/model pins
+from its actual native stress recipe. Exactly configured fee_rate changes by a
+declared factor >1; global financial H, C, native risk/capacity, all other costs,
+source/forecast/cost beliefs and frozen v3 preprocessing remain fixed. Original
+ordinary inference continues to reject a different complete runtime recipe.
+Whole-roster metadata/archive checks precede backend/reset, and per-action
+actual cost/tensor/source/account guards prevent stale-cache or prediction drift.
+Complete canonical manifest and regular ZIP-digest preflight cover the entire
+artifact roster before the first optional backend, with normal per-load private
+copy/rechecks retained. The source envelope now reuses the native Dataset
+contract owner, including volume units and period/feature-build metadata;
+same-object changes before/during prediction are rejected before native orders.
+
+Core software controls use fake models and no-fit declared synthetic inputs with
+real native fills: fee1 versus2 gives cash499 versus498 and first equity1049
+versus1048 at C1000/qty5/entry100/mark110. This is arithmetic, not learned or
+market profit. After separate source review, the first real-SB3 runtime
+execution passed 3 tests with 0 skips in 31.41 seconds on frozen uncommitted
+source. Unchanged
+scheduled v2/v3 each record actions[1,1,1,1]; the separate deliberately constant
+v3 fixture records[3,0,0,0]. All three preserve model tensor states and original
+policy pins. Actual canonical software receipts explicitly distinguish these
+cases with `learned_alpha_established=false`; the constant native account confirms
+qty5, fee1/2, cash499/498 and first stress equity1048. Eleven actual files were
+preserved and verified in a 275445-byte archive. This closes the bounded runtime
+software check, not learned-alpha or economic-study gates. Exact final-head
+full CI, integration and formal research gates remain pending; hashes do not
+authenticate original fitting or source use.
+
+Issue #810 remains incomplete: the separate global result still needs a reviewed
+source/runtime-pinned common-evidence producer and proper global NONRL/cash
+controls before registered A/B/C comparison. No refit, profitability conclusion,
+calibration, unused/final access or paper/live eligibility is added. The 20%
+research guardrail remains.

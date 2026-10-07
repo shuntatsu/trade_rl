@@ -1521,3 +1521,58 @@ cues and advantages provide alternate transfer pathways, so even a future short
 success alone would not identify causal credit THROUGH bootstrap. This failed
 comparison establishes neither beyond-rollout actor learnability, market
 generalization, calibrated economic profit, G4/G5 nor deployment.
+
+## Frozen fee-view G0-G2 software assurance
+
+G0: can the same frozen scheduled v5 policy execute under one predeclared
+configured-fee-only stress on the native total financial H? G1 preserves all
+original bundle/tensor pins and ordinary full-recipe rejection; a distinct typed
+view admits exactly the actual stress recipe. Only positive configured fee_rate
+is multiplied by factor >1. Global H/C, observation/action/preprocessing, risk,
+all other native cost fields/capacity, forecast/cost beliefs and declared source
+envelope stay fixed. No refit, local-H substitution or alternate ledger exists.
+
+G2 uses declared no-fit forecast coefficients and fake archive/model doubles,
+with real native account/execution. C1000, target.5, entry100 and next mark110
+produce qty5, fee1/cash499/equity1049 versus fee2/cash498/equity1048 for .002/.004.
+Independent account float32 inputs and global remaining fractions1/.75/.5/.25
+are checked across 1+3 and 3+1 segments, with one reset and terminal10. Unchanged
+frozen v3 application and absence of refitting are explicit controls. Rehashed
+cost-roster/nonfee/risk/H/original-pin changes, late metadata/archive failures
+and during-prediction cost/tensor/account/clock/source changes fail closed.
+The late archive control keeps canonical valid metadata and distinct roots:
+a good first ZIP must not reach its backend when only the second ZIP is corrupt.
+Same-object Dataset contract controls change volume units, periods/year or
+feature-build pins before/during prediction and require zero native executor
+calls. At literal raw volume100/open100, BASE_ASSET means notional10000 while
+QUOTE_NOTIONAL means100; unchanged targetnotional500 must not execute under
+the changed capacity. The unchanged low-volume base/stress pair still buysqty5.
+Actual cost payload is recomputed before/after prediction so a stale identity
+cache cannot conceal in-place configuration drift inside this fee-view scope.
+
+The dedicated actual-SB3 test protocol predetermines two unmodified small v2/v3
+scheduled fits and a separate deliberately constant v3 actor fixture; no actor
+edits follow OOS execution. The constant fixture tests native arithmetic and
+never demonstrates learned alpha. Following separate source review, the first
+actual execution on frozen uncommitted source passed all 3 tests with 0 skips.
+Unchanged scheduled v2/v3 each record actions[1,1,1,1]; the declared constant
+v3 fixture records[3,0,0,0], native qty5, fee1/2, cash499/498 and first stress
+equity1048. All receipts retain equal model tensor states before/after and
+explicitly mark `learned_alpha_established=false`. The archived actual receipts
+establish bounded software consistency; exact final-head full CI, integration
+and formal research gates remain pending.
+
+Known limits: tensor checks cover parameters/persistent buffers, not arbitrary
+optimizer or transient backend state. Source hashes bind a declared finite
+envelope plus actual actor rows, not authenticated usage or historical fitting.
+Rehashing full source per action has no market-scale performance evidence.
+This distinct global receipt cannot satisfy the historical common-comparison
+DTO. No registered A/B/C economics, gain threshold, calibration, research
+selection, G3-G5, final/sealed authority or market/live eligibility is supplied.
+
+The single combined PPO CI invocation also preserves the fee software JSON
+receipts and original genuine/constant policy bundles on success or failure.
+Its artifact binds exact HEAD/run/attempt and has seven-day retention. A JSON
+software receipt is written only after that case's existing assertions pass;
+missing receipts or a partial archive never imply a successful case. Uploading
+these controlled software artifacts does not grant learning or study approval.

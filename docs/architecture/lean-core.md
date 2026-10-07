@@ -1198,3 +1198,43 @@ The fixed six-cell behavioral comparison is software VALID after this local
 gate repair, with all six learning outcomes FAILED. No short or long factor
 improves its initialization; native actor/critic updates alone do not demonstrate
 learning success.
+
+## Frozen configured-fee-only global policy view
+
+The explicit fee-view entry admits the same original scheduled v5 bundle and
+tensor state on a separately declared native global runtime whose only changed
+ExecutionCostConfig field is positive `fee_rate * factor`, with factor >1.
+Native MARKET, zero extra latency, retain-debt and no execution profile/rule
+overlay are required. Every other cost field, global H/capital, action/observation,
+risk, frozen v3 preprocessing, source envelope, forecast and cost beliefs stay
+fixed. This factor changes configured fee only; total economic costs need not
+double. The ordinary policy retains its exact full-recipe rejection.
+
+Original bundle/ZIP pins and every TRAIN cutoff are read before any optional
+backend; original models are loaded with their base recipe before one OOS reset.
+The manifest reader checks canonical metadata/cutoff; the upper fee entry then
+checks every original ZIP's regular-file digest before the first loader. Each
+ordinary loader still rechecks its manifest and verifies its private ZIP copy.
+The detached fee binding records the distinct actual stress recipe, original
+model state and comparison scenario. Before and after each deterministic
+prediction the upper native adapter recomputes actual cost contents, runtime,
+declared source envelope and account state; the lower view checks original
+manifest/model identity and tensor bytes. Cost recomputation prevents this view
+from trusting an execution digest cached solely by cost-object identity.
+The source envelope reuses `Dataset.identity_contract_payload()` for native
+volume units, calendar/period and feature-build metadata alongside finite arrays.
+Same-object metadata changes therefore also fail before native execution.
+
+The distinct fee/global result retains actor input bytes/actions, model-state
+pins and native execution facts. These consistency links do not authenticate
+historical training or source usage. The result has no common-comparison adapter,
+learning/profit gate, refitting, Study mutation or final/unused authorization.
+
+The first actual-SB3 software execution passed all three fixed cases on frozen
+uncommitted source: unchanged scheduled v2 and v3 policies, plus a separately
+declared deliberately constant v3 fixture. Actual receipts retain original pins
+and equal model tensor states before/after; the constant native account records
+qty5, fee1 versus2, cash499 versus498 and first stress equity1048. This verifies
+software save/load/fee-view consistency, without establishing learned alpha or
+historical fit/source authenticity. Exact final-head full CI, integration and
+formal research gates remain pending.

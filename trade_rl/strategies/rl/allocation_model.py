@@ -262,33 +262,35 @@ class AllocationPPOPolicy:
         manifest = self.manifest
         if runtime_recipe_digest != manifest["recipe_digest"]:
             raise ValueError("runtime recipe differs from the frozen allocation policy")
-        validate_allocation_model(self.model, manifest)
-        with np.errstate(over="raise", invalid="raise"):
-            try:
-                original = np.asarray(observation)
-                if original.dtype.kind not in "iuf":
-                    raise ValueError("allocation observation must contain real numbers")
-                values = original.astype(np.float32)
-            except (TypeError, ValueError, FloatingPointError) as error:
-                raise ValueError(
-                    "allocation observation must fit finite float32 values"
-                ) from error
-        if (
-            values.shape != self.model.observation_space.shape
-            or not np.isfinite(values).all()
-        ):
+        return _predict_allocation_action(self.model, manifest, observation)
+
+
+def _predict_allocation_action(
+    model: Any, manifest: dict[str, Any], observation: np.ndarray
+) -> int:
+    """Shared numeric checks; callers must first admit the exact runtime recipe."""
+    validate_allocation_model(model, manifest)
+    with np.errstate(over="raise", invalid="raise"):
+        try:
+            original = np.asarray(observation)
+            if original.dtype.kind not in "iuf":
+                raise ValueError("allocation observation must contain real numbers")
+            values = original.astype(np.float32)
+        except (TypeError, ValueError, FloatingPointError) as error:
             raise ValueError(
-                "allocation observation differs from its finite vector contract"
-            )
-        raw, _ = self.model.predict(values, deterministic=True)
-        codes = np.asarray(raw).reshape(-1)
-        if (
-            codes.size != 1
-            or isinstance(codes[0], (bool, np.bool_))
-            or not isinstance(codes[0], Integral)
-            or not 0 <= int(codes[0]) <= 3
-        ):
-            raise ValueError(
-                "allocation action must be one integer within {0, 1, 2, 3}"
-            )
-        return int(codes[0])
+                "allocation observation must fit finite float32 values"
+            ) from error
+    if values.shape != model.observation_space.shape or not np.isfinite(values).all():
+        raise ValueError(
+            "allocation observation differs from its finite vector contract"
+        )
+    raw, _ = model.predict(values, deterministic=True)
+    codes = np.asarray(raw).reshape(-1)
+    if (
+        codes.size != 1
+        or isinstance(codes[0], (bool, np.bool_))
+        or not isinstance(codes[0], Integral)
+        or not 0 <= int(codes[0]) <= 3
+    ):
+        raise ValueError("allocation action must be one integer within {0, 1, 2, 3}")
+    return int(codes[0])

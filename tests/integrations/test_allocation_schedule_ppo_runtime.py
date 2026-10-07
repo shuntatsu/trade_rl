@@ -463,3 +463,140 @@ def test_schedule_fit_rejects_non_native_seed_before_backend_construction(monkey
     except ValueError:
         pass
     assert not calls, "non-native seed reached actual backend construction"
+
+
+def test_actual_v3_scheduled_bundle_global_clock_matches_uninterrupted_policy(
+    tmp_path, monkeypatch
+):
+    """Software identity only; four synthetic PPO decisions do not prove learning."""
+    from tests.evaluation.test_allocation_continuation import book_economics
+    from tests.evaluation.test_allocation_continuous_walk_forward import fold
+    from tests.evaluation.test_allocation_preprocessing_runtime import (
+        bind_frozen,
+        frozen_args,
+    )
+    from trade_rl.evaluation.rl_allocation import global_walk_forward as consumer
+    from trade_rl.evaluation.rl_allocation.continuation import allocation_state_digest
+    from trade_rl.evaluation.rl_allocation.policy_admission import (
+        AllocationFoldPolicyArtifact,
+    )
+    from trade_rl.strategies.rl.allocation_artifact import save_allocation_policy
+
+    args = frozen_args(stop=10)
+    child = AllocationTradingEnv(**args)
+    window = allocation_training_window(child)
+    schedule = AllocationTrainingSchedule((window,), (window.window_id,))
+    fit = capability()(
+        AllocationTrainingScheduleEnv(schedule, (child,)),
+        total_timesteps=4,
+        seed=7,
+        training_protocol=protocol(n_steps=2, batch_size=2, n_epochs=1),
+    )
+    policy = fit.inference_policy()
+    root = tmp_path / "global-policy"
+    digest = save_allocation_policy(root, policy)
+    frozen = args["feature_preprocessing"]
+    oos_args = bind_frozen(dated_args(4), frozen)
+    direct, saved = AllocationTradingEnv(**oos_args), AllocationTradingEnv(**oos_args)
+    assert direct.recipe_digest == child.recipe_digest
+    assert direct.dataset.dataset_id != child.dataset.dataset_id
+    obs, _ = direct.reset(seed=17)
+    actions = []
+    for _ in range(4):
+        actions.append(policy.action(obs, runtime_recipe_digest=direct.recipe_digest))
+        obs, _, done, truncated, _ = direct.step(actions[-1])
+        assert not truncated and done is (direct.index == 10)
+    folds = (fold(0, 6, 7), fold(1, 7, 10))
+    artifacts = tuple(
+        AllocationFoldPolicyArtifact(i, root, digest, child.recipe_digest)
+        for i in range(2)
+    )
+    loaded_actions, resets = [], []
+    original_load, original_reset = consumer.load_allocation_policy, saved.reset
+
+    def load(*args, **kwargs):
+        loaded = original_load(*args, **kwargs)
+        native_action = loaded.action
+
+        def action(observation, **pins):
+            value = native_action(observation, **pins)
+            loaded_actions.append(value)
+            return value
+
+        monkeypatch.setattr(loaded, "action", action)
+        return loaded
+
+    def reset(**kwargs):
+        resets.append(kwargs)
+        return original_reset(**kwargs)
+
+    monkeypatch.setattr(consumer, "load_allocation_policy", load)
+    monkeypatch.setattr(saved, "reset", reset)
+    result = consumer.run_artifact_bound_global_allocation_walk_forward(
+        folds, saved, artifacts, reset_seed=17
+    )
+    assert loaded_actions == actions
+    assert resets == [{"seed": 17}]
+    assert result.policy_digests == (digest, digest)
+    assert result.stitched.boundaries == ((6, 7), (7, 10))
+    assert book_economics(saved.book) == book_economics(direct.book)
+    assert allocation_state_digest(saved) == allocation_state_digest(direct)
+
+    # The complete roster is metadata-checked before even the first backend.
+    from trade_rl.artifacts import content_digest
+
+    bad_root = tmp_path / "bad-second"
+    bad_root.mkdir()
+    raw = policy.manifest
+    raw["policy_sha256"] = "f" * 64
+    (bad_root / "policy.zip").write_bytes(b"inert")
+    (bad_root / "manifest.json").write_bytes(canonical_json_bytes(raw))
+    bad_artifact = AllocationFoldPolicyArtifact(
+        1, bad_root, content_digest(raw), child.recipe_digest
+    )
+    monkeypatch.setattr(
+        consumer,
+        "load_allocation_policy",
+        lambda *_args, **_kwargs: pytest.fail("backend before all metadata preflight"),
+    )
+    # Internally consistent repinned claims are still not authenticated fit
+    # history. Move this complete H4 window so its terminal equals OOS start.
+    from trade_rl.strategies.rl.allocation_manifest import validate_allocation_manifest
+    from trade_rl.strategies.rl.allocation_training_schedule import (
+        AllocationTrainingWindow,
+    )
+
+    training = raw["training"]
+    source = training["sources"][0]["source"]
+    source["decision_start"], source["terminal_time"] = (
+        "2026-01-04T02:00:00.000000000",
+        "2026-01-04T06:00:00.000000000",
+    )
+    objective = training["sources"][0]["objective"]
+    objective["evaluation_start"], objective["evaluation_stop_exclusive"] = (
+        "2026-01-04T02:00:00Z",
+        "2026-01-04T06:00:00Z",
+    )
+    claimed = training["schedule"]["windows"][0]
+    claimed["decision_start_ns"] += 68 * 3600 * 10**9
+    claimed["terminal_time_ns"] += 68 * 3600 * 10**9
+    envelope = source | {"decision_counts": [1] * 4}
+    claimed["source_digest"] = content_digest(
+        {k: v for k, v in envelope.items() if k != "dataset_id"}
+    )
+    identity = AllocationTrainingWindow.from_payload(claimed).window_id
+    training["schedule"]["train_window_ids"][0] = identity
+    training["schedule_digest"] = content_digest(training["schedule"])
+    training["usage"]["schedule_digest"] = training["schedule_digest"]
+    for field in ("usage", "consumption"):
+        training[field]["windows"][0]["window_id"] = identity
+    training["sources"][0]["window_id"] = identity
+    assert validate_allocation_manifest(raw, require_policy=True) == raw
+    (bad_root / "manifest.json").write_bytes(canonical_json_bytes(raw))
+    bad_artifact = replace(bad_artifact, expected_digest=content_digest(raw))
+    fresh = AllocationTradingEnv(**oos_args)
+    with pytest.raises(ValueError, match="strictly precede"):
+        consumer.run_artifact_bound_global_allocation_walk_forward(
+            folds, fresh, (artifacts[0], bad_artifact)
+        )
+    assert not hasattr(fresh, "book")

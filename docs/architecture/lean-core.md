@@ -1130,3 +1130,22 @@ whole chain first; native source/account admission remains per decision.
 The typed result retains the fixed rule, forecast and complete runtime identities.
 Its evidence adapter reuses common NONRL metrics with seed/policy fields null.
 These in-process markers prevent accidental labeling, not deliberate forgery.
+
+## Global-horizon allocation policy switches
+
+The opt-in global OOS consumer uses one native allocation environment for the
+whole horizon and segments its decisions by contiguous immutable fold test ranges.
+It resets once, switches frozen policies at boundaries, and retains native time
+remaining, capital, orders, risk, execution RNG and reward. Internal boundaries
+are active-state snapshots, not terminal events or account continuations.
+Full recipe identity includes global H and the same fixed v3 normalizer when used.
+Historical per-local-fold execution and its exact recipe guards are unchanged.
+
+Artifact admission accepts only scheduled v5. Every TRAIN terminal and v3
+preprocessing fit-last-event/as-of claim must strictly precede global OOS start
+in absolute nanoseconds; training Dataset identities may differ from OOS.
+Preprocessing policy-start retains its existing meaning. All roster metadata
+and external pins are checked before any backend load or reset; the existing
+loader then rechecks pins/cutoff, verified private bytes and actual model facts.
+These are consistency checks, not proof of historical fit/source authenticity.
+The distinct global result cannot enter the historical common-comparison adapter.

@@ -22,6 +22,12 @@ from trade_rl.strategies.rl.allocation_model import (
     AllocationPPOPolicy,
     validate_allocation_model,
 )
+from trade_rl.strategies.rl.allocation_preprocessing import (
+    AllocationFeaturePreprocessing,
+)
+from trade_rl.strategies.rl.allocation_training_schedule import (
+    AllocationTrainingSchedule,
+)
 
 
 def save_allocation_policy(root: Path, policy: AllocationPPOPolicy) -> str:
@@ -54,10 +60,22 @@ def _load_policy(path: Path) -> Any:
     return getattr(sb3, "PPO").load(str(path), device="cpu")
 
 
-def load_allocation_policy(
-    root: Path, *, expected_digest: str, expected_recipe_digest: str
-) -> AllocationPPOPolicy:
-    """Verify canonical receipt and copy/hash policy bytes before executing loader."""
+def read_allocation_policy_manifest(
+    root: Path,
+    *,
+    expected_digest: str,
+    expected_recipe_digest: str,
+    training_cutoff_ns: int | None = None,
+) -> dict[str, Any]:
+    """Read pinned native metadata without importing/deserializing the backend.
+
+    The opt-in cutoff checks scheduled source claims, not fit authenticity.
+    Policy bytes and actual model attributes remain the loader's responsibility.
+    """
+    if training_cutoff_ns is not None and (
+        type(training_cutoff_ns) is not int or not -(2**63) < training_cutoff_ns < 2**63
+    ):
+        raise ValueError("training cutoff must be native non-NaT nanoseconds")
     require_sha256(expected_digest, field="expected_digest")
     require_sha256(expected_recipe_digest, field="expected_recipe_digest")
     root = Path(root)
@@ -83,6 +101,46 @@ def load_allocation_policy(
     manifest = validate_allocation_manifest(manifest, require_policy=True)
     if manifest["recipe_digest"] != expected_recipe_digest:
         raise ValueError("allocation recipe differs from the caller's pinned recipe")
+    if training_cutoff_ns is not None:
+        if manifest["schema"] != "allocation_ppo_inference_bundle_v5":
+            raise ValueError("global cutoff requires explicit scheduled bundle v5")
+        schedule = AllocationTrainingSchedule.from_payload(
+            manifest["training"]["schedule"]
+        )
+        if any(
+            w.terminal_time_ns >= training_cutoff_ns for w in schedule.training_windows
+        ):
+            raise ValueError("training terminal must strictly precede global OOS start")
+        recipe = manifest["recipe"]
+        if recipe["schema"] == "allocation_ppo_recipe_v3":
+            frozen = AllocationFeaturePreprocessing.from_payload(
+                recipe["observation"]["feature_preprocessing"]
+            )
+            if (
+                max(frozen.fit_last_event_time_ns, frozen.fit_as_of_ns)
+                >= training_cutoff_ns
+            ):
+                raise ValueError(
+                    "preprocessing fit must strictly precede global OOS start"
+                )
+    return manifest
+
+
+def load_allocation_policy(
+    root: Path,
+    *,
+    expected_digest: str,
+    expected_recipe_digest: str,
+    training_cutoff_ns: int | None = None,
+) -> AllocationPPOPolicy:
+    """Recheck pinned metadata, copy/hash policy bytes, then execute the loader."""
+    root = Path(root)
+    manifest = read_allocation_policy_manifest(
+        root,
+        expected_digest=expected_digest,
+        expected_recipe_digest=expected_recipe_digest,
+        training_cutoff_ns=training_cutoff_ns,
+    )
     with verified_private_copy(
         root / "policy.zip",
         expected_digest=manifest["policy_sha256"],

@@ -1382,3 +1382,32 @@ with cash 499; the next valuation price 110 gives equity 1049.
 Independent forecast execution agrees on quantities, order IDs/events and costs;
 risk veto, partial-fill carry/HOLD cancellation and pre-reset rejection are tested.
 No market profitability, calibration, full comparison run or G3-G5 is established.
+
+## Global OOS clock G0-G2
+
+G0 is a software mechanism: predeclared frozen policies can switch inside one
+native global finite OOS episode without resetting its actor clock or account.
+G1 preserves full global recipe/H, one capital denominator, native risk/orders,
+RNG, fixed-capital reward and a common frozen v3 normalizer when used. One reset
+and one true terminal occur at global endpoints. Scheduled v5 TRAIN terminals
+and preprocessing fit-last-event/as-of claims must be strictly before global
+start; equality is rejected. Complete metadata preflight precedes any backend.
+
+G2 falsifies local H2 resets with literal global H4 remaining fractions
+1/.75/.5/.25 versus 1/.5/1/.5, propagated into actual actions/cash. Unequal 1+3
+and 3+1 segmentation must match directly uninterrupted observations, account,
+pending orders, counters and seeded execution RNG. Capital1000/target.5/fee.002
+buys5 at100 with cash499; partial capacity1 leaves cash899.8 and remainder4.
+Malformed/late mutated rosters, scalar aliases, incompatible H2/full recipes,
+actions and native early insolvency fail closed. A fixed actual synthetic v3
+scheduled PPO fit/save/load feeds global H4 1+3 with deterministic action/account
+parity. An internally valid repinned late TRAIN claim in the second artifact
+fails before the first backend or OOS reset; strict cutoff/native-type negatives
+and historical loader regressions are separate controls.
+
+Known limits: clocks/hashes bind consistent declarations, not historical fit or
+source authenticity. Packet/feature preparation remains per native decision;
+complete source preflight or unread-future guarantees are not established.
+The global result has no common-comparison evidence adapter. No online refit,
+selection, completion/availability proof, learning/profit, stress admission,
+Study registration, G4/G5, final/sealed authority or market execution is added.

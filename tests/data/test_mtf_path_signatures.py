@@ -15,8 +15,16 @@ from trade_rl.data.contracts import (
     FeatureSpec,
     InstrumentContract,
     MarketBuildConfig,
+    MarketCalendarKind,
+    VolumeUnit,
 )
-from trade_rl.data.features import with_multitimeframe_path_signatures
+from trade_rl.data.features import (
+    with_multitimeframe_path_signatures,
+    with_path_signatures,
+)
+from trade_rl.data.identity import DATASET_ID_ARRAY_FIELDS
+from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation import signature_comparison
 from trade_rl.evaluation.signature_comparison import (
     _matched_baseline_fit_dataset,
     run_ridge_signature_comparison,
@@ -27,7 +35,7 @@ from trade_rl.strategies.forecasts.supervised import build_causal_forecast_train
 from trade_rl.strategies.rl.ppo import PPOTradingEnv
 
 
-def _dataset(source: _Source) -> object:
+def _dataset(source: _Source) -> MarketDataset:
     config = MarketBuildConfig(
         base_timeframe="1h",
         features=(FeatureSpec("log_return", kind=FeatureKind.LOG_RETURN),),
@@ -261,3 +269,214 @@ def test_signature_comparison_matches_fit_rows_with_longer_native_warmup() -> No
     assert baseline_rows.n_samples == signature_rows.n_samples
     # The original data/metrics are untouched by fit-only common eligibility.
     np.testing.assert_array_equal(fit_base.close, base.close)
+
+
+def _funding_pair(
+    *, session: bool = False, global_information: bool = False
+) -> tuple[MarketDataset, MarketDataset]:
+    base = _dataset(_source())
+    rates = np.zeros_like(base.funding_rate)
+    products = np.zeros_like(base.funding_rate)
+    counts = np.zeros(base.funding_rate.shape, dtype=np.int32)
+    rates[3, 0], products[3, 0], counts[3, 0] = 0.001, 0.12, 1
+    changes: dict[str, object] = {
+        "funding_rate": rates,
+        "funding_price_rate": products,
+        "funding_event_count": counts,
+        "funding_due": counts > 0,
+    }
+    if session:
+        changes.update(calendar_kind=MarketCalendarKind.SESSION, nominal_bar_hours=1.0)
+    if global_information:
+        changes.update(
+            global_features=np.ones((base.n_bars, 1), dtype=np.float32),
+            global_feature_names=("common_information",),
+            global_feature_available=None,
+            global_feature_staleness_hours=None,
+            global_feature_missing_reason=None,
+        )
+    base = replace(base, identity_payload_json=None, **changes).with_content_identity(
+        {"fixture": "paired-funding"}
+    )
+    augmented = with_path_signatures(base, window_bars=3, depth=2)
+    return base, augmented
+
+
+def _validate_pair(
+    base: MarketDataset, augmented: MarketDataset
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    return validate_signature_pair(
+        base,
+        augmented,
+        baseline_feature_names=("log_return",),
+        signature_feature_names=("path_sig_v1_w3_d2_tp_tp",),
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("funding_price_rate", 0.13),
+        ("funding_event_count", 2),
+        ("cash_rate", 0.005),
+        ("contract_multipliers", 2),
+    ],
+)
+def test_signature_pair_rejects_reidentified_financial_change(
+    field: str, value: float
+) -> None:
+    base, augmented = _funding_pair()
+    changed_array = augmented.resolved_array(field).copy()
+    if field == "contract_multipliers":
+        index = 0
+    elif field == "cash_rate":
+        index = 3
+    else:
+        index = (3, 0)
+    changed_array[index] = value
+    changed = replace(
+        augmented, identity_payload_json=None, **{field: changed_array}
+    ).with_content_identity({"counterexample": field})
+    assert base.identity_verified and changed.identity_verified
+    assert changed.dataset_id != augmented.dataset_id
+    assert base.funding_rate[3, 0] == 0.001
+    assert base.funding_price_rate[3, 0] == 0.12
+    assert base.funding_event_count[3, 0] == 1
+    assert changed.resolved_array(field)[index] == value
+    for name in DATASET_ID_ARRAY_FIELDS:
+        if name != field:
+            np.testing.assert_array_equal(
+                augmented.resolved_array(name), changed.resolved_array(name)
+            )
+    # A two-event count can retain aggregate rate/product; count alone is not P&L.
+    with pytest.raises(ValueError, match=f"economic input: {field}$"):
+        _validate_pair(base, changed)
+
+
+@pytest.mark.parametrize(
+    "field", ["volume_units", "calendar_kind", "nominal_bar_hours", "periods_per_year"]
+)
+def test_signature_pair_rejects_reidentified_economic_metadata(field: str) -> None:
+    base, augmented = _funding_pair(
+        session=field in {"nominal_bar_hours", "periods_per_year"}
+    )
+    changes: dict[str, object]
+    if field == "volume_units":
+        assert base.volume_units[0] is VolumeUnit.BASE_ASSET
+        changes = {field: (VolumeUnit.QUOTE_NOTIONAL, *base.volume_units[1:])}
+    elif field == "calendar_kind":
+        changes = {field: MarketCalendarKind.SESSION, "nominal_bar_hours": 1.0}
+    else:
+        changes = {field: 2.0 if field == "nominal_bar_hours" else 252}
+    changed = replace(
+        augmented, identity_payload_json=None, **changes
+    ).with_content_identity({"counterexample": field})
+    assert base.identity_verified and changed.identity_verified
+    for name in DATASET_ID_ARRAY_FIELDS:
+        np.testing.assert_array_equal(
+            augmented.resolved_array(name), changed.resolved_array(name)
+        )
+    original_metadata, changed_metadata = (
+        base.identity_contract_payload(),
+        changed.identity_contract_payload(),
+    )
+    assert original_metadata[field] != changed_metadata[field]
+    for name in (
+        "calendar_kind",
+        "nominal_bar_hours",
+        "periods_per_year",
+        "volume_units",
+    ):
+        if name != field:
+            assert original_metadata[name] == changed_metadata[name]
+    with pytest.raises(ValueError, match=f"economic metadata: {field}$"):
+        _validate_pair(base, changed)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "feature_staleness",
+        "feature_staleness_hours",
+        "feature_missing_reason",
+        "global_features",
+        "global_feature_available",
+        "global_feature_staleness_hours",
+        "global_feature_missing_reason",
+    ],
+)
+def test_signature_pair_preserves_original_information(field: str) -> None:
+    base, augmented = _funding_pair(global_information=True)
+    values = augmented.resolved_array(field).copy()
+    if field == "feature_staleness":
+        values[3, 0, 0] = 0.5
+    elif field.startswith("feature_"):
+        values[3, 0, 0] = 1
+    else:
+        values[3, 0] = False if field == "global_feature_available" else 2
+    changed = replace(
+        augmented, identity_payload_json=None, **{field: values}
+    ).with_content_identity({"counterexample": field})
+    assert base.identity_verified and changed.identity_verified
+    for name in DATASET_ID_ARRAY_FIELDS:
+        if name != field:
+            np.testing.assert_array_equal(
+                augmented.resolved_array(name), changed.resolved_array(name)
+            )
+    with pytest.raises(ValueError, match=f"economic input: {field}$"):
+        _validate_pair(base, changed)
+
+
+def test_signature_pair_accepts_normalized_continuous_clock_and_appended_features() -> (
+    None
+):
+    base, augmented = _funding_pair()
+    equivalent = replace(
+        augmented, identity_payload_json=None, nominal_bar_hours=2.0
+    ).with_content_identity({"fixture": "equivalent-clock"})
+    assert (
+        base.identity_contract_payload()["nominal_bar_hours"]
+        == equivalent.identity_contract_payload()["nominal_bar_hours"]
+        == 1.0
+    )
+    assert equivalent.identity_verified
+    assert equivalent.n_features > base.n_features
+    baseline, extended = _validate_pair(base, equivalent)
+    assert baseline == (0,)
+    assert extended == (0, equivalent.feature_names.index("path_sig_v1_w3_d2_tp_tp"))
+
+
+def test_signature_comparison_refuses_settlement_mismatch_before_fit_or_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base, augmented = _funding_pair()
+    products = augmented.funding_price_rate.copy()
+    products[3, 0] = 0.13
+    changed = replace(
+        augmented, identity_payload_json=None, funding_price_rate=products
+    ).with_content_identity({"counterexample": "before-fit"})
+    assert base.identity_verified and changed.identity_verified
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("mismatched source reached fit or replay")
+
+    monkeypatch.setattr(signature_comparison, "fit_ridge_forecast", forbidden)
+    monkeypatch.setattr(signature_comparison, "run_single_symbol_replay", forbidden)
+    with pytest.raises(ValueError, match="economic input: funding_price_rate$"):
+        run_ridge_signature_comparison(
+            base,
+            changed,
+            baseline_feature_names=("log_return",),
+            signature_feature_names=("path_sig_v1_w3_d2_tp_tp",),
+            fit_cutoff=base.timestamps[5],
+            evaluation_start_index=5,
+            evaluation_stop_index=7,
+            symbol_index=0,
+            horizon_hours=1,
+            alpha=1.0,
+            entry_threshold=0.00001,
+            exit_threshold=0.0,
+            gross_budget=0.05,
+            initial_capital=10000,
+            execution_cost=ExecutionCostConfig.zero(),
+        )

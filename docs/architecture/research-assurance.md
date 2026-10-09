@@ -845,6 +845,28 @@ Production eligibility: NOT ESTABLISHED
 - comparison threshold / winner ruleを変える → resultを見た後の救済にせず、G4 protocolとして新しい事前定義を作る。
 - final/unused/live eligibilityを変える → G5 authorityを更新し、development evidenceを代替にしない。
 
+## Signature paired-input software prerequisite
+
+G0 asks whether a local Signature addition can be compared while retaining the
+same original information, financial inputs and clock semantics. G1 permits
+appended local feature columns and representation provenance only. The existing
+Dataset identity owners supply the array roster and normalized metadata; neither
+a new ledger nor equality of whole Dataset IDs is appropriate here.
+
+G2 uses independently reidentified synthetic pairs. Rate `.001`, settlement
+product `.12` and count `1` versus product `.13` must reject before fitting or
+replay. Count `2` must also reject with unchanged rate/product: two `.0005` events
+at marks `100` and `140` retain product `.12`, so count alone does not imply a
+cash difference. Other counterexamples change cash yield, contract multiplier,
+volume units, valid session clocks, annualization or original local/global
+information. Different optional continuous nominal-hour arguments that both
+resolve to one hour remain admissible. Fit/replay sentinels verify refusal order.
+
+These are input-consistency and software mechanism checks. Identity verification
+does not attest Signature computation, historical source availability, calendar
+coverage, cost calibration or tradable edge. Existing studies and economic
+results are not reclassified; G4/G5 and formal independent review remain separate.
+
 ## Completion condition
 
 「正しい仕組みを確認した」と報告するには、対象変更に関係するG0-G3について、対応するcontract、semantic invariant、反例、oracle、Known limitationsを示す。test Green、CI Green、利益のどれか一つだけを全体保証の代わりにしない。

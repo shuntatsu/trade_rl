@@ -61,6 +61,19 @@ def test_content_identity_round_trip_recomputes_all_arrays(tmp_path: Path) -> No
         )
 
 
+def test_legacy_identity_rejects_changed_funding_price_rate() -> None:
+    legacy = load_market_dataset_artifact(
+        Path(__file__).parent / "fixtures" / "market_build_v2_artifact"
+    )
+    assert legacy.identity_payload_json is not None
+    assert '"schema":"market_dataset_identity_v6"' in legacy.identity_payload_json
+    changed = legacy.resolved_array("funding_price_rate").copy()
+    changed[0, 0] += 1.0
+
+    with pytest.raises(ValueError, match="legacy dataset identity.*funding"):
+        replace(legacy, funding_price_rate=changed)
+
+
 def test_content_identified_dataset_arrays_cannot_be_reenabled_for_write() -> None:
     market = dataset(fee_rate=0.001).with_content_identity({"source": "unit-test"})
 

@@ -1137,6 +1137,8 @@ M2で候補をfreezeした後だけ進む。
 
 Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
 
+新規bootstrap v3はfunding eventのnormalized snapshotを`source/funding-events.json`へ保存し、そのSHA-256をmanifestへbindする。Visionのfunding CSVがsettlement markを持たない場合は、Binance funding historyの`markPrice`でイベントを完成させてからsnapshotを作り、以後のDataset buildとinspectionはnetwork-freeでこのsnapshotを使う。この実装修正後のreal-data bootstrapやeconomic evaluationはまだ実行していない。既存のPortable Controlled Experiment 0001の結果はそのまま保持し、新しいsettlement-mark pathの証拠として扱わない。
+
 入力JSONは少なくとも次を事前登録する。
 
 - Binance USD-M market
@@ -1349,3 +1351,13 @@ outcome or live authorization is altered. Existing canonical 1h PPO duration
 contracts retain their fixed economic-clock semantics. A result-blind Study,
 non-RL gain evidence and independent review are prerequisites to any economic
 PPO Signature trial. Profitability/G4–G5 remain NOT ESTABLISHED.
+
+The paired adapter now checks the maintained complete resolved array roster,
+original local feature prefixes and global information, plus normalized clock
+and volume-unit metadata, before fitting/replay. Native settlement price-products
+and funding event counts are distinct from aggregate funding rates and remain
+equal across arms. Synthetic reidentified mismatch oracles and pre-fit sentinels
+verify refusal; legal appended features and equivalent resolved clocks remain
+accepted. This is software input conformity only. No market fit, new economic
+comparison, calibrated costs, historical availability certification or full
+native Rolling/Signature admission is established by this repair.

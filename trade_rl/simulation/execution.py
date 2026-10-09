@@ -922,11 +922,10 @@ class MarketExecutor:
         index: int,
         year_fraction: float | None = None,
     ) -> tuple[float, float]:
-        funding_notional = self.dataset.quantity_notional(index, book.quantities)
         funding_amount = -float(
             np.dot(
-                funding_notional,
-                self.dataset.funding_rate[index]
+                book.quantities * self.dataset.resolved_array("contract_multipliers"),
+                self.dataset.resolved_array("funding_price_rate")[index]
                 * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
             )
         )

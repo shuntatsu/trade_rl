@@ -34,6 +34,8 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 source URL、SHA-256、size、取引所metadata等を保存し、再取得時にも同じ入力だったか照合できる状態にします。
 
+Canonical M2ではfunding eventのrateとexchange settlement markも取得時に`funding-events.json`へ固定し、manifest digestでDataset入力へ結びます。以後のbuildは保存済みevent snapshotを使い、mark欠損を隠れたREST fallbackで埋めません。
+
 ## 3. 未来情報を混ぜずに特徴量を作る
 
 基本条件は次です。

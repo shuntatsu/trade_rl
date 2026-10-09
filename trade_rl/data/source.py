@@ -39,6 +39,7 @@ class RawMarketSeries:
     funding_available: np.ndarray | None = None
     available_at: np.ndarray | None = None
     funding_event_count: np.ndarray | None = None
+    funding_price_rate: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         timestamps = _readonly(
@@ -97,13 +98,29 @@ class RawMarketSeries:
                 funding_event_count, dtype=np.dtype(np.int32)
             ),
         }
+        funding_price_rate = (
+            None
+            if self.funding_price_rate is None
+            else _readonly(self.funding_price_rate, dtype=np.dtype(np.float64))
+        )
         expected = timestamps.shape
         for field_name, array in arrays.items():
             if array.shape != expected:
                 raise ValueError(f"{field_name} shape must match timestamps")
-        for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):
+        if funding_price_rate is not None and funding_price_rate.shape != expected:
+            raise ValueError("funding_price_rate shape must match timestamps")
+        for field_name in (
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "funding_rate",
+        ):
             if not np.isfinite(arrays[field_name]).all():
                 raise ValueError(f"{field_name} must contain only finite values")
+        if funding_price_rate is not None and not np.isfinite(funding_price_rate).all():
+            raise ValueError("funding_price_rate must contain only finite values")
         if any(
             np.any(arrays[name] <= 0.0) for name in ("open", "high", "low", "close")
         ):
@@ -129,6 +146,15 @@ class RawMarketSeries:
         object.__setattr__(self, "available_at", available_at)
         for field_name, array in arrays.items():
             object.__setattr__(self, field_name, array)
+        object.__setattr__(self, "funding_price_rate", funding_price_rate)
+
+    @property
+    def resolved_funding_price_rate(self) -> np.ndarray:
+        """Return event settlement notionals, using close only for legacy sources."""
+
+        if self.funding_price_rate is not None:
+            return self.funding_price_rate
+        return _readonly(self.funding_rate * self.close, dtype=np.dtype(np.float64))
 
 
 class MarketDataSource(Protocol):

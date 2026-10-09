@@ -98,7 +98,11 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
         return BinanceDatasetBuildResult(
             dataset=dataset,
             metadata=(),
-            sources_used=("frozen:exchange-info", "vision"),
+            sources_used=(
+                "frozen:exchange-info",
+                "frozen:funding-events",
+                "vision",
+            ),
             feature_timeframes=("1h",),
         )
 

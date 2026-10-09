@@ -65,7 +65,9 @@ def validate_signature_pair(
             augmented.feature_available[:, :, : original.n_features],
         )
     ):
-        raise ValueError("Signature pair must share an identical validated base Dataset")
+        raise ValueError(
+            "Signature pair must share an identical validated base Dataset"
+        )
     for field in (
         "open",
         "high",
@@ -90,7 +92,9 @@ def validate_signature_pair(
         "information_available",
         "symbol_active",
     ):
-        if not np.array_equal(original.resolved_array(field), augmented.resolved_array(field)):
+        if not np.array_equal(
+            original.resolved_array(field), augmented.resolved_array(field)
+        ):
             raise ValueError(f"Signature augmentation changed economic input: {field}")
     if not baseline_feature_names or not signature_feature_names:
         raise ValueError("baseline and Signature feature rosters must be nonempty")
@@ -99,12 +103,16 @@ def validate_signature_pair(
         or len(set(signature_feature_names)) != len(signature_feature_names)
         or set(baseline_feature_names) & set(signature_feature_names)
     ):
-        raise ValueError("Signature comparison feature rosters must be unique and disjoint")
+        raise ValueError(
+            "Signature comparison feature rosters must be unique and disjoint"
+        )
     if any(
         not (name.startswith("mt_path_sig_v1_") or name.startswith("path_sig_v1_"))
         for name in signature_feature_names
     ):
-        raise ValueError("Signature features must come from an explicit Signature schema")
+        raise ValueError(
+            "Signature features must come from an explicit Signature schema"
+        )
     try:
         baseline = tuple(
             original.feature_names.index(name) for name in baseline_feature_names
@@ -114,7 +122,9 @@ def validate_signature_pair(
             for name in (*baseline_feature_names, *signature_feature_names)
         )
     except ValueError as error:
-        raise ValueError("Signature comparison feature is missing from Dataset") from error
+        raise ValueError(
+            "Signature comparison feature is missing from Dataset"
+        ) from error
     return baseline, extended
 
 

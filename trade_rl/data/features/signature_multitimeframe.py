@@ -139,7 +139,6 @@ def with_multitimeframe_path_signatures(
     ):
         raise ValueError("native timeframes require MultiTimeframeMarketDataSource")
     letters = ("t", "p", "v") if include_volume else ("t", "p")
-    dim = len(letters)
     words = tuple(
         "".join(word)
         for level in range(1, depth + 1)
@@ -161,7 +160,9 @@ def with_multitimeframe_path_signatures(
             raise ValueError("multitimeframe Signature feature names already exist")
         all_names.extend(names)
         staleness_limit = max(1.0, 2.0 * timeframe_hours(timeframe))
-        values = np.zeros((dataset.n_bars, dataset.n_symbols, len(words)), dtype=np.float32)
+        values = np.zeros(
+            (dataset.n_bars, dataset.n_symbols, len(words)), dtype=np.float32
+        )
         available = np.zeros_like(values, dtype=np.bool_)
         ages = np.full(values.shape, staleness_limit, dtype=np.float64)
         staleness = np.ones(values.shape, dtype=np.float32)

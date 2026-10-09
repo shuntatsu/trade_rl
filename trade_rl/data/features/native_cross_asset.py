@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, timeframe_hours
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    timeframe_hours,
+)
 from trade_rl.data.features.cross_asset import (
     CROSS_ASSET_FEATURE_KINDS,
     calculate_cross_asset_feature_events,
@@ -60,7 +65,9 @@ def align_native_cross_asset_feature(
     arrival_prefix = np.full(
         (len(timestamps), n_symbols), np.iinfo(np.int64).min, dtype=np.int64
     )
-    return_spec = FeatureSpec(name="native_return_internal", kind=FeatureKind.LOG_RETURN)
+    return_spec = FeatureSpec(
+        name="native_return_internal", kind=FeatureKind.LOG_RETURN
+    )
     for i, (raw, contract) in enumerate(zip(raws, contracts)):
         native_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
         offsets = native_ns - begin

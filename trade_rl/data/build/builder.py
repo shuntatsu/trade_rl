@@ -442,7 +442,9 @@ class MarketDatasetBuilder:
                     key = (contract.symbol, native_timeframe)
                     native_raw = native_cache.get(key)
                     if native_raw is None:
-                        native_raw = source.load_timeframe(contract.symbol, native_timeframe)
+                        native_raw = source.load_timeframe(
+                            contract.symbol, native_timeframe
+                        )
                         native_cache[key] = native_raw
                     native_sources.append(native_raw)
                 values, available, age_hours, staleness = (

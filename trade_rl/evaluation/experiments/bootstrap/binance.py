@@ -164,6 +164,23 @@ class _FrozenDatasetTransport:
             mode=mode,
         )
 
+    def load_funding_events(
+        self,
+        *,
+        market: BinanceMarket | str,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        mode: BinanceTransportMode | str = BinanceTransportMode.VISION,
+    ) -> tuple[list[tuple[int, float, float]], str]:
+        return self.market_data.load_funding_events(
+            market=market,
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode=mode,
+        )
+
     def load_exchange_information(
         self,
         *,

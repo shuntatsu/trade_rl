@@ -84,7 +84,8 @@ def _payload_for_url(url: str) -> bytes:
     if "fundingRate" in url:
         return _zip_csv(
             "funding.csv",
-            f"calc_time,last_funding_rate\n{start_ms + 8 * 60 * 60 * 1000},0.0001\n",
+            f"calc_time,last_funding_rate,markPrice\n"
+            f"{start_ms + 8 * 60 * 60 * 1000},0.0001,95.0\n",
         )
     interval_match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
     assert interval_match is not None, url
@@ -240,13 +241,25 @@ def test_frozen_composite_is_network_cut_and_cache_miss_fails_closed(
         end_ms=end_ms,
         mode="vision",
     )
+    funding_events, funding_events_source = (
+        frozen.composite_transport.load_funding_events(
+            market="usds-m",
+            symbol="BTCUSDT",
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode="vision",
+        )
+    )
     metadata, metadata_source = frozen.composite_transport.load_exchange_information(
         market="usds-m"
     )
     assert rows
     assert funding
+    assert funding_events
+    assert funding_events[0][2] == pytest.approx(95.0)
     assert kline_source == "vision"
     assert funding_source == "vision"
+    assert funding_events_source == "vision"
     assert metadata_source == "frozen:exchange-info"
     assert metadata["symbols"][0]["symbol"] == "BTCUSDT"
 

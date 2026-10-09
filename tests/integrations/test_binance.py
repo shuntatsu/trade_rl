@@ -436,13 +436,13 @@ def test_vision_funding_uses_rest_for_partial_trailing_month(
     end = datetime(2026, 7, 15, tzinfo=UTC)
     calls: list[tuple[str, int, int]] = []
 
-    def vision(**kwargs: object) -> list[tuple[int, float]]:
+    def vision(**kwargs: object) -> list[tuple[int, float, float | None]]:
         calls.append(("vision", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
-        return [(_ms(start), 0.0001)]
+        return [(_ms(start), 0.0001, None)]
 
-    def rest(**kwargs: object) -> list[tuple[int, float]]:
+    def rest(**kwargs: object) -> list[tuple[int, float, float | None]]:
         calls.append(("rest", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
-        return [(_ms(july), 0.0002)]
+        return [(_ms(july), 0.0002, None)]
 
     monkeypatch.setattr(transport, "_load_vision_funding", vision)
     monkeypatch.setattr(transport, "_load_rest_funding", rest)

@@ -20,6 +20,7 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.build.config import _feature
 from trade_rl.data.contracts import PORTABLE_FEATURE_NUMERICS_SCHEMA
+from trade_rl.data.features.signature import with_path_signatures
 from trade_rl.data.identity import (
     _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA,
     MARKET_DATASET_IDENTITY_SCHEMA,
@@ -31,6 +32,7 @@ from trade_rl.evaluation.allocation_costs import (
     estimate_declared_horizon_costs,
 )
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
+from trade_rl.evaluation.signature_comparison import validate_signature_pair
 from trade_rl.strategies.dataset_scope import validated_training_scope
 from trade_rl.strategies.forecasts.simple_prequential import (
     fit_prequential_simple_ridge,
@@ -102,6 +104,79 @@ def _cost_from_payload(row: Mapping[str, object]) -> HorizonCostEstimates:
     return estimate
 
 
+def _require_direct_build(dataset: MarketDataset) -> None:
+    if dataset.identity_payload_json is None:
+        raise ValueError("Dataset lacks canonical build lineage")
+    identity = parse_identity_json(dataset.identity_payload_json)
+    config = identity.get("config")
+    if (
+        identity.get("schema")
+        not in (MARKET_DATASET_IDENTITY_SCHEMA, _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA)
+        or "source_dataset" in identity
+        or not isinstance(config, Mapping)
+        or config.get("schema_version") != "market_build_v3"
+        or config.get("feature_numerics_schema") != PORTABLE_FEATURE_NUMERICS_SCHEMA
+        or not isinstance(config.get("features"), list)
+    ):
+        raise ValueError(
+            "Dataset requires declared direct canonical MarketBuilder lineage"
+        )
+    specs = tuple(
+        _feature(value, index=i) for i, value in enumerate(config["features"])
+    )
+    if tuple(s.name for s in specs) != dataset.feature_names or any(
+        canonical_json_bytes(s.canonical_payload()) != canonical_json_bytes(raw)
+        for s, raw in zip(specs, config["features"], strict=True)
+    ):
+        raise ValueError(
+            "Dataset feature declarations do not match canonical names/specs"
+        )
+
+
+def _require_signature_parent(
+    dataset: MarketDataset, parent: MarketDataset
+) -> tuple[str, ...]:
+    """Admit exactly the maintained single-clock transformation of this parent."""
+    if dataset.identity_payload_json is None:
+        raise ValueError("Signature Dataset lacks transformation declarations")
+    identity = parse_identity_json(dataset.identity_payload_json)
+    window, depth, channels = (
+        identity.get("window_bars"),
+        identity.get("depth"),
+        identity.get("channels"),
+    )
+    if (
+        identity.get("source_dataset_id") != parent.dataset_id
+        or isinstance(window, bool)
+        or not isinstance(window, int)
+        or isinstance(depth, bool)
+        or not isinstance(depth, int)
+        or channels not in (["t", "p"], ["t", "p", "v"])
+        or identity.get("path") != "piecewise_linear_completed_bar_close"
+        or identity.get("time") != "normalized_bar_index"
+        or identity.get("log_channels") != "unscaled_natural_log_increments"
+        or identity.get("availability")
+        != "every_constituent_row_available_by_own_close"
+    ):
+        raise ValueError("Signature requires exact single-clock parent declarations")
+    names = dataset.feature_names[parent.n_features :]
+    validate_signature_pair(
+        parent,
+        dataset,
+        baseline_feature_names=parent.feature_names,
+        signature_feature_names=names,
+    )
+    reconstructed = with_path_signatures(
+        parent,
+        window_bars=window,
+        depth=depth,
+        include_volume=channels == ["t", "p", "v"],
+    )
+    if reconstructed.dataset_id != dataset.dataset_id:
+        raise ValueError("Signature Dataset differs from exact parent reconstruction")
+    return names
+
+
 def prepare_allocation_market_inputs(
     dataset_root: str | Path,
     stream_path: str | Path,
@@ -116,6 +191,8 @@ def prepare_allocation_market_inputs(
     alpha: float,
     cost_rows: tuple[Mapping[str, object], ...] | None = None,
     cost_recipe: DeclaredAllocationCostRecipe | None = None,
+    signature_parent_root: str | Path | None = None,
+    expected_signature_parent_dataset_id: str | None = None,
 ) -> PreparedAllocationMarketInputs:
     """Admit one explicit cost path, fit the existing producer once and publish it.
 
@@ -125,7 +202,22 @@ def prepare_allocation_market_inputs(
     with existing downstream consumers. No price conversion or crop is applied.
     cost_recipe opts into the concrete declared reference-size estimator on the
     already-loaded Dataset; the returned recipe/config is shared across lanes.
+    Paired single-clock Signature admission separately pins/loads its canonical
+    parent and reconstructs every appended feature. The caller must authorize
+    BOTH whole artifacts. Paired fitting requires dataset.symbols in its exact
+    order; MT/subset admission and a matched baseline comparison are separate.
+    Recipe costs use the conserved parent economics; stream identity stays
+    augmented. Omitting both parent arguments retains direct-only admission.
     """
+    if (signature_parent_root is None) != (
+        expected_signature_parent_dataset_id is None
+    ):
+        raise ValueError("supply both Signature parent root and expected identity")
+    if expected_signature_parent_dataset_id is not None:
+        require_sha256(
+            expected_signature_parent_dataset_id,
+            field="expected_signature_parent_dataset_id",
+        )
     if (cost_rows is None) == (cost_recipe is None):
         raise ValueError("supply exactly one of cost_rows or cost_recipe")
     if cost_recipe is not None and not isinstance(
@@ -160,36 +252,28 @@ def prepare_allocation_market_inputs(
     dataset = load_market_dataset_artifact(dataset_root)
     if dataset.dataset_id != expected_dataset_id:
         raise ValueError("loaded Dataset differs from external expected_dataset_id")
-    if dataset.identity_payload_json is None:
-        raise ValueError("Dataset lacks canonical build lineage")
-    identity = parse_identity_json(dataset.identity_payload_json)
-    config = identity.get("config")
-    if (
-        identity.get("schema")
-        not in (MARKET_DATASET_IDENTITY_SCHEMA, _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA)
-        or "source_dataset" in identity
-        or not isinstance(config, Mapping)
-        or config.get("schema_version") != "market_build_v3"
-        or config.get("feature_numerics_schema") != PORTABLE_FEATURE_NUMERICS_SCHEMA
-        or not isinstance(config.get("features"), list)
-    ):
-        raise ValueError(
-            "Dataset requires declared direct canonical MarketBuilder lineage"
-        )
-    specs = tuple(
-        _feature(value, index=i) for i, value in enumerate(config["features"])
-    )
-    if tuple(s.name for s in specs) != dataset.feature_names or any(
-        canonical_json_bytes(s.canonical_payload()) != canonical_json_bytes(raw)
-        for s, raw in zip(specs, config["features"], strict=True)
-    ):
-        raise ValueError(
-            "Dataset feature declarations do not match canonical names/specs"
-        )
+    finance_dataset = dataset
+    signature_names: tuple[str, ...] = ()
+    if signature_parent_root is not None:
+        finance_dataset = load_market_dataset_artifact(signature_parent_root)
+        if finance_dataset.dataset_id != expected_signature_parent_dataset_id:
+            raise ValueError(
+                "loaded Signature parent differs from external expected identity"
+            )
+        _require_direct_build(finance_dataset)
+        signature_names = _require_signature_parent(dataset, finance_dataset)
+    else:
+        _require_direct_build(dataset)
     if dataset.timestamps[0] < start or dataset.timestamps[-1] >= stop:
         raise ValueError("loaded Dataset escapes declared development bounds")
     features = require_unique_non_empty(feature_names, field="feature_names")
     symbols = require_unique_non_empty(fit_symbols, field="fit_symbols")
+    if signature_parent_root is not None and (
+        symbols != dataset.symbols or not set(features).intersection(signature_names)
+    ):
+        raise ValueError(
+            "Signature requires complete Dataset-order fit symbols and a Signature feature"
+        )
     try:
         indices, fit_indices = validated_training_scope(
             dataset,
@@ -238,7 +322,7 @@ def prepare_allocation_market_inputs(
         cost_rows = tuple(
             estimate.payload()
             for estimate in estimate_declared_horizon_costs(
-                dataset,
+                finance_dataset,
                 decision_indices=tuple(sorted(decision_indices)),
                 horizon_hours=horizon_hours,
                 recipe=cost_recipe,

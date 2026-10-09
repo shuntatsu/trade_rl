@@ -591,3 +591,375 @@ def test_explicit_rows_and_old_four_field_positional_result_remain_compatible(tm
         prepared.dataset, prepared.stream, prepared.artifact, prepared.costs_by_symbol
     )
     assert old.cost_recipe is None
+
+
+def signature_arguments(tmp_path, parent=None, *, include_volume=False):
+    from trade_rl.data.features.signature import with_path_signatures
+
+    parent = market() if parent is None else parent
+    augmented = with_path_signatures(
+        parent, window_bars=3, depth=2, include_volume=include_volume
+    )
+    supplied = arguments(tmp_path, augmented)
+    parent_root = tmp_path / "parent"
+    write_market_dataset_files(parent_root, parent)
+    supplied.update(
+        signature_parent_root=parent_root,
+        expected_signature_parent_dataset_id=parent.dataset_id,
+        feature_names=(augmented.feature_names[parent.n_features],),
+        fit_symbols=parent.symbols,
+    )
+    return supplied
+
+
+@pytest.mark.parametrize("include_volume", (False, True))
+def test_pinned_signature_reaches_literal_fit_allocation_and_canonical_cash(
+    tmp_path, monkeypatch, include_volume
+):
+    from trade_rl.evaluation.forecast_allocation import execute_forecast_proposal
+
+    module = api()
+    supplied = signature_arguments(tmp_path, include_volume=include_volume)
+    calls = []
+    for name in (
+        "fit_prequential_simple_ridge",
+        "publish_simple_return_stream_artifact",
+    ):
+        owner = getattr(module, name)
+
+        def tracked(*args, _owner=owner, _name=name, **kwargs):
+            calls.append(_name)
+            return _owner(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, tracked)
+    prepared = module.prepare_allocation_market_inputs(**supplied)
+    assert calls == [
+        "fit_prequential_simple_ridge",
+        "publish_simple_return_stream_artifact",
+    ]
+    assert prepared.stream.dataset_id == supplied["expected_dataset_id"]
+    assert (
+        prepared.stream.dataset_id != supplied["expected_signature_parent_dataset_id"]
+    )
+    first, second = prepared.stream.vintages
+    # Warmup excludes starts0,1; mature endpoint must be strictly BEFORE cutoff5.
+    assert first.training.n_samples == 4
+    assert first.training.trace.row_symbols == ("ALPHA", "ALPHA", "BETA", "BETA")
+    np.testing.assert_array_equal(
+        first.training.trace.start_times, [time(2), time(3), time(2), time(3)]
+    )
+    np.testing.assert_array_equal(
+        first.training.trace.end_times, [time(3), time(4), time(3), time(4)]
+    )
+    np.testing.assert_allclose(first.training.labels, [1, -0.5, 0, 0])
+    np.testing.assert_array_equal(first.model.coefficients, [0])
+    assert first.model.intercept == 1 / 8
+    assert first.model.fit_prefix_marginal_variance == 19 / 64
+    assert second.training.n_samples == 12
+    assert second.model.intercept == pytest.approx(1 / 24)
+    assert second.model.fit_prefix_marginal_variance == pytest.approx(59 / 576)
+    for symbol_index, weight, quantity, fee, cash, equity in (
+        (0, 16 / 95, 32 / 19, 32 / 95, 78968 / 95, 94968 / 95),
+        (1, 4 / 19, 80 / 19, 8 / 19, 14992 / 19, 18992 / 19),
+    ):
+        executor = MarketExecutor(
+            prepared.dataset,
+            replace(ExecutionCostConfig.zero(), fee_rate=0.002),
+        )
+        book = BookState(
+            quantities=np.zeros(2),
+            cash=1000,
+            mark_prices=prepared.dataset.close[6],
+            peak_value=1000,
+            as_of_index=6,
+            as_of_dataset_id=prepared.dataset.dataset_id,
+        )
+        orders = OrderBookState.empty()
+        kwargs = dict(
+            account_id=f"independent-{prepared.dataset.symbols[symbol_index]}",
+            stream=prepared.stream,
+            estimates=prepared.costs_by_symbol[symbol_index][0],
+            allocator=AfterCostTargetAllocator(
+                lower_weight=0, upper_weight=1, risk_aversion=1
+            ),
+            pretrade_risk=PreTradeRisk(
+                PreTradeRiskConfig(max_abs_weight=1, max_turnover=None)
+            ),
+            symbol_index=symbol_index,
+            start_index=6,
+            expected_horizon_seconds=3600,
+        )
+        proposal = propose_forecast_target(executor, book, orders, **kwargs)
+        assert proposal.inputs.expected_simple_return == 1 / 8
+        assert proposal.inputs.return_variance == 19 / 64
+        assert proposal.target_weight == pytest.approx(weight)
+        result = execute_forecast_proposal(executor, book, orders, proposal, **kwargs)
+        realized = result.execution.book
+        assert realized.quantities[symbol_index] == pytest.approx(quantity)
+        assert realized.cash == pytest.approx(cash)
+        assert realized.total_cost == pytest.approx(fee)
+        assert realized.portfolio_value == pytest.approx(equity)
+        assert realized.fill_count == 1
+        assert book.cash == 1000 and not np.any(book.quantities)
+        # At zero target, canonical cash has no fill, no fee and no lost equity.
+        kwargs["allocator"] = AfterCostTargetAllocator(lower_weight=0, upper_weight=0)
+        cash_proposal = propose_forecast_target(executor, book, orders, **kwargs)
+        cash_result = execute_forecast_proposal(
+            executor, book, orders, cash_proposal, **kwargs
+        )
+        assert cash_proposal.is_hold and cash_result.execution.book.cash == 1000
+        assert cash_result.execution.book.total_cost == 0
+        assert cash_result.execution.book.fill_count == 0
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        "default",
+        "parent_pin",
+        "parent_ref",
+        "appended_value",
+        "prefix_value",
+        "fee",
+        "noncanonical_parent",
+        "bad_window",
+        "bad_channels",
+        "mt",
+        "subset",
+        "reversed_symbols",
+        "no_signature",
+        "late_prediction",
+    ),
+)
+def test_signature_refusals_precede_fit_and_publication(tmp_path, monkeypatch, failure):
+    module = api()
+    parent = market()
+    if failure == "late_prediction":
+        arrivals = parent.available_at.copy()
+        arrivals[6, 1] = time(7)
+        parent = replace(
+            parent,
+            available_at=arrivals,
+            information_available=None,
+            identity_payload_json=None,
+        ).with_content_identity(parse_identity_json(parent.identity_payload_json))
+    supplied = signature_arguments(tmp_path, parent)
+    augmented = module.load_market_dataset_artifact(supplied["dataset_root"])
+    identity = parse_identity_json(augmented.identity_payload_json)
+    changed = None
+    if failure == "default":
+        supplied.pop("signature_parent_root")
+        supplied.pop("expected_signature_parent_dataset_id")
+    elif failure == "parent_pin":
+        supplied["expected_signature_parent_dataset_id"] = "0" * 64
+    elif failure == "parent_ref":
+        identity["source_dataset_id"] = "0" * 64
+        changed = augmented.with_content_identity(identity)
+    elif failure in ("appended_value", "prefix_value"):
+        features = augmented.features.copy()
+        features[6, 0, parent.n_features if failure == "appended_value" else 0] += 1
+        changed = replace(
+            augmented, features=features, identity_payload_json=None
+        ).with_content_identity(identity)
+    elif failure == "fee":
+        fees = augmented.fee_rate.copy()
+        fees[6, 0] += 0.001
+        changed = replace(
+            augmented, fee_rate=fees, identity_payload_json=None
+        ).with_content_identity(identity)
+    elif failure == "noncanonical_parent":
+        parent_identity = parse_identity_json(parent.identity_payload_json)
+        parent_identity["config"]["schema_version"] = "market_build_v2"
+        parent = parent.with_content_identity(parent_identity)
+        root = tmp_path / "invalid-parent"
+        write_market_dataset_files(root, parent)
+        supplied["signature_parent_root"] = root
+        supplied["expected_signature_parent_dataset_id"] = parent.dataset_id
+    elif failure in ("bad_window", "bad_channels"):
+        identity["window_bars" if failure == "bad_window" else "channels"] = (
+            True if failure == "bad_window" else ["t", "v", "p"]
+        )
+        changed = augmented.with_content_identity(identity)
+    elif failure == "mt":
+        from trade_rl.data.features.signature_multitimeframe import (
+            with_multitimeframe_path_signatures,
+        )
+
+        changed = with_multitimeframe_path_signatures(
+            parent, base_timeframe="1h", windows_by_timeframe={"1h": 3}, depth=2
+        )
+        supplied["feature_names"] = (changed.feature_names[parent.n_features],)
+    elif failure == "subset":
+        supplied["fit_symbols"] = ("ALPHA",)
+    elif failure == "reversed_symbols":
+        supplied["fit_symbols"] = tuple(reversed(parent.symbols))
+    elif failure == "no_signature":
+        supplied["feature_names"] = parent.feature_names
+    if changed is not None:
+        root = tmp_path / "invalid-augmentation"
+        write_market_dataset_files(root, changed)
+        assert changed.identity_verified
+        supplied["dataset_root"] = root
+        supplied["expected_dataset_id"] = changed.dataset_id
+    forbid_fit_and_publication(module, monkeypatch)
+    with pytest.raises(ValueError):
+        module.prepare_allocation_market_inputs(**supplied)
+    assert not supplied["stream_path"].exists()
+
+
+@pytest.mark.parametrize(
+    "missing", ("signature_parent_root", "expected_signature_parent_dataset_id")
+)
+def test_incomplete_signature_parent_is_rejected_before_any_load(
+    tmp_path, monkeypatch, missing
+):
+    module = api()
+    supplied = signature_arguments(tmp_path)
+    supplied.pop(missing)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Incomplete parent declaration reached Dataset loading")
+
+    monkeypatch.setattr(module, "load_market_dataset_artifact", forbidden)
+    forbid_fit_and_publication(module, monkeypatch)
+    with pytest.raises(ValueError, match="both Signature"):
+        module.prepare_allocation_market_inputs(**supplied)
+
+
+def generated_signature_arguments(tmp_path, *, future=False):
+    from tests.evaluation.test_allocation_costs import market as cost_market
+    from trade_rl.data.features.signature import with_path_signatures
+
+    parent = cost_market(future=future)
+    supplied = generated_arguments(tmp_path, parent)
+    augmented = with_path_signatures(parent, window_bars=3, depth=2)
+    root = tmp_path / "augmentation"
+    write_market_dataset_files(root, augmented)
+    supplied.update(
+        signature_parent_root=supplied["dataset_root"],
+        expected_signature_parent_dataset_id=parent.dataset_id,
+        dataset_root=root,
+        expected_dataset_id=augmented.dataset_id,
+        feature_names=augmented.feature_names[parent.n_features :],
+        fit_symbols=parent.symbols,
+    )
+    return supplied
+
+
+def test_signature_cost_recipe_uses_verified_parent_without_changing_stream(
+    tmp_path, monkeypatch
+):
+    module = api()
+    supplied = generated_signature_arguments(tmp_path)
+    owner = module.estimate_declared_horizon_costs
+    seen = []
+
+    def tracked(dataset, **kwargs):
+        seen.append((dataset.dataset_id, kwargs["recipe"]))
+        return owner(dataset, **kwargs)
+
+    monkeypatch.setattr(module, "estimate_declared_horizon_costs", tracked)
+    prepared = module.prepare_allocation_market_inputs(**supplied)
+    assert seen == [
+        (supplied["expected_signature_parent_dataset_id"], supplied["cost_recipe"])
+    ]
+    assert prepared.cost_recipe is supplied["cost_recipe"]
+    assert prepared.stream.dataset_id == supplied["expected_dataset_id"]
+    for group in prepared.costs_by_symbol:
+        cost = group[0]
+        # Existing declared-notional proxy: fee+spread+impact+absolute slippage.
+        assert (cost.buy_cost, cost.sell_cost, cost.exit_cost) == pytest.approx(
+            (0.0434, 0.0434, 0.0434)
+        )
+        assert cost.funding_return == pytest.approx(0.000025)
+        assert cost.borrow_return == pytest.approx(0.00001875)
+        assert cost.cash_return == 0
+
+
+def test_signature_future_changes_keep_economics_and_update_provenance(tmp_path):
+    module = api()
+    before, changed = (
+        module.prepare_allocation_market_inputs(
+            **generated_signature_arguments(tmp_path / name, future=future)
+        )
+        for name, future in (("before", False), ("changed", True))
+    )
+    assert before.dataset.dataset_id != changed.dataset.dataset_id
+    assert before.stream.digest != changed.stream.digest
+    left, right = before.stream.packets[0], changed.stream.packets[0]
+    assert left.as_of == right.as_of == time(24)
+    assert left.feature_values == right.feature_values == (1, 0, 0.5, 0, 0, 0)
+    assert left.expected_simple_return == right.expected_simple_return == 0
+    assert left.fit_prefix_marginal_variance == right.fit_prefix_marginal_variance == 0
+    for a, b in zip(before.stream.vintages, changed.stream.vintages, strict=True):
+        np.testing.assert_array_equal(a.model.coefficients, b.model.coefficients)
+        assert a.model.intercept == b.model.intercept
+        np.testing.assert_array_equal(
+            a.training.trace.start_times, b.training.trace.start_times
+        )
+    costs = before.costs_by_symbol[0][0], changed.costs_by_symbol[0][0]
+    assert costs[0].source_identity != costs[1].source_identity
+    assert costs[0].buy_cost == costs[1].buy_cost
+    assert costs[0].funding_return == costs[1].funding_return
+    decisions = []
+    for inputs, cost in zip((before, changed), costs, strict=True):
+        executor = MarketExecutor(inputs.dataset, inputs.cost_recipe.execution_cost)
+        book = BookState(
+            quantities=np.zeros(2),
+            cash=1000,
+            mark_prices=inputs.dataset.close[24],
+            peak_value=1000,
+            as_of_index=24,
+            as_of_dataset_id=inputs.dataset.dataset_id,
+        )
+        from trade_rl.evaluation.forecast_allocation import execute_forecast_proposal
+
+        kwargs = dict(
+            account_id="same-account",
+            stream=inputs.stream,
+            estimates=cost,
+            allocator=AfterCostTargetAllocator(lower_weight=0, upper_weight=1),
+            pretrade_risk=PreTradeRisk(PreTradeRiskConfig(max_abs_weight=1)),
+            symbol_index=0,
+            start_index=24,
+            expected_horizon_seconds=3600,
+        )
+        orders = OrderBookState.empty()
+        proposal = propose_forecast_target(executor, book, orders, **kwargs)
+        decisions.append(proposal)
+        result = execute_forecast_proposal(executor, book, orders, proposal, **kwargs)
+        assert result.execution.book.cash == 1000
+        assert result.execution.book.total_cost == 0
+        assert not np.any(result.execution.book.quantities)
+    assert decisions[0].target_weight == decisions[1].target_weight == 0
+    assert decisions[0].decision_digest != decisions[1].decision_digest
+
+
+def test_finer_native_markers_survive_direct_allocation_preparation(tmp_path):
+    from tests.data.test_native_cross_asset_alignment import _dataset, _Source, _source
+
+    raw_source = _source()
+    shift = time(0) - np.datetime64("2026-01-01T00:00", "ns")
+    source = _Source(
+        {
+            key: replace(
+                raw,
+                timestamps=raw.timestamps + shift,
+                available_at=raw.available_at + shift,
+            )
+            for key, raw in raw_source.values.items()
+        }
+    )
+    parent = _dataset(source)
+    supplied = arguments(tmp_path, parent)
+    supplied.update(
+        blocks=(blocks()[0],),
+        fit_symbols=parent.symbols,
+        feature_names=("15m__rolling_beta_to_btc_4bar",),
+    )
+    prepared = api().prepare_allocation_market_inputs(**supplied)
+    config = parse_identity_json(prepared.dataset.identity_payload_json)["config"]
+    assert config["native_cross_asset_alignment"] == "native_before_base_sync_v1"
+    assert config["native_cross_asset_history"] == "last_n_eligible_pair_events_v1"
+    assert prepared.dataset.dataset_id == parent.dataset_id
+    assert prepared.stream.packets[0].as_of == time(6)

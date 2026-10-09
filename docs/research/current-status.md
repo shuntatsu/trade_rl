@@ -2298,3 +2298,101 @@ unverified. No real saved-market arrays, fit, replay, new economic output or
 sealed-run retry was used for this prerequisite. Formal independent review,
 exact committed-head full verification, normal stacked PR integration and the
 broader Issue #810 economic objective remain separate and incomplete.
+
+## Opt-in causal rolling Signature implementation (2026-10-09)
+
+`data/features/signature.py` introduces a software-only, opt-in rolling
+piecewise-linear Path Signature on completed bars. The first implementation
+has a finite research budget (3–512 bars, degrees 1–3, time + log close,
+optionally log volume), explicit availability masks and distinct content
+identity. It does not alter `MarketBuildConfig`, canonical build defaults,
+fit/replay candidate roster, any frozen Study, financial execution or account.
+
+G0: a research hypothesis for Signature must identify an economic mechanism;
+path description alone is not alpha. G1: only observable completed-bar data,
+not fabricated intrabar OHLC ordering, enters the representation. G2: analytic
+signed-area and Chen-identity oracles, future-value replacement, unavailable
+bar, price-scale invariance, and identity/economics preservation are regression
+targets. These are **software-mechanism checks**, not results of an economic
+Study. Any comparison with existing models is a new, preregistered Controlled
+Factor, with fit-scope isolation, frozen lookback/depth/channels, non-RL/cash
+controls and unchanged execution accounting. Profitability, G4/G5, unused
+future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
+
+## Native MTF cross-asset correction and Signature research adapters (2026-10-09)
+
+This opt-in extension introduces native-clock cross-asset rolling
+statistics (before downsampling), opt-in multi-clock Signature augmentation, and
+a development-only paired Ridge-vs-Signature-vs-cash adapter using unchanged
+per-symbol account/execution. The Ridge arms fit on an identical effective
+training-row roster; the baseline's temporary fit mask excludes Signature
+warmup/missing rows, while execution uses the original unmodified Dataset. The PPO observation adapter is checked on the same
+augmented Dataset; this **does not** constitute a trained PPO economic result.
+
+G0: whether native 15m/1h/4h/1d path or BTC-relative information provides
+incremental tradable edge is unresolved. G1: bar-close source/event availability,
+source-attested native feature windows, named feature selection, fixed decision
+clock and unchanged execution/capital are required. G2: independent analytic
+rolling correlation, signed Signature area, latency/future-mutation oracles,
+PPO observation and paired Ridge replay tests are software checks only. No new
+existing result, original final/unused Dataset, frozen candidate roster, Study
+outcome or live authorization is altered. Existing canonical 1h PPO duration
+contracts retain their fixed economic-clock semantics. A result-blind Study,
+non-RL gain evidence and independent review are prerequisites to any economic
+PPO Signature trial. Profitability/G4–G5 remain NOT ESTABLISHED.
+
+The paired adapter now checks the maintained complete resolved array roster,
+original local feature prefixes and global information, plus normalized clock
+and volume-unit metadata, before fitting/replay. Native settlement price-products
+and funding event counts are distinct from aggregate funding rates and remain
+equal across arms. Synthetic reidentified mismatch oracles and pre-fit sentinels
+verify refusal; legal appended features and equivalent resolved clocks remain
+accepted. This is software input conformity only. No market fit, new economic
+comparison, calibrated costs, historical availability certification or full
+native Rolling/Signature admission is established by this repair.
+
+The native cross-asset software route is now limited to clocks strictly finer
+than the decision clock. It excludes returns touching a late/untradable physical
+row, keeps the maintained last-N eligible pair history, and binds an affected-only
+alignment marker consistently in build configuration digest and identity.
+An explicit `native_cross_asset_history=last_n_eligible_pair_events_v1` field
+separates this policy from a consecutive-observation/reset variant. The latter
+is a different representation hypothesis and is not silently imported here.
+Equal/coarser clocks preserve their prior aligned-return behavior. Literal
+four-event, missing-row and delayed coarser-publication oracles, prefix/expiry,
+symbol-order, financial-input and synthetic artifact reload checks cover these
+software prerequisites. Historical publication truth, calibrated market costs,
+formal research approval and economic advantage remain unestablished. No real
+market fit/replay, candidate/Study change or unused-data access is implied.
+
+## Issue #810: allocation and Signature integration prerequisite (2026-10-09)
+
+The allocation/NONRL/PPO/common-account line at 2ca52faa and the native-clock/
+Signature/financial-pair line at d2d93064 are joined on a dedicated companion
+branch. Both existing source histories and current contract additions are
+preserved. Finer native history uses last_n_eligible_pair_events_v1, with no
+adoption of the alternative reset-on-gap branch.
+
+One explicit single-clock Signature route now enters the maintained preparation:
+separately pin its canonical direct parent, reconstruct the complete augmentation,
+conserve every financial/global/local-prefix input, require the complete ordered
+fit universe and estimate declared costs from that parent. The common stream
+keeps the augmented identity. Default direct-only admission is retained; native
+MTF Signature and strict fit-symbol subsets remain refused on this route.
+Closed synthetic tests bind the actual training-row trace/counts, literal model/
+allocation/cash fees, source/cost identity, pre-fit rejection and earlier economic
+invariance under changed future content. Existing NONRL/residual/direct/cash
+allocation and canonical execution contracts are reused.
+
+This implements a representation-admission prerequisite for the three-book
+research direction: pathway features, realistic costs/execution and optional RL
+increment over fixed NONRL/cash controls. It does not complete a controlled
+baseline/Signature experiment: matching eligible training rows and freezing a
+selection protocol remain mandatory. No actual market artifact, economic
+result, training/replay, calibration or unused/final period was opened here.
+No previous funding/capture run or sealed workflow was repeated.
+
+Full exact committed-head software verification and formal independent research
+review are separate requirements. This companion remains Draft while formal
+review is PENDING. Profit improvement, G4/G5, live readiness and Issue #810's
+overall completion remain NOT ESTABLISHED.

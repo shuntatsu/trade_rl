@@ -533,3 +533,16 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Native lower-clock cross-asset alignment authority
+
+`data/features/multitimeframe.py` owns alignment from native-clock
+cross-asset statistics to base-clock decisions. `data/features/cross_asset.py`
+remains the sole owner of cross-asset beta, correlation, dispersion and
+momentum-rank mathematical formulas. The builder dispatches finer-clock
+cross-asset feature specifications to the native implementation and
+uses the existing aligned path for equal/coarser clocks.
+
+The native calculator depends only on data contracts, raw series, numerical
+helpers and cross-asset feature functions; it does not depend on
+strategy, risk, execution/accounting, external exchange adapters or evaluation.

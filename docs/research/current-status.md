@@ -1307,3 +1307,19 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Lower-native-clock cross-asset Rolling repair (2026-10-09)
+
+A focused causal-data repair routes lower-timeframe cross-asset
+rolling beta/correlation/rank/dispersion/relative-return features through
+the native event clock before as-of synchronization to the base decision
+clock. This prevents 15m rolling windows from seeing only one sample per
+1h decision. Legacy higher/equal-timeframe behavior is unchanged. The
+affected source/configuration is version-marked in a new Dataset identity.
+
+G1/G2 verification must cover full native pair-window mathematics,
+native delayed/missing samples, time-alignment, future-value invariance,
+and symbol-order independence. This is a **software conformance repair**,
+not a new alpha trial. Old Dataset/Study identities and the KEEP_BASELINE
+economic disposition are never reclassified. Native-result impact on
+existing models remains unproven pending separately fixed experiments.

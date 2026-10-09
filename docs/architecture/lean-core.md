@@ -606,3 +606,27 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Native lower-timeframe cross-asset Rolling correction
+
+Cross-asset rolling beta/correlation and momentum-ranking windows on a
+sub-base native timeframe must advance on **all completed native events**,
+not only the most recent value carried onto each base bar. The builder
+therefore constructs each symbol's on-time one-bar native log returns on
+the shared physical native clock, computes native cross-asset feature
+events with the existing statistical kernels, and only then carries the
+latest eligible result as-of the base decision timestamp.
+
+A source bar that arrived later than its own close does **not** enter this
+native rolling history retrospectively. A physically absent bar yields no
+event. Pair statistics require contemporaneous native reference and asset
+returns; no repeated carry is counted as another history point. After
+calculation, staleness limits still apply to the native event's original
+time, not its later base-clock sampling time. Equal/higher-timeframe
+semantics and the default non-cross-asset feature build are unchanged.
+
+For lower native cross-asset configurations only, the content-identity
+config includes `native_cross_asset_alignment=native_before_base_sync_v1`.
+This software repair does not rewrite historical immutable evidence or
+imply any increment in trading profitability. New Dataset / Study identities
+and preregistered economic comparison are required before judging impacts.

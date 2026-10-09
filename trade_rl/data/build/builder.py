@@ -13,6 +13,7 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
+    timeframe_hours,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -20,7 +21,10 @@ from trade_rl.data.features.cross_asset import (
     calculate_cross_asset_feature_events,
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
-from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.multitimeframe import (
+    align_native_cross_asset_features,
+    align_native_feature,
+)
 from trade_rl.data.features.numerics import (
     portable_log,
     portable_mean,
@@ -402,10 +406,9 @@ class MarketDatasetBuilder:
                 feature_age_hours[:, symbol_index, feature_index] = age_hours
                 feature_staleness[:, symbol_index, feature_index] = staleness
 
-        # Cross-asset channels are derived only after every symbol's native
-        # one-bar return has been causally aligned to the base decision clock.
-        # This prevents symbol-order dependence and keeps rolling windows on
-        # completed native events rather than repeated carried values.
+        # For a finer native clock, calculate cross-asset rolling history on
+        # original native events BEFORE base-clock sampling. Coarser/equal
+        # clocks retain their established aligned-return semantics.
         for feature_index, spec in enumerate(self.config.features):
             if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
                 continue
@@ -429,6 +432,37 @@ class MarketDatasetBuilder:
                 raise ValueError(
                     "cross-asset features require cross_asset_reference_symbol"
                 )
+            if timeframe_hours(native_timeframe) < self.config.bar_hours:
+                if not isinstance(source, MultiTimeframeMarketDataSource):
+                    raise ValueError(
+                        "finer cross-asset clock requires native timeframe source"
+                    )
+                native_sources: list[RawMarketSeries] = []
+                for contract in instruments:
+                    key = (contract.symbol, native_timeframe)
+                    raw = native_cache.get(key)
+                    if raw is None:
+                        raw = source.load_timeframe(
+                            contract.symbol, native_timeframe
+                        )
+                        native_cache[key] = raw
+                    native_sources.append(raw)
+                values, available, age_hours, staleness = (
+                    align_native_cross_asset_features(
+                        spec,
+                        tuple(native_sources),
+                        instruments,
+                        timestamps,
+                        symbol_active,
+                        timeframe=native_timeframe,
+                        reference_symbol=reference_symbol,
+                    )
+                )
+                features[:, :, feature_index] = values
+                feature_available[:, :, feature_index] = available
+                feature_age_hours[:, :, feature_index] = age_hours
+                feature_staleness[:, :, feature_index] = staleness
+                continue
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=features[:, :, return_index],
@@ -485,7 +519,17 @@ class MarketDatasetBuilder:
         feature_age_hours = feature_age_hours.astype(np.float32)
         feature_staleness = feature_staleness.astype(np.float32)
         feature_names = tuple(spec.name for spec in self.config.features)
-        feature_config_digest = content_digest(self.config.canonical_payload())
+        feature_payload = self.config.canonical_payload()
+        if any(
+            spec.kind in CROSS_ASSET_FEATURE_KINDS
+            and timeframe_hours(spec.resolved_timeframe(self.config.base_timeframe))
+            < self.config.bar_hours
+            for spec in self.config.features
+        ):
+            feature_payload["native_cross_asset_alignment"] = (
+                "native_before_base_sync_v1"
+            )
+        feature_config_digest = content_digest(feature_payload)
         normalization_digest = content_and_arrays_digest(
             {
                 "schema": "normalization_state_v1",
@@ -500,7 +544,7 @@ class MarketDatasetBuilder:
         )
         metadata = {
             "schema": MARKET_DATASET_IDENTITY_SCHEMA,
-            "config": self.config.canonical_payload(),
+            "config": feature_payload,
             "feature_config_digest": feature_config_digest,
             "normalization_digest": normalization_digest,
             "symbols": symbols,

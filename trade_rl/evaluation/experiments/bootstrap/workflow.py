@@ -50,6 +50,7 @@ from trade_rl.strategies.forecasts.supervised import build_causal_forecast_train
 
 _MANIFEST_SCHEMA_V1 = "canonical_m2_bootstrap_manifest_v1"
 _MANIFEST_SCHEMA_V2 = "canonical_m2_bootstrap_manifest_v2"
+_MANIFEST_SCHEMA_V3 = "canonical_m2_bootstrap_manifest_v3"
 _MANIFEST_KEYS_V1 = frozenset(
     {
         "schema_version",
@@ -68,10 +69,13 @@ _MANIFEST_KEYS_V1 = frozenset(
     }
 )
 _MANIFEST_KEYS_V2 = _MANIFEST_KEYS_V1 | {"vision_resolution_digest"}
+_MANIFEST_KEYS_V3 = _MANIFEST_KEYS_V2 | {"funding_events_digest"}
 _ROOT_ENTRIES = frozenset(
     {"bootstrap.json", "bootstrap-manifest.json", "source", "dataset", "study"}
 )
-_ALLOWED_DATA_SOURCES = frozenset({"vision", "frozen:exchange-info"})
+_ALLOWED_DATA_SOURCES = frozenset(
+    {"vision", "frozen:exchange-info", "frozen:funding-events"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,11 +460,16 @@ def _manifest_body(
 ) -> dict[str, object]:
     if frozen.vision_resolution_digest is None:
         raise ValueError("new bootstrap manifest requires Vision resolution digest")
+    if frozen.funding_events_digest is None:
+        raise ValueError(
+            "new bootstrap manifest requires funding event snapshot digest"
+        )
     return {
-        "schema_version": _MANIFEST_SCHEMA_V2,
+        "schema_version": _MANIFEST_SCHEMA_V3,
         "bootstrap_config_digest": config.digest,
         "vision_plan_digest": frozen.vision_plan_digest,
         "vision_resolution_digest": frozen.vision_resolution_digest,
+        "funding_events_digest": frozen.funding_events_digest,
         "raw_source_roster": list(frozen.raw_source_roster),
         "raw_source_roster_digest": frozen.raw_source_roster_digest,
         "metadata_evidence": frozen.metadata_evidence,
@@ -483,6 +492,8 @@ def _inspect_manifest(root: Path) -> dict[str, object]:
         expected_keys = _MANIFEST_KEYS_V1
     elif schema == _MANIFEST_SCHEMA_V2:
         expected_keys = _MANIFEST_KEYS_V2
+    elif schema == _MANIFEST_SCHEMA_V3:
+        expected_keys = _MANIFEST_KEYS_V3
     else:
         raise ValueError("bootstrap manifest schema differs from contract")
     if set(manifest) != expected_keys:
@@ -500,10 +511,15 @@ def _inspect_manifest(root: Path) -> dict[str, object]:
         field="bootstrap_config_digest",
     )
     _require_digest(manifest.get("vision_plan_digest"), field="vision_plan_digest")
-    if schema == _MANIFEST_SCHEMA_V2:
+    if schema in {_MANIFEST_SCHEMA_V2, _MANIFEST_SCHEMA_V3}:
         _require_digest(
             manifest.get("vision_resolution_digest"),
             field="vision_resolution_digest",
+        )
+    if schema == _MANIFEST_SCHEMA_V3:
+        _require_digest(
+            manifest.get("funding_events_digest"),
+            field="funding_events_digest",
         )
     roster = _require_roster(manifest.get("raw_source_roster"))
     roster_digest = _require_digest(
@@ -550,7 +566,9 @@ def inspect_canonical_m2_bootstrap(
     frozen = _inspect_frozen_binance_source(
         config,
         bootstrap_root / "source",
-        require_resolution=manifest_schema == _MANIFEST_SCHEMA_V2,
+        require_resolution=manifest_schema
+        in {_MANIFEST_SCHEMA_V2, _MANIFEST_SCHEMA_V3},
+        require_funding_snapshot=manifest_schema == _MANIFEST_SCHEMA_V3,
     )
     artifact = inspect_published_market_dataset_artifact(bootstrap_root / "dataset")
     dataset = load_market_dataset_artifact(bootstrap_root / "dataset")
@@ -562,9 +580,14 @@ def inspect_canonical_m2_bootstrap(
         raise ValueError("bootstrap config digest differs from manifest")
     if manifest["vision_plan_digest"] != frozen.vision_plan_digest:
         raise ValueError("Vision plan digest differs from bootstrap manifest")
-    if manifest_schema == _MANIFEST_SCHEMA_V2:
+    if manifest_schema in {_MANIFEST_SCHEMA_V2, _MANIFEST_SCHEMA_V3}:
         if manifest["vision_resolution_digest"] != frozen.vision_resolution_digest:
             raise ValueError("Vision resolution digest differs from bootstrap manifest")
+    if manifest_schema == _MANIFEST_SCHEMA_V3:
+        if manifest["funding_events_digest"] != frozen.funding_events_digest:
+            raise ValueError(
+                "funding event snapshot digest differs from bootstrap manifest"
+            )
     if manifest["raw_source_roster"] != list(frozen.raw_source_roster):
         raise ValueError("raw source roster differs from frozen source evidence")
     if manifest["raw_source_roster_digest"] != frozen.raw_source_roster_digest:
@@ -634,7 +657,11 @@ def bootstrap_canonical_m2_study(
             raise ValueError(
                 "dataset build used source outside frozen bootstrap evidence"
             )
-        if "vision" not in sources or "frozen:exchange-info" not in sources:
+        if not {
+            "vision",
+            "frozen:exchange-info",
+            "frozen:funding-events",
+        }.issubset(sources):
             raise ValueError(
                 "dataset build did not use complete frozen Binance evidence"
             )

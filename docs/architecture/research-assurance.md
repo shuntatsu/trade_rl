@@ -1816,8 +1816,63 @@ future cost availability and malformed clocks/horizons must also fail there.
 
 These declarations do not independently authenticate build history, source
 availability, historical compute completion or calibrated venue economics.
+Known direct portable identity v6 and v7 pass the same preparation gates. The
+saved synthetic matrix covers old v3/v6, current v4/v6 and v4/v7 artifacts through
+the real loader, producer and publisher, retaining each original Dataset ID and
+the independent literal forecast/cost oracles. Loadable old-v6 build-v2, derived
+lineage and close/mark mismatch fail before fitting or publication. Legacy
+acceptance supplies no authentic-settlement admission or actual-data read grant.
+
+A v7 product-only counterexample retains zero aggregate ALPHA rates with
+nonzero settlement products and positive BETA rates. Changing only ALPHA
+products changes Dataset identity while its projected funding stays zero and
+BETA remains .000025. Preserved channels and owner call counts detect implicit
+conversion, product/rate confusion and duplicate preparation. Native accounting
+and the legacy changed-economics guard remain in their existing owners.
+
 Real Binance close/mark compatibility remains NOT ESTABLISHED; a correct
 same-close rejection is not repaired by rewriting marks. This software stage
 establishes no market fit/replay, economic comparison, G3-G5, live eligibility
 or Issue #810 completion. Formal independent approval, exact-head verification
 and the unchanged 20% research DD guardrail remain separate requirements.
+
+## Declared horizon-cost producer G0-G2
+
+G0 asks whether one declared reference-size cost tuple can reach every existing
+allocation lane through the common preparation without implicit zeros,
+lane-specific execution defaults or a second ledger. G1 adds an optional frozen
+recipe to the existing explicit-row route. It binds the native execution config
+digest and nonempty component assumptions, complete available past funding,
+regular continuous clocks, quote turnover, current-condition symmetric MARKET
+costs, previous-bar OPEN capacity, annual borrow and explicit zero cash. Recipe
+and source pins bind declarations; they supply no calibration or read authority.
+
+The independent synthetic oracle fixes M=100000, reference=1000, caps .04/.03,
+OPEN=.5: capacity=1500 and participation=.01. Additive fees .0037, spread .007,
+impact .005 and expected absolute-normal/tail slippage .006, with execution
+multiplier 2, give one-way .0434. Two completed funding bars contain .0001 and
+.0005 with event counts 1 and 2; 48h/24h extrapolation gives .0012, without another
+event-count multiplier. Annual borrow .1095 with multiplier 1.5 gives .0009 under
+365*24; explicit cash gives 0. Independent signed entry/holding/flat/reversal
+utility checks and six-distinct abstract allocator coefficients detect swaps.
+The nonzero-cash abstract arithmetic fixture is inadmissible to the producer.
+
+G2 refusal checks cover strict profile disagreement, source/recipe clocks,
+mutable trigger aliases before config hashing, complete-cost coverage,
+quote-unit/capacity/mark incompatibility and incomplete available funding.
+A 24h lookback on 5h bars rejects; a boundary settlement is excluded from
+(decision-lookback, decision]. Counts must agree with due flags and no-event
+rates in the available prefix. Gap and age controls count aggregated bar closes,
+not exact settlements; exact timing was lost and age can be understated by one
+bar. Future price/volume/funding changes preserve earlier numerical rates even
+when whole-Dataset/source identities change. Execution stress leaves carry
+unchanged. Preparation keeps one loader, one estimator, one fit and one publisher,
+and retains its old explicit-row interface and four-field positional result.
+
+Symmetric future-exit and reference-size nonlinear costs are proxies, not exact
+economics for arbitrary future actions. Future funding, price gaps, pending
+competition, rounding, partial fills and financing are unverified. Expected
+costs are not charged to the ledger, and the exit coefficient proves no actual
+liquidation. Synthetic software evidence does not establish profit, parameter
+selection, market calibration, formal independent approval, G3-G5 or Issue #810
+completion. Exact-head verification and the 20% research DD guardrail still apply.

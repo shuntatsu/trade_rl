@@ -1178,6 +1178,8 @@ M2で候補をfreezeした後だけ進む。
 
 Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
 
+新規bootstrap v3はfunding eventのnormalized snapshotを`source/funding-events.json`へ保存し、そのSHA-256をmanifestへbindする。Visionのfunding CSVがsettlement markを持たない場合は、Binance funding historyの`markPrice`でイベントを完成させてからsnapshotを作り、以後のDataset buildとinspectionはnetwork-freeでこのsnapshotを使う。この実装修正後のreal-data bootstrapやeconomic evaluationはまだ実行していない。既存のPortable Controlled Experiment 0001の結果はそのまま保持し、新しいsettlement-mark pathの証拠として扱わない。
+
 入力JSONは少なくとも次を事前登録する。
 
 - Binance USD-M market
@@ -2249,6 +2251,16 @@ restrict prediction symbols. The result returns common stream/artifact inputs
 and costs grouped by Dataset symbol and decision, without a new persisted
 schema, lane-specific refit or Tier-1 facade extension.
 
+The same preparation now accepts verified direct portable identity v6 and v7
+without changing their identities or admission checks. Synthetic saved-artifact
+tests cover v3/v6, v4/v6 and v4/v7 through explicit-row and declared-cost paths,
+including before-fit refusal of old build versions, derived lineage and mark
+mismatch. V7 settlement products survive unchanged while declared costs retain
+rate-based funding projection; zero aggregate rates can coexist with nonzero
+products. Legacy v6 remains the historical bar-mark fallback and is not evidence
+of authentic settlement coverage. This interoperability Task performs no actual
+market-data read, fit, calibration or economic comparison.
+
 Synthetic saved-builder tests connect literal mean/variance/allocation to the
 existing consumer, preserve earlier causal predictions under future changes,
 and reject unsafe source/scope/basis/cost declarations before fitting. This is
@@ -2259,3 +2271,30 @@ compatibility remains NOT ESTABLISHED. No real-market fit, forecast, replay,
 PPO training or profit comparison was performed. Calibration, authenticated
 history, formal research review, G3-G5, final-head integration and the full
 Issue #810 objective remain incomplete under the 20% research DD constraint.
+
+An optional declared-cost recipe now supplies one common six-rate tuple through
+that preparation, exclusive with the existing explicit rows. It retains the
+exact frozen native execution configuration, and its concrete estimator runs
+once on the already-loaded synthetic Dataset before complete-cost admission,
+fitting and publication. Old explicit-row callers and four-field positional
+results retain their behavior. No additional persisted schema, ledger, learner,
+callback or artifact/execution authority is introduced.
+
+First-scope restrictions are regular continuous bars, quote-notional turnover,
+MARKET/zero extra latency, previous-bar OPEN capacity, available same-close
+valuation, explicit matching build economics, complete available aligned past
+funding and declared zero cash interest. Capacity is min caps times turnover
+times OPEN fraction; participation uses total turnover. Aggregated funding rates
+are summed once, with counts only for coverage and due consistency. Gap/age
+limits are counted-bar-close proxies because exact settlement clocks were lost.
+The config's immutable tuple fractions are checked before its own policy digest.
+Future source suffixes preserve earlier numerical rates, while provenance may
+change. Literal synthetic costs and signed utility/refusal checks support this
+software mechanism, not market calibration or profitability.
+
+Current cap/size and symmetric execution/exit costs remain declared proxies;
+future prices/rates, pending competition, actual fills and financing are
+unverified. No real saved-market arrays, fit, replay, new economic output or
+sealed-run retry was used for this prerequisite. Formal independent review,
+exact committed-head full verification, normal stacked PR integration and the
+broader Issue #810 economic objective remain separate and incomplete.

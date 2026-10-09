@@ -9,6 +9,9 @@ import numpy as np
 import pytest
 
 from tests.evaluation.allocation_fee_stress_fixture import native_pair, publish_fake
+from tests.evaluation.allocation_historical_snapshots import (
+    use_historical_allocation_array_roster,
+)
 from tests.evaluation.test_allocation_continuous_walk_forward import fold
 from trade_rl.artifacts import canonical_json_bytes, content_digest
 from trade_rl.data.contracts import VolumeUnit
@@ -454,8 +457,9 @@ def test_v3_frozen_prefix_is_identical_and_never_refitted_by_fee_run(
     assert [call[0] for call in model.calls] == [1, 1, 1, 1]
 
 
+@pytest.mark.parametrize("historical_snapshot", [False, True])
 def test_fee_none_and_observed_preserve_original_receipt_and_call_counts(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, historical_snapshot
 ):
     import trade_rl.strategies.rl.allocation_artifact as archive
     from tests.evaluation.allocation_fee_stress_fixture import FakeModel
@@ -464,6 +468,8 @@ def test_fee_none_and_observed_preserve_original_receipt_and_call_counts(
         run_fee_stressed_global_allocation,
     )
 
+    if historical_snapshot:
+        use_historical_allocation_array_roster(monkeypatch)
     api = capability()
     base, _ = native_pair()
     root, digest, _ = publish_fake(base, tmp_path, monkeypatch)
@@ -533,12 +539,13 @@ def test_fee_none_and_observed_preserve_original_receipt_and_call_counts(
             )
         )
     assert snapshots[0] == snapshots[1] == snapshots[2]
-    # Immutable-parent bytes, independently captured before any B source edits.
-    assert len(snapshots[0][0]) == 20359
-    assert (
-        sha256(snapshots[0][0]).hexdigest()
-        == "8934a49781271b4e12647b00deccc06149366a1c2811c1718fdff3654bdd3a21"
-    )
+    if historical_snapshot:
+        # Immutable-parent bytes, independently captured before B source edits.
+        assert len(snapshots[0][0]) == 20359
+        assert (
+            sha256(snapshots[0][0]).hexdigest()
+            == "8934a49781271b4e12647b00deccc06149366a1c2811c1718fdff3654bdd3a21"
+        )
 
 
 def test_fee_action_guard_raising_does_not_invent_public_return(tmp_path, monkeypatch):

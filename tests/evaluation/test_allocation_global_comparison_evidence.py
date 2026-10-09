@@ -893,7 +893,12 @@ def test_signed_funding_native_case_is_not_treated_as_unsigned_or_monotone(rate)
     from trade_rl.evaluation import allocation_global_execution as execution
 
     original = global_control_fixture(signals=(1, 1, 1, 1))
-    dataset = replace(original.dataset, funding_rate=np.full((12, 1), rate))
+    # Settlement mark100 differs from valuation mark110 at the first boundary.
+    dataset = replace(
+        original.dataset,
+        funding_rate=np.full((12, 1), rate),
+        funding_price_rate=np.full((12, 1), 100 * rate),
+    )
     env = clone_carrier(original, dataset=dataset)
     folds = global_control_folds(7)
     plan = declare(execution, env, folds)
@@ -903,6 +908,11 @@ def test_signed_funding_native_case_is_not_treated_as_unsigned_or_monotone(rate)
         row["native"]["book"]["funding_pnl"] for row in observed.receipt.payload["rows"]
     ]
     assert funding[-1] * rate < 0
+    first_book = observed.receipt.payload["rows"][0]["native"]["book"]
+    assert first_book["quantities"] == [5.0]
+    assert funding[0] == pytest.approx(-500 * rate)
+    assert first_book["cash"] == pytest.approx(499 - 500 * rate)
+    assert first_book["equity"] == pytest.approx(1049 - 500 * rate)
     row = build(capability(), contract_for_plan(plan), plan, observed)
     assert row.terminal_profit_rate == pytest.approx(
         env.book.portfolio_value / 1000 - 1

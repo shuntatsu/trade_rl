@@ -1389,8 +1389,42 @@ or introduce a persisted schema. The Tier-1 evaluation facade is unchanged.
 
 Data identity parsing and FeatureSpec decoding remain in their existing owners;
 feature/symbol dependency checks remain in `strategies.dataset_scope`.
+Preparation admits only the current v7 and legacy v6 constants owned by
+`data.identity`, with the same direct portable build, scope, availability and
+same-close gates. The existing artifact loader owns v3/v4 field rosters and
+identity verification; composition adds no manifest reader or version converter.
 The thin cost decoder admits exact `horizon_cost_estimates_v1` keys, reuses strict
 clock decoding and the existing constructor/payload roundtrip, and adds no rate
 model. Cost groups follow Dataset symbols and chronological decisions, suitable
 for the existing per-symbol independent-account consumers. The owner imports no
 learner, simulation ledger, network, credentials or sealed research lifecycle.
+
+`evaluation/allocation_costs.py` owns only frozen in-memory
+`DeclaredAllocationCostRecipe` and the concrete `estimate_declared_horizon_costs`.
+It reuses strict build economics decoding, native `ExecutionCostConfig` policy
+serialization, Dataset quote-turnover/clock semantics and existing
+`HorizonCostEstimates`; it executes no account transition, RNG or learning.
+Tuple trigger fractions are required before matching the config policy digest,
+so ordinary caller-list mutation cannot alter the returned config through an
+alias. The recipe has no persisted schema or Tier-1 facade export.
+
+Preparation optionally calls this owner once on the already-admitted Dataset;
+the recipe path is exclusive with explicit rows, and both pass the existing
+strict complete-cost decoder. `PreparedAllocationMarketInputs.cost_recipe` is
+appended with default None for old positional callers. Generated results retain
+the exact recipe/config for shared NONRL, residual and direct consumers. The
+composition still owns no execution defaults, expected-cost ledger, arbitrary
+callback, artifact authority, learner or research gate.
+
+Producer applicability is deliberately narrower than native execution: regular
+continuous clocks, quote volume, MARKET/zero extra latency and previous-bar
+capacity. Funding declarations cover complete (start, stop] intervals, with an
+aligned native-bar lookback and explicit counted-bar-close gap/age proxies;
+aggregation has discarded exact settlement times. Symmetric current-condition
+reference-size execution, past-funding extrapolation and explicit zero cash are
+declared surrogate assumptions rather than calibrated future economics.
+
+Native funding continues to own settlement-weighted cashflow products, while
+the declared producer owns rate projections. Composition preserves a loaded v7
+product channel even when it differs from rate times bar mark. Legacy v6 retains
+the loader's bar-mark fallback and cannot bind changed settlement economics.

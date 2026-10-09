@@ -338,6 +338,7 @@ retain their explicit reference-price sizing contract.
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。
+- Funding cash flow uses each event's funding rate multiplied by its exchange settlement mark, not the bar close or bar mark; the resulting per-bar funding notional is included in dataset identity and replay evidence.
 - partial fill後のpositionはrealized fill quantityで更新する。
 - `fill_ratio` と `unfilled_turnover` は注文の消化状態を表すため、requested側と同じsubmission reference priceでfilled quantityを評価する。adverse/favorableな実約定価格の変化だけで注文残量が消えたように見せない。`filled_turnover` は実際に売買した金額を表すためactual fill notional / starting equityを維持し、このcompletion指標とはprice basisを分ける。
 - lot数量はdecimal表記をexact rationalへ変換し、承認された整数lot数を保有・注文残量の共通authorityとする。任意の初期端数は保持し、float表示はゼロ方向へ保守的に射影する。float表示値の足し引きで次の残高を作らない。
@@ -415,7 +416,7 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 - `ExecutionRuleStress` が有効な場合、tick / lot / minimum-notional / adverse tick-roundingの変更は `MarketExecutor.execution_policy_digest` へbindする。nominal/default stressは既存cost digestをそのまま維持する。これによりnominal policyで作られたworking residualをstressed executorが同一policyとして再利用しない。
 - effective `tick_size > 0` のとき、外部/manual LIMITの `limit_price` と STOP_MARKETの `stop_price` はそのpoint-in-time tick grid上でなければadmissionでfail closedする。floatへの射影で生じる数ULPの表現誤差だけは同一grid点として扱い、実質的なoff-tick boundを後段のexecution-price roundingで別価格へ自動変換しない。一方、canonical target reconciliationがoffsetから内部生成するLIMIT/STOP boundは、未来のeligible-bar ruleを先読みせずsubmit時点のeffective tickだけを使って保守的にgridへsnapする（LIMIT buyは切り下げ/sellは切り上げ、STOP buyは切り上げ/sellは切り下げ）。eligible時点でruleが変わっていれば通常admissionが再検証する。`tick_size == 0` は従来どおりprice grid未指定として扱う。
 - maker/taker cost分類はorder typeだけでなくrealized liquidity roleに合わせる。LIMITがそのprocessing barで初めてeligibleになり、同じbarのopenで既にmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使う。新規LIMITがbar内touchまでrestする場合、および以前のeligible barからcarryされていたLIMITが後続bar openでcrossする場合はresting orderとしてmaker feeとhalf spreadを使う。MARKET / STOP_MARKETは従来どおりtakerである。この分類はfill価格・数量・capacityを変更しない。
-- fundingは対象時刻・符号・quantityに対して一度だけ計上する。
+- fundingはイベントごとのsettlement mark price × rateで求めたnotionalへsigned quantityとcontract multiplierを掛け、対象時刻に一度だけ計上する。bar close/現在bar markとsettlement markを同一視せず、raw rateとsettlement notional rateをDataset identity・artifact・execution evidenceへ別々に保持する。Dataset identity v7 / artifact v4とfunding evidence v2が現行形式で、従来のDataset artifact v3 / identity v6およびfunding evidence v1は読み取り時に元のidentity・canonical bytesを保つ。
 - borrow、mark-to-market、liquidationを別channelで追跡する。session calendarでclose-to-close間隔がnominal barより長い場合、closed-session gap分のcash interest / borrowはnext-open fill前のbookへ、processing bar分はfill後のbookへ適用する。continuous cadenceではこの分割は発生せず、従来の1-bar elapsed carryと等価である。
 - terminal mark-to-marketとforced closeを混同しない。
 - OHLCVだけからqueue positionやhidden liquidityを再現したとは主張しない。
@@ -1392,7 +1393,11 @@ bounds are checked after one load and before fitting, not as pre-open authority.
 The preparation neither crops a full artifact nor overwrites price channels.
 
 Admission requires declared direct `market_build_v3` lineage with portable
-feature numerics. Existing FeatureSpec decoding checks supported causal local
+feature numerics and a known identity v6 or v7 verified by the existing loader.
+Legacy v3/v6 artifacts retain their original identity and bar-mark funding
+fallback; accepting them does not authenticate settlement history. Loadable
+older build versions and derived lineage remain inadmissible. Existing FeatureSpec
+decoding checks supported causal local
 and multi-timeframe declarations; ordered feature and fit-symbol names pass
 the shared training-scope dependency checks. Unknown transforms or normalization
 are rejected. These content-bound declarations do not authenticate historical
@@ -1410,3 +1415,53 @@ retains it. The in-memory result groups costs in Dataset-symbol then decision
 order. Existing Book/current-context admission and canonical execution remain
 downstream. No cost calibration, executable next-fill expectation, research
 authorization, PPO improvement or market profit is established by preparation.
+
+The preparation accepts exactly one of the existing explicit `cost_rows` or an
+owned `DeclaredAllocationCostRecipe`. Both/neither, wrong recipe type and future
+declaration clocks fail before loading. The generated path invokes one concrete
+`estimate_declared_horizon_costs` on the already-loaded Dataset after admission
+and roster construction, then reuses the same complete six-rate payload checks
+before fitting. Its result appends the exact frozen recipe/configuration to the
+common inputs; the old four-field positional result and explicit rows retain
+their semantics. There is no second loader or caller-selected producer callback.
+
+The declared producer requires regular continuous bars, quote-notional volume,
+MARKET orders with zero extra latency, previous-bar volume capacity and available
+same-close inputs. Existing strict `ExecutionEconomicsProfile` decoding must
+agree with decision-row fee/spread/cap/borrow arrays. Each fee, spread, impact,
+slippage and borrow assumption has a nonempty declaration; cash is explicitly
+zero with a rationale and a matching decision-row cash rate. Frozen config must
+have tuple trigger fractions before matching specifically its own
+`ExecutionCostConfig.execution_policy_digest`, separate from a wrapped executor
+digest. These declarations bind content, not historical calibration or authority.
+
+For reference notional N and current market quote turnover M, participation is
+N/M. Current cap is assumed to persist to the next fill: one-order OPEN capacity
+is M times the smaller configured/Dataset participation cap times OPEN fraction.
+Infeasible N is rejected rather than clipped. The symmetric one-way rate adds
+configured and Dataset generic/taker fees and spreads, square-root participation
+impact, and the absolute-normal/tail slippage expectation without RNG. Only
+these execution components receive the execution multiplier. Past aggregated
+funding over complete (decision-lookback, decision] native intervals is summed
+once and scaled by horizon/lookback; event counts only establish coverage.
+Lookback must align exactly to native bars and source coverage must include
+every available interval. Due/count/rate consistency is checked in the available
+prefix. Maximum gap counts the left boundary to first counted bar close and
+successive counted closes; last age counts decision minus the last counted close.
+These are bar-close proxies, not exact settlement timing, and can understate age
+by one native bar. Borrow uses annual rate times horizon/(365*24), with only the
+borrow multiplier; cash remains zero.
+
+Current-condition symmetric exit and scalar nonlinear reference-size impact do
+not describe arbitrary future actions exactly. Pending competition, actual next
+prices/rates/capacity, queue losses, partial fills, rounding and cash/borrow
+changes remain native execution concerns. The exit proxy does not imply actual
+terminal liquidation. Costs remain surrogate inputs and are never a second
+ledger charge. No real-market calibration, fit/replay or research approval follows.
+
+Settlement cashflows and declared funding projections have distinct units.
+Identity v7 can retain non-fallback `funding_price_rate` while close equals the
+valuation mark. Native execution uses that per-unit settlement product; the
+declared producer still extrapolates past `funding_rate`. Opposing event rates
+can sum to zero while their settlement products remain nonzero. Preparation
+preserves both channels without conversion or an additional accounting charge.

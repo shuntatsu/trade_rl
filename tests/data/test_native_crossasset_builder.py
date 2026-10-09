@@ -167,6 +167,48 @@ def test_native_gap_resets_pair_lookback_without_stale_observations() -> None:
     assert dataset.feature_available[2, 0, beta]
 
 
+
+def test_physically_missing_native_bar_masks_only_affected_symbol_history() -> None:
+    """Sparse raw timestamps cannot imply a fabricated return over a gap."""
+    source, contracts = _fixture()
+    eth = source.values[("ETHUSDT", "15m")]
+    keep = np.arange(len(eth.timestamps)) != 5
+    source.values[("ETHUSDT", "15m")] = _series(
+        [str(value) for value in eth.timestamps[keep]],
+        eth.close[keep].tolist(),
+    )
+    data = MarketDatasetBuilder(_config()).build(source, contracts)
+    beta = data.feature_names.index("15m__beta_4")
+    corr = data.feature_names.index("15m__corr_4")
+    rank = data.feature_names.index("15m__rank_4")
+    relative = data.feature_names.index("15m__relative_return")
+    assert data.feature_available[1, 1, beta]
+    assert data.feature_available[2, 0, beta]
+    assert not data.feature_available[2, 1, beta]
+    assert not data.feature_available[2, 1, corr]
+    assert not data.feature_available[2, 1, rank]
+    assert data.feature_available[2, 1, relative]
+
+
+def test_identity_binds_consumed_raw_native_bytes_even_if_features_equal() -> None:
+    source, contracts = _fixture()
+    baseline = MarketDatasetBuilder(_config()).build(source, contracts)
+    original = source.values[("BTCUSDT", "15m")]
+    source.values[("BTCUSDT", "15m")] = _series(
+        [str(t) for t in original.timestamps],
+        (original.close * 2).tolist(),
+    )
+    scaled = MarketDatasetBuilder(_config()).build(source, contracts)
+    # Scaling native prices cannot change one-bar log-return math.
+    np.testing.assert_array_equal(baseline.features, scaled.features)
+    assert baseline.dataset_id != scaled.dataset_id
+    first = json.loads(baseline.identity_payload_json)
+    second = json.loads(scaled.identity_payload_json)
+    assert len(first["native_cross_asset_raw_inputs"]) == 2
+    assert first["native_cross_asset_raw_inputs"] != second["native_cross_asset_raw_inputs"]
+    assert baseline.feature_config_digest == scaled.feature_config_digest
+
+
 def test_native_cross_asset_history_is_future_mutation_invariant() -> None:
     source, contracts = _fixture()
     future, _ = _fixture(change_future=True)

@@ -618,8 +618,9 @@ events with the existing statistical kernels, and only then carries the
 latest eligible result as-of the base decision timestamp.
 
 A source bar that arrived later than its own close does **not** enter this
-native rolling history retrospectively. Native gaps are fail-closed; an
-invalid/late event resets the affected symbol/reference rolling pair history
+native rolling history retrospectively. Native gaps are represented as
+missing physical clock slots rather than joined across; an invalid/late
+event resets the affected symbol/reference rolling pair history
 and symbol momentum/rank history. The native lookback requires consecutive
 on-time return observations, not merely the last N valid pairs across gaps.
 Pair statistics require contemporaneous native reference and asset returns;
@@ -630,6 +631,9 @@ semantics and the default non-cross-asset feature build are unchanged.
 
 For lower native cross-asset configurations only, the content-identity
 config includes `native_cross_asset_alignment=native_before_base_sync_v1`.
+The new Dataset identity also binds SHA-256 digests of the consumed native
+timestamp, availability, close and tradability arrays for each symbol/clock.
+These are source-content digests, not proof of provider publication time.
 This software repair does not rewrite historical immutable evidence or
 imply any increment in trading profitability. New Dataset / Study identities
 and preregistered economic comparison are required before judging impacts.

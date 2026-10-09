@@ -355,6 +355,7 @@ class MarketDatasetBuilder:
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        native_cross_asset_sources: set[tuple[str, str]] = set()
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
@@ -447,6 +448,7 @@ class MarketDatasetBuilder:
                         )
                         native_cache[key] = native_raw
                     native_sources.append(native_raw)
+                    native_cross_asset_sources.add(key)
                 values, available, age_hours, staleness = (
                     align_native_cross_asset_features(
                         spec,
@@ -554,6 +556,28 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
+        if native_cross_asset_sources:
+            source_provenance: list[dict[str, str]] = []
+            for symbol, timeframe in sorted(native_cross_asset_sources):
+                native = native_cache[(symbol, timeframe)]
+                assert native.available_at is not None
+                raw_digest = content_and_arrays_digest(
+                    {
+                        "schema": "native_cross_asset_input_v1",
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                    },
+                    (
+                        ("timestamps", native.timestamps),
+                        ("available_at", native.available_at),
+                        ("close", native.close),
+                        ("tradable", native.tradable),
+                    ),
+                )
+                source_provenance.append(
+                    {"symbol": symbol, "timeframe": timeframe, "sha256": raw_digest}
+                )
+            metadata["native_cross_asset_raw_inputs"] = source_provenance
         if identity_provenance is not None:
             metadata["metadata_evidence"] = identity_provenance
         if execution_economics is not None:

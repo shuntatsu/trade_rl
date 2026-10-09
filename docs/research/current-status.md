@@ -1319,7 +1319,8 @@ affected source/configuration is version-marked in a new Dataset identity.
 
 G1/G2 verification must cover full native pair-window mathematics,
 native delayed/missing samples (including history reset on invalid return
-events), time-alignment, future-value invariance, and symbol-order
+events and physical timestamp gaps), time-alignment, input-source
+content-identity, future-value invariance, and symbol-order
 independence. This is a **software conformance repair**,
 not a new alpha trial. Old Dataset/Study identities and the KEEP_BASELINE
 economic disposition are never reclassified. Native-result impact on

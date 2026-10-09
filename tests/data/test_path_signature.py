@@ -2,11 +2,16 @@
 
 from dataclasses import replace
 from math import log
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from tests.evaluation.test_shared_cash_replay import _market
+from trade_rl.data.artifacts.publication import (
+    load_market_dataset_artifact,
+    publish_market_dataset_artifact,
+)
 from trade_rl.data.features.signature import with_path_signatures
 
 
@@ -85,6 +90,7 @@ def test_unavailable_and_late_rows_invalidate_full_window_without_backfill() -> 
     source = _market(np.arange(100.0, 108.0).reshape(-1, 1))
     information = source.resolved_array("information_available").copy()
     information[3, 0] = False
+    information[5, 0] = False
     late = source.resolved_array("available_at").copy()
     late[5, 0] = source.timestamps[6]
     modified = replace(source, information_available=information, available_at=late)
@@ -148,6 +154,26 @@ def test_deterministic_dataset_identity_and_existing_economics() -> None:
     )
     with pytest.raises(ValueError, match="already exist"):
         with_path_signatures(a, window_bars=3)
+
+
+def test_opt_in_signature_round_trips_through_dataset_artifact(
+    tmp_path: Path,
+) -> None:
+    source = _market(np.array([[100.0], [101.0], [99.0], [104.0], [105.0]]))
+    augmented = with_path_signatures(
+        source, window_bars=3, depth=2, include_volume=True
+    )
+    published = publish_market_dataset_artifact(tmp_path / "signature", augmented)
+    restored = load_market_dataset_artifact(published.root)
+    assert restored.identity_verified
+    assert restored.dataset_id == augmented.dataset_id
+    assert restored.feature_names == augmented.feature_names
+    np.testing.assert_array_equal(restored.features, augmented.features)
+    np.testing.assert_array_equal(
+        restored.feature_available, augmented.feature_available
+    )
+    np.testing.assert_array_equal(restored.fee_rate, source.fee_rate)
+    np.testing.assert_array_equal(restored.funding_rate, source.funding_rate)
 
 
 @pytest.mark.parametrize(

@@ -618,9 +618,12 @@ events with the existing statistical kernels, and only then carries the
 latest eligible result as-of the base decision timestamp.
 
 A source bar that arrived later than its own close does **not** enter this
-native rolling history retrospectively. A physically absent bar yields no
-event. Pair statistics require contemporaneous native reference and asset
-returns; no repeated carry is counted as another history point. After
+native rolling history retrospectively. Native gaps are fail-closed; an
+invalid/late event resets the affected symbol/reference rolling pair history
+and symbol momentum/rank history. The native lookback requires consecutive
+on-time return observations, not merely the last N valid pairs across gaps.
+Pair statistics require contemporaneous native reference and asset returns;
+no repeated carry is counted as another history point. After
 calculation, staleness limits still apply to the native event's original
 time, not its later base-clock sampling time. Equal/higher-timeframe
 semantics and the default non-cross-asset feature build are unchanged.

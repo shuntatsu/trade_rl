@@ -191,6 +191,7 @@ def align_native_cross_asset_features(
         return_age_hours=native_age,
         symbols=tuple(contract.symbol for contract in contracts),
         reference_symbol=reference_symbol,
+        require_consecutive=True,
     )
     values = np.zeros((n_base, n_assets), dtype=np.float64)
     available = np.zeros((n_base, n_assets), dtype=np.bool_)

@@ -152,6 +152,22 @@ def test_delayed_source_excludes_two_contaminated_native_pair_events() -> None:
     assert dataset.feature_available[2, 1, idx]
 
 
+
+def test_native_gap_resets_pair_lookback_without_stale_observations() -> None:
+    """A gap cannot be bridged by counting earlier native pairs as recent."""
+    source, contracts = _fixture(delayed_eth_at=5)
+    dataset = MarketDatasetBuilder(_config()).build(source, contracts)
+    beta = dataset.feature_names.index("15m__beta_4")
+    corr = dataset.feature_names.index("15m__corr_4")
+    rank = dataset.feature_names.index("15m__rank_4")
+    eth = dataset.symbols.index("ETHUSDT")
+    assert dataset.feature_available[1, eth, beta]
+    assert not dataset.feature_available[2, eth, beta]
+    assert not dataset.feature_available[2, eth, corr]
+    assert not dataset.feature_available[2, eth, rank]
+    assert dataset.feature_available[2, 0, beta]
+
+
 def test_native_cross_asset_history_is_future_mutation_invariant() -> None:
     source, contracts = _fixture()
     future, _ = _fixture(change_future=True)

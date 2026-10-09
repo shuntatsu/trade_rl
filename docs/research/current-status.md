@@ -1318,8 +1318,9 @@ clock. This prevents 15m rolling windows from seeing only one sample per
 affected source/configuration is version-marked in a new Dataset identity.
 
 G1/G2 verification must cover full native pair-window mathematics,
-native delayed/missing samples, time-alignment, future-value invariance,
-and symbol-order independence. This is a **software conformance repair**,
+native delayed/missing samples (including history reset on invalid return
+events), time-alignment, future-value invariance, and symbol-order
+independence. This is a **software conformance repair**,
 not a new alpha trial. Old Dataset/Study identities and the KEEP_BASELINE
 economic disposition are never reclassified. Native-result impact on
 existing models remains unproven pending separately fixed experiments.

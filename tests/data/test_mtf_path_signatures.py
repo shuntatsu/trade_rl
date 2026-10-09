@@ -22,8 +22,8 @@ from trade_rl.evaluation.signature_comparison import (
     run_ridge_signature_comparison,
     validate_signature_pair,
 )
-from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 from trade_rl.strategies.rl.ppo import PPOTradingEnv
 
 
@@ -222,7 +222,6 @@ def test_signature_rejects_invalid_clock_and_unavailable_feature_pair() -> None:
         )
 
 
-
 def test_signature_comparison_matches_fit_rows_with_longer_native_warmup() -> None:
     source = _source()
     base = _dataset(source)
@@ -241,19 +240,21 @@ def test_signature_comparison_matches_fit_rows_with_longer_native_warmup() -> No
     assert fit_base.identity_verified
     assert fit_base.dataset_id != base.dataset_id
     baseline_rows = build_causal_forecast_training_set(
-        fit_base, feature_indices=(0,), fit_cutoff=base.timestamps[7],
+        fit_base,
+        feature_indices=(0,),
+        fit_cutoff=base.timestamps[7],
         horizon_hours=1,
     )
     signature_rows = build_causal_forecast_training_set(
-        augmented, feature_indices=(0, sig_index),
-        fit_cutoff=base.timestamps[7], horizon_hours=1,
+        augmented,
+        feature_indices=(0, sig_index),
+        fit_cutoff=base.timestamps[7],
+        horizon_hours=1,
     )
     np.testing.assert_array_equal(
         baseline_rows.label_end_times, signature_rows.label_end_times
     )
-    np.testing.assert_array_equal(
-        baseline_rows.labels, signature_rows.labels
-    )
+    np.testing.assert_array_equal(baseline_rows.labels, signature_rows.labels)
     np.testing.assert_array_equal(
         baseline_rows.sample_weights, signature_rows.sample_weights
     )

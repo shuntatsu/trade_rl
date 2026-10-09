@@ -56,18 +56,23 @@ def api():
         )
 
 
-def market(*, future=False):
+def market(*, future=False, prospective_path=False, delayed_beta=False):
     times = time(0) + np.arange(18) * np.timedelta64(1, "h")
     series = {}
     for symbol in ("ALPHA", "BETA"):
         close = np.array([100, 200, 100, 200, 100] + [100] * 13, dtype=float)
         if symbol == "BETA":
             close[:] = 50
+        elif prospective_path:
+            close[5] = 200
         if future:
             close[14:] *= 7
         high = 1.25 * close
         if future:
             high[14:] = 1.5 * close[14:]
+        arrivals = times.copy()
+        if delayed_beta and symbol == "BETA":
+            arrivals[8] = time(9)
         series[symbol] = RawMarketSeries(
             timestamps=times,
             open=close,
@@ -77,6 +82,7 @@ def market(*, future=False):
             volume=np.full(18, 100_000.0),
             funding_rate=np.zeros(18),
             tradable=np.ones(18, dtype=np.bool_),
+            available_at=arrivals,
         )
     config = MarketBuildConfig(
         base_timeframe="1h",
@@ -610,6 +616,287 @@ def signature_arguments(tmp_path, parent=None, *, include_volume=False):
         fit_symbols=parent.symbols,
     )
     return supplied
+
+
+def native_signature_carrier(prepared, *, mode):
+    from trade_rl.artifacts import content_digest
+    from trade_rl.evaluation.objectives import (
+        BoundObjectiveClock,
+        CapitalContract,
+        FinancialClockContract,
+        ObjectiveContract,
+    )
+    from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+    from trade_rl.strategies.allocation_action import AllocationActionContract
+    from trade_rl.strategies.rl.allocation_observation_v2 import (
+        AllocationObservationSchema,
+    )
+    from trade_rl.strategies.rl.allocation_policy import AllocationRuntimeProfile
+    from trade_rl.strategies.rl.allocation_recipe_v2 import allocation_recipe_payload_v2
+
+    dataset = prepared.dataset
+    cost = replace(
+        ExecutionCostConfig.zero(), fee_rate=0.002, max_participation_rate=1.0
+    )
+    risk = PreTradeRiskConfig(max_gross=1, max_abs_weight=1, max_turnover=None)
+    allocator = AfterCostTargetAllocator(
+        lower_weight=0, upper_weight=0.5, risk_aversion=1
+    )
+    action = AllocationActionContract(mode=mode, scale=0.5)
+    actor_names = ("range", "body", dataset.feature_names[2])
+    schema = AllocationObservationSchema(actor_names, 8, 1000, 2)
+    execution = MarketExecutor(
+        dataset, cost, insolvency_valuation="retain_debt"
+    ).execution_policy_digest
+    profile = AllocationRuntimeProfile(
+        execution, content_digest(risk), 1000, "USD", 3600, 7200
+    )
+    recipe = allocation_recipe_payload_v2(
+        action,
+        actor_names,
+        allocator=allocator,
+        expected_horizon_seconds=3600,
+        runtime_profile=profile,
+        observation_schema=schema,
+    )
+    objective = ObjectiveContract(
+        CapitalContract("independent_symbol", "USD", (1000.0,)),
+        datetime(2026, 2, 1, 6, tzinfo=timezone.utc),
+        datetime(2026, 2, 1, 8, tzinfo=timezone.utc),
+        "marked_continuation",
+        execution,
+        content_digest(risk),
+        content_digest(recipe),
+    )
+    clock = FinancialClockContract(
+        3600, 3600, 3600, 7200, 2, 1, 0.95, "equity_delta_v1"
+    )
+    return AllocationTradingEnv(
+        dataset,
+        stream=prepared.stream,
+        estimates=tuple(
+            c for c in prepared.costs_by_symbol[0] if c.decision_time < time(8)
+        ),
+        bound=BoundObjectiveClock(objective, clock),
+        action_contract=action,
+        allocator=allocator,
+        execution_cost=cost,
+        risk_config=risk,
+        feature_indices=(1, 0, 2),
+        symbol_index=0,
+        start_index=6,
+        stop_index=8,
+        account_id="independent-ALPHA",
+        observation_schema=schema,
+    )
+
+
+def test_matched_signature_forecasts_reach_native_nonrl_and_cash_without_refitting(
+    tmp_path, monkeypatch
+):
+    from tests.evaluation.test_allocation_global_execution import (
+        capability,
+        declare,
+        forecast_controls,
+    )
+    from trade_rl.evaluation.robustness.walk_forward.folds import (
+        IndexRange,
+        WalkForwardFold,
+    )
+
+    module = api()
+    supplied = signature_arguments(tmp_path, market(prospective_path=True))
+    dataset = module.load_market_dataset_artifact(supplied["dataset_root"])
+    signature_names = dataset.feature_names[2:]
+    prepared = tuple(
+        module.prepare_allocation_market_inputs(
+            **(
+                supplied
+                | {"feature_names": names, "stream_path": tmp_path / f"{arm}.json"}
+            )
+        )
+        for arm, names in (
+            ("control", ("range", "body", signature_names[0])),
+            ("treatment", ("range", "body", *signature_names)),
+        )
+    )
+    control, treatment = prepared
+    assert control.dataset.dataset_id == treatment.dataset.dataset_id
+    assert control.stream.digest != treatment.stream.digest
+    assert control.costs_by_symbol == treatment.costs_by_symbol
+    for left, right in zip(
+        control.stream.vintages, treatment.stream.vintages, strict=True
+    ):
+        assert left.digest != right.digest
+        assert left.training.trace.digest == right.training.trace.digest
+        np.testing.assert_array_equal(left.training.labels, right.training.labels)
+        np.testing.assert_array_equal(
+            left.training.sample_weights, right.training.sample_weights
+        )
+        np.testing.assert_array_equal(
+            left.training.features, right.training.features[:, :3]
+        )
+    first = control.stream.vintages[0].training
+    assert first.trace.row_symbols == ("ALPHA", "ALPHA", "BETA", "BETA")
+    np.testing.assert_array_equal(
+        first.trace.start_times, [time(2), time(3), time(2), time(3)]
+    )
+    np.testing.assert_array_equal(
+        first.trace.end_times, [time(3), time(4), time(3), time(4)]
+    )
+    np.testing.assert_allclose(first.labels, [1, -0.5, 0, 0], atol=1e-14, rtol=0)
+    np.testing.assert_array_equal(first.sample_weights, np.ones(4))
+
+    def clocks(stream):
+        return tuple(
+            (
+                p.symbol,
+                p.as_of,
+                p.source_available_at,
+                p.forecast_available_at,
+                p.horizon_end,
+                p.horizon_seconds,
+            )
+            for p in stream.packets
+        )
+
+    assert clocks(control.stream) == clocks(treatment.stream)
+    assert clocks(control.stream) == tuple(
+        (symbol, time(hour), time(hour), time(hour), time(hour + 1), 3600)
+        for hour in (6, 7, 10, 11, 12, 13)
+        for symbol in ("ALPHA", "BETA")
+    )
+    assert control.stream.packets[0].expected_simple_return == pytest.approx(1 / 8)
+    # Standardized tp=(-sqrt(2),sqrt(2),0,0), pt=-tp, alpha=1.
+    # Coefficients are (-sqrt(2)/6, sqrt(2)/6); row6 yields 19/24.
+    assert treatment.stream.packets[0].expected_simple_return == pytest.approx(
+        19 / 24, abs=1e-7
+    )
+    assert treatment.stream.packets[2].expected_simple_return == pytest.approx(
+        -5 / 24, abs=1e-7
+    )
+    assert all(
+        p.fit_prefix_marginal_variance == pytest.approx(19 / 64)
+        for p in control.stream.packets[:4]
+    )
+    environments = tuple(
+        native_signature_carrier(inputs, mode=mode)
+        for inputs, mode in (
+            (control, "residual"),
+            (treatment, "residual"),
+            (control, "direct"),
+        )
+    )
+    folds = (
+        WalkForwardFold(
+            0, IndexRange(0, 2), IndexRange(2, 3), IndexRange(3, 6), IndexRange(6, 8), 0
+        ),
+    )
+    native = capability()
+    plans = tuple(
+        declare(native, env, folds, kind=kind)
+        for env, kind in zip(environments, ("nonrl", "nonrl", "cash"), strict=True)
+    )
+    declaration = forecast_controls(native, plans)
+    forbid_fit_and_publication(module, monkeypatch)
+    results = tuple(
+        native.run_declared_global_allocation_execution(
+            folds, env, plan, forecast_controls=declaration
+        )
+        for env, plan in zip(environments, plans, strict=True)
+    )
+    for result, plan, weight, quantity, cash, equity, fee in zip(
+        results,
+        plans,
+        (16 / 95, 0.5, 0),
+        (32 / 19, 5, 0),
+        (78968 / 95, 499, 1000),
+        (94968 / 95, 999, 1000),
+        (32 / 95, 1, 0),
+        strict=True,
+    ):
+        receipt = result.receipt.payload
+        assert receipt["status"] == "completed" and receipt["reset_count"] == 1
+        assert receipt["plan"] == plan.payload
+        row = receipt["rows"][0]["native"]
+        assert row["proposal"]["target_weight"] == pytest.approx(weight)
+        assert row["book"]["quantities"] == pytest.approx([quantity, 0])
+        assert row["book"]["cash"] == pytest.approx(cash)
+        assert row["book"]["equity"] == pytest.approx(equity)
+        assert row["book"]["total_cost"] == pytest.approx(fee)
+    assert (
+        environments[0].book.quantities[0] > 0
+    )  # Completed does not imply settled/flat.
+    assert environments[1].book.cash == pytest.approx(998)
+    assert environments[1].book.fill_count == 2
+    assert not np.any(environments[1].book.quantities)
+    assert environments[2].book.cash == 1000 and environments[2].book.fill_count == 0
+
+
+def test_constant_time_feature_is_numerically_neutral_with_unequal_symbol_weights(
+    tmp_path,
+):
+    from trade_rl.strategies.forecasts.stream import ForecastBlock
+
+    # Predeclared float64 tolerance; neutrality is not a bitwise identity claim.
+    tolerance = 1e-10
+    module = api()
+    supplied = signature_arguments(tmp_path, market(delayed_beta=True))
+    dataset = module.load_market_dataset_artifact(supplied["dataset_root"])
+    supplied.update(
+        blocks=(ForecastBlock(time(9), time(9.25), time(12), time(14)),),
+        cost_rows=tuple(
+            c
+            for c in supplied["cost_rows"]
+            if c["decision_time"] >= int(time(12).astype(np.int64))
+        ),
+    )
+    prepared = tuple(
+        module.prepare_allocation_market_inputs(
+            **(
+                supplied
+                | {"feature_names": names, "stream_path": tmp_path / f"{arm}.json"}
+            )
+        )
+        for arm, names in (
+            ("time", (dataset.feature_names[2],)),
+            ("original_time", ("range", "body", dataset.feature_names[2])),
+        )
+    )
+    left, right = (p.stream.vintages[0] for p in prepared)
+    assert left.training.trace.digest == right.training.trace.digest
+    assert left.training.trace.row_symbols == ("ALPHA",) * 6 + ("BETA",) * 5
+    np.testing.assert_array_equal(
+        left.training.trace.start_times,
+        [time(i) for i in range(2, 8)] + [time(i) for i in range(2, 7)],
+    )
+    np.testing.assert_allclose(
+        left.training.labels, [1, -0.5, 0, 0, 0, 0] + [0] * 5, atol=1e-14, rtol=0
+    )
+    np.testing.assert_array_equal(
+        left.training.sample_weights, right.training.sample_weights
+    )
+    np.testing.assert_allclose(
+        left.training.sample_weights,
+        [11 / 12] * 6 + [11 / 10] * 5,
+        atol=tolerance,
+        rtol=0,
+    )
+    for vintage in (left, right):
+        assert vintage.model.intercept == pytest.approx(1 / 24, abs=tolerance, rel=0)
+        assert vintage.model.fit_prefix_marginal_variance == pytest.approx(
+            59 / 576, abs=tolerance, rel=0
+        )
+        np.testing.assert_allclose(
+            vintage.model.coefficients, 0, atol=tolerance, rtol=0
+        )
+    for a, b in zip(
+        prepared[0].stream.packets, prepared[1].stream.packets, strict=True
+    ):
+        assert a.expected_simple_return == pytest.approx(1 / 24, abs=tolerance, rel=0)
+        assert b.expected_simple_return == pytest.approx(
+            a.expected_simple_return, abs=tolerance, rel=0
+        )
 
 
 @pytest.mark.parametrize("include_volume", (False, True))

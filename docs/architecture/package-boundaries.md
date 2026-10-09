@@ -1498,3 +1498,21 @@ Architecture tests retain no learner/ledger/network/lifecycle operations and
 guard the specific maintained transform/pure-pair imports and private API scope.
 The integrated native history markers remain native_before_base_sync_v1 and
 last_n_eligible_pair_events_v1; the competing reset-on-gap policy is not adopted.
+
+## Native forecast-control declaration ownership
+
+The existing allocation_global_execution owner exports the frozen
+GlobalAllocationForecastControls beside GlobalAllocationExecutionPlan. It binds
+two external forecast pins to complete native NONRL/control, NONRL/treatment and
+direct-cash plans; its payload retains every original plan and computes a distinct
+declaration digest. Equality projections are used only for consistency checks,
+never as replacement plan/common/cell identities. Plan revalidation and member
+admission live in the existing executor before native initialization; the lower
+collector, allocation/ledger, preparation and forecast producers are unchanged.
+
+Only standalone executions can use this optional keyword. PPO artifacts,
+base_env scenario wrappers and AllocationComparisonContract are refused, and no
+new aggregate runner, loader or completed-comparison reader is introduced.
+The one-forecast v1 A/B/C schemas, digest owners and mandatory RL matrix remain
+unchanged. Architecture tests keep this preflight in the existing owner and keep
+learner, network and research-lifecycle dependencies outside it.

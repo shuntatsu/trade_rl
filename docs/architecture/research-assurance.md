@@ -1961,3 +1961,45 @@ Green proves bounded software behavior. It does not prove matched baseline
 eligibility, predictive improvement, historical publication truth, calibrated
 fills or funding, G3-G5, formal independent approval or profitable deployment.
 The fresh source-only AI review supplies no external research approval.
+
+## Native controlled-forecast preflight G0-G2
+
+G0 asks whether distinct frozen forecast assignments can reach the existing
+fixed NONRL/cash consumer while preserving all financial declarations. No edge
+is assumed. G1 binds externally assigned control/treatment forecast digests,
+standalone native plans, equal shared fields except forecast, the same complete
+NONRL rule/allocator/actor recipe and a cash recipe differing only in action mode.
+The full native per-arm identities are retained, including source envelopes that
+embed different streams. It is a caller consistency boundary, not a frozen Study.
+
+The closed canonical fixture prepares original range/body plus constant time
+features against original range/body plus all window-3/depth-2 tp Signature words.
+Every vintage must retain the same ordered row trace, labels, sample weights and
+original-column projection, and the same literal complete prediction-clock roster.
+The four first-prefix labels [1,-.5,0,0] give mean 1/8 and variance 19/64.
+Opposite standardized mixed words tp/pt have coefficients -sqrt(2)/6 and
+sqrt(2)/6 at alpha=1. A prospective 100,200,100 path gives prediction 19/24
+(float32 Signature tolerance 1e-7), against control 1/8. With cap .5, risk aversion
+1 and buy proxy .025, actual targets are .5 and 16/95. Actual fee .002 at OPEN100
+gives treatment quantity5/cash499/equity999 and control quantity32/19,
+cash78968/95/equity94968/95. No proxy is debited again. The next treatment
+forecast -5/24 exits for cash998; cash HOLD preserves1000 without fills/fees.
+Control remains invested: completed native execution is not settled-flat evidence.
+
+A separate delayed-BETA fixture has six ALPHA and five BETA mature rows, weights
+11/12 and 11/10, mean1/24 and variance59/576. Original-constant-plus-time and
+time-only fits agree within a predeclared float64 tolerance1e-10. This is an
+explicit nonbinary-weight oracle, not a general bitwise-neutrality promise.
+G2 rejects fixed financial/source/clock/account drift, rule/allocator/action
+changes, real execution fee/seed changes, wrong cash context or plan roles/types,
+equal/swapped/malformed pins, foreign plans and invalidly mutated declaration/plan
+bytes before provenance/reset. This checks current consistency; coordinated valid
+replacements are not historical tamper authentication. Default controls remain covered.
+
+There is no completed two-forecast evidence/report contract or frozen selection
+budget. V1 A/B/C retains one forecast and its mandatory RL matrix; controls cannot
+be disguised as RL cells or different scenarios. Matching the closed fixture
+does not prove general training matching, calibrated market costs, profitability,
+formal independent approval or G3-G5. Equal seeded configs need not consume
+identical random shocks when the arms trade differently. The 20% research DD and
+future settled/unused-period qualification requirements remain unchanged.

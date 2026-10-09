@@ -74,3 +74,56 @@ def test_lower_collector_is_concrete_and_not_a_second_callback_protocol():
     assert "type(collector) is not GlobalAllocationExecutionCollector" in ast.unparse(
         validate
     )
+
+
+def test_forecast_controls_preflight_stays_in_native_plan_owner_before_execution():
+    upper = ROOT / "trade_rl/evaluation/allocation_global_execution.py"
+    tree = ast.parse(upper.read_text("utf-8"))
+    controls = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "GlobalAllocationForecastControls"
+    )
+    assert not controls.bases
+    decorator = controls.decorator_list[0]
+    assert isinstance(decorator, ast.Call)
+    assert {k.arg: ast.literal_eval(k.value) for k in decorator.keywords} == {
+        "frozen": True,
+        "slots": True,
+    }
+    assert {n.target.id for n in controls.body if isinstance(n, ast.AnnAssign)} == {
+        "control_plan",
+        "treatment_plan",
+        "cash_plan",
+        "expected_control_forecast_digest",
+        "expected_treatment_forecast_digest",
+    }
+    run = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef)
+        and n.name == "run_declared_global_allocation_execution"
+    )
+    gate = next(
+        i
+        for i, n in enumerate(run.body)
+        if isinstance(n, ast.If)
+        and ast.unparse(n.test) == "forecast_controls is not None"
+    )
+    provenance = next(
+        i
+        for i, n in enumerate(run.body)
+        if isinstance(n, ast.Assign)
+        and isinstance(n.value, ast.Call)
+        and ast.unparse(n.value.func) == "_provenance"
+    )
+    assert gate < provenance
+    calls = {ast.unparse(n.func) for n in ast.walk(controls) if isinstance(n, ast.Call)}
+    assert not any(
+        name in calls
+        for name in (
+            "_provenance",
+            "GlobalAllocationExecutionCollector",
+            "run_declared_global_allocation_execution",
+        )
+    )

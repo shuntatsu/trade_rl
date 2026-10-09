@@ -2396,3 +2396,28 @@ Full exact committed-head software verification and formal independent research
 review are separate requirements. This companion remains Draft while formal
 review is PENDING. Profit improvement, G4/G5, live readiness and Issue #810's
 overall completion remain NOT ESTABLISHED.
+
+## Issue #810: native forecast-control preflight (2026-10-10)
+
+The native executor accepts a caller-pinned declaration for two distinct
+standalone NONRL forecasts and a direct cash control, with an optional admission
+check in the existing native executor. Shared financial source/account/clocks,
+capital/H, costs/risk and the complete fixed recipe stay equal; full per-arm
+plan/common/source identities remain separate. Rejection precedes account reset.
+No existing v1 A/B/C comparison schema or RL matrix requirement is relaxed.
+
+Closed synthetic preparation-to-consumer tests match ordered training traces,
+labels/weights/original features and complete forecast clocks, then verify the
+hand-derived Signature prediction, target allocation and actual cash/fee arithmetic.
+A delayed-information fixture separately checks unequal symbol weights with
+predeclared numerical tolerances. These are software tests, not economic results.
+Native accounts remain independent-symbol marked continuation; completion may
+retain positions or orders. Identical seeded costs do not promise identical
+calendar-indexed shocks across different trades.
+
+A separate complete controlled-forecast evidence/report boundary, frozen study
+and formal independent approval remain required before an economic comparison.
+There is no market artifact/result access, actual-market fit/replay, calibration,
+selection, unused-period read, historical run reopening or sealed-run retry in
+this change. Formal review remains PENDING; profit improvement, G4/G5, live
+readiness and the overall Issue #810 objective remain NOT ESTABLISHED.

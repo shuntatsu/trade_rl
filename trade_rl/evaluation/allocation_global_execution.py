@@ -433,6 +433,107 @@ class GlobalAllocationExecutionPlan:
         return cls(canonical_json_bytes(_plan(value)))
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalAllocationForecastControls:
+    """Caller-pinned forecast assignment; not a completed comparison or Study.
+
+    Complete native plan identities remain separate. Only the declared forecast
+    differs between NONRL lanes; cash carries the control forecast. Revalidation
+    in the existing executor occurs before any native account initialization.
+    """
+
+    control_plan: GlobalAllocationExecutionPlan
+    treatment_plan: GlobalAllocationExecutionPlan
+    cash_plan: GlobalAllocationExecutionPlan
+    expected_control_forecast_digest: str
+    expected_treatment_forecast_digest: str
+
+    def __post_init__(self) -> None:
+        pins = (
+            self.expected_control_forecast_digest,
+            self.expected_treatment_forecast_digest,
+        )
+        for pin in pins:
+            _digest(pin, "expected forecast")
+        if pins[0] == pins[1]:
+            raise ValueError("forecast controls require two distinct forecast pins")
+        plans = (self.control_plan, self.treatment_plan, self.cash_plan)
+        for plan in plans:
+            if type(plan) is not GlobalAllocationExecutionPlan:
+                raise ValueError("forecast controls require exact native plans")
+            plan.__post_init__()
+        raw = tuple(plan.payload for plan in plans)
+        for value, kind, pin in zip(
+            raw, ("nonrl", "nonrl", "cash"), (*pins, pins[0]), strict=True
+        ):
+            if (
+                value["cell"]["kind"] != kind
+                or value["common"]["forecast_context_digest"] != pin
+                or value["cell"]["original_recipe"]
+                != value["cell"]["runtime"]["recipe"]
+            ):
+                raise ValueError(
+                    "forecast control role, pin or standalone recipe differs"
+                )
+        fixed = tuple(
+            {
+                key: value
+                for key, value in plan["common"].items()
+                if key != "forecast_context_digest"
+            }
+            for plan in raw
+        )
+        if fixed[0] != fixed[1] or fixed[0] != fixed[2]:
+            raise ValueError("forecast controls changed fixed financial context")
+        cells = tuple(value["cell"] for value in raw)
+        # The full source envelope embeds each stream. Retain its arm-specific
+        # pin; compare every other cell field without replacing native digests.
+        nonrl = tuple(
+            cell
+            | {
+                "runtime": {
+                    key: value
+                    for key, value in cell["runtime"].items()
+                    if key != "source_context_digest"
+                }
+            }
+            for cell in cells[:2]
+        )
+        if nonrl[0] != nonrl[1]:
+            raise ValueError("forecast controls changed the fixed NONRL recipe")
+        cash_recipe = cells[2]["original_recipe"]
+        residual_cash = cash_recipe | {
+            "action": cash_recipe["action"] | {"mode": "residual"}
+        }
+        if (
+            residual_cash != cells[0]["original_recipe"]
+            or cells[2]["runtime"]["source_context_digest"]
+            != cells[0]["runtime"]["source_context_digest"]
+            or any(
+                cell["runtime"]["cost_payload"] != cells[0]["runtime"]["cost_payload"]
+                for cell in cells[1:]
+            )
+        ):
+            raise ValueError("cash control changed recipe or actual execution costs")
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return {
+            "schema": "allocation_global_forecast_controls_v1",
+            "expected_control_forecast_digest": self.expected_control_forecast_digest,
+            "expected_treatment_forecast_digest": self.expected_treatment_forecast_digest,
+            "plans": {
+                "control": self.control_plan.payload,
+                "treatment": self.treatment_plan.payload,
+                "cash": self.cash_plan.payload,
+            },
+        }
+
+    @property
+    def digest(self) -> str:
+        return content_digest(self.payload)
+
+
 def _provenance(common: dict[str, Any]) -> dict[str, object]:
     actual = build_candidate_run_provenance()
     if (
@@ -1428,10 +1529,29 @@ def run_declared_global_allocation_execution(
     artifacts: tuple[AllocationFoldPolicyArtifact, ...] = (),
     base_env: AllocationTradingEnv | None = None,
     contract: AllocationComparisonContract | None = None,
+    forecast_controls: GlobalAllocationForecastControls | None = None,
 ) -> ObservedGlobalAllocationExecution:
     if type(plan) is not GlobalAllocationExecutionPlan:
         raise ValueError("global execution requires its exact closed plan")
     plan.__post_init__()
+    if forecast_controls is not None:
+        if type(forecast_controls) is not GlobalAllocationForecastControls:
+            raise ValueError(
+                "forecast execution requires its exact control declaration"
+            )
+        forecast_controls.__post_init__()
+        if (
+            artifacts
+            or base_env is not None
+            or contract is not None
+            or plan
+            not in (
+                forecast_controls.control_plan,
+                forecast_controls.treatment_plan,
+                forecast_controls.cash_plan,
+            )
+        ):
+            raise ValueError("forecast execution requires a standalone declared member")
     cell, common = plan.payload["cell"], plan.payload["common"]
     provenance_before = _provenance(common)
     collector = GlobalAllocationExecutionCollector(env, common, cell)
@@ -1519,6 +1639,7 @@ def run_declared_global_allocation_execution(
 
 __all__ = [
     "GlobalAllocationExecutionPlan",
+    "GlobalAllocationForecastControls",
     "GlobalAllocationExecutionReceipt",
     "ObservedGlobalAllocationExecution",
     "declare_global_allocation_execution",

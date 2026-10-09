@@ -606,3 +606,17 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+## Opt-in rolling Path Signature (software capability)
+
+A developer may explicitly append finite signature tensor words to a Dataset
+via `trade_rl.data.features.with_path_signatures`. The input is a sequence
+of completed-bar log-close increments (optionally strictly positive log-volume)
+augmented by normalized bar index. It is **not** an intrabar OHLC path, and no
+missing market path is imputed. Historical row availability, instrument status,
+and positive values gate the entire lookback; unavailable results are masked.
+Window, depth, volume-channel choice and source Dataset ID are bound to the new
+immutable Dataset identity. The previous Dataset and all frozen research outputs
+remain unchanged. Signature enriches representation only; any incremental
+predictive or after-cost economic value requires a separate result-blind
+Controlled Experiment, with unchanged non-RL/cash controls and ledger economics.

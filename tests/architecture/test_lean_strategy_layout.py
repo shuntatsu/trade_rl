@@ -115,6 +115,9 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
         "SimpleReturnTrainingSet",
         "SimpleReturnVintage",
         "fit_prequential_simple_ridge",
+        "PublishedSimpleReturnStreamArtifact",
+        "load_simple_return_stream_artifact",
+        "publish_simple_return_stream_artifact",
     }
     assert set(forecasts.__all__) == prequential_names | {
         "CausalForecastTrainingSet",
@@ -144,6 +147,7 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
         simple_prequential,
         simple_return,
         simple_stream,
+        simple_stream_io,
     )
 
     for owner, names in (
@@ -153,6 +157,14 @@ def test_forecast_facade_exposes_owned_prequential_api_only_at_tier_two() -> Non
         ),
         (simple_return, {"SimpleReturnTrainingSet", "SimpleReturnRidgeModel"}),
         (simple_prequential, {"fit_prequential_simple_ridge"}),
+        (
+            simple_stream_io,
+            {
+                "PublishedSimpleReturnStreamArtifact",
+                "load_simple_return_stream_artifact",
+                "publish_simple_return_stream_artifact",
+            },
+        ),
     ):
         for name in names:
             assert getattr(forecasts, name) is getattr(owner, name), name

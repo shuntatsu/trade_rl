@@ -1763,3 +1763,32 @@ execution. Supplied hashes do not authenticate fitting history; actual minibatch
 exposure, gradient attribution, improved learning and market profit are
 NOT ESTABLISHED. Existing failed synthetic learning gates remain unchanged,
 as do formal review, G3-G5 and final-head verification requirements.
+
+## Frozen simple-return file boundary G0-G2
+
+G0 asks whether an already-declared causal prediction stream can be retained
+and reused exactly, without substituting legacy log/residual forecasts or
+promoting successful serialization into evidence of economic value. G1 retains
+the existing stream records, return units, mature-prefix selection, projection,
+availability assumptions and allocation admission. File bytes are canonical;
+externally retained digest and Dataset ID are required to load. The current
+reader checks frozen projections but does not authenticate historical fitting.
+
+G2 requires independent raw SHA-256, unchanged canonical bytes and causal scope,
+external-pin drift and semantic rejection after hashes are recomputed,
+noncanonical JSON rejection even under its own raw hash, and one complete
+winner under concurrent exclusive publication. Existing destinations including
+symlinks/directories must survive. Stationary nonregular inputs must be rejected
+before a blocking open: a portable opener sentinel covers that boundary, and a
+bounded child checks an actual POSIX FIFO without a writer on supporting hosts.
+Partial writes, staging-reader rejection and fsync/link failures before commit
+leave no final; an ordinary owned-temporary cleanup failure after successful
+link must still report success. The retained temporary file is a known limitation.
+Literal mean .25, variance .5625 and allocation weight .2 verify reloaded input
+through the existing consumer; altered decision context remains inadmissible.
+
+The parent directory is caller-trusted. Hard-link incompatibility fails closed;
+power loss, asynchronous interruption and hostile namespace replacement are
+outside this contract. Synthetic unit fixtures do not establish actual market
+calibration, learning, profit, G3-G5 or final/live eligibility. Formal review,
+the unchanged 20% research DD guardrail and final-head verification still apply.

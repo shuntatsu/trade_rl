@@ -27,6 +27,11 @@ from trade_rl.strategies.forecasts.simple_stream import (
     SimpleReturnPacket,
     SimpleReturnVintage,
 )
+from trade_rl.strategies.forecasts.simple_stream_io import (
+    PublishedSimpleReturnStreamArtifact,
+    load_simple_return_stream_artifact,
+    publish_simple_return_stream_artifact,
+)
 from trade_rl.strategies.forecasts.stream import ForecastBlock, FrozenForecastStream
 from trade_rl.strategies.forecasts.supervised import (
     CausalForecastTrainingSet,
@@ -42,6 +47,7 @@ __all__ = [
     "FrozenSimpleReturnStream",
     "LightGBMForecastModel",
     "LightGBMForecastStrategy",
+    "PublishedSimpleReturnStreamArtifact",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
     "SimpleReturnPacket",
@@ -53,4 +59,6 @@ __all__ = [
     "fit_prequential_ridge",
     "fit_prequential_simple_ridge",
     "fit_ridge_forecast",
+    "load_simple_return_stream_artifact",
+    "publish_simple_return_stream_artifact",
 ]

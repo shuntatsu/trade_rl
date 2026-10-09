@@ -1389,6 +1389,10 @@ or introduce a persisted schema. The Tier-1 evaluation facade is unchanged.
 
 Data identity parsing and FeatureSpec decoding remain in their existing owners;
 feature/symbol dependency checks remain in `strategies.dataset_scope`.
+Preparation admits only the current v7 and legacy v6 constants owned by
+`data.identity`, with the same direct portable build, scope, availability and
+same-close gates. The existing artifact loader owns v3/v4 field rosters and
+identity verification; composition adds no manifest reader or version converter.
 The thin cost decoder admits exact `horizon_cost_estimates_v1` keys, reuses strict
 clock decoding and the existing constructor/payload roundtrip, and adds no rate
 model. Cost groups follow Dataset symbols and chronological decisions, suitable
@@ -1419,3 +1423,8 @@ aligned native-bar lookback and explicit counted-bar-close gap/age proxies;
 aggregation has discarded exact settlement times. Symmetric current-condition
 reference-size execution, past-funding extrapolation and explicit zero cash are
 declared surrogate assumptions rather than calibrated future economics.
+
+Native funding continues to own settlement-weighted cashflow products, while
+the declared producer owns rate projections. Composition preserves a loaded v7
+product channel even when it differs from rate times bar mark. Legacy v6 retains
+the loader's bar-mark fallback and cannot bind changed settlement economics.

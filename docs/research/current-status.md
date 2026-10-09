@@ -1178,6 +1178,8 @@ M2で候補をfreezeした後だけ進む。
 
 Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
 
+新規bootstrap v3はfunding eventのnormalized snapshotを`source/funding-events.json`へ保存し、そのSHA-256をmanifestへbindする。Visionのfunding CSVがsettlement markを持たない場合は、Binance funding historyの`markPrice`でイベントを完成させてからsnapshotを作り、以後のDataset buildとinspectionはnetwork-freeでこのsnapshotを使う。この実装修正後のreal-data bootstrapやeconomic evaluationはまだ実行していない。既存のPortable Controlled Experiment 0001の結果はそのまま保持し、新しいsettlement-mark pathの証拠として扱わない。
+
 入力JSONは少なくとも次を事前登録する。
 
 - Binance USD-M market
@@ -2248,6 +2250,16 @@ horizon-cost payloads for every predicted symbol/decision. Fit symbols do not
 restrict prediction symbols. The result returns common stream/artifact inputs
 and costs grouped by Dataset symbol and decision, without a new persisted
 schema, lane-specific refit or Tier-1 facade extension.
+
+The same preparation now accepts verified direct portable identity v6 and v7
+without changing their identities or admission checks. Synthetic saved-artifact
+tests cover v3/v6, v4/v6 and v4/v7 through explicit-row and declared-cost paths,
+including before-fit refusal of old build versions, derived lineage and mark
+mismatch. V7 settlement products survive unchanged while declared costs retain
+rate-based funding projection; zero aggregate rates can coexist with nonzero
+products. Legacy v6 remains the historical bar-mark fallback and is not evidence
+of authentic settlement coverage. This interoperability Task performs no actual
+market-data read, fit, calibration or economic comparison.
 
 Synthetic saved-builder tests connect literal mean/variance/allocation to the
 existing consumer, preserve earlier causal predictions under future changes,

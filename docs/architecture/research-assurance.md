@@ -1816,6 +1816,20 @@ future cost availability and malformed clocks/horizons must also fail there.
 
 These declarations do not independently authenticate build history, source
 availability, historical compute completion or calibrated venue economics.
+Known direct portable identity v6 and v7 pass the same preparation gates. The
+saved synthetic matrix covers old v3/v6, current v4/v6 and v4/v7 artifacts through
+the real loader, producer and publisher, retaining each original Dataset ID and
+the independent literal forecast/cost oracles. Loadable old-v6 build-v2, derived
+lineage and close/mark mismatch fail before fitting or publication. Legacy
+acceptance supplies no authentic-settlement admission or actual-data read grant.
+
+A v7 product-only counterexample retains zero aggregate ALPHA rates with
+nonzero settlement products and positive BETA rates. Changing only ALPHA
+products changes Dataset identity while its projected funding stays zero and
+BETA remains .000025. Preserved channels and owner call counts detect implicit
+conversion, product/rate confusion and duplicate preparation. Native accounting
+and the legacy changed-economics guard remain in their existing owners.
+
 Real Binance close/mark compatibility remains NOT ESTABLISHED; a correct
 same-close rejection is not repaired by rewriting marks. This software stage
 establishes no market fit/replay, economic comparison, G3-G5, live eligibility

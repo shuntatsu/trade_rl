@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib
+import io
+import json
+import zipfile
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -11,6 +14,7 @@ import numpy as np
 import pytest
 
 from tests.strategies.test_simple_return_stream import blocks, time
+from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
@@ -19,7 +23,12 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
 )
-from trade_rl.data.identity import parse_identity_json
+from trade_rl.data.identity import (
+    _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA,
+    canonical_identity_json,
+    compute_market_dataset_id,
+    parse_identity_json,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.forecast_allocation import (
     HorizonCostEstimates,
@@ -85,10 +94,39 @@ def market(*, future=False):
     )
 
 
-def arguments(tmp_path, dataset=None):
+def arguments(tmp_path, dataset=None, *, saved_format="v4_v7"):
     dataset = market() if dataset is None else dataset
+    if saved_format.endswith("_v6"):
+        identity = parse_identity_json(dataset.identity_payload_json)
+        identity["schema"] = _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA
+        dataset = replace(
+            dataset,
+            dataset_id=compute_market_dataset_id(identity, dataset.identity_arrays()),
+            identity_payload_json=canonical_identity_json(identity),
+        )
     root = tmp_path / "dataset"
     write_market_dataset_files(root, dataset)
+    if saved_format == "v3_v6":
+        # Encode the old field roster without changing any retained .npy bytes.
+        arrays_path = root / "arrays.npz"
+        encoded = io.BytesIO()
+        with (
+            zipfile.ZipFile(io.BytesIO(arrays_path.read_bytes())) as original,
+            zipfile.ZipFile(encoded, "w") as legacy,
+        ):
+            for info in original.infolist():
+                if info.filename != "funding_price_rate.npy":
+                    legacy.writestr(info, original.read(info.filename))
+        payload = encoded.getvalue()
+        arrays_path.write_bytes(payload)
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest.pop("artifact_digest")
+        manifest["arrays"].pop("funding_price_rate")
+        manifest["schema_version"] = "market_dataset_artifact_v3"
+        manifest["arrays_digest"] = sha256(payload).hexdigest()
+        manifest["artifact_digest"] = sha256(canonical_json_bytes(manifest)).hexdigest()
+        manifest_path.write_bytes(canonical_json_bytes(manifest))
     costs = tuple(
         HorizonCostEstimates(
             symbol=s,
@@ -125,13 +163,15 @@ def forbid_fit_and_publication(module, monkeypatch):
     monkeypatch.setattr(module, "publish_simple_return_stream_artifact", forbidden)
 
 
+@pytest.mark.parametrize("saved_format", ("v3_v6", "v4_v6", "v4_v7"))
 def test_saved_canonical_inputs_reach_literal_allocation_without_lane_refitting(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, saved_format
 ):
     module = api()
-    loader, producer = (
+    loader, producer, publisher = (
         module.load_market_dataset_artifact,
         module.fit_prequential_simple_ridge,
+        module.publish_simple_return_stream_artifact,
     )
     calls = []
 
@@ -143,11 +183,16 @@ def test_saved_canonical_inputs_reach_literal_allocation_without_lane_refitting(
         calls.append("fit")
         return producer(*args, **kwargs)
 
+    def publish(*args, **kwargs):
+        calls.append("publish")
+        return publisher(*args, **kwargs)
+
     monkeypatch.setattr(module, "load_market_dataset_artifact", load)
     monkeypatch.setattr(module, "fit_prequential_simple_ridge", fit)
-    supplied = arguments(tmp_path)
+    monkeypatch.setattr(module, "publish_simple_return_stream_artifact", publish)
+    supplied = arguments(tmp_path, saved_format=saved_format)
     prepared = module.prepare_allocation_market_inputs(**supplied)
-    assert calls == ["load", "fit"]
+    assert calls == ["load", "fit", "publish"]
     assert prepared.dataset.dataset_id == supplied["expected_dataset_id"]
     assert prepared.stream.vintages[0].model.feature_indices == (1, 0)
     assert {p.symbol for p in prepared.stream.packets} == {"ALPHA", "BETA"}
@@ -350,12 +395,16 @@ def test_preexisting_stream_survives_preparation(tmp_path):
     assert supplied["stream_path"].read_bytes() == b"prior owner"
 
 
-def generated_arguments(tmp_path, dataset=None):
+def generated_arguments(tmp_path, dataset=None, *, saved_format="v4_v7"):
     from tests.evaluation.test_allocation_costs import market as cost_market
     from tests.evaluation.test_allocation_costs import recipe
     from trade_rl.strategies.forecasts.stream import ForecastBlock
 
-    supplied = arguments(tmp_path, cost_market() if dataset is None else dataset)
+    supplied = arguments(
+        tmp_path,
+        cost_market() if dataset is None else dataset,
+        saved_format=saved_format,
+    )
     supplied.pop("cost_rows")
     supplied.update(
         blocks=(ForecastBlock(time(20), time(20.25), time(24), time(26)),),
@@ -366,11 +415,23 @@ def generated_arguments(tmp_path, dataset=None):
     return supplied
 
 
+@pytest.mark.parametrize("saved_format", ("v3_v6", "v4_v6", "v4_v7"))
 def test_generated_costs_share_exact_recipe_and_single_loader_fit_publication(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, saved_format
 ):
+    from tests.evaluation.test_allocation_costs import market as cost_market
+
     module = api()
-    supplied = generated_arguments(tmp_path)
+    dataset = cost_market()
+    if saved_format == "v4_v7":
+        products = np.zeros((72, 2))
+        # Settlement products differ from the unchanged bar-close rate proxies.
+        products[8], products[16] = (0.0095, 0.0045), (0.051, 0.026)
+        identity = parse_identity_json(dataset.identity_payload_json)
+        dataset = replace(
+            dataset, funding_price_rate=products, identity_payload_json=None
+        ).with_content_identity(identity)
+    supplied = generated_arguments(tmp_path, dataset, saved_format=saved_format)
     calls = []
     for name in (
         "load_market_dataset_artifact",
@@ -394,6 +455,10 @@ def test_generated_costs_share_exact_recipe_and_single_loader_fit_publication(
         "publish_simple_return_stream_artifact",
     ]
     assert prepared.cost_recipe is supplied["cost_recipe"]
+    assert prepared.dataset.dataset_id == supplied["expected_dataset_id"]
+    np.testing.assert_array_equal(
+        prepared.dataset.funding_price_rate, dataset.funding_price_rate
+    )
     assert prepared.cost_recipe.execution_cost is supplied["cost_recipe"].execution_cost
     assert tuple(
         tuple(c.decision_time for c in group) for group in prepared.costs_by_symbol
@@ -406,6 +471,65 @@ def test_generated_costs_share_exact_recipe_and_single_loader_fit_publication(
         assert group[0].funding_return == pytest.approx(0.000025)
         assert group[0].borrow_return == pytest.approx(0.00001875)
         assert group[0].cash_return == 0
+
+
+@pytest.mark.parametrize("failure", ("build_v2", "derived", "mark"))
+def test_legacy_compatibility_preserves_before_fit_source_and_price_gates(
+    tmp_path, monkeypatch, failure
+):
+    module = api()
+    dataset = market()
+    identity = parse_identity_json(dataset.identity_payload_json)
+    if failure == "build_v2":
+        identity["config"]["schema_version"] = "market_build_v2"
+    elif failure == "derived":
+        identity = {"source_dataset": {"identity_payload": identity}}
+    else:
+        marks = dataset.close.copy()
+        marks[6, 1] *= 1.01
+        dataset = replace(dataset, mark_price=marks, identity_payload_json=None)
+    dataset = dataset.with_content_identity(identity)
+    supplied = arguments(tmp_path, dataset, saved_format="v3_v6")
+    # The real loader must succeed; only preparation may reject these sources.
+    loaded = module.load_market_dataset_artifact(supplied["dataset_root"])
+    assert loaded.dataset_id == supplied["expected_dataset_id"]
+    forbid_fit_and_publication(module, monkeypatch)
+    reason = "same-close" if failure == "mark" else "direct canonical"
+    with pytest.raises(ValueError, match=reason):
+        module.prepare_allocation_market_inputs(**supplied)
+    assert not supplied["stream_path"].exists()
+
+
+def test_v7_cancelled_rates_keep_nonzero_settlement_products_out_of_rate_projection(
+    tmp_path,
+):
+    from tests.evaluation.test_allocation_costs import market as cost_market
+
+    module = api()
+    original = cost_market()
+    rates, counts = original.funding_rate.copy(), original.funding_event_count.copy()
+    rates[[8, 16], 0], counts[[8, 16], 0] = 0, 2
+    identity = parse_identity_json(original.identity_payload_json)
+    ids = []
+    for factor in (1, 2):
+        products = original.funding_price_rate.copy()
+        # .0001*(95-105), .0002*(90-110): zero rates, nonzero cashflow products.
+        products[[8, 16], 0] = (-0.001 * factor, -0.004 * factor)
+        dataset = replace(
+            original,
+            funding_rate=rates,
+            funding_event_count=counts,
+            funding_price_rate=products,
+            identity_payload_json=None,
+        ).with_content_identity(identity)
+        supplied = generated_arguments(tmp_path / str(factor), dataset)
+        prepared = module.prepare_allocation_market_inputs(**supplied)
+        assert prepared.dataset.dataset_id == dataset.dataset_id
+        np.testing.assert_array_equal(prepared.dataset.funding_price_rate, products)
+        assert prepared.costs_by_symbol[0][0].funding_return == 0
+        assert prepared.costs_by_symbol[1][0].funding_return == pytest.approx(0.000025)
+        ids.append(prepared.dataset.dataset_id)
+    assert ids[0] != ids[1]
 
 
 @pytest.mark.parametrize("paths", ("neither", "both", "wrong_type", "future"))

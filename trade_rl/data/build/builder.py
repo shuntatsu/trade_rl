@@ -219,6 +219,7 @@ def _align_series(
         "close": np.ones(n_bars, dtype=np.float64),
         "volume": np.zeros(n_bars, dtype=np.float64),
         "funding_rate": np.zeros(n_bars, dtype=np.float64),
+        "funding_price_rate": np.zeros(n_bars, dtype=np.float64),
         "tradable": np.zeros(n_bars, dtype=np.bool_),
         "funding_available": np.zeros(n_bars, dtype=np.bool_),
         "funding_event_count": np.zeros(n_bars, dtype=np.int32),
@@ -226,8 +227,20 @@ def _align_series(
         "information_available": np.zeros(n_bars, dtype=np.bool_),
         "available_at": timestamps.copy(),
     }
-    for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):
-        result[field_name][indices] = getattr(raw, field_name)
+    for field_name in (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "funding_rate",
+        "funding_price_rate",
+    ):
+        result[field_name][indices] = (
+            raw.resolved_funding_price_rate
+            if field_name == "funding_price_rate"
+            else getattr(raw, field_name)
+        )
     result["tradable"][indices] = raw.tradable
     assert raw.funding_available is not None
     assert raw.available_at is not None
@@ -289,6 +302,7 @@ class MarketDatasetBuilder:
         close = np.ones_like(open_price)
         volume = np.zeros_like(open_price)
         funding_rate = np.zeros_like(open_price)
+        funding_price_rate = np.zeros_like(open_price)
         row_present = np.zeros((n_bars, n_symbols), dtype=np.bool_)
         raw_tradable = np.zeros_like(row_present)
         funding_available = np.zeros_like(row_present)
@@ -305,6 +319,7 @@ class MarketDatasetBuilder:
             close[:, symbol_index] = aligned["close"]
             volume[:, symbol_index] = aligned["volume"]
             funding_rate[:, symbol_index] = aligned["funding_rate"]
+            funding_price_rate[:, symbol_index] = aligned["funding_price_rate"]
             row_present[:, symbol_index] = aligned["row_present"]
             raw_tradable[:, symbol_index] = aligned["tradable"]
             funding_available[:, symbol_index] = aligned["funding_available"]
@@ -534,6 +549,7 @@ class MarketDatasetBuilder:
             close=close,
             volume=volume,
             funding_rate=funding_rate,
+            funding_price_rate=funding_price_rate,
             funding_event_count=funding_event_count,
             symbol_active=economics.symbol_active,
             asset_active=economics.asset_active,

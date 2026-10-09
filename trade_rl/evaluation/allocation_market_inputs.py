@@ -20,7 +20,11 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.build.config import _feature
 from trade_rl.data.contracts import PORTABLE_FEATURE_NUMERICS_SCHEMA
-from trade_rl.data.identity import MARKET_DATASET_IDENTITY_SCHEMA, parse_identity_json
+from trade_rl.data.identity import (
+    _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA,
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    parse_identity_json,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.allocation_costs import (
     DeclaredAllocationCostRecipe,
@@ -161,7 +165,8 @@ def prepare_allocation_market_inputs(
     identity = parse_identity_json(dataset.identity_payload_json)
     config = identity.get("config")
     if (
-        identity.get("schema") != MARKET_DATASET_IDENTITY_SCHEMA
+        identity.get("schema")
+        not in (MARKET_DATASET_IDENTITY_SCHEMA, _LEGACY_MARKET_DATASET_IDENTITY_SCHEMA)
         or "source_dataset" in identity
         or not isinstance(config, Mapping)
         or config.get("schema_version") != "market_build_v3"

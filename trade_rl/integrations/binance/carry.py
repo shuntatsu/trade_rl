@@ -146,6 +146,10 @@ def assemble_carry_dataset(
     def stacked(name: str) -> np.ndarray:
         return np.column_stack([getattr(leg, name) for leg in legs])
 
+    funding_price_rate = np.column_stack(
+        [leg.resolved_funding_price_rate for leg in legs]
+    )
+
     fee = np.tile([0.001, 0.0005], len(symbols)) * cost_multiplier
     dataset = MarketDataset(
         dataset_id="0" * 64,
@@ -165,6 +169,7 @@ def assemble_carry_dataset(
         volume=stacked("volume"),
         volume_units=tuple(VolumeUnit.QUOTE_NOTIONAL for _ in legs),
         funding_rate=stacked("funding_rate"),
+        funding_price_rate=funding_price_rate,
         funding_event_count=stacked("funding_event_count"),
         funding_due=stacked("funding_available"),
         tradable=stacked("tradable"),

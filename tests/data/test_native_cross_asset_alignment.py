@@ -54,12 +54,14 @@ def _source() -> _Source:
     eth_returns = 0.017 * np.cos(steps * 0.53) - 0.007 * np.sin(steps * 0.41)
     btc_close = 100.0 * np.exp(np.r_[0.0, np.cumsum(btc_returns)])
     eth_close = 90.0 * np.exp(np.r_[0.0, np.cumsum(eth_returns)])
-    return _Source({
-        ("BTCUSDT", "15m"): _bars("2026-01-01T00:00", 15, btc_close),
-        ("ETHUSDT", "15m"): _bars("2026-01-01T00:00", 15, eth_close),
-        ("BTCUSDT", "1h"): _bars("2026-01-01T00:00", 60, btc_close[::4]),
-        ("ETHUSDT", "1h"): _bars("2026-01-01T00:00", 60, eth_close[::4]),
-    })
+    return _Source(
+        {
+            ("BTCUSDT", "15m"): _bars("2026-01-01T00:00", 15, btc_close),
+            ("ETHUSDT", "15m"): _bars("2026-01-01T00:00", 15, eth_close),
+            ("BTCUSDT", "1h"): _bars("2026-01-01T00:00", 60, btc_close[::4]),
+            ("ETHUSDT", "1h"): _bars("2026-01-01T00:00", 60, eth_close[::4]),
+        }
+    )
 
 
 def _dataset(source: _Source) -> object:
@@ -136,9 +138,7 @@ def test_native_cross_asset_future_modification_preserves_earlier_decisions() ->
         low=np.minimum(raw.low, altered_close),
     )
     changed = _dataset(_Source(mutated))
-    np.testing.assert_array_equal(
-        original.features[:5], changed.features[:5]
-    )
+    np.testing.assert_array_equal(original.features[:5], changed.features[:5])
     np.testing.assert_array_equal(
         original.feature_available[:5], changed.feature_available[:5]
     )

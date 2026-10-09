@@ -107,8 +107,10 @@ def test_native_signature_future_and_ohlc_modification_do_not_change_prefix() ->
         low=raw.low * 0.5,
     )
     changed = with_multitimeframe_path_signatures(
-        base, _Source(changed_sources), base_timeframe="1h",
-        windows_by_timeframe={"15m": 5}
+        base,
+        _Source(changed_sources),
+        base_timeframe="1h",
+        windows_by_timeframe={"15m": 5},
     )
     np.testing.assert_array_equal(first.features[:5], changed.features[:5])
     np.testing.assert_array_equal(
@@ -120,8 +122,10 @@ def test_native_signature_future_and_ohlc_modification_do_not_change_prefix() ->
         raw, high=raw.high * 1.4, low=raw.low * 0.6
     )
     same = with_multitimeframe_path_signatures(
-        base, _Source(ohlc_sources), base_timeframe="1h",
-        windows_by_timeframe={"15m": 5}
+        base,
+        _Source(ohlc_sources),
+        base_timeframe="1h",
+        windows_by_timeframe={"15m": 5},
     )
     np.testing.assert_array_equal(first.features, same.features)
 
@@ -134,14 +138,17 @@ def test_opt_in_signature_ridge_and_ppo_observation_share_same_causal_dataset() 
     )
     name = "mt_path_sig_v1_15m_w5_d2_tp_tp"
     baseline, enhanced = validate_signature_pair(
-        base, extended, baseline_feature_names=("log_return",),
-        signature_feature_names=(name,)
+        base,
+        extended,
+        baseline_feature_names=("log_return",),
+        signature_feature_names=(name,),
     )
     assert baseline == (0,)
     assert enhanced == (0, extended.feature_names.index(name))
     # Same executed bars, capital and executor; comparison never promotes a winner.
     result = run_ridge_signature_comparison(
-        base, extended,
+        base,
+        extended,
         baseline_feature_names=("log_return",),
         signature_feature_names=(name,),
         fit_cutoff=base.timestamps[5],
@@ -162,11 +169,17 @@ def test_opt_in_signature_ridge_and_ppo_observation_share_same_causal_dataset() 
     assert result.source_dataset_id == base.dataset_id
     assert result.augmented_dataset_id == extended.dataset_id
     base_env = PPOTradingEnv(
-        base, feature_indices=baseline, start_index=4, stop_index=7,
+        base,
+        feature_indices=baseline,
+        start_index=4,
+        stop_index=7,
         gross_budget=0.05,
     )
     signature_env = PPOTradingEnv(
-        extended, feature_indices=enhanced, start_index=4, stop_index=7,
+        extended,
+        feature_indices=enhanced,
+        start_index=4,
+        stop_index=7,
         gross_budget=0.05,
     )
     baseline_obs, _ = base_env.reset(seed=1)
@@ -189,8 +202,7 @@ def test_signature_rejects_invalid_clock_and_unavailable_feature_pair() -> None:
         )
     with pytest.raises(ValueError, match="depth"):
         with_multitimeframe_path_signatures(
-            base, source, base_timeframe="1h",
-            windows_by_timeframe={"15m": 5}, depth=4
+            base, source, base_timeframe="1h", windows_by_timeframe={"15m": 5}, depth=4
         )
     with pytest.raises(ValueError, match="MultiTimeframeMarketDataSource"):
         with_multitimeframe_path_signatures(
@@ -201,7 +213,8 @@ def test_signature_rejects_invalid_clock_and_unavailable_feature_pair() -> None:
     )
     with pytest.raises(ValueError, match="rosters"):
         validate_signature_pair(
-            base, extended,
+            base,
+            extended,
             baseline_feature_names=("log_return",),
-            signature_feature_names=("log_return",)
+            signature_feature_names=("log_return",),
         )

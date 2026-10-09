@@ -185,18 +185,24 @@ def run_ridge_signature_comparison(
         alpha=alpha,
     )
     arms = (
-        (original, RidgeForecastStrategy(
-            baseline_model,
-            entry_threshold=entry_threshold,
-            exit_threshold=exit_threshold,
-            one_way_switch_cost=one_way_switch_cost,
-        )),
-        (augmented, RidgeForecastStrategy(
-            signature_model,
-            entry_threshold=entry_threshold,
-            exit_threshold=exit_threshold,
-            one_way_switch_cost=one_way_switch_cost,
-        )),
+        (
+            original,
+            RidgeForecastStrategy(
+                baseline_model,
+                entry_threshold=entry_threshold,
+                exit_threshold=exit_threshold,
+                one_way_switch_cost=one_way_switch_cost,
+            ),
+        ),
+        (
+            augmented,
+            RidgeForecastStrategy(
+                signature_model,
+                entry_threshold=entry_threshold,
+                exit_threshold=exit_threshold,
+                one_way_switch_cost=one_way_switch_cost,
+            ),
+        ),
         (original, _CashStrategy()),
     )
     replays: list[SingleSymbolReplayResult] = []

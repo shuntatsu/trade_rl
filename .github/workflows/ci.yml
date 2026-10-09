@@ -46,9 +46,7 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: |
-          uv run ruff format --diff trade_rl/data/features/native_cross_asset.py trade_rl/data/features/signature_multitimeframe.py trade_rl/evaluation/signature_comparison.py tests/data/test_mtf_path_signatures.py tests/data/test_native_cross_asset_alignment.py || true
-          uv run ruff format --check trade_rl tests tools
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl

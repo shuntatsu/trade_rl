@@ -55,11 +55,7 @@ def _rolling_signature_events(
     """Native signature events and the *maximum* input availability time."""
     timestamps = np.asarray(timestamps, dtype="datetime64[ns]")
     available_at = np.asarray(available_at, dtype="datetime64[ns]")
-    usable = (
-        np.asarray(tradable, dtype=np.bool_)
-        & np.isfinite(closes)
-        & (closes > 0.0)
-    )
+    usable = np.asarray(tradable, dtype=np.bool_) & np.isfinite(closes) & (closes > 0.0)
     if include_volume:
         usable &= np.isfinite(volumes) & (volumes > 0.0)
     if np.any(available_at < timestamps):
@@ -186,11 +182,13 @@ def with_multitimeframe_path_signatures(
                 tradable = raw.tradable
                 assert raw.available_at is not None
                 arrived = raw.available_at
-                source_digests.append({
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "raw_source_sha256": _source_digest(raw),
-                })
+                source_digests.append(
+                    {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "raw_source_sha256": _source_digest(raw),
+                    }
+                )
             if len(times) < window:
                 raise ValueError(f"not enough {timeframe} bars for Signature window")
             signatures, event_valid, event_available_at = _rolling_signature_events(

@@ -78,8 +78,8 @@ def align_native_cross_asset_feature(
         returns[positions, i] = values
         return_valid[positions, i] = valid
         arrivals = np.full(len(timestamps), np.iinfo(np.int64).min, dtype=np.int64)
-        arrivals[positions[valid]] = arrived_at[valid].astype("datetime64[ns]").astype(
-            np.int64
+        arrivals[positions[valid]] = (
+            arrived_at[valid].astype("datetime64[ns]").astype(np.int64)
         )
         arrival_prefix[:, i] = np.maximum.accumulate(arrivals)
 

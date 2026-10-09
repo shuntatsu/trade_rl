@@ -237,9 +237,9 @@ def _align_events(
 
     base_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     native_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
-    chosen_positions = np.searchsorted(
-        native_ns[native_valid], base_ns, side="right"
-    ) - 1
+    chosen_positions = (
+        np.searchsorted(native_ns[native_valid], base_ns, side="right") - 1
+    )
     good_base = (
         dataset.resolved_array("symbol_active")[:, symbol_index]
         & dataset.resolved_array("information_available")[:, symbol_index]
@@ -283,9 +283,7 @@ def with_native_multitimeframe_signatures(
     if len(set(names)) != len(names) or set(names) & set(dataset.feature_names):
         raise ValueError("native Signature feature names must be unique")
 
-    output = np.zeros(
-        (dataset.n_bars, dataset.n_symbols, len(names)), dtype=np.float32
-    )
+    output = np.zeros((dataset.n_bars, dataset.n_symbols, len(names)), dtype=np.float32)
     mask = np.zeros_like(output, dtype=np.bool_)
     age = np.ones_like(output, dtype=np.float32)
     staleness = np.ones_like(output, dtype=np.float32)

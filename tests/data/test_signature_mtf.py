@@ -123,7 +123,8 @@ def test_same_native_clock_agrees_with_existing_base_clock_signature() -> None:
     )
     expected = with_path_signatures(base, window_bars=3, depth=3)
     np.testing.assert_allclose(
-        candidate.features[:, 0, -14:], expected.features[:, 0, -14:],
+        candidate.features[:, 0, -14:],
+        expected.features[:, 0, -14:],
         rtol=1e-6,
         atol=1e-7,
     )
@@ -150,9 +151,7 @@ def test_two_stack_chen_queue_matches_naive_rolling_reference() -> None:
                     )
                 )
                 expected = _segment_signature(increments, depth)
-                np.testing.assert_allclose(
-                    rows[end], expected, rtol=2e-5, atol=2e-6
-                )
+                np.testing.assert_allclose(rows[end], expected, rtol=2e-5, atol=2e-6)
 
 
 def test_4h_signature_appears_only_after_third_completed_native_bar() -> None:
@@ -296,9 +295,7 @@ def test_multiple_native_clocks_are_independent_and_preserve_economics(
     np.testing.assert_array_equal(a.close, base.close)
     np.testing.assert_array_equal(a.funding_rate, base.funding_rate)
     np.testing.assert_array_equal(a.fee_rate, base.fee_rate)
-    np.testing.assert_array_equal(
-        a.features[:, :, : base.n_features], base.features
-    )
+    np.testing.assert_array_equal(a.features[:, :, : base.n_features], base.features)
     restored_path = publish_market_dataset_artifact(tmp_path / "native", a).root
     restored = load_market_dataset_artifact(restored_path)
     assert restored.dataset_id == a.dataset_id

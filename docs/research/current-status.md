@@ -2399,7 +2399,7 @@ overall completion remain NOT ESTABLISHED.
 
 ## Issue #810: native forecast-control preflight (2026-10-10)
 
-The companion to PR #866 adds a caller-pinned declaration for two distinct
+The native executor accepts a caller-pinned declaration for two distinct
 standalone NONRL forecasts and a direct cash control, with an optional admission
 check in the existing native executor. Shared financial source/account/clocks,
 capital/H, costs/risk and the complete fixed recipe stay equal; full per-arm

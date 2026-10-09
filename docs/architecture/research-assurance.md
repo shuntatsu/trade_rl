@@ -2003,3 +2003,34 @@ does not prove general training matching, calibrated market costs, profitability
 formal independent approval or G3-G5. Equal seeded configs need not consume
 identical random shocks when the arms trade differently. The 20% research DD and
 future settled/unused-period qualification requirements remain unchanged.
+
+## Allocation terminal closing software prerequisite
+
+The G0 question is whether `allocation_terminal_execution` can expose actual
+closing costs and failure on one canonical NONRL/cash account before claiming
+settled profit. This is a software prerequisite, not an economic edge hypothesis,
+and grants no market execution, Study, unused-data or live authority.
+
+G1 pins an evaluation-only settled full horizon: unchanged marked policy prefix,
+predeclared reserved processing bars, same native account/orders/executor/RNG/risk,
+fixed initial-capital denominator, gamma=1 equity deltas and unchanged MARKET
+zero-extra-latency execution. Zero target obeys hard risk and native liquidity.
+Already flat books still process every reserve bar. Current PPO training remains
+marked continuation and is not admitted as a settled policy. Prefix and whole
+window objectives/clock/recipe identities are distinct and retained together.
+
+G2 counterexamples use independently calculated long/short cash, entry and close
+fees, held funding/borrow and cash interest; a profitable partial close must be
+unsettled. Unequal segments preserve one reset and RNG/account economics. Deferred
+capacity-limited closes preserve actual book/order handoff and pending intent.
+No-volume, untradable, exact dust and hard-turnover constraints retain inventory;
+adverse close DD is visible and ineligible, and native retained debt produces
+signed fixed-C losses below -100%. Source drift rejects before reset, closing
+does not consume future features, malformed returned clocks retain detached
+facts, and exceptions preserve only known returned bars. Legacy actor trace
+bytes are independently pinned before the generic freezer extraction.
+
+Session design/source review and software tests do not establish authenticated
+independent G3, a qualified economic comparison or G4/G5. Matching PPO terminal
+learning, complete settled forecast controls, frozen finite protocol and formal
+independent research approval remain necessary follow-on boundaries.

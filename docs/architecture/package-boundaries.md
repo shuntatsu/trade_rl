@@ -1516,3 +1516,20 @@ new aggregate runner, loader or completed-comparison reader is introduced.
 The one-forecast v1 A/B/C schemas, digest owners and mandatory RL matrix remain
 unchanged. Architecture tests keep this preflight in the existing owner and keep
 learner, network and research-lifecycle dependencies outside it.
+
+## Allocation terminal execution ownership
+
+`evaluation/allocation_terminal_execution.py` owns the evaluation-only frozen
+prefix/closing-window declaration, native runner composition and detached runtime
+observation. It reuses `allocation_global_execution` without changing its marked
+completion or v1 A/B/C schemas, and the existing allocation risk/execution helper
+without a second ledger. `rl_allocation/transition_facts.py` owns the generic
+native returned-fact freezer shared by actor transitions and actor-free closing;
+historical actor trace bytes remain unchanged.
+
+The upper owner may inspect source/runtime provenance but cannot import training,
+Study/final-selection owners or instantiate an account/executor. It never mutates
+Gym index, stop, terminal or book/order fields for closing. Native returned state
+is passed locally across the reserved window. Public observation has no
+from-payload Study/approval reader. Settled PPO admission, a complete controlled
+forecast report and frozen economic protocol require separate maintained owners.

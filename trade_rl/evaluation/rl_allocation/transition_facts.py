@@ -63,12 +63,10 @@ def _pending(order: Any) -> dict[str, Any]:
     return result
 
 
-def freeze_allocation_execution(
-    env: Any, result: AllocationActionExecutionResult
-) -> bytes:
-    execution, proposal = result.execution, result.proposal
-    if execution.bars_advanced != 1 or execution.next_index != env.index + 1:
-        raise ValueError("trace requires the actual pre-overwrite one-bar clock")
+def native_allocation_execution_facts(
+    execution: StatefulExecutionResult,
+) -> dict[str, Any]:
+    """Detach canonical returned facts, without inventing an actor proposal."""
     book = deepcopy(execution.book)
     book_facts = {
         field.name: _json(getattr(book, field.name))
@@ -82,6 +80,29 @@ def freeze_allocation_execution(
     terminal_ids = {
         event.order_id for event in execution.order_events if event.new_status.terminal
     }
+    return {
+        "book": book_facts,
+        "execution": {
+            field.name: _json(getattr(execution, field.name))
+            for field in fields(execution)
+            if field.name not in ("book", "order_book", "order_events")
+        },
+        "order_events": [e.canonical_payload() for e in execution.order_events],
+        "active_orders": [_pending(o) for o in execution.order_book.active_orders],
+        "terminal_order_reasons": [
+            {"order_id": o.order_id, "reason": o.terminal_reason}
+            for o in execution.order_book.terminal_orders
+            if o.order_id in terminal_ids
+        ],
+    }
+
+
+def freeze_allocation_execution(
+    env: Any, result: AllocationActionExecutionResult
+) -> bytes:
+    execution, proposal = result.execution, result.proposal
+    if execution.bars_advanced != 1 or execution.next_index != env.index + 1:
+        raise ValueError("trace requires the actual pre-overwrite one-bar clock")
     return canonical_json_bytes(
         {
             "decision_index": env.index,
@@ -95,19 +116,7 @@ def freeze_allocation_execution(
             "risk": _json(result.risk_target),
             "risk_config": _json(env.risk.config),
             "current_weights": deepcopy(env.book).weights.tolist(),
-            "book": book_facts,
-            "execution": {
-                field.name: _json(getattr(execution, field.name))
-                for field in fields(execution)
-                if field.name not in ("book", "order_book", "order_events")
-            },
-            "order_events": [e.canonical_payload() for e in execution.order_events],
-            "active_orders": [_pending(o) for o in execution.order_book.active_orders],
-            "terminal_order_reasons": [
-                {"order_id": o.order_id, "reason": o.terminal_reason}
-                for o in execution.order_book.terminal_orders
-                if o.order_id in terminal_ids
-            ],
+            **native_allocation_execution_facts(execution),
         }
     )
 

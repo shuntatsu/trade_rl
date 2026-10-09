@@ -1574,3 +1574,36 @@ different random draws. The declaration checks consistency, not historical sourc
 truth, general matched training rows or external Study authority. Existing v1
 A/B/C comparisons still bind one forecast and their full NONRL/RL seed matrix;
 different forecast arms require separate completed evidence and a frozen protocol.
+
+## Native allocation terminal closing
+
+`allocation_terminal_execution` is an opt-in evaluation-only composition of the
+existing declared global NONRL/cash executor and canonical zero-target execution.
+Its frozen plan declares policy prefix and reserved closing processing bars
+inside one full physical horizon before the first reset. A distinct settled
+ObjectiveContract, full-horizon FinancialClock and wrapped recipe bind the whole
+window. Original marked-continuation Gym bound, recipe, terminal and prefix
+receipt remain unchanged. PPO is refused: its current marked training terminal
+does not learn this settled endpoint.
+
+The wrapper passes the actual returned native book/orders to each close bar with
+the retained executor/RNG, risk and initial capital. It creates no account or
+ledger and performs no wrapper clone/reset. Zero target passes through unchanged
+hard risk, including turnover constraints. Opening MARKET remainders are
+reconciled/cancelled; compatible pending closes continue. Every reserved bar is
+processed even after flatness, preserving real cash interest/carry. Closing
+consumes no forecast, feature or actor observation. Financial source clocks and
+bytes, actual economics/risk, implementation/runtime and prefix identities are
+checked separately; their hashes do not authenticate historical provenance.
+
+Returned facts are detached before subsequent canonical mutation. Full coverage,
+exact zero quantity in every symbol, no active order, positive native equity and
+no economic termination establish settlement completion. Risk eligibility also
+requires cumulative native DD within the declared bound at or below 20%.
+Unsettled observations retain marked equity, exact remainder and orders; their
+settled profit is absent. Signed fixed-capital rewards use native equity deltas,
+including losses below -100%, rather than clipped interval/log diagnostics.
+Original prefix failure or closing exception preserves its known partial facts
+and original error; an unreturned bar's fills are unknown. This is runtime
+software observation, not a serialized Study evidence reader, approval or WINNER.
+The native MARKET/zero-extra-latency and independent-symbol limits remain.

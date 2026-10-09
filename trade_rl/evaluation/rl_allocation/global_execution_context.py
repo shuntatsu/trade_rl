@@ -23,7 +23,8 @@ from trade_rl.evaluation.rl_allocation.env import (
 )
 from trade_rl.evaluation.rl_allocation.transition_facts import (
     freeze_allocation_execution,
-    validate_allocation_execution_facts,
+    validate_allocation_execution_cost_payload,
+    validate_allocation_execution_facts_v2,
 )
 from trade_rl.evaluation.robustness.walk_forward.folds import WalkForwardFold
 from trade_rl.evaluation.robustness.walk_forward.stitching import FoldOOSResult
@@ -207,6 +208,10 @@ class GlobalAllocationExecutionCollector:
     ):
         self.env, self.dataset = env, env.dataset
         self.common, self.cell = json.loads(canonical_json_bytes([common, cell]))
+        validate_allocation_execution_cost_payload(
+            self.cell["runtime"]["cost_payload"],
+            economics_digest=self.common["economics_digest"],
+        )
         self.rows: list[dict[str, Any]] = []
         self.models: tuple[AllocationPPOPolicy, ...] = ()
         self.states: tuple[str, ...] = ()
@@ -344,11 +349,12 @@ class GlobalAllocationExecutionCollector:
         raw = freeze_allocation_execution(self.env, result)
         self.rows[-1]["native"] = json.loads(raw)
         try:
-            validate_allocation_execution_facts(
+            validate_allocation_execution_facts_v2(
                 self.rows[-1]["native"],
                 self.cell["runtime"]["recipe"],
                 dataset_id=self.common["dataset_id"],
                 action_code=self.rows[-1]["call_outcome"]["action"],
+                actual_cost_payload=self.cell["runtime"]["cost_payload"],
             )
         except ValueError as error:
             self.rows[-1]["native_validation_failure"] = {

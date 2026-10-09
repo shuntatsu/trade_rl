@@ -1547,3 +1547,30 @@ Whole-artifact future changes update Dataset, model/stream and proposal provenan
 earlier economic feature/prediction/target/cash values remain causal.
 Reconstruction is transformation conformance, not historical source authenticity,
 market calibration, economic evidence or live authorization.
+
+## Native controlled-forecast preflight
+
+GlobalAllocationForecastControls is a frozen caller declaration of two different
+forecast pins, their exact standalone NONRL plans and a direct cash plan carrying
+the control forecast. It compares every common field except the explicitly
+controlled forecast_context_digest: source, account, financial clocks/H/C,
+objective, cost beliefs, economics/risk, scenario and implementation/runtime stay
+equal. Both NONRL cells retain the same complete recipe; only their full runtime
+source_context_digest may differ because it embeds the forecast. Cash retains
+that recipe with only action.mode changed to direct, and identical actual costs.
+Each complete native plan/common/cell/source identity remains untouched.
+
+The optional forecast_controls keyword of the existing native executor rechecks
+this declaration and exact member plan before provenance, collector creation or
+account initialization. Artifacts, scenario-wrapper base environments and the
+existing A/B/C comparison contract are inadmissible on this route. Omitting the
+keyword retains existing behavior. It adds no fitter, ledger or aggregate runner.
+
+These are independent-symbol marked-continuation accounts, with a single reset
+per lane. A completed execution can retain holdings or pending orders; it is not
+settled-flat profit or shared-portfolio capital. Identical seeded execution costs
+do not guarantee identical calendar shocks when different trades consume
+different random draws. The declaration checks consistency, not historical source
+truth, general matched training rows or external Study authority. Existing v1
+A/B/C comparisons still bind one forecast and their full NONRL/RL seed matrix;
+different forecast arms require separate completed evidence and a frozen protocol.

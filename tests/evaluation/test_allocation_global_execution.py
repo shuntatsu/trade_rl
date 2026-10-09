@@ -11,6 +11,315 @@ from tests.evaluation.test_allocation_nonrl_walk_forward import (
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 
 
+def forecast_control_fixture():
+    from dataclasses import replace
+
+    import numpy as np
+
+    from trade_rl.evaluation.rl_allocation.env import AllocationTradingEnv
+
+    treatment = global_control_fixture()
+    vintage = treatment.stream.vintages[0]
+    constant = replace(vintage, model=replace(vintage.model, coefficients=np.zeros(1)))
+    stream = replace(
+        treatment.stream,
+        vintages=(constant,),
+        packets=tuple(
+            replace(packet, expected_simple_return=0.0, vintage_digest=constant.digest)
+            for packet in treatment.stream.packets
+        ),
+    )
+    template = global_control_fixture(mode="direct")
+
+    def carrier(original, stream):
+        return AllocationTradingEnv(
+            original.dataset,
+            stream=stream,
+            estimates=tuple(original._estimates.values()),
+            bound=original.bound,
+            action_contract=original.action_contract,
+            allocator=original.allocator,
+            execution_cost=original.execution_cost,
+            risk_config=original.risk_config,
+            feature_indices=original.feature_indices,
+            symbol_index=original.symbol_index,
+            start_index=original.start_index,
+            stop_index=original.stop_index,
+            account_id=original.account_id,
+            observation_schema=original.observation_schema,
+        )
+
+    return carrier(treatment, stream), treatment, carrier(template, stream)
+
+
+def forecast_controls(api, plans):
+    assert hasattr(api, "GlobalAllocationForecastControls"), (
+        "native controlled-forecast declaration is missing"
+    )
+    return api.GlobalAllocationForecastControls(
+        *plans,
+        expected_control_forecast_digest=plans[0].payload["common"][
+            "forecast_context_digest"
+        ],
+        expected_treatment_forecast_digest=plans[1].payload["common"][
+            "forecast_context_digest"
+        ],
+    )
+
+
+@pytest.mark.parametrize("boundary", [7, 9])
+def test_forecast_controls_reach_existing_native_lanes_and_keep_each_identity(boundary):
+    from trade_rl.artifacts import content_digest
+
+    api = capability()
+    environments, folds = forecast_control_fixture(), global_control_folds(boundary)
+    plans = tuple(
+        declare(api, env, folds, kind=kind)
+        for env, kind in zip(environments, ("nonrl", "nonrl", "cash"), strict=True)
+    )
+    controls = forecast_controls(api, plans)
+    before = tuple(plan.payload for plan in plans)
+    assert controls.digest == content_digest(controls.payload)
+    assert plans[0].common_digest != plans[1].common_digest
+    assert (
+        plans[0].payload["cell"]["runtime"]["source_context_digest"]
+        != plans[1].payload["cell"]["runtime"]["source_context_digest"]
+    )
+    results = tuple(
+        api.run_declared_global_allocation_execution(
+            folds, env, plan, forecast_controls=controls
+        )
+        for env, plan in zip(environments, plans, strict=True)
+    )
+    assert tuple(plan.payload for plan in plans) == before
+    for result, plan in zip(results, plans, strict=True):
+        assert result.receipt.payload["status"] == "completed"
+        assert result.receipt.payload["reset_count"] == 1
+        assert result.receipt.payload["plan"] == plan.payload
+        assert result.receipt.payload["common_digest"] == plan.common_digest
+    assert environments[0].book.cash == environments[2].book.cash == 1000.0
+    assert environments[0].book.fill_count == environments[2].book.fill_count == 0
+    assert environments[1].book.fill_count > 0
+    assert results[0].receipt.digest != results[1].receipt.digest
+
+
+@pytest.fixture(scope="module")
+def declared_forecast_plans():
+    api = capability()
+    return tuple(
+        declare(api, env, global_control_folds(7), kind=kind)
+        for env, kind in zip(
+            forecast_control_fixture(), ("nonrl", "nonrl", "cash"), strict=True
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "source_digest",
+        "dataset_id",
+        "account_id",
+        "source_clocks_ns",
+        "objective_digest",
+        "clock_digest",
+        "cost_beliefs_digest",
+        "scenario",
+        "implementation_digest",
+        "runtime_environment_digest",
+    ],
+)
+def test_forecast_controls_refuse_fixed_context_drift(declared_forecast_plans, field):
+    api = capability()
+    raw = declared_forecast_plans[1].payload
+    original = raw["common"][field]
+    raw["common"][field] = (
+        [value + 3600 * 10**9 for value in original]
+        if field == "source_clocks_ns"
+        else "changed-account"
+        if field == "account_id"
+        else "changed-scenario"
+        if field == "scenario"
+        else "0" * 64
+    )
+    changed = api.GlobalAllocationExecutionPlan.from_payload(raw)
+    with pytest.raises(ValueError, match="fixed financial"):
+        forecast_controls(
+            api, (declared_forecast_plans[0], changed, declared_forecast_plans[2])
+        )
+
+
+@pytest.mark.parametrize("cash", [False, True])
+@pytest.mark.parametrize("mutation", ["scale", "allocator"])
+def test_forecast_controls_refuse_recipe_drift_with_valid_native_pins(
+    declared_forecast_plans, cash, mutation
+):
+    from trade_rl.artifacts import content_digest
+    from trade_rl.evaluation.allocation_cash_control import (
+        _cash_policy_digest_for_recipe,
+    )
+    from trade_rl.evaluation.allocation_nonrl_walk_forward import (
+        allocation_nonrl_rule_digest,
+    )
+    from trade_rl.evaluation.allocation_scenario_identity import (
+        allocation_candidate_recipe_digest,
+    )
+
+    api = capability()
+    index = 2 if cash else 1
+    raw = declared_forecast_plans[index].payload
+    cell = raw["cell"]
+    for recipe in (cell["original_recipe"], cell["runtime"]["recipe"]):
+        if mutation == "scale":
+            recipe["action"]["scale"] = 0.25
+        else:
+            recipe["allocator"]["upper_weight"] = 0.25
+    cell["original_recipe_digest"] = content_digest(cell["original_recipe"])
+    cell["runtime_recipe_digest"] = content_digest(cell["runtime"]["recipe"])
+    cell["original_candidate_digest"] = allocation_candidate_recipe_digest(
+        cell["original_recipe"]
+    )
+    cell["control_policy_digest"] = (
+        _cash_policy_digest_for_recipe if cash else allocation_nonrl_rule_digest
+    )(cell["original_candidate_digest"])
+    changed = api.GlobalAllocationExecutionPlan.from_payload(raw)
+    plans = list(declared_forecast_plans)
+    plans[index] = changed
+    with pytest.raises(ValueError, match="recipe"):
+        forecast_controls(api, tuple(plans))
+
+
+@pytest.mark.parametrize("pin", ["same", "swapped", "malformed", "cash", "cash_source"])
+def test_forecast_controls_require_external_assignment_and_cash_context(
+    declared_forecast_plans, pin
+):
+    from dataclasses import replace
+
+    api = capability()
+    declared = forecast_controls(api, declared_forecast_plans)
+    with pytest.raises(ValueError):
+        if pin == "same":
+            replace(
+                declared,
+                expected_treatment_forecast_digest=declared.expected_control_forecast_digest,
+            )
+        elif pin == "swapped":
+            replace(
+                declared,
+                expected_control_forecast_digest=declared.expected_treatment_forecast_digest,
+                expected_treatment_forecast_digest=declared.expected_control_forecast_digest,
+            )
+        elif pin == "malformed":
+            replace(declared, expected_control_forecast_digest="not-a-pin")
+        else:
+            raw = declared.cash_plan.payload
+            if pin == "cash_source":
+                raw["cell"]["runtime"]["source_context_digest"] = "0" * 64
+            else:
+                raw["common"]["forecast_context_digest"] = (
+                    declared.expected_treatment_forecast_digest
+                )
+            replace(
+                declared, cash_plan=api.GlobalAllocationExecutionPlan.from_payload(raw)
+            )
+
+
+@pytest.mark.parametrize("role", ["control_plan", "treatment_plan", "cash_plan"])
+@pytest.mark.parametrize("wrong_type", [False, True])
+def test_forecast_controls_refuse_wrong_plan_type_or_role(
+    declared_forecast_plans, role, wrong_type
+):
+    from dataclasses import replace
+
+    api = capability()
+    controls = forecast_controls(api, declared_forecast_plans)
+    wrong = (
+        object()
+        if wrong_type
+        else (controls.control_plan if role == "cash_plan" else controls.cash_plan)
+    )
+    with pytest.raises(ValueError):
+        replace(controls, **{role: wrong})
+
+
+@pytest.mark.parametrize("cost", [{"random_seed": 17}, {"fee_rate": 0.003}])
+def test_forecast_controls_refuse_actual_execution_cost_drift(
+    declared_forecast_plans, cost
+):
+    api = capability()
+    changed = declare(
+        api,
+        global_control_fixture(cost_changes=cost),
+        global_control_folds(7),
+    )
+    with pytest.raises(ValueError, match="financial"):
+        forecast_controls(
+            api, (declared_forecast_plans[0], changed, declared_forecast_plans[2])
+        )
+
+
+def test_forecast_controls_refuse_structurally_valid_ppo_plan(declared_forecast_plans):
+    from dataclasses import replace
+
+    api = capability()
+    controls = forecast_controls(api, declared_forecast_plans)
+    raw = controls.treatment_plan.payload
+    cell = raw["cell"]
+    cell.update(kind="residual_ppo", seed=0, reset_seed=0, control_policy_digest=None)
+    cell["artifacts"] = [
+        {
+            "fold_index": index,
+            "policy_digest": "1" * 64,
+            "recipe_digest": cell["original_recipe_digest"],
+            "policy_sha256": "2" * 64,
+        }
+        for index in (0, 1)
+    ]
+    changed = api.GlobalAllocationExecutionPlan.from_payload(raw)
+    with pytest.raises(ValueError, match="role"):
+        replace(controls, treatment_plan=changed)
+
+
+@pytest.mark.parametrize(
+    "change", ["foreign", "mutated", "bytes", "type", "artifacts", "base", "contract"]
+)
+def test_forecast_controls_route_refuses_before_provenance_or_reset(
+    declared_forecast_plans, monkeypatch, change
+):
+    api = capability()
+    declaration = forecast_controls(api, declared_forecast_plans)
+    plan, kwargs = declared_forecast_plans[0], {"forecast_controls": declaration}
+    if change == "foreign":
+        raw = plan.payload
+        raw["common"]["scenario"] = "other"
+        plan = api.GlobalAllocationExecutionPlan.from_payload(raw)
+    elif change == "mutated":
+        object.__setattr__(declaration, "expected_treatment_forecast_digest", "0" * 64)
+    elif change == "bytes":
+        from dataclasses import replace
+
+        plan = replace(plan)
+        object.__setattr__(plan, "_bytes", b"{}")
+    elif change == "type":
+        kwargs["forecast_controls"] = object()
+    elif change == "artifacts":
+        kwargs["artifacts"] = (object(),)
+    elif change == "base":
+        kwargs["base_env"] = object()
+    else:
+        kwargs["contract"] = object()
+    monkeypatch.setattr(
+        api, "_provenance", lambda *_: pytest.fail("provenance before refusal")
+    )
+    env = forecast_control_fixture()[0]
+    monkeypatch.setattr(env, "reset", lambda **_: pytest.fail("reset before refusal"))
+    with pytest.raises(ValueError):
+        api.run_declared_global_allocation_execution(
+            global_control_folds(7), env, plan, **kwargs
+        )
+    assert not hasattr(env, "book")
+
+
 def capability():
     name = "trade_rl.evaluation.allocation_global_execution"
     assert util.find_spec(name) is not None, "closed global execution facade is missing"

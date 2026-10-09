@@ -30,8 +30,7 @@ def _segment_signature(increments: np.ndarray, depth: int) -> np.ndarray:
     dimension = int(increments.shape[1])
     levels = [np.array([1.0], dtype=np.float64)]
     levels.extend(
-        np.zeros(dimension**level, dtype=np.float64)
-        for level in range(1, depth + 1)
+        np.zeros(dimension**level, dtype=np.float64) for level in range(1, depth + 1)
     )
     for delta in increments:
         segment = [np.array([1.0], dtype=np.float64), delta]
@@ -74,7 +73,11 @@ def with_path_signatures(
         or not 3 <= window_bars <= min(dataset.n_bars, _MAX_WINDOW_BARS)
     ):
         raise ValueError("window_bars must be between 3 and min(n_bars, 512)")
-    if isinstance(depth, bool) or not isinstance(depth, int) or not 1 <= depth <= _MAX_DEPTH:
+    if (
+        isinstance(depth, bool)
+        or not isinstance(depth, int)
+        or not 1 <= depth <= _MAX_DEPTH
+    ):
         raise ValueError("depth must be an integer from 1 through 3")
     if not isinstance(include_volume, bool):
         raise ValueError("include_volume must be boolean")
@@ -153,7 +156,9 @@ def with_path_signatures(
         identity_payload_json=None,
         features=np.concatenate((dataset.features, values), axis=2),
         feature_names=dataset.feature_names + names,
-        feature_available=np.concatenate((dataset.feature_available, available), axis=2),
+        feature_available=np.concatenate(
+            (dataset.feature_available, available), axis=2
+        ),
         feature_staleness=np.concatenate(
             (dataset.resolved_array("feature_staleness"), missing.astype(np.float32)),
             axis=2,

@@ -2259,3 +2259,30 @@ compatibility remains NOT ESTABLISHED. No real-market fit, forecast, replay,
 PPO training or profit comparison was performed. Calibration, authenticated
 history, formal research review, G3-G5, final-head integration and the full
 Issue #810 objective remain incomplete under the 20% research DD constraint.
+
+An optional declared-cost recipe now supplies one common six-rate tuple through
+that preparation, exclusive with the existing explicit rows. It retains the
+exact frozen native execution configuration, and its concrete estimator runs
+once on the already-loaded synthetic Dataset before complete-cost admission,
+fitting and publication. Old explicit-row callers and four-field positional
+results retain their behavior. No additional persisted schema, ledger, learner,
+callback or artifact/execution authority is introduced.
+
+First-scope restrictions are regular continuous bars, quote-notional turnover,
+MARKET/zero extra latency, previous-bar OPEN capacity, available same-close
+valuation, explicit matching build economics, complete available aligned past
+funding and declared zero cash interest. Capacity is min caps times turnover
+times OPEN fraction; participation uses total turnover. Aggregated funding rates
+are summed once, with counts only for coverage and due consistency. Gap/age
+limits are counted-bar-close proxies because exact settlement clocks were lost.
+The config's immutable tuple fractions are checked before its own policy digest.
+Future source suffixes preserve earlier numerical rates, while provenance may
+change. Literal synthetic costs and signed utility/refusal checks support this
+software mechanism, not market calibration or profitability.
+
+Current cap/size and symmetric execution/exit costs remain declared proxies;
+future prices/rates, pending competition, actual fills and financing are
+unverified. No real saved-market arrays, fit, replay, new economic output or
+sealed-run retry was used for this prerequisite. Formal independent review,
+exact committed-head full verification, normal stacked PR integration and the
+broader Issue #810 economic objective remain separate and incomplete.

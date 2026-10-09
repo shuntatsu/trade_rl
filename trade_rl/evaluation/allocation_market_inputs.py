@@ -22,6 +22,10 @@ from trade_rl.data.build.config import _feature
 from trade_rl.data.contracts import PORTABLE_FEATURE_NUMERICS_SCHEMA
 from trade_rl.data.identity import MARKET_DATASET_IDENTITY_SCHEMA, parse_identity_json
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.allocation_costs import (
+    DeclaredAllocationCostRecipe,
+    estimate_declared_horizon_costs,
+)
 from trade_rl.evaluation.forecast_allocation import HorizonCostEstimates
 from trade_rl.strategies.dataset_scope import validated_training_scope
 from trade_rl.strategies.forecasts.simple_prequential import (
@@ -49,6 +53,7 @@ class PreparedAllocationMarketInputs:
     stream: FrozenSimpleReturnStream
     artifact: PublishedSimpleReturnStreamArtifact
     costs_by_symbol: tuple[tuple[HorizonCostEstimates, ...], ...]
+    cost_recipe: DeclaredAllocationCostRecipe | None = None
 
 
 def _cost_from_payload(row: Mapping[str, object]) -> HorizonCostEstimates:
@@ -105,21 +110,32 @@ def prepare_allocation_market_inputs(
     blocks: tuple[ForecastBlock, ...],
     horizon_hours: int,
     alpha: float,
-    cost_rows: tuple[Mapping[str, object], ...],
+    cost_rows: tuple[Mapping[str, object], ...] | None = None,
+    cost_recipe: DeclaredAllocationCostRecipe | None = None,
 ) -> PreparedAllocationMarketInputs:
-    """Admit explicit inputs, fit the existing producer once and publish it.
+    """Admit one explicit cost path, fit the existing producer once and publish it.
 
     Fit symbols restrict training, not prediction. Every predicted Dataset
     symbol/decision requires exactly one available, matching-horizon cost row.
     Same-close Dataset marks are required; Book/current-context checks remain
     with existing downstream consumers. No price conversion or crop is applied.
+    cost_recipe opts into the concrete declared reference-size estimator on the
+    already-loaded Dataset; the returned recipe/config is shared across lanes.
     """
+    if (cost_rows is None) == (cost_recipe is None):
+        raise ValueError("supply exactly one of cost_rows or cost_recipe")
+    if cost_recipe is not None and not isinstance(
+        cost_recipe, DeclaredAllocationCostRecipe
+    ):
+        raise ValueError("cost_recipe must be a DeclaredAllocationCostRecipe")
     require_sha256(expected_dataset_id, field="expected_dataset_id")
     start = _timestamp(development_start, field="development_start")
     stop = _timestamp(development_stop, field="development_stop")
     if start >= stop:
         raise ValueError("development bounds must be ordered")
     _validate_blocks(blocks)
+    if cost_recipe is not None:
+        cost_recipe.require_available(min(block.prediction_start for block in blocks))
     if (
         isinstance(horizon_hours, bool)
         or not isinstance(horizon_hours, int)
@@ -181,6 +197,7 @@ def prepare_allocation_market_inputs(
         raise ValueError("invalid declared feature/fit-symbol scope") from error
 
     roster: dict[tuple[str, np.datetime64], np.datetime64] = {}
+    decision_indices: set[int] = set()
     marks = dataset.resolved_array("mark_price")
     available = dataset.resolved_array("available_at")
     information = dataset.resolved_array("information_available")
@@ -193,6 +210,7 @@ def prepare_allocation_market_inputs(
         if not rows:
             raise ValueError("prediction block has no Dataset decisions")
         for row in rows:
+            decision_indices.add(row)
             decision = _timestamp(dataset.timestamps[row], field="decision_time")
             end = _after(decision, horizon_hours * 3600)
             if end > stop:
@@ -211,6 +229,17 @@ def prepare_allocation_market_inputs(
                     )
                 roster[symbol, decision] = end
 
+    if cost_recipe is not None:
+        cost_rows = tuple(
+            estimate.payload()
+            for estimate in estimate_declared_horizon_costs(
+                dataset,
+                decision_indices=tuple(sorted(decision_indices)),
+                horizon_hours=horizon_hours,
+                recipe=cost_recipe,
+            )
+        )
+    assert cost_rows is not None
     costs: dict[tuple[str, np.datetime64], HorizonCostEstimates] = {}
     for raw in cost_rows:
         estimate = _cost_from_payload(raw)
@@ -235,7 +264,9 @@ def prepare_allocation_market_inputs(
         alpha=alpha,
     )
     artifact = publish_simple_return_stream_artifact(output, stream)
-    return PreparedAllocationMarketInputs(dataset, stream, artifact, ordered_costs)
+    return PreparedAllocationMarketInputs(
+        dataset, stream, artifact, ordered_costs, cost_recipe
+    )
 
 
 __all__ = ["PreparedAllocationMarketInputs", "prepare_allocation_market_inputs"]

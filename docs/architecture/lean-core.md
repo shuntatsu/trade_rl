@@ -1410,3 +1410,46 @@ retains it. The in-memory result groups costs in Dataset-symbol then decision
 order. Existing Book/current-context admission and canonical execution remain
 downstream. No cost calibration, executable next-fill expectation, research
 authorization, PPO improvement or market profit is established by preparation.
+
+The preparation accepts exactly one of the existing explicit `cost_rows` or an
+owned `DeclaredAllocationCostRecipe`. Both/neither, wrong recipe type and future
+declaration clocks fail before loading. The generated path invokes one concrete
+`estimate_declared_horizon_costs` on the already-loaded Dataset after admission
+and roster construction, then reuses the same complete six-rate payload checks
+before fitting. Its result appends the exact frozen recipe/configuration to the
+common inputs; the old four-field positional result and explicit rows retain
+their semantics. There is no second loader or caller-selected producer callback.
+
+The declared producer requires regular continuous bars, quote-notional volume,
+MARKET orders with zero extra latency, previous-bar volume capacity and available
+same-close inputs. Existing strict `ExecutionEconomicsProfile` decoding must
+agree with decision-row fee/spread/cap/borrow arrays. Each fee, spread, impact,
+slippage and borrow assumption has a nonempty declaration; cash is explicitly
+zero with a rationale and a matching decision-row cash rate. Frozen config must
+have tuple trigger fractions before matching specifically its own
+`ExecutionCostConfig.execution_policy_digest`, separate from a wrapped executor
+digest. These declarations bind content, not historical calibration or authority.
+
+For reference notional N and current market quote turnover M, participation is
+N/M. Current cap is assumed to persist to the next fill: one-order OPEN capacity
+is M times the smaller configured/Dataset participation cap times OPEN fraction.
+Infeasible N is rejected rather than clipped. The symmetric one-way rate adds
+configured and Dataset generic/taker fees and spreads, square-root participation
+impact, and the absolute-normal/tail slippage expectation without RNG. Only
+these execution components receive the execution multiplier. Past aggregated
+funding over complete (decision-lookback, decision] native intervals is summed
+once and scaled by horizon/lookback; event counts only establish coverage.
+Lookback must align exactly to native bars and source coverage must include
+every available interval. Due/count/rate consistency is checked in the available
+prefix. Maximum gap counts the left boundary to first counted bar close and
+successive counted closes; last age counts decision minus the last counted close.
+These are bar-close proxies, not exact settlement timing, and can understate age
+by one native bar. Borrow uses annual rate times horizon/(365*24), with only the
+borrow multiplier; cash remains zero.
+
+Current-condition symmetric exit and scalar nonlinear reference-size impact do
+not describe arbitrary future actions exactly. Pending competition, actual next
+prices/rates/capacity, queue losses, partial fills, rounding and cash/borrow
+changes remain native execution concerns. The exit proxy does not imply actual
+terminal liquidation. Costs remain surrogate inputs and are never a second
+ledger charge. No real-market calibration, fit/replay or research approval follows.

@@ -348,3 +348,122 @@ def test_preexisting_stream_survives_preparation(tmp_path):
     with pytest.raises(FileExistsError):
         module.prepare_allocation_market_inputs(**supplied)
     assert supplied["stream_path"].read_bytes() == b"prior owner"
+
+
+def generated_arguments(tmp_path, dataset=None):
+    from tests.evaluation.test_allocation_costs import market as cost_market
+    from tests.evaluation.test_allocation_costs import recipe
+    from trade_rl.strategies.forecasts.stream import ForecastBlock
+
+    supplied = arguments(tmp_path, cost_market() if dataset is None else dataset)
+    supplied.pop("cost_rows")
+    supplied.update(
+        blocks=(ForecastBlock(time(20), time(20.25), time(24), time(26)),),
+        development_stop=time(72),
+        feature_names=("range",),
+        cost_recipe=recipe(),
+    )
+    return supplied
+
+
+def test_generated_costs_share_exact_recipe_and_single_loader_fit_publication(
+    tmp_path, monkeypatch
+):
+    module = api()
+    supplied = generated_arguments(tmp_path)
+    calls = []
+    for name in (
+        "load_market_dataset_artifact",
+        "estimate_declared_horizon_costs",
+        "fit_prequential_simple_ridge",
+        "publish_simple_return_stream_artifact",
+    ):
+        owner = getattr(module, name, None)
+        assert owner is not None, f"Missing concrete preparation owner {name}"
+
+        def tracked(*args, _owner=owner, _name=name, **kwargs):
+            calls.append(_name)
+            return _owner(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, tracked)
+    prepared = module.prepare_allocation_market_inputs(**supplied)
+    assert calls == [
+        "load_market_dataset_artifact",
+        "estimate_declared_horizon_costs",
+        "fit_prequential_simple_ridge",
+        "publish_simple_return_stream_artifact",
+    ]
+    assert prepared.cost_recipe is supplied["cost_recipe"]
+    assert prepared.cost_recipe.execution_cost is supplied["cost_recipe"].execution_cost
+    assert tuple(
+        tuple(c.decision_time for c in group) for group in prepared.costs_by_symbol
+    ) == (
+        (time(24), time(25)),
+        (time(24), time(25)),
+    )
+    for group in prepared.costs_by_symbol:
+        assert group[0].buy_cost == pytest.approx(0.0434)
+        assert group[0].funding_return == pytest.approx(0.000025)
+        assert group[0].borrow_return == pytest.approx(0.00001875)
+        assert group[0].cash_return == 0
+
+
+@pytest.mark.parametrize("paths", ("neither", "both", "wrong_type", "future"))
+def test_invalid_cost_paths_and_declarations_fail_before_load(
+    tmp_path, monkeypatch, paths
+):
+    module = api()
+    supplied = arguments(tmp_path)
+    supplied.pop("cost_rows")
+    if paths != "neither":
+        from tests.evaluation.test_allocation_costs import recipe
+
+        supplied["cost_recipe"] = recipe()
+        if paths == "both":
+            supplied["cost_rows"] = ()
+        elif paths == "wrong_type":
+            supplied["cost_recipe"] = object()
+        elif paths == "future":
+            supplied["cost_recipe"] = recipe(assumptions_available_at=time(7))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Invalid cost declaration reached Dataset loading")
+
+    monkeypatch.setattr(module, "load_market_dataset_artifact", forbidden)
+    with pytest.raises(ValueError):
+        module.prepare_allocation_market_inputs(**supplied)
+
+
+def test_generated_rejection_and_incomplete_payload_fail_before_fit(
+    tmp_path, monkeypatch
+):
+    from tests.evaluation.test_allocation_costs import recipe
+
+    module = api()
+    supplied = generated_arguments(tmp_path / "source")
+    supplied["cost_recipe"] = recipe(reference_notional=1501)
+    forbid_fit_and_publication(module, monkeypatch)
+    with pytest.raises(ValueError, match="capacity"):
+        module.prepare_allocation_market_inputs(**supplied)
+    supplied = generated_arguments(tmp_path / "payload")
+    producer = getattr(module, "estimate_declared_horizon_costs", None)
+    assert producer is not None, (
+        "Missing concrete estimator for complete-cost admission"
+    )
+
+    def incomplete(*args, **kwargs):
+        return producer(*args, **kwargs)[:-1]
+
+    monkeypatch.setattr(module, "estimate_declared_horizon_costs", incomplete)
+    with pytest.raises(ValueError, match="cover every"):
+        module.prepare_allocation_market_inputs(**supplied)
+
+
+def test_explicit_rows_and_old_four_field_positional_result_remain_compatible(tmp_path):
+    module = api()
+    prepared = module.prepare_allocation_market_inputs(**arguments(tmp_path))
+    assert getattr(prepared, "cost_recipe", "missing") is None
+    old = module.PreparedAllocationMarketInputs(
+        prepared.dataset, prepared.stream, prepared.artifact, prepared.costs_by_symbol
+    )
+    assert old.cost_recipe is None

@@ -77,6 +77,44 @@ def test_saved_model_roundtrip_requires_matching_transform_and_feed_schema(
         save_normalized_ppo(root, strategy)
 
 
+def test_normalized_model_save_retries_transient_windows_publication_lock(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=Policy))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(set_num_threads=lambda threads: None),
+    )
+    root = tmp_path / "policy"
+    strategy = PPOIntentStrategy(
+        Policy(), feature_indices=(0,), feature_normalizer=_fit()
+    )
+    monkeypatch.setattr(atomic_write, "_IS_WINDOWS", True)
+    original_rename = type(root).rename
+    attempts = 0
+    delays = []
+
+    def locked_once(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporary Windows publication lock")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(type(root), "rename", locked_once)
+    monkeypatch.setattr(atomic_write.time, "sleep", delays.append)
+
+    digest = save_normalized_ppo(root, strategy)
+
+    assert attempts == 2
+    assert len(delays) == 1
+    assert (root / "policy.zip").read_bytes() == b"policy bytes"
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    assert digest == content_digest(manifest)
+    assert list(tmp_path.glob(".policy.staging-*")) == []
+
+
 @pytest.mark.parametrize(
     "damage", ["model", "normalizer", "missing_transform", "missing_manifest"]
 )

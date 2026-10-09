@@ -27,7 +27,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "49b031e85f08364caa081b3eb6175f9ca83623aac41d952f84606ffc4e100a1d",
+      "source_sha256": "f80c5240c77670efc29e5f0f74f327408221f2f8993edc1a92016c690bbdcc67",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで保有年齢を含む観測を作り、戦略意図から希望数量を計算します。最小保有中の抑制後もhard riskとterminal settlementを通し、約定・帳簿・区間収益・抑制イベントを更新します。",
       "variables": [

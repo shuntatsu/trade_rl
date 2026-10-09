@@ -117,6 +117,8 @@ PPO policyは選択されたObservation schemaから離散actionを返します�
 
 同じintentを維持する場合、価格driftだけを理由に毎decisionで機械的に元weightへ戻すのが標準ではありません。標準はquantity-preserving holdです。
 
+分割では実保有と未約定分を含む目標数量を同じ比率で換算します。また、評価用のマーク価格と取引価格が異なっても、保有継続だけで数量は増減しません。数量換算には口座の評価価格を使い、注文の価格基準は取引価格のまま維持します。
+
 ## 4. hard riskを通す
 
 PPOもrule strategyと同じrisk上限を守ります。既定設定で提案が有限かつ実行上限内で、drawdownが`[0, 1]`なら、risk変換が厳密に何もしないため環境は投影呼び出しを省いて同じtargetを渡します。異常なdrawdown、上限を超える提案、明示されたrisk設定は`PreTradeRisk`の検証・投影へ進みます。

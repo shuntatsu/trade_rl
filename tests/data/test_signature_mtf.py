@@ -110,6 +110,36 @@ def test_native_15m_path_keeps_excursion_lost_in_hourly_samples() -> None:
     assert src.calls == [("SYM0", "15m")]
 
 
+def test_native_multi_symbol_paths_are_computed_independently() -> None:
+    base = _market(
+        np.full((6, 2), 100.0), symbols=("SYM0", "SYM1")
+    ).with_content_identity({"fixture": "two-symbol"})
+    first_prices = np.full(21, 100.0)
+    second_prices = np.full(21, 100.0)
+    first_prices[3] = 110.0
+    second_prices[3] = 90.0
+    source = _MultiSource(
+        {
+            ("SYM0", "15m"): _raw(first_prices),
+            ("SYM1", "15m"): _raw(second_prices),
+        }
+    )
+    result = with_native_multitimeframe_signatures(
+        base,
+        source,
+        (InstrumentContract("SYM0"), InstrumentContract("SYM1")),
+        clocks=(SignatureClock("15m", window_bars=3),),
+    )
+    tp = result.feature_names.index("15m__path_sig_v1_w3_d2_tp_tp")
+    np.testing.assert_allclose(
+        result.features[1, :, tp],
+        [-log(1.1) / 2, -log(0.9) / 2],
+        atol=1e-7,
+    )
+    assert result.feature_available[1, :, tp].all()
+    assert source.calls == [("SYM0", "15m"), ("SYM1", "15m")]
+
+
 def test_same_native_clock_agrees_with_existing_base_clock_signature() -> None:
     prices = np.array([[100.0], [107.0], [99.0], [102.0], [104.0]])
     base = _market(prices).with_content_identity({"fixture": "same-clock"})

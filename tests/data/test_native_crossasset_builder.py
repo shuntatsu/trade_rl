@@ -45,9 +45,7 @@ def _fixture(
             ("BTCUSDT", "1h"): _series(hourly, btc_close[[0, 4, 8]].tolist()),
             ("ETHUSDT", "1h"): _series(hourly, eth_close[[0, 4, 8]].tolist()),
             ("BTCUSDT", "15m"): _series(qh, btc_close.tolist()),
-            ("ETHUSDT", "15m"): _series(
-                qh, eth_close.tolist(), available_at=avail
-            ),
+            ("ETHUSDT", "15m"): _series(qh, eth_close.tolist(), available_at=avail),
         }
     )
     instruments = tuple(
@@ -132,13 +130,9 @@ def test_native_fifteen_minute_rolling_beta_uses_four_intra_hour_events() -> Non
     assert dataset.feature_available[1, :, beta_idx].all()
     np.testing.assert_allclose(dataset.features[1, 1, beta_idx], 2.0, atol=1e-6)
     np.testing.assert_allclose(dataset.features[1, 1, corr_idx], 1.0, atol=1e-6)
-    np.testing.assert_allclose(
-        dataset.features[1, 1, relative_idx], -0.02, atol=1e-6
-    )
+    np.testing.assert_allclose(dataset.features[1, 1, relative_idx], -0.02, atol=1e-6)
     np.testing.assert_allclose(dataset.features[1, :, rank_idx], [-1.0, 1.0])
-    np.testing.assert_allclose(
-        dataset.features[1, :, dispersion_idx], 0.01, atol=1e-6
-    )
+    np.testing.assert_allclose(dataset.features[1, :, dispersion_idx], 0.01, atol=1e-6)
     np.testing.assert_allclose(dataset.features[1, 0, ret_idx], -0.02, atol=1e-6)
     assert dataset.feature_staleness_hours[1, 1, beta_idx] == 0.0
     assert dataset.identity_verified

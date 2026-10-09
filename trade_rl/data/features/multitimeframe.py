@@ -122,7 +122,6 @@ def align_native_feature(
     return values, available, age_hours, staleness
 
 
-
 def align_native_cross_asset_features(
     spec: FeatureSpec,
     raw_series: tuple[RawMarketSeries, ...],
@@ -159,9 +158,9 @@ def align_native_cross_asset_features(
     if (last_ns - first_ns) % step:
         raise ValueError("native cross-asset source clocks are misaligned")
     count = (last_ns - first_ns) // step + 1
-    native_times = (
-        first_ns + np.arange(count, dtype=np.int64) * step
-    ).astype("datetime64[ns]")
+    native_times = (first_ns + np.arange(count, dtype=np.int64) * step).astype(
+        "datetime64[ns]"
+    )
     native_returns = np.zeros((count, n_assets), dtype=np.float64)
     native_available = np.zeros((count, n_assets), dtype=np.bool_)
     native_age = np.zeros((count, n_assets), dtype=np.float64)
@@ -195,9 +194,7 @@ def align_native_cross_asset_features(
     )
     values = np.zeros((n_base, n_assets), dtype=np.float64)
     available = np.zeros((n_base, n_assets), dtype=np.bool_)
-    age_hours = np.full(
-        (n_base, n_assets), spec.max_staleness_hours, dtype=np.float64
-    )
+    age_hours = np.full((n_base, n_assets), spec.max_staleness_hours, dtype=np.float64)
     staleness = np.ones((n_base, n_assets), dtype=np.float64)
     base_ns = base_timestamps.astype("datetime64[ns]").astype(np.int64)
     native_ns = native_times.astype("datetime64[ns]").astype(np.int64)
@@ -205,18 +202,14 @@ def align_native_cross_asset_features(
         event_indices = np.flatnonzero(events.valid[:, symbol_index])
         if not event_indices.size:
             continue
-        selected = np.searchsorted(
-            native_ns[event_indices], base_ns, side="right"
-        ) - 1
+        selected = np.searchsorted(native_ns[event_indices], base_ns, side="right") - 1
         for index in np.flatnonzero(base_active[:, symbol_index] & (selected >= 0)):
             event_index = int(event_indices[selected[index]])
             age = float(base_ns[index] - native_ns[event_index]) / _NS_PER_HOUR
             if age < -1e-12:
                 raise ValueError("native cross-asset event is in the future")
             age_hours[index, symbol_index] = age
-            staleness[index, symbol_index] = min(
-                age / spec.max_staleness_hours, 1.0
-            )
+            staleness[index, symbol_index] = min(age / spec.max_staleness_hours, 1.0)
             if age <= spec.max_staleness_hours + 1e-12:
                 values[index, symbol_index] = events.values[event_index, symbol_index]
                 available[index, symbol_index] = True

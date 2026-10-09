@@ -45,9 +45,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Print native cross-asset format diff (diagnostic only)
-        run: uv run ruff format --diff trade_rl/data/build/builder.py trade_rl/data/features/multitimeframe.py tests/data/test_native_crossasset_builder.py || true
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

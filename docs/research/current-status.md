@@ -2209,3 +2209,30 @@ INITIAL_BASELINE_CEILING outcomes remain, with no gate waiver. P3 and Issue #810
 remain incomplete; calibration, profitable execution, G3-G5, formal review and
 exact final-head integration remain separately required under the unchanged
 20% research DD guardrail.
+
+## Issue #810: durable frozen simple-return input prerequisite
+
+The existing causal direct-simple producer and allocation consumer now have an
+opt-in single-file persistence boundary. Canonical stream bytes retain their
+existing content identity; loading requires both externally supplied stream
+digest and Dataset ID, with no adjacent manifest trust. Fully staged,
+fsynced bytes become visible only through exclusive hard-link publication.
+Unsupported filesystems fail closed, and existing targets or racing publishers
+cannot be overwritten. A successful link remains success if ordinary staging
+cleanup subsequently fails; an owned temporary file may remain in that case.
+Stationary special files and final symlinks are rejected before opening, while
+opened-file validation still checks the captured snapshot.
+
+Synthetic file-boundary tests verify corruption, external-pin drift, rehashed
+semantic disagreement, future-suffix causal identity, concurrent publication,
+partial write and staging-reader failures, and the unchanged literal allocation
+proposal after reload. A portable nonregular-input negative runs on Windows;
+the actual no-writer FIFO test requires POSIX and is skipped on Windows.
+This capability does
+not load the saved real-market arrays, fit a market model, derive costs or
+training windows, run PPO or produce a market comparison. Historical source
+and fit authentication, market calibration and profitable execution remain
+unestablished. Parent namespaces are caller-trusted; power-loss durability,
+asynchronous interruption and hostile parent replacement are not guaranteed.
+Issue #810 remains incomplete. Formal independent review, G3-G5, final-head
+verification/integration and the 20% maximum DD research constraint are retained.

@@ -1355,3 +1355,24 @@ diagnostics mode. All four native raw actions, true first/later decisions and
 exact POST held sign remain separate. Recorded filled-notional/cost summaries
 and positive-filled-notional transition counts describe supplied facts; these
 groups add no actor-success gate or actual optimizer-minibatch authority.
+
+## Simple-return stream filesystem ownership
+
+`strategies/forecasts/simple_stream_io.py` owns the frozen location/identity
+record `PublishedSimpleReturnStreamArtifact`, exclusive single-file publication
+and externally pinned loading. The forecast family facade exports these three
+APIs directly from that owner; the Tier-1 strategies facade is unchanged.
+It reuses canonical JSON and regular-file foundations, and the existing
+`FrozenSimpleReturnStream` payload/reader. It imports no Dataset builder,
+evaluation, risk, execution, RL or fitter and adds no serializer, alternate
+forecast units, ledger or research runner. The strict reader reconstructs
+already-frozen projections for validation without fitting a new model.
+The owner rejects stationary nonregular inputs with `lstat` before opening,
+then retains the foundation's opened-file validation and one byte snapshot.
+It does not change the shared regular-file helper.
+
+Atomic exclusive hard-link publication is specific to this one-file boundary;
+the replacing atomic writer and Run/latest-pointer store are not substitutes.
+Callers retain both stream digest and Dataset ID outside the file. The new
+boundary neither loads market arrays nor derives expense assumptions, training
+windows, publication clocks or research authorization for its caller.

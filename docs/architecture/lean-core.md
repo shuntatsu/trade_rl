@@ -1355,3 +1355,29 @@ alternate ledger, learning verdict or default changes. Detached content digests
 bind complete supplied inputs without authenticating historical fitting.
 Shuffled normalized minibatch exposure and gradient attribution remain
 NOT ESTABLISHED.
+
+## Frozen simple-return stream files
+
+`publish_simple_return_stream_artifact(path, stream)` preserves the existing
+`simple_return_ridge_stream_v1` payload as canonical UTF-8 bytes. Their SHA-256
+equals the existing stream content digest; no manifest, new prediction schema
+or fitted meaning is introduced. A complete same-parent regular temporary file
+is flushed, fsynced and admitted through the existing strict reader before
+`os.link` commits an exclusive final pathname. Existing files, directories,
+symlinks and competing publishers cannot be replaced. Hard-link support is
+required; unsupported filesystems fail without a replacement fallback.
+
+`load_simple_return_stream_artifact` requires an external stream digest and
+Dataset ID. Before opening, `lstat` rejects stationary special files and final
+symlinks; opened-descriptor regular-file validation remains in force. It reads
+one opened snapshot, checks exact raw bytes and canonical encoding, then
+delegates nested causal/projection checks to the unchanged stream reader and
+checks Dataset lineage. Adjacent files are not pins.
+Reloaded streams still pass existing allocation snapshot, clock, cost and
+valuation admission; saving does not authorize missing or stale packets.
+
+Parents are caller-trusted namespaces. The link is the commit point; a later
+ordinary temporary cleanup error does not invalidate success and may leave an
+owned temporary file. Precommit failure creates no final file for that writer.
+Power-loss durability, asynchronous interruption, hostile parent replacement,
+historical fit authentication and market profitability are not guaranteed.

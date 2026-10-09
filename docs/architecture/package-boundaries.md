@@ -29,7 +29,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,native_alignment.py,native_cross_asset.py,numerics.py,price_channels.py,signature.py,signature_multitimeframe.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -533,3 +533,34 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## Opt-in causal rolling Path Signature feature
+
+`data/features/signature.py` owns the bounded, depth-1..3 truncated Chen-product
+algorithm and an explicit `with_path_signatures` MarketDataset augmentation.
+It consumes only completed close/volume rows with row-level point-in-time
+availability, uses normalized bar-index as its time augmentation, and does not
+reconstruct high/low event ordering inside a candle. It appends masked local
+features, retains all source account/economic arrays, and publishes a new
+content-bound dataset identity. No `FeatureKind` or default canonical build
+schema is changed. It has no strategy, ledger, risk or evaluation ownership.
+
+## Native MTF cross-asset and rolling Signature augmentation
+
+`data/features/native_alignment.py` is the as-of native-to-base event alignment
+primitive. `native_cross_asset.py` calculates BTC-relative rolling statistics on
+*all* completed native return events before reducing to a base decision clock;
+`data/build/builder.py` invokes it only for non-base native cross-asset features.
+The prior base-timeframe path is unchanged. For native 15m returns observed on a
+1h decision clock, a 24-event rolling correlation means 24 consecutive 15m
+returns, not 24 hourly-sampled 15m returns.
+
+`data/features/signature_multitimeframe.py` supplies opt-in
+`with_multitimeframe_path_signatures`: each native continuous timeframe computes
+bounded 3–512 completed-bar piecewise-linear signatures (depth 1–3, normalized
+bar-index + log close, optional positive log volume) and as-of aligns only
+arrived outputs to the base decision clock. Per-timeframe raw digest, window,
+source Dataset ID, channel choice and depth bind new Dataset identity; source
+Dataset/accounting/price arrays remain untouched. No OHLC intrabar sequence is
+assumed. Neither sub-bar decisions nor new risk/ledger/strategy authority are
+introduced.

@@ -1307,3 +1307,45 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 > 現在のcanonical baselineをimmutable inputとして、一つのControlled Factorを結果を見る前に事前登録し、最初のControlled Experimentを実行・独立検証する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+
+## Opt-in causal rolling Signature implementation (2026-10-09)
+
+`data/features/signature.py` introduces a software-only, opt-in rolling
+piecewise-linear Path Signature on completed bars. The first implementation
+has a finite research budget (3–512 bars, degrees 1–3, time + log close,
+optionally log volume), explicit availability masks and distinct content
+identity. It does not alter `MarketBuildConfig`, canonical build defaults,
+fit/replay candidate roster, any frozen Study, financial execution or account.
+
+G0: a research hypothesis for Signature must identify an economic mechanism;
+path description alone is not alpha. G1: only observable completed-bar data,
+not fabricated intrabar OHLC ordering, enters the representation. G2: analytic
+signed-area and Chen-identity oracles, future-value replacement, unavailable
+bar, price-scale invariance, and identity/economics preservation are regression
+targets. These are **software-mechanism checks**, not results of an economic
+Study. Any comparison with existing models is a new, preregistered Controlled
+Factor, with fit-scope isolation, frozen lookback/depth/channels, non-RL/cash
+controls and unchanged execution accounting. Profitability, G4/G5, unused
+future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
+
+## Native MTF cross-asset correction and Signature research adapters (2026-10-09)
+
+This opt-in extension introduces native-clock cross-asset rolling
+statistics (before downsampling), opt-in multi-clock Signature augmentation, and
+a development-only paired Ridge-vs-Signature-vs-cash adapter using unchanged
+per-symbol account/execution. The Ridge arms fit on an identical effective
+training-row roster; the baseline's temporary fit mask excludes Signature
+warmup/missing rows, while execution uses the original unmodified Dataset. The PPO observation adapter is checked on the same
+augmented Dataset; this **does not** constitute a trained PPO economic result.
+
+G0: whether native 15m/1h/4h/1d path or BTC-relative information provides
+incremental tradable edge is unresolved. G1: bar-close source/event availability,
+source-attested native feature windows, named feature selection, fixed decision
+clock and unchanged execution/capital are required. G2: independent analytic
+rolling correlation, signed Signature area, latency/future-mutation oracles,
+PPO observation and paired Ridge replay tests are software checks only. No new
+existing result, original final/unused Dataset, frozen candidate roster, Study
+outcome or live authorization is altered. Existing canonical 1h PPO duration
+contracts retain their fixed economic-clock semantics. A result-blind Study,
+non-RL gain evidence and independent review are prerequisites to any economic
+PPO Signature trial. Profitability/G4–G5 remain NOT ESTABLISHED.

@@ -15,6 +15,59 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Issue #810: literature-backed research policy (2026-10-09)
+
+[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) の新規研究は、
+モデルの複雑さではなく、同じ資本・情報・期間・risk・執行条件での
+**費用控除後の終端純資産改善**を目的とする。以下の3冊を中心的な参考文献とし、
+既存のP0–P6、単一のexecution/accounting ledger、hard risk、Controlled
+Experimentとresearch assurance契約を再利用する。文献の採用だけで新しい
+学習器・会計・研究フレームワークを追加しない。
+
+| 文献 | 研究で使う知識 | 適用の限界 |
+|---|---|---|
+| [Signature Methods in Finance: An Introduction with Computational Applications](https://link.springer.com/book/10.1007/978-3-031-97239-3) | PrimerとTrading Strategiesを中心に、経路の表現・因果的な特徴量・予測への追加価値を検討する。 | 経路表現の豊かさは、予測優位や取引可能な利益を保証しない。 |
+| [Liquidity, Markets and Trading in Action: An Interdisciplinary Perspective](https://link.springer.com/book/10.1007/978-3-030-74817-3) | 流動性、価格形成、取引技術、TraderExから、売買費用・約定仮定・執行制約を点検する。 | 市場構造の説明やシミュレーション例を、暗号資産の約定・費用calibrationとして流用しない。 |
+| [AI in Asset Management: Tools, Applications, and Frontiers](https://rpc.cfainstitute.org/sites/default/files/docs/research-reports/rf_aiinassetmanagement_full-monograph_online.pdf) | 第6章のRL/IRLを、資本配分・逐次意思決定・非RLとの比較設計に用いる。 | RLを必須の最終形とせず、非RLを上回る追加価値を要求する。妥当なdemonstrationがないIRLは前提にしない。 |
+
+当面の優先順位は次とする。この順序はP0–P6の置換や、凍結済みStudyの変更ではない。
+
+1. 既存の注文・約定・保有・cash・funding・borrow記録と学習診断から、
+   予測、売買頻度、費用、未約定、資金制約が純損益へ与える要因を分解する。
+   既存ledgerから独立に検算し、記録が足りない要因を自己一致だけで認定しない。
+2. 共通の因果的予測、価格基準、明示した費用見積もりを揃え、
+   強い非RL配分とcash/no-trade対照を完成させる。見積もり費用と実ledgerの
+   chargeを区別し、log-returnとsimple-returnの単位を混ぜない。
+3. Signatureは既存特徴量に対する**別のControlled Factor**として検討する。
+   少数の入力チャネル、浅い次数、lookback、補間・time augmentationまたは
+   lead-lag、正規化のfit範囲、availability、探索予算を結果前に固定する。
+   未来の値を変更しても過去の特徴量・判断が変わらないことと、事前に選んだ
+   同じ始点・終点を持つ異なる経路を必要な拡張後に区別することを反例で確認する。
+   有限次数であらゆる経路を識別できるとは主張しない。予測誤差だけでなく、
+   同条件の費用控除後利益の増分で評価する。
+4. RLは合成市場の学習可能性・行動・実約定・critic/reward診断を先に確認し、
+   非RL、残差PPO、直接PPOを同じ情報・資本・費用・risk・ledgerで比較する。
+   既存の失敗を再分類せず、次の仮説・seed・訓練量・選択規則を別途固定する。
+5. 候補を固定したまま、資本規模、流動性、遅延、費用、データ欠損をstressする。
+   未使用データと前向きpaperへの移行は既存の別authorizationで判断する。
+   経済条件を満たさなければNO_WINNERとする。
+
+20%の研究drawdown guardrail、cash対照、全trialの記録、terminal flatかつ
+active orderなしの条件を維持する。gap・流動性不足・取引所停止で実現drawdownが
+20%を超えない保証ではない。Signatureを凍結済み候補へ結果後に追加したり、
+選択に使った期間をunusedへ戻したり、過去のone-shotを再試行したりしない。
+
+補助文献は、期待リターン・risk・取引費用・保有費用を分ける
+[BoydらのMulti-Period Trading via Convex Optimization](https://arxiv.org/abs/1705.00109)
+と、探索全体のdata snoopingを扱う
+[WhiteのA Reality Check for Data Snooping](https://onlinelibrary.wiley.com/doi/10.1111/1468-0262.00152)
+を使う。これらの参照は、特定の検定やoptimizerを実装・検証済みという意味ではない。
+暗号資産固有の費用・資金調達・venue制約は、別のsource evidenceで確認する。
+
+この節は文献の役割と今後の優先順位を定める。新しいfit、replay、経済結果、
+profitability、winner、正式な独立研究承認、unused-data開封やlive発注の認可を
+成立させず、既存artifactの意味と判定を変更しない。
+
 ## Trading-bot named signal and fixed-configuration diagnostic (2026-10-04)
 
 利用者がBTC/ETHのdevelopment、after-cost profit、observed drawdown20%目標、prefix-only selection、fixed-parameter cost/latency stress、required CIと独立review後の通常PR統合を指定した。live発注はこの作業の対象に含めない。既存CLI/tuningは常にsignal index0を使い、canonical multi-timeframe Datasetの24bar signalを名前で固定できなかった。`--signal-feature`とtuning/comparison APIの明示indexを追加し、baseline/cash/candidate/foldへ同じindexを渡す。未指定の意味は変えず、無効indexや存在しない名前はreplay前に拒否する。異なる符号の先頭列への並べ替えでも、名前で選んだsignalの実order/returnが変わらないsoftware oracleを使う。

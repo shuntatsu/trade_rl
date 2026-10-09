@@ -6,6 +6,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_versioned_global_verification_does_not_upgrade_historical_trace_owners():
+    owners = {
+        "transition_validation.py": "validate_allocation_execution_facts",
+        "scheduled_transition_validation.py": "validate_allocation_execution_facts",
+        "global_execution_context.py": "validate_allocation_execution_facts_v2",
+    }
+    for name, expected in owners.items():
+        path = ROOT / "trade_rl/evaluation/rl_allocation" / name
+        tree = ast.parse(path.read_text("utf-8"))
+        validators = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "trade_rl.evaluation.rl_allocation.transition_facts"
+            for alias in node.names
+            if alias.name.startswith("validate_allocation_execution_facts")
+        }
+        assert validators == {expected}
+        calls = {ast.unparse(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+        assert expected in calls
+
+
 def test_global_context_and_facade_owners_keep_upper_provenance_separate():
     lower = ROOT / "trade_rl/evaluation/rl_allocation/global_execution_context.py"
     upper = ROOT / "trade_rl/evaluation/allocation_global_execution.py"

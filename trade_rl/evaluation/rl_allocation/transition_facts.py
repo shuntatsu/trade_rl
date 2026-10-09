@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -15,6 +15,7 @@ from trade_rl.evaluation.objectives import net_equity_increment
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import (
     _QUANTITY_TOLERANCE,
@@ -36,6 +37,7 @@ from trade_rl.strategies.allocation_action import (
     AllocationActionContract,
     AllocationDecision,
 )
+from trade_rl.strategies.rl.allocation_fee_stress import retained_debt_economics_digest
 from trade_rl.strategies.rl.allocation_preprocessing import _native_json
 
 
@@ -226,8 +228,66 @@ def validate_allocation_execution_facts(
         raise ValueError("invalid closed transition economics") from error
 
 
+def validate_allocation_execution_cost_payload(
+    value: object, *, economics_digest: str
+) -> ExecutionCostConfig:
+    """Read the complete actual native cost policy; never supply missing defaults."""
+    try:
+        _native_json(value)
+        raw = _closed(
+            value,
+            {field.name for field in fields(ExecutionCostConfig)} | {"schema_version"},
+        )
+        if raw["schema_version"] != "execution_policy_v2":
+            raise ValueError("transition requires native execution policy v2")
+        values = {name: val for name, val in raw.items() if name != "schema_version"}
+        _scalars(ExecutionCostConfig, values)
+        for name in ("margin_mode", "order_type", "path_mode"):
+            if type(values[name]) is not str:
+                raise ValueError("transition execution mode must be native text")
+        _vector(values["trigger_volume_fractions"], 4)
+        values["trigger_volume_fractions"] = tuple(values["trigger_volume_fractions"])
+        cost = ExecutionCostConfig(**values)
+        _same(raw, cost.execution_policy_payload())
+        if retained_debt_economics_digest(raw) != economics_digest:
+            raise ValueError("transition actual cost differs from recipe economics")
+        return cost
+    except (KeyError, TypeError, OverflowError, RecursionError, IndexError) as error:
+        raise ValueError("invalid complete native execution cost policy") from error
+
+
+def validate_allocation_execution_facts_v2(
+    value: object,
+    recipe: dict[str, Any],
+    *,
+    dataset_id: str,
+    action_code: int,
+    actual_cost_payload: object,
+) -> float:
+    """Verify native static-cap intersection under pinned actual risk and costs."""
+    try:
+        cost = validate_allocation_execution_cost_payload(
+            actual_cost_payload,
+            economics_digest=recipe["runtime_profile"]["economics_digest"],
+        )
+        return _validate_execution_facts(
+            value,
+            recipe,
+            dataset_id=dataset_id,
+            action_code=action_code,
+            actual_cost=cost,
+        )
+    except (KeyError, TypeError, OverflowError, RecursionError, IndexError) as error:
+        raise ValueError("invalid closed transition economics") from error
+
+
 def _validate_execution_facts(
-    value: object, recipe: dict[str, Any], *, dataset_id: str, action_code: int
+    value: object,
+    recipe: dict[str, Any],
+    *,
+    dataset_id: str,
+    action_code: int,
+    actual_cost: ExecutionCostConfig | None = None,
 ) -> float:
     _native_json(value)
     raw = _closed(
@@ -306,7 +366,20 @@ def _validate_execution_facts(
         or inputs.decision_time != np.datetime64(raw["decision_time_ns"], "ns")
     ):
         raise ValueError("transition action/decision/clock digest differs")
-    _same(_json(allocator), recipe["allocator"])
+    if actual_cost is None:
+        _same(_json(allocator), recipe["allocator"])
+    else:
+        cap_risk = _construct(PreTradeRiskConfig, raw["risk_config"])
+        if content_digest(cap_risk) != recipe["runtime_profile"]["risk_digest"]:
+            raise ValueError("transition risk config differs from recipe")
+        original = _construct(AfterCostTargetAllocator, recipe["allocator"])
+        cap = min(cap_risk.max_abs_weight, actual_cost.max_leverage)
+        resolved = replace(
+            original,
+            lower_weight=max(original.lower_weight, -cap),
+            upper_weight=min(original.upper_weight, cap),
+        )
+        _same(_json(allocator), _json(resolved))
     _same(action.payload(), recipe["action"])
     if (
         list(decision.feature_names) != recipe["feature_names"]

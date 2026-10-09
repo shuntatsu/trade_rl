@@ -1607,3 +1607,24 @@ Original prefix failure or closing exception preserves its known partial facts
 and original error; an unreturned bar's fills are unknown. This is runtime
 software observation, not a serialized Study evidence reader, approval or WINNER.
 The native MARKET/zero-extra-latency and independent-symbol limits remain.
+
+## Versioned global static-cap verification
+
+New global execution receipts use `allocation_global_execution_receipt_v2`.
+Their closed native reader reconstructs only the allocator's static bounds from
+the original recipe intersected with `min(actual risk.max_abs_weight, actual
+cost.max_leverage)`, matching the existing native proposal owner. Allocator
+aversion/turnover, original recipe identity and every other transition check stay
+exact. Canonical hard risk still applies once at execution; drawdown scaling is
+not folded into those static bounds.
+
+Complete native `execution_policy_v2` fields, scalar/vector types, ranges and
+retained-debt economics are admitted before account reset/backend load and for
+every v2 receipt, including empty failures. No missing defaults or inferred cost
+limits are supplied. Immutable receipt schema selects the same validator for
+accepted facts and recorded rejections. Historical v1 bytes, success/failure
+meaning and error order remain strict; they are never automatically upgraded.
+Plans, recipes, detached native fact shapes, fee receipts and historical
+actor/scheduled trace validation retain their original contracts. Capped global
+observations compose with existing comparison and terminal owners without a new
+ledger; historical capped trace admission remains a separate boundary.

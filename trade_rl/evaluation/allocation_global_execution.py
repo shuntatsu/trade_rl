@@ -67,7 +67,9 @@ from trade_rl.evaluation.rl_allocation.policy_admission import (
     AllocationFoldPolicyArtifact,
 )
 from trade_rl.evaluation.rl_allocation.transition_facts import (
+    validate_allocation_execution_cost_payload,
     validate_allocation_execution_facts,
+    validate_allocation_execution_facts_v2,
 )
 from trade_rl.evaluation.robustness.closed_trades import ClosedTradeDiagnostics
 from trade_rl.evaluation.robustness.walk_forward.folds import (
@@ -945,10 +947,36 @@ def _check_invalid_return(value: object) -> None:
 def _receipt(value: object) -> dict[str, Any]:
     _native_json(value)
     raw = _closed(value, _RECEIPT, "global execution receipt")
-    if raw["schema"] != "allocation_global_execution_receipt_v1":
+    if raw["schema"] not in (
+        "allocation_global_execution_receipt_v1",
+        "allocation_global_execution_receipt_v2",
+    ):
         raise ValueError("unknown global execution receipt schema")
+    cost_aware = raw["schema"] == "allocation_global_execution_receipt_v2"
     plan = GlobalAllocationExecutionPlan.from_payload(raw["plan"])
     common, cell = plan.payload["common"], plan.payload["cell"]
+    if cost_aware:
+        validate_allocation_execution_cost_payload(
+            cell["runtime"]["cost_payload"],
+            economics_digest=common["economics_digest"],
+        )
+
+    def validate_native(native: object, action_code: int) -> float:
+        if cost_aware:
+            return validate_allocation_execution_facts_v2(
+                native,
+                cell["runtime"]["recipe"],
+                dataset_id=common["dataset_id"],
+                action_code=action_code,
+                actual_cost_payload=cell["runtime"]["cost_payload"],
+            )
+        return validate_allocation_execution_facts(
+            native,
+            cell["runtime"]["recipe"],
+            dataset_id=common["dataset_id"],
+            action_code=action_code,
+        )
+
     if (
         raw["common_digest"] != plan.common_digest
         or raw["cell_plan_digest"] != plan.cell_plan_digest
@@ -1081,12 +1109,7 @@ def _receipt(value: object) -> dict[str, Any]:
             native = row["native"]
             rejected = row["native_validation_failure"]
             if rejected is None:
-                validate_allocation_execution_facts(
-                    native,
-                    cell["runtime"]["recipe"],
-                    dataset_id=common["dataset_id"],
-                    action_code=outcome["action"],
-                )
+                validate_native(native, outcome["action"])
                 if (
                     native["decision_index"] != row["decision_index"]
                     or native["processing_time_ns"]
@@ -1112,12 +1135,7 @@ def _receipt(value: object) -> dict[str, Any]:
                         "rejected native facts cannot claim completed suffix"
                     )
                 try:
-                    validate_allocation_execution_facts(
-                        native,
-                        cell["runtime"]["recipe"],
-                        dataset_id=common["dataset_id"],
-                        action_code=outcome["action"],
-                    )
+                    validate_native(native, outcome["action"])
                 except ValueError as rejected_error:
                     if rejected != {
                         "error_type": type(rejected_error).__name__,
@@ -1474,7 +1492,7 @@ def _make_receipt(
         json.loads(
             canonical_json_bytes(
                 {
-                    "schema": "allocation_global_execution_receipt_v1",
+                    "schema": "allocation_global_execution_receipt_v2",
                     "plan": plan.payload,
                     "common_digest": plan.common_digest,
                     "cell_plan_digest": plan.cell_plan_digest,

@@ -2449,3 +2449,21 @@ terminal learning, frozen protocol and formal independent review remain required
 Exact-head full software verification and formal research review are separate;
 formal review is PENDING. Profit improvement, G4/G5, live readiness and the overall
 Issue #810 objective remain NOT ESTABLISHED.
+
+## Issue #810: versioned native static-cap prerequisite
+
+Global receipt v2 now verifies lawful native allocator bounds intersected with
+actual risk and leverage limits. It preserves original recipe identity and all
+other transition/risk/account checks. Complete actual cost schema, types, ranges
+and economics are required before native reset and even for empty v2 failures.
+Historical global v1 records retain literal bytes, failure meaning and error
+precedence; actor/scheduled traces retain strict v1 validation. Their capped
+admission remains follow-on work rather than an implicit historical upgrade.
+
+Closed synthetic no-fit controls cover lawful risk/leverage/cash cases, forged
+bounds and stale pins, malformed costs, exact entry/closing fees, partial
+settlement/carry, native comparison propagation and single hard drawdown
+projection. No optimizer, risk, ledger, training or market result changed. These
+checks establish a bounded software prerequisite only. Formal research review
+remains PENDING; economic profit improvement, settled PPO parity, G3-G5, live
+readiness and the overall Issue #810 goal remain NOT ESTABLISHED.

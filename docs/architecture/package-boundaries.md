@@ -1533,3 +1533,21 @@ Gym index, stop, terminal or book/order fields for closing. Native returned stat
 is passed locally across the reserved window. Public observation has no
 from-payload Study/approval reader. Settled PPO admission, a complete controlled
 forecast report and frozen economic protocol require separate maintained owners.
+
+## Version-bound global transition verification ownership
+
+`rl_allocation/transition_facts.py` retains the strict historical validator and
+adds a separate actual-cost-aware v2 validator plus one complete native cost
+payload reader. It reconstructs the existing native static cap from original
+allocator bounds, actual pinned risk and full actual cost policy, without
+changing optimizer, hard risk or execution ownership. No public waiver or
+original recipe rewrite is introduced.
+
+`global_execution_context` admits those costs in collector construction before
+native reset/backend load, then validates detached facts with v2. The upper
+`allocation_global_execution` producer emits global receipt v2; its reader fixes
+v1/v2 dispatch from immutable schema for both accepted and rejected facts and
+admits complete v2 costs even with no rows. Shared plan v1 admission stays
+unchanged. Actor and scheduled trace owners continue importing the strict v1
+validator, and their capped admission limitation remains explicit. The existing
+comparison and terminal owners consume exact global observations unchanged.

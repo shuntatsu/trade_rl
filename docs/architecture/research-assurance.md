@@ -2034,3 +2034,23 @@ Session design/source review and software tests do not establish authenticated
 independent G3, a qualified economic comparison or G4/G5. Matching PPO terminal
 learning, complete settled forecast controls, frozen finite protocol and formal
 independent research approval remain necessary follow-on boundaries.
+
+## Global static-cap verification G0-G2
+
+G0 is a software mismatch hypothesis: lawful native static-cap execution must
+verify, and forged caps must reject. G1 binds the original allocator to the exact
+native intersection with actual risk and complete retained-debt cost policy.
+Hard risk, drawdown projection, turnover and native account execution stay
+unchanged. New v2 receipts admit complete costs before reset and even for empty
+failures, while immutable version dispatch preserves historical v1 semantics.
+
+Closed no-fit G2 oracles pin literal pre-edit v1 success/failure bytes and error
+precedence; risk/leverage/both caps, cash HOLD, asymmetric/short/singleton and
+infeasible bounds; coherently repinned forged allocators; stale cost/risk pins;
+and malformed complete costs. Capital1000/price100/fee.002 closes quantity4 to
+equity998.4 under risk.4 and quantity3 to equity998.8 under leverage.3. Native
+partial settlement preserves its residual and charges funding after fills.
+Comparison/terminal composition and single actual drawdown projection are
+software evidence only. Exact-head source review/full CI and formal independent
+research approval remain separate. This supplies no economic edge, G3-G5,
+settled PPO admission, market profit or live readiness.

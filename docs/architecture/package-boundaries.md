@@ -29,7 +29,7 @@ trade_rl/
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
 │   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py,signature.py}
+│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py,signature.py,signature_mtf.py}
 ├── integrations/
 │   └── binance/
 │       ├── types.py
@@ -544,3 +544,23 @@ reconstruct high/low event ordering inside a candle. It appends masked local
 features, retains all source account/economic arrays, and publishes a new
 content-bound dataset identity. No `FeatureKind` or default canonical build
 schema is changed. It has no strategy, ledger, risk or evaluation ownership.
+
+## Native MTF Signature ownership
+
+`data/features/signature_mtf.py` owns the optional multi-clock
+`SignatureClock` contract, amortized linear native rolling Chen queue and
+causal alignment to one base Dataset's decision timestamps. It consumes only
+`RawMarketSeries` from an explicit `MultiTimeframeMarketDataSource`; it neither
+guesses an intrabar OHLC event order nor reconstructs a lower-native-clock
+rolling path from resampled/carried base-clock features.
+
+Each completed native event requires valid on-time source observations and a
+contiguous physical native clock window; missing/delayed rows and native clock
+gaps reset it. Only events with native end time <= base decision and within
+preregistered staleness can be carried. Source-input SHA-256 identities and
+the full clock roster join the new Dataset content identity. This identity
+is **not** a claim of independently verified provider publication timestamps.
+
+The original Dataset, funding, execution economics, risk, experiment records
+and default `MarketBuildConfig` are never mutated. Existing independent
+single-symbol and shared-account evaluation contracts remain separate.

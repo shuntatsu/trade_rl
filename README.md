@@ -165,3 +165,38 @@ signals. No OHLC intrabar ordering is inferred. Input window/depth, training
 scope and execution economics must be fixed in a separate Controlled Experiment
 before claiming any after-cost improvement. This capability establishes no
 profitable strategy, sealed-final qualification, or production authorization.
+
+## Native Multi-Timeframe rolling Signature (opt-in)
+
+Use `with_native_multitimeframe_signatures` to calculate each clock on
+**its own completed native bars** before as-of synchronization with an already
+verified base Dataset. A 15m path is never reconstructed from carried 1h values.
+
+```python
+from trade_rl.data.features import (
+    SignatureClock,
+    with_native_multitimeframe_signatures,
+)
+
+augmented = with_native_multitimeframe_signatures(
+    verified_dataset,
+    native_market_source,   # load_timeframe(symbol, timeframe)
+    instruments,            # exact verified_dataset.symbols order
+    clocks=(
+        SignatureClock("15m", window_bars=24, depth=2, max_staleness_hours=0.25),
+        SignatureClock("4h", window_bars=12, depth=2, max_staleness_hours=4.0),
+    ),
+)
+```
+
+The source must supply native `RawMarketSeries` with reliable event and
+`available_at` clocks, and be bounded to the Dataset evaluation time scope.
+A native gap or late row resets the rolling path; invalid or stale features are
+masked. A time-normalized Chen product is updated using a bounded two-stack
+rolling queue (amortized O(1) segment changes per bar), and the source-input
+content digests are bound to a new Dataset identity. This does **not** establish
+historical provider publication timing, calibrated market costs, profitable
+alpha, or eligibility to inspect sealed unused-future data.
+
+As with the base-clock API, fitting and evaluation must use a **new**
+preregistered Controlled Factor and unchanged common execution/accounting.

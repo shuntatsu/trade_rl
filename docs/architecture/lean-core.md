@@ -620,3 +620,30 @@ immutable Dataset identity. The previous Dataset and all frozen research outputs
 remain unchanged. Signature enriches representation only; any incremental
 predictive or after-cost economic value requires a separate result-blind
 Controlled Experiment, with unchanged non-RL/cash controls and ledger economics.
+
+## Opt-in native Multi-Timeframe Signature
+
+Native MTF Signature never computes a 15m rolling feature from the sequence
+sampled at 1h closes. The producer receives the existing immutable verified
+base Dataset, symbol-matched InstrumentContracts and an explicitly bounded
+multi-timeframe market-data source. Each source clock computes its own
+completed-bar time/log-close/optional log-volume path by a depth-1..3,
+window-3..512 Chen-product rolling queue. For each native window a missing,
+delayed, delisted, untradable or physically absent constituent sample prevents
+an event; new consecutive bars must refill the window. No forward fill
+reconstitutes an invalid native path.
+
+Only fully completed native events enter the destination feature matrix by
+`event_time <= base_decision_time`, with an explicit max-staleness window.
+A missing base market observation also masks the synchronized feature. The
+time coordinate is normalized native **bar index**, not global elapsed hours:
+clocks never share a single downsampled path. Source-input content digests,
+parameter roster and output arrays contribute to a new immutable Dataset ID,
+while original source arrays, fees, funding, marks, risk and accounting remain
+byte-for-byte untouched. As-of availability is still not independent proof
+that the provider published each historical raw archive in real time.
+
+The API is opt-in (no defaults, schema migration or frozen Study reclassification).
+A future development comparison of native-signature + existing features against
+the same non-RL/cash controls must be separately preregistered and independently
+reviewed before economic results are viewed.

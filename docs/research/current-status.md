@@ -1327,3 +1327,22 @@ Study. Any comparison with existing models is a new, preregistered Controlled
 Factor, with fit-scope isolation, frozen lookback/depth/channels, non-RL/cash
 controls and unchanged execution accounting. Profitability, G4/G5, unused
 future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
+
+## Native MTF Rolling Signature research capability (2026-10-09)
+
+`data/features/signature_mtf.py` adds an opt-in native-timeframe producer
+(15m/1h/4h/1d etc. per maintained timeframe roster), **without changing
+default canonical Dataset builds or any frozen Study**. It calculates native
+depth-1..3 rolling Chen signatures from completed source bars and then
+as-of aligns to base decision timestamps. This avoids the information loss
+caused by first downsampling lower-clock data to the base clock. The native
+window rejects missing/late/gapped input; output age/mask and source content
+digests are identity-bound. Native queue/source/identity mathematical and
+causal tests are software G2 targets, not G4/G5 results.
+
+This capability is neither the repair of all other existing lower-timeframe
+rolling/cross-asset statistics nor an automatic full MTF research study.
+Separate preregistration must fix clock source(s), available-at contract,
+fit scope, windows, levels, channels, missingness/staleness, comparison budget
+and publication/replay identities. It preserves KEEP_BASELINE, NO_WINNER
+decisions, used-data history, unused-future authorization and non-live status.

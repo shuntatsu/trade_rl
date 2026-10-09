@@ -45,6 +45,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Print native Signature format diff (diagnostic only)
+        run: uv run ruff format --diff trade_rl/data/features/signature_mtf.py tests/data/test_signature_mtf.py || true
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

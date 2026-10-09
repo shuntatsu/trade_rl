@@ -1330,7 +1330,7 @@ future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
 
 ## Native MTF cross-asset correction and Signature research adapters (2026-10-09)
 
-A follow-up branch based on PR #860 introduces native-clock cross-asset rolling
+This opt-in extension introduces native-clock cross-asset rolling
 statistics (before downsampling), opt-in multi-clock Signature augmentation, and
 a development-only paired Ridge-vs-Signature-vs-cash adapter using unchanged
 per-symbol account/execution. The PPO observation adapter is checked on the same

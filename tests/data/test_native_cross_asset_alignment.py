@@ -113,8 +113,9 @@ def test_15m_rolling_correlation_and_beta_use_four_consecutive_native_bars() -> 
     actual_corr = dataset.features[8, 1, 1]
     actual_beta = dataset.features[8, 1, 2]
     assert dataset.feature_available[8, 1, 1:3].all()
-    assert actual_corr == pytest.approx(expected_corr, abs=1e-9)
-    assert actual_beta == pytest.approx(expected_beta, abs=1e-9)
+    # MarketDataset features are stored as float32: permit serialization rounding.
+    assert actual_corr == pytest.approx(expected_corr, abs=1e-6)
+    assert actual_beta == pytest.approx(expected_beta, abs=1e-6)
     # An hourly sample of one 15m return per hour must NOT equal a native
     # four-consecutive-bar rolling statistic.
     hourly_sample = np.corrcoef(

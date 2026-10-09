@@ -29,9 +29,8 @@ def _segment_signature(increments: np.ndarray, depth: int) -> np.ndarray:
     """
     dimension = int(increments.shape[1])
     levels = [np.array([1.0], dtype=np.float64)]
-    levels.extend(
-        np.zeros(dimension**level, dtype=np.float64) for level in range(1, depth + 1)
-    )
+    for level in range(1, depth + 1):
+        levels.append(np.zeros(dimension**level, dtype=np.float64))
     for delta in increments:
         segment = [np.array([1.0], dtype=np.float64), delta]
         for level in range(2, depth + 1):

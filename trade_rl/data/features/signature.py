@@ -84,17 +84,15 @@ def with_path_signatures(
     channel_labels = ("t", "p", "v") if include_volume else ("t", "p")
     dimension = len(channel_labels)
     prefix = f"path_sig_v1_w{window_bars}_d{depth}_{''.join(channel_labels)}"
-    names = tuple(
-        f"{prefix}_{''.join(word)}"
-        for level in range(1, depth + 1)
-        for word in product(channel_labels, repeat=level)
-    )
+    names_list: list[str] = []
+    for level in range(1, depth + 1):
+        for word in product(channel_labels, repeat=level):
+            names_list.append(f"{prefix}_{''.join(word)}")
+    names = tuple(names_list)
     if set(names) & set(dataset.feature_names):
         raise ValueError("path signature feature names already exist")
 
-    values = np.zeros(
-        (dataset.n_bars, dataset.n_symbols, len(names)), dtype=np.float32
-    )
+    values = np.zeros((dataset.n_bars, dataset.n_symbols, len(names)), dtype=np.float32)
     available = np.zeros_like(values, dtype=np.bool_)
     source_usable = (
         dataset.resolved_array("information_available")

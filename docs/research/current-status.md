@@ -1327,3 +1327,23 @@ Study. Any comparison with existing models is a new, preregistered Controlled
 Factor, with fit-scope isolation, frozen lookback/depth/channels, non-RL/cash
 controls and unchanged execution accounting. Profitability, G4/G5, unused
 future authorization, paper and live eligibility remain **NOT ESTABLISHED**.
+
+## Native MTF cross-asset correction and Signature research adapters (2026-10-09)
+
+A follow-up branch based on PR #860 introduces native-clock cross-asset rolling
+statistics (before downsampling), opt-in multi-clock Signature augmentation, and
+a development-only paired Ridge-vs-Signature-vs-cash adapter using unchanged
+per-symbol account/execution. The PPO observation adapter is checked on the same
+augmented Dataset; this **does not** constitute a trained PPO economic result.
+
+G0: whether native 15m/1h/4h/1d path or BTC-relative information provides
+incremental tradable edge is unresolved. G1: bar-close source/event availability,
+source-attested native feature windows, named feature selection, fixed decision
+clock and unchanged execution/capital are required. G2: independent analytic
+rolling correlation, signed Signature area, latency/future-mutation oracles,
+PPO observation and paired Ridge replay tests are software checks only. No new
+existing result, original final/unused Dataset, frozen candidate roster, Study
+outcome or live authorization is altered. Existing canonical 1h PPO duration
+contracts retain their fixed economic-clock semantics. A result-blind Study,
+non-RL gain evidence and independent review are prerequisites to any economic
+PPO Signature trial. Profitability/G4–G5 remain NOT ESTABLISHED.

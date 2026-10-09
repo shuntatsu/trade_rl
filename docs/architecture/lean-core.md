@@ -620,3 +620,15 @@ immutable Dataset identity. The previous Dataset and all frozen research outputs
 remain unchanged. Signature enriches representation only; any incremental
 predictive or after-cost economic value requires a separate result-blind
 Controlled Experiment, with unchanged non-RL/cash controls and ledger economics.
+
+## Native multi-timeframe information availability
+
+Non-base cross-asset rolling features must accumulate on the actual complete
+native events before as-of alignment. Native price and volume pathways must
+respect a source event's close and its independent `available_at` publication
+clock. The last *available* native event, not the last event in the entire raw
+Dataset, is the only candidate for a base decision. Expired or unpublished
+features are zero and explicitly masked. Opt-in native Signature windows consume
+all chronological completed closes; no candle high/low ordering or intermediate
+trades are invented. Research/model training and economics remain independently
+evaluated, with no retroactive change to frozen studies.
